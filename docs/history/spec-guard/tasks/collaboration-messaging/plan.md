@@ -2,9 +2,9 @@
 
 Design: `docs/research/2026-09-17-agent-collaboration-design.md`
 
-Local Proposal candidate: `spec/proposals/collaboration-messaging.md`. It has passed local
-contract validation against the current remote-main baseline, but has not been published,
-reviewed, or accepted; this plan must not represent it as a completed tracker stage.
+Published Proposal candidate: `spec/proposals/collaboration-messaging.md`. It has passed local
+contract validation against the current remote-main baseline and was published to `origin/main`, but
+has not been reviewed or accepted; this plan must not represent it as a completed tracker stage.
 
 ## Overview
 

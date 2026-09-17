@@ -63,13 +63,14 @@ not authorize remote writes.
 ## Task 4: Publish and evaluate the Proposal candidate
 
 **Dependencies:** Human direction and the repository's explicit Proposal workflow.
-**Status:** Pending — deliberately not started.
+**Status:** In progress — candidate published; independent review remains.
 
 **Acceptance criteria:**
 
-- [ ] A human explicitly authorizes any commit, publication, and tracker action.
+- [x] A human explicitly authorized local commits and publication to `origin/main`.
 - [ ] The candidate is independently reviewed and accepted through the existing workflow before any Capability Map change.
 
 **Verification:**
 
+- [x] The candidate is present on `origin/main` as commit `e495f9f`.
 - [ ] Fresh remote-main facts and the workflow's read-only preflight support the requested promotion.
