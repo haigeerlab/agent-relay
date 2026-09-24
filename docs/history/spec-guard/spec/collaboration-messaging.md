@@ -48,8 +48,9 @@ work, create Tickets or Issues, modify Git, or treat a message as authorization 
   permission to modify code, Git, Issues, requirements, services, or user configuration.
 - Mailbox persistence and real-time wake-up are separate facts. A successful write means the
   message entered the mailbox; only an explicit read acknowledgement means the recipient read it.
-- Native Codex Desktop does not promise active wake-up. Claude channel wake remains an explicit
-  preview enhancement rather than a default.
+- Native Codex Desktop does not promise active wake-up. Claude Code CLI may explicitly start in a
+  tmux pane for XATS's short inbox hints; this is not a read acknowledgement or a default. Claude
+  channel wake remains a separate blocked preview enhancement.
 - Normal session exit unregisters the current identity. Cleanup of an abandoned identity requires
   an explicitly supplied UUID and can delete neither messages nor processes.
 
@@ -111,7 +112,8 @@ DEFAULT_HOST = "127.0.0.1"
 - Always: pin audited transport versions; use loopback and private files; distinguish accepted,
   delivered, read, and wake states; keep user-facing entry independent from operator actions.
 - Ask first: initialize or start the runtime; enable launchd; install or replace host configuration;
-  remove an exact stale identity; enable Claude channel wake; change transport versions.
+  remove an exact stale identity; select Claude CLI tmux wake or Claude channel wake; change transport
+  versions.
 - Never: expose tokens; bind beyond loopback; silently alter Claude or Codex startup; disable
   ChatGPT in Chrome; create project groups or automatic routing; translate a message into Git,
   Issue, Ticket, code, requirement, or authorization writes.

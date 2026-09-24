@@ -59,6 +59,31 @@ class CollabEntryContractTest(unittest.TestCase):
             self.assertIn("collab", text)
             self.assertIn("日常", text)
 
+    def test_operator_guidance_warns_against_general_preview_wake(self) -> None:
+        ops = OPS_SKILL.read_text(encoding="utf-8")
+        reference = (PLUGIN_ROOT / "references" / "collaboration-runtime.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("--enable-channel-wake", ops)
+        self.assertIn("Claude Code CLI", reference)
+        self.assertIn("ChatGPT in Chrome", reference)
+        self.assertIn("研究预览", reference)
+        self.assertIn("不要用", reference)
+        self.assertIn("未观察到实际唤醒", reference)
+
+    def test_operator_guidance_exposes_opt_in_tmux_cli_wake_without_overclaiming(self) -> None:
+        ops = OPS_SKILL.read_text(encoding="utf-8")
+        reference = (PLUGIN_ROOT / "references" / "collaboration-runtime.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("--tmux-wake", ops)
+        self.assertIn("--tmux-wake", reference)
+        self.assertIn("加入本机联调", reference)
+        self.assertIn("get_inbox", reference)
+        self.assertIn("短提示", reference)
+        self.assertIn("ChatGPT in Chrome", reference)
+        self.assertIn("不能证明", reference)
+
     def test_protocol_starts_from_the_one_step_user_flow(self) -> None:
         text = PROTOCOL.read_text(encoding="utf-8")
 

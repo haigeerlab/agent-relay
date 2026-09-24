@@ -34,7 +34,25 @@ Never place the token in a project file, MCP configuration, command argument, di
 For Codex, use the generated `http_headers_helper` fragment. For Claude Code, the preferred explicit
 one-time user setup is `python3 -B "$ROOT/hooks/collaboration_adapters.py" install-claude`; it configures
 a no-secret stdio bridge for future normal Claude Code sessions. The temporary managed launcher remains a
-diagnostic fallback. Read `references/collaboration-runtime.md` before giving host-specific instructions.
+diagnostic fallback and the explicit Claude Code CLI tmux-wake entry. Read
+`references/collaboration-runtime.md` before giving host-specific instructions.
+
+If the user explicitly selects CLI active wake, suggest only the optional `--tmux-wake` launcher
+documented there. It starts a **new** Claude CLI session in tmux; it does not move or wake an already
+running session. The user then says “加入本机联调” once. The current Claude session self-registers with
+its own `$PPID`; never register it from the launcher or another process. XATS sends only a short
+`get_inbox` hint to its verified pane, not the message body. A successful tmux paste cannot prove
+that Claude read the mailbox, and a failed pane binding leaves ordinary mailbox delivery intact.
+Do not start tmux or alter Claude startup from an ordinary `collab` request.
+If Claude registers from tmux but XATS reports `spawn tmux ENOENT`, inspect the installed
+LaunchAgent PATH read-only. A plugin source update does not refresh the running service; only after
+the user explicitly approves a service refresh may `service-enable` replace and restart that
+managed user LaunchAgent. Never treat a sandbox-only `service-offline` result as the reason to restart.
+
+Claude Code CLI 的 `--enable-channel-wake` 目前只是研究预览实验入口，不是普通用户的启用步骤。
+Anthropic 的开发通道确认页明确警告：不要用它运行从互联网下载的 Channel；当前固定版 XATS
+Channel 属于这一类。在没有适用的官方批准路径或新的明确安全裁决前，不代用户确认该警告，
+不把包装器命令作为日常联调建议。普通 MCP 邮箱继续可用；仅 `send_message` 成功仍只是消息入箱。
 
 When registering a natively launched Codex Desktop session, use `agent_type="custom"` and
 `agent_type_name="codex-desktop-native"`; it is mailbox-only. Do not claim or configure Codex push

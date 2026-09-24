@@ -172,6 +172,56 @@ python3 -B plugins/spec-guard/hooks/collaboration_claude.py -- --continue
 只有明确传入 `--enable-channel-wake` 才会由包装器开启 Claude Code 的 channel loader；未开启时仅使用
 收件箱式投递。
 
+### Claude Code CLI 主动唤醒的预览边界
+
+Claude Channels 尚处研究预览。源码已有显式 `--enable-channel-wake` 实验开关，但它不是
+普通用户的推荐启用方式。真实 CLI 验收停在 Anthropic 的开发通道确认页：该页明确警告不要用
+`--dangerously-load-development-channels` 运行从互联网下载的 Channel；目前固定版 XATS
+Channel 正是下载的第三方包，因此未代用户确认，也未观察到实际唤醒。
+
+普通 Claude MCP 邮箱仍可用。仅运行时健康、MCP 工具连接或发送端 `send_message` 成功，
+都不能证明目标会话被唤醒。等待适用的官方批准路径或单独的安全裁决，再进行新 CLI 的主动
+唤醒实验；即使未来可试，也须在目标会话**没有手工查看收件箱**时观察到消息和回复，才算
+验证通过。不得为此启用权限绕过或权限中继。原生 Desktop／编辑器内 Claude 会话不在本
+CLI 验收范围内。Codex Desktop 启动方式不变，ChatGPT in Chrome 保持可用。
+
+官方说明：[Claude Channels](https://code.claude.com/docs/en/channels)、
+[自定义 Channel 测试与通知语义](https://code.claude.com/docs/en/channels-reference)。
+
+### Claude Code CLI 可选 tmux 提醒
+
+对于**新启动**的 Claude Code CLI 会话，用户可以显式选择本机 tmux 提醒，而不启用第三方
+Channel 开发开关。本机需安装 tmux，消息服务需已就绪。在想工作的项目目录运行一条命令：
+
+```bash
+python3 -B "$ROOT/hooks/collaboration_claude.py" --tmux-wake
+```
+
+`$ROOT` 是已安装 Spec Guard 插件的根目录，由操作入口解析；不是让用户再安装一个插件。命令会
+附着到一个新建的、名字唯一的 tmux 会话并启动 Claude。若已经处于 tmux pane，则直接在当前
+pane 启动，不再嵌套。退出 Claude 后，新建的 tmux 会话随之结束。普通启动不受影响。
+启动后在 Claude 中说一次“加入本机联调”（或 `collab [可选别名]`）。当前 Claude 会话自己
+调用 `register_agent` 并从本会话的 `$PPID` 提供 `ui_pid`；XATS 验证 PID、TTY 与 pane 后才
+绑定。无需向用户索取 pane、PID、项目组或通信地址。另一个已加入的 Agent 按名称发消息时，
+XATS 尝试向该 pane 输入**短提示**，让 Claude 调用 `get_inbox` 读取正文；不把正文直接输入终端。
+
+若用户使用已启用的 LaunchAgent，本插件生成其配置时会把找到的 tmux 可执行文件目录加入 XATS
+的 PATH；未安装 tmux 时仍保留邮箱服务。**升级源码不会改动正在运行的后台服务**。若旧服务报告
+`spawn tmux ENOENT`，先只读检查 `service-status` 和现有 plist 的 PATH，取得用户对服务刷新
+的明确同意后，才重新运行 `service-enable`。这会替换并重启该用户级服务；普通 `collab`
+不做这件事。tmux 会话启动器的退出码只表示外层 tmux 是否正常结束，不能替代对内部 Claude
+启动与注册的观察。
+
+该方式只适用于 Claude Code CLI 的 tmux 会话，不适用于已在运行且不在 tmux 内的会话，也不
+承诺 Claude Desktop／编辑器宿主主动唤醒。tmux 提示可能因目标忙碌、pane 绑定失败或终端状态
+而跳过；发送端的“消息入箱”或“提示已写入终端”都**不能证明** Claude 已经阅读和回复。
+若未观察到目标会话自行调用 `get_inbox`，请按普通邮箱模式手动说“查看联调消息”。消息和提示
+均不传递操作授权，Claude 的正常权限确认仍然有效；不得启用权限绕过。Codex Desktop 仍是
+原生邮箱模式，ChatGPT in Chrome 不受影响。
+
+上游机制：[XATS](https://github.com/jtianling/cross-agent-teams-mcp)、
+[tmux 手册](https://man.openbsd.org/tmux)。
+
 ## Codex Desktop 的两种接入级别
 
 默认的原生 Desktop 接入不改变 App 启动方式：注册时使用 XATS 的 `custom` 终端类型

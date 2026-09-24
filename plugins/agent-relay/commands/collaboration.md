@@ -42,3 +42,8 @@ python3 -B "$ROOT/hooks/collaboration_runtime.py" status --format json
 它通过 `claude mcp add --scope user` 写入一个无 secret 的 stdio 启动器，并拒绝替换既有同名服务器；当前已经
 运行的 Claude Code 会话必须重启后才会加载。该命令需要已可用的 `npx`，用于执行固定版开源 MCP bridge；不得
 将 token 作为 `--env`、`--header` 或任意 Claude 配置值传给 `claude mcp add`。
+
+用户询问 Claude Code CLI 主动唤醒时，先读 `references/collaboration-runtime.md` 的
+“Claude Code CLI 主动唤醒的预览边界”。不要把下载的第三方 Channel 通过开发预览开关
+作为普通用户启用步骤，也不要声称原生 Claude/Codex Desktop 因此获得主动唤醒。
+Codex Desktop 和 ChatGPT in Chrome 配置不变。
