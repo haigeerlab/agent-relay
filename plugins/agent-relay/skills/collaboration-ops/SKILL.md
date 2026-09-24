@@ -5,6 +5,10 @@ description: Inspect, explicitly initialize, or start Spec Guard's local Claude 
 
 # Collaboration operations
 
+This is the operator surface for explicit setup, lifecycle, diagnosis, and cleanup. For daily use,
+load the `collab` skill instead: it lets a session join, read messages, discover peers, and send by
+human-readable name without exposing the fields below. 日常联调不得要求用户手工执行本页的注册细节。
+
 Use this only for the optional same-Mac Agent messaging runtime. It provides a local directory and
 free-text messages; it must not be reframed as project grouping, work assignment, Git control, or
 a Ticket tracker.

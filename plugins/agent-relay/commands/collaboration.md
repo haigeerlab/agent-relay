@@ -3,6 +3,9 @@ description: 查看、初始化或启动本机 Claude Code／Codex 协作消息�
 allowed-tools: Bash, Read
 ---
 
+本命令只负责显式启用、诊断和清理。日常加入、查看消息、发现联系人或按名称发消息时，改用 `collab`
+skill；Claude Code 用户可从 slash／skill 菜单选择它，不需要手工填写下文的注册字段。
+
 这是本机 Agent 通讯录的操作入口，不是项目组、任务调度器、Issue 工具或 Git 写入口。先定位已安装的
 Spec Guard 根目录并只读检查运行时：
 

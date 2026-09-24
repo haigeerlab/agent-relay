@@ -123,7 +123,7 @@ full delivery verification
 
 ## Current status
 
-The Proposal is accepted and promotion preflight is `ready` at
-`d2bb32253b61634f5380cb92764506351922bdd5`. Implementation and real-host acceptance evidence exist
-on the development line, but they are not part of this promotion commit and must be delivered by a
-separate protected PR.
+The Proposal is promoted. Post-merge proof identified
+`d05b8cff6d8edcd9ba1bd3388a452ee18b5507bf` as the first valid mainline inclusion. The runtime and
+host adapters are already on `main`; the one-step entry, focused contracts, and sanitized real-host
+acceptance record are isolated in the separate delivery change described by this Plan.
