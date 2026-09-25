@@ -69,7 +69,9 @@ the existing mailbox-only `collab` default. A scheduled check is not real-time d
 
 ## Remaining acceptance gate
 
-The real-host trial established same-identity reads across two runs. Before a user-facing enable
-action, verify that an empty run does not alert the user, a message from an independent peer is
-handled, ChatGPT in Chrome works during scheduled use, and stopping prevents later runs. Until then,
-mailbox mode remains the supported Desktop path.
+The real-host trials established same-identity reads, an independent Claude Code sender, and a
+paused schedule with no subsequent turn in a ten-minute observation window. Before a user-facing
+enable action, verify that empty runs reliably produce no desktop or unread alert and that ChatGPT
+in Chrome works during scheduled use. Empty-run conversation text differed between trials, so it
+must not yet be described as reliably silent. Until then, mailbox mode remains the supported
+Desktop path.
