@@ -163,5 +163,6 @@ and different-project mailbox exchange while preserving ChatGPT in Chrome.
 ## Compatibility gate for a future wake-up enhancement
 
 - [x] Claude launchers forward `--chrome` in ordinary, preview-channel, and tmux modes.
-- [ ] Real-host acceptance confirms Claude Code in Chrome and ChatGPT in Chrome both remain usable
-  with the proposed wake-up enhancement. Launcher tests alone do not satisfy this gate.
+- [x] [Real-host acceptance](dual-chrome-tmux-acceptance-2026-09-25.md) confirms Claude Code in
+  Chrome and ChatGPT in Chrome both remain usable with opt-in tmux wake. Launcher tests alone do
+  not satisfy this gate; native Codex Desktop remains mailbox-only.
