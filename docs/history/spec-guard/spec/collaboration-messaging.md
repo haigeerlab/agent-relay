@@ -132,4 +132,6 @@ DEFAULT_HOST = "127.0.0.1"
 ## Open questions
 
 Cross-machine communication and native Codex Desktop active wake-up are intentionally deferred and
-require separate security and host-integration decisions.
+require separate security and host-integration decisions. A scheduled inbox check was explored but
+is not a supported daily-use action; its remaining acceptance gaps are recorded in
+[`../tasks/collaboration-messaging/codex-scheduled-inbox-acceptance-2026-09-25.md`](../tasks/collaboration-messaging/codex-scheduled-inbox-acceptance-2026-09-25.md).
