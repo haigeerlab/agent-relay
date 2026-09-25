@@ -159,3 +159,9 @@ and different-project mailbox exchange while preserving ChatGPT in Chrome.
 - [x] No project grouping, auto-start, Git write, token exposure, or Codex app-server change was
   introduced.
 - [x] Capability Map, Proposal, and acceptance attestation remain unchanged in this delivery.
+
+## Compatibility gate for a future wake-up enhancement
+
+- [x] Claude launchers forward `--chrome` in ordinary, preview-channel, and tmux modes.
+- [ ] Real-host acceptance confirms Claude Code in Chrome and ChatGPT in Chrome both remain usable
+  with the proposed wake-up enhancement. Launcher tests alone do not satisfy this gate.

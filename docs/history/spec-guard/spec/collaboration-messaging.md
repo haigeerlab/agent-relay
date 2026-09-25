@@ -31,6 +31,8 @@ work, create Tickets or Issues, modify Git, or treat a message as authorization 
   to a managed app-server.
 - Claude Code uses a fixed stdio-to-loopback bridge whose token exists only in the child process
   environment. User configuration and repository files contain no token.
+- Claude Code's Chrome integration remains available alongside collaboration, including when its
+  explicit launcher forwards `--chrome`; collaboration must not replace or disable `claude-in-chrome`.
 - The daily user contract is `collab [optional alias]`, or equivalent natural language such as
   “加入本机联调”, “查看联调消息”, and “告诉可乐……”. Users do not provide the internal namespace,
   PID, agent type, project path, UUID, or MCP tool names.
@@ -105,6 +107,8 @@ DEFAULT_HOST = "127.0.0.1"
   resolution, ambiguity handling, and the prohibition on implicit service or Git actions.
 - Real-host acceptance covers ordinary Claude Code, Codex CLI, and native Codex Desktop in same-
   and different-project exchanges while preserving ChatGPT in Chrome.
+- Any wake-up enhancement must separately verify Claude Code in Chrome and ChatGPT in Chrome on
+  their ordinary hosts; launcher argument tests alone do not prove browser integration works.
 - Full repository validation and Codex smoke self-tests remain required before delivery.
 
 ## Boundaries
@@ -115,8 +119,8 @@ DEFAULT_HOST = "127.0.0.1"
   remove an exact stale identity; select Claude CLI tmux wake or Claude channel wake; change transport
   versions.
 - Never: expose tokens; bind beyond loopback; silently alter Claude or Codex startup; disable
-  ChatGPT in Chrome; create project groups or automatic routing; translate a message into Git,
-  Issue, Ticket, code, requirement, or authorization writes.
+  ChatGPT in Chrome or Claude Code in Chrome; create project groups or automatic routing; translate
+  a message into Git, Issue, Ticket, code, requirement, or authorization writes.
 
 ## Success criteria
 
@@ -126,8 +130,9 @@ DEFAULT_HOST = "127.0.0.1"
   reply without manual copy-paste or project-group setup.
 - Runtime and host configuration contain no bearer token; unsafe paths, permissions, versions, or
   network binds fail closed.
-- ChatGPT in Chrome remains available, mailbox delivery is described honestly, and unavailable or
-  ambiguous states produce one actionable next step without hidden side effects.
+- ChatGPT in Chrome and Claude Code in Chrome remain available, mailbox delivery is described
+  honestly, and unavailable or ambiguous states produce one actionable next step without hidden
+  side effects.
 
 ## Open questions
 

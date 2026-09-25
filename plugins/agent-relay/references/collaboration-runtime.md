@@ -165,6 +165,13 @@ Node/npx 主版本路径变化，重新执行一次 `install-claude` 即可，�
 python3 -B plugins/spec-guard/hooks/collaboration_claude.py -- --continue
 ```
 
+需要 Claude Code in Chrome 时，可显式传入 `--chrome`；包装器会原样转交给 Claude，不会替用户
+启用或配置浏览器扩展：
+
+```bash
+python3 -B plugins/spec-guard/hooks/collaboration_claude.py -- --chrome
+```
+
 不要把生成片段中的占位符手工替换为 token，也不要把 token 写入 `.mcp.json`、`settings.json` 或仓库。
 包装器拒绝调用者额外传入 `--mcp-config`，以免悄悄覆盖本次连接的安全配置。
 
@@ -196,6 +203,9 @@ Channel 开发开关。本机需安装 tmux，消息服务需已就绪。在想�
 ```bash
 python3 -B "$ROOT/hooks/collaboration_claude.py" --tmux-wake
 ```
+
+若同时使用 Claude Code in Chrome，可在末尾加 `-- --chrome`。这只确认启动参数传递；浏览器扩展
+与协作唤醒能否在真实主机上同时工作，仍需单独验收。
 
 `$ROOT` 是已安装 Spec Guard 插件的根目录，由操作入口解析；不是让用户再安装一个插件。命令会
 附着到一个新建的、名字唯一的 tmux 会话并启动 Claude。若已经处于 tmux pane，则直接在当前
