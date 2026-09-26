@@ -24,6 +24,49 @@ work, create Tickets or Issues, modify Git, or treat a message as authorization 
   `spec-guard-local`. It is not a visible project group, router, ownership boundary, or permission
   model.
 
+### Experimental native-wake replacement (not the active transport)
+
+- The MIT `WebisityStudio/claude-codex-mcp-bridge` runtime is pinned to commit
+  `8f12c880cfdba73812b6ab7bc0f373fc467e0343`. Its explicit installer obtains that exact
+  revision, installs locked dependencies without dependency scripts, and builds the local stdio
+  server. It never calls the upstream general `setup`, which would add worker skills and edit host
+  settings. The current XATS transport remains the daily default until a separately reviewed
+  cutover.
+- The optional runtime and SQLite mailbox live in an owner-only directory outside project
+  worktrees. Both the mailbox path and the upstream process's XDG data home point inside that
+  directory, so even its worker-schema startup side effect cannot write into another live bridge
+  installation. Its status command and host adapter previews are read-only. Separate explicit
+  `install-codex` / `install-claude` actions apply only this backend's host entries; they do not
+  run during plugin installation or daily `collab`. Codex uses an exact communication-tool allowlist; Claude
+  must receive exact worker-tool deny rules before its MCP server is enabled.
+- Native wake uses observed private app IPC and is experimental, not a public host guarantee. A
+  failed or held wake leaves durable unread mail; mailbox write, wake admission, read and explicit
+  acknowledgement are separate outcomes. Agent names are same-user routing labels, not per-session
+  security identities. No message grants authority to change code, Git, Issues or settings.
+- A cutover requires an explicit old-mail and active-session preflight, one active mailbox per new
+  session, preservation of the XATS archive and a rollback path that identifies unread new mail.
+  The read-only XATS preflight counts deliverable unread mail without reading bodies or advancing
+  cursors; registered identities are not evidence that a session is online, so their liveness
+  still needs separate review. Its result is only a snapshot and cannot authorize cutover by itself.
+  A matching read-only native preflight counts unacknowledged direct messages (including unknown
+  recipient names) and broadcast deliveries under the pinned bridge's registration-time rule.
+  It blocks rollback while mail or unresolved registered sessions remain; it neither acknowledges
+  mail nor rewrites either selector or mailbox.
+  The daily `collab` skill reads a private, read-only backend selector: an absent marker keeps XATS;
+  a valid native marker requires a ready pinned runtime; a malformed marker or unavailable native
+  runtime stops instead of silently falling back to XATS. No code in the selector writes the marker.
+  A separate operator-only activation command requires a verified private XATS archive, matching
+  reviewed inventory, a ready pinned native runtime, and explicit assertions that XATS is stopped
+  and old sessions are closed. Those assertions cannot be inferred from registered identities or
+  checked by the command. Installation and fragment generation never switch the daily backend;
+  an absent marker keeps XATS selected.
+  The operator-only rollback command first checks that the XATS mailbox is readable and the native
+  mailbox has no registered sessions or unacknowledged deliveries. With explicit operator assertions
+  that native sessions have stopped and XATS is running, it removes only the private selector marker;
+  it retains the native mailbox and cannot independently verify either service assertion. A
+  controlled live trial exercised this path and restored XATS after external Claude Code access
+  blocked cross-host acceptance; the native mailbox history was retained.
+
 ## Host and interaction contract
 
 - Codex reads its authorization header through a local `http_headers_helper`. Native Codex Desktop
@@ -66,7 +109,22 @@ python3 -B plugins/spec-guard/hooks/collaboration_runtime.py health --format jso
 python3 -B plugins/spec-guard/hooks/collaboration_runtime.py service-status --format json
 python3 -B plugins/spec-guard/hooks/collaboration_adapters.py codex
 python3 -B plugins/spec-guard/hooks/collaboration_adapters.py claude
+python3 -B plugins/spec-guard/hooks/native_collaboration_runtime.py status
+python3 -B plugins/spec-guard/hooks/native_collaboration_runtime.py install  # explicit opt-in only
+python3 -B plugins/spec-guard/hooks/native_collaboration_adapters.py codex  # print only
+python3 -B plugins/spec-guard/hooks/native_collaboration_adapters.py claude # print only
+python3 -B plugins/spec-guard/hooks/native_collaboration_adapters.py install-codex  # explicit only
+python3 -B plugins/spec-guard/hooks/native_collaboration_adapters.py install-claude # explicit only
+python3 -B plugins/spec-guard/hooks/collaboration_backend.py          # read-only selector
+python3 -B plugins/spec-guard/hooks/native_collaboration_activate.py --help  # operator-only switch
+python3 -B plugins/spec-guard/hooks/native_collaboration_rollback.py --help  # operator-only rollback
 python3 -B plugins/spec-guard/hooks/test_collaboration_runtime.py
+python3 -B plugins/spec-guard/hooks/test_native_collaboration_runtime.py
+python3 -B plugins/spec-guard/hooks/test_native_collaboration_adapters.py
+python3 -B plugins/spec-guard/hooks/test_collaboration_backend.py
+python3 -B plugins/spec-guard/hooks/test_native_collaboration_activate.py
+python3 -B plugins/spec-guard/hooks/test_native_collaboration_rollback.py
+python3 -B plugins/spec-guard/hooks/test_native_collab_entry.py
 python3 -B plugins/spec-guard/hooks/test_collab_entry.py
 /bin/bash scripts/validate.sh
 /bin/bash evals/codex-plugin-smoke.sh --selftest
@@ -79,6 +137,8 @@ plugins/spec-guard/hooks/collaboration_runtime.py       -> private runtime lifec
 plugins/spec-guard/hooks/collaboration_adapters.py      -> no-secret Claude and Codex configuration
 plugins/spec-guard/hooks/collaboration_auth_header.py   -> Codex dynamic authorization header
 plugins/spec-guard/hooks/collaboration_claude*.py       -> Claude launch and stdio bridge boundaries
+plugins/spec-guard/hooks/native_collaboration_*.py      -> opt-in pinned runtime and host fragments
+plugins/spec-guard/hooks/collaboration_backend.py        -> read-only one-mailbox selector
 plugins/spec-guard/skills/collab/SKILL.md               -> daily join, inbox, discovery, and send flow
 plugins/spec-guard/skills/collaboration-ops/SKILL.md     -> explicit operator actions
 plugins/spec-guard/references/collaboration-*.md         -> runtime and protocol contracts
@@ -136,7 +196,10 @@ DEFAULT_HOST = "127.0.0.1"
 
 ## Open questions
 
-Cross-machine communication and native Codex Desktop active wake-up are intentionally deferred and
-require separate security and host-integration decisions. A scheduled inbox check was explored but
-is not a supported daily-use action; its remaining acceptance gaps are recorded in
+Cross-machine communication is deferred and requires a separate security design. Native Codex
+Desktop wake has passed isolated feasibility checks but is not part of the supported daily entry;
+the experimental migration and remaining cutover gates are recorded in
+[`../tasks/collaboration-messaging/native-wake-migration-plan.md`](../tasks/collaboration-messaging/native-wake-migration-plan.md).
+A scheduled inbox check was explored but is not a supported daily-use action; its remaining
+acceptance gaps are recorded in
 [`../tasks/collaboration-messaging/codex-scheduled-inbox-acceptance-2026-09-25.md`](../tasks/collaboration-messaging/codex-scheduled-inbox-acceptance-2026-09-25.md).

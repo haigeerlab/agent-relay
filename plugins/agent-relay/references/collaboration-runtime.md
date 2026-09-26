@@ -3,6 +3,44 @@
 本参考定义受管本机消息运行时的安全前置条件和显式操作命令。它不写宿主配置，也不让 Agent
 获得 Git、Issue 或 Ticket 写权限。
 
+## 实验性 native 后端（未切换）
+
+固定源码提交为 `8f12c880cfdba73812b6ab7bc0f373fc467e0343`。仅在用户明确选择安装时，
+`native_collaboration_runtime.py install` 才会把它放到私有目录；普通插件安装和 `collab`
+都不运行这个动作。默认仍用下文的 XATS。
+
+```bash
+# 只读查看固定版本、目录和权限；不会启动服务。
+python3 -B plugins/spec-guard/hooks/native_collaboration_runtime.py status
+
+# 显式用临时邮箱启动固定版 MCP，验证握手和基础收件工具后删除临时数据。
+# 不打开真实邮箱，也不修改 Claude、Codex 或 Chrome 配置。
+python3 -B plugins/spec-guard/hooks/native_collaboration_runtime.py probe
+```
+
+安装后的 `mailbox/bridge.sqlite` 与 `mailbox/backups/` 均在同一个私有运行时目录中，
+不在项目 worktree。备份目录必须为 `0700`，现有的上游 `bridge-*.sqlite` 备份文件必须为
+`0600`；否则 `status` 拒绝视为就绪。固定版上游在迁移数据库前备份，并在运行期间保留
+每日备份；探测使用临时邮箱且禁用其每日备份，不碰真实消息。`probe` 的成功仅证明该构建
+在隔离环境能启动，不能证明宿主 MCP 已安装、当前会话可唤醒或可以切换邮箱。
+
+受控切换另有 `native_collaboration_activate.py`，它不是日常 `collab` 命令。操作员须先确认
+旧会话均已结束、XATS 已停止，并使用私有归档命令生成且核验只读备份；激活命令重新核对
+归档 SHA-256、完整性、已登记身份数、未读投递数及与当前 XATS 数据库一致的逻辑内容，
+且只在私有目录
+原子创建一次 `transport.json`。`--confirm-xats-stopped` 和
+`--confirm-old-sessions-closed` 是操作员断言，**命令不能独立证明进程已退出**；沙箱里的
+离线探测也不能代替实机确认。任何一步失败均不应手工补写标记。一次经确认的实机切换已
+因 Claude Code 账号访问失败而回退；再次切换仍需重新核对会话、归档与操作授权。
+
+回退使用独立的 `native_collaboration_rollback.py`，也不是日常命令。操作员先停止原生后端的
+新发送，确认其会话已结束、XATS 服务已运行，并检查原生未确认投递。命令要求
+`--confirm-native-sessions-stopped` 与 `--confirm-xats-running` 两项显式断言，随后核实私有
+选择标记、XATS 邮箱可读，以及原生邮箱无已登记会话、无未确认直发或广播投递；通过后仅删除
+`transport.json`，保留原生邮箱历史。两项服务断言仍由操作员负责，命令无法自行证明。
+该命令只在一次经过单独批准的实机切换后使用；它已在受控回退中运行，原生邮箱历史保留，
+XATS 恢复为当前后端。
+
 ## 固定上游与范围
 
 - Runtime：`cross-agent-teams-mcp@0.8.6`，MIT；禁止用 `@latest` 或未记录的版本替换。
