@@ -3,11 +3,12 @@
 本参考定义受管本机消息运行时的安全前置条件和显式操作命令。它不写宿主配置，也不让 Agent
 获得 Git、Issue 或 Ticket 写权限。
 
-## 实验性 native 后端（未切换）
+## 实验性 native 后端（默认未切换，可显式选择）
 
 固定源码提交为 `8f12c880cfdba73812b6ab7bc0f373fc467e0343`。仅在用户明确选择安装时，
 `native_collaboration_runtime.py install` 才会把它放到私有目录；普通插件安装和 `collab`
-都不运行这个动作。默认仍用下文的 XATS。
+都不运行这个动作。未写入私有选择标记的安装仍默认使用下文的 XATS；一次经批准的实机验收
+已在单台 Mac 上选择 native，但不构成面向所有安装者的默认切换。
 
 ```bash
 # 只读查看固定版本、目录和权限；不会启动服务。
@@ -38,8 +39,9 @@ python3 -B plugins/spec-guard/hooks/native_collaboration_runtime.py probe
 `--confirm-native-sessions-stopped` 与 `--confirm-xats-running` 两项显式断言，随后核实私有
 选择标记、XATS 邮箱可读，以及原生邮箱无已登记会话、无未确认直发或广播投递；通过后仅删除
 `transport.json`，保留原生邮箱历史。两项服务断言仍由操作员负责，命令无法自行证明。
-该命令只在一次经过单独批准的实机切换后使用；它已在受控回退中运行，原生邮箱历史保留，
-XATS 恢复为当前后端。
+该命令只在经过单独批准的实机切换后使用；它已在首次受控试验的回退中运行，原生邮箱历史
+保留。随后获批的第二次试验通过 Claude Code ↔ Codex 双向空闲唤醒及两种 Chrome 功能验收，
+当前测试主机保持 native；历史试验中的“XATS 已恢复”不是当前主机状态。
 
 ## 固定上游与范围
 

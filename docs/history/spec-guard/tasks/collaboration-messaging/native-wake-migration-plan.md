@@ -4,11 +4,13 @@ Module: [`../../spec/collaboration-messaging.md`](../../spec/collaboration-messa
 
 Tasks: [`native-wake-migration-tasks.md`](native-wake-migration-tasks.md)
 
-Status: cross-host acceptance remains incomplete. The
-[controlled cutover trial](native-wake-controlled-cutover-2026-09-26.md) activated native only
-after an unchanged XATS archive, then rolled back because fresh Claude Code account access failed
-before collaboration tools could run. XATS is again the selected, running transport. The pinned
-native runtime and mailbox history remain private for a later, separately reviewed retry.
+Status: a [later controlled live-host trial](native-wake-live-acceptance-2026-09-27.md) passed the
+ordinary Claude Code ↔ Codex exchange, idle wake in both directions and functional checks of both
+Chrome integrations. This host currently selects experimental native; the product's absent-marker
+default remains XATS. A follow-up in an independent Git repository also proved a cross-project
+reply without manual relay; broader failure-path acceptance and general release review remain
+open. The [earlier trial](native-wake-controlled-cutover-2026-09-26.md) is retained as
+rollback evidence, not as the current host state.
 
 ### Pre-cutover host-loading check — 2026-09-25
 
@@ -173,11 +175,13 @@ It leaves the native database in place. Its flags asserting stopped native sessi
 XATS are not independent process verification. The controlled trial exercised this rollback on
 real mailboxes after the three test identities were retired without closing messages.
 
-The authorized trial did not complete the replacement: Claude Code account access failed before
-the ordinary cross-host message flow could be tested, so XATS is again the selected running backend.
-The 3 historical XATS deliveries remain unread; the retained native mailbox has 0 registered
-identities and 0 unacknowledged deliveries. Operator assertions still cannot prove that services
-have stopped or sessions have ended, and any retry must repeat the live checks and authorization.
+The first authorized trial did not complete the replacement: Claude Code account access failed
+before the ordinary cross-host message flow could be tested, so it restored XATS at that time.
+The [later authorized retry](native-wake-live-acceptance-2026-09-27.md) completed that flow and
+left native selected on this host. The 3 historical XATS deliveries remain unread; the retained
+native mailbox has 0 registered identities and 0 unacknowledged deliveries after test cleanup.
+Operator assertions still cannot independently prove that services have stopped or sessions have
+ended. A future rollback or another host's cutover needs its own live checks and authorization.
 
 ## Risks and decisions retained in this plan
 

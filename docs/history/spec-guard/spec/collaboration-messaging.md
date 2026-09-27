@@ -24,14 +24,15 @@ work, create Tickets or Issues, modify Git, or treat a message as authorization 
   `spec-guard-local`. It is not a visible project group, router, ownership boundary, or permission
   model.
 
-### Experimental native-wake replacement (not the active transport)
+### Experimental native-wake replacement (opt-in host selection)
 
 - The MIT `WebisityStudio/claude-codex-mcp-bridge` runtime is pinned to commit
   `8f12c880cfdba73812b6ab7bc0f373fc467e0343`. Its explicit installer obtains that exact
   revision, installs locked dependencies without dependency scripts, and builds the local stdio
   server. It never calls the upstream general `setup`, which would add worker skills and edit host
-  settings. The current XATS transport remains the daily default until a separately reviewed
-  cutover.
+  settings. An absent selector keeps XATS as the default. A separately authorized cutover selected
+  native on one host and then passed ordinary two-host and dual-Chrome acceptance; this does not
+  make it a general-release default.
 - The optional runtime and SQLite mailbox live in an owner-only directory outside project
   worktrees. Both the mailbox path and the upstream process's XDG data home point inside that
   directory, so even its worker-schema startup side effect cannot write into another live bridge
@@ -64,8 +65,9 @@ work, create Tickets or Issues, modify Git, or treat a message as authorization 
   mailbox has no registered sessions or unacknowledged deliveries. With explicit operator assertions
   that native sessions have stopped and XATS is running, it removes only the private selector marker;
   it retains the native mailbox and cannot independently verify either service assertion. A
-  controlled live trial exercised this path and restored XATS after external Claude Code access
-  blocked cross-host acceptance; the native mailbox history was retained.
+  controlled live trial exercised this path and restored XATS after Claude Code access blocked
+  cross-host acceptance. A later authorized retry passed the ordinary two-host exchange and kept
+  native selected on that host; the old archive and native mailbox history were retained.
 
 ## Host and interaction contract
 
@@ -93,9 +95,10 @@ work, create Tickets or Issues, modify Git, or treat a message as authorization 
   permission to modify code, Git, Issues, requirements, services, or user configuration.
 - Mailbox persistence and real-time wake-up are separate facts. A successful write means the
   message entered the mailbox; only an explicit read acknowledgement means the recipient read it.
-- Native Codex Desktop does not promise active wake-up. Claude Code CLI may explicitly start in a
-  tmux pane for XATS's short inbox hints; this is not a read acknowledgement or a default. Claude
-  channel wake remains a separate blocked preview enhancement.
+- On XATS, native Codex Desktop does not promise active wake-up. Claude Code CLI may explicitly
+  start in a tmux pane for XATS's short inbox hints; this is not a read acknowledgement or a
+  default. Native wake passed one controlled host trial but depends on private app IPC, so it is
+  not a general host guarantee. Claude channel wake remains a separate blocked preview enhancement.
 - Normal session exit unregisters the current identity. Cleanup of an abandoned identity requires
   an explicitly supplied UUID and can delete neither messages nor processes.
 
@@ -197,8 +200,8 @@ DEFAULT_HOST = "127.0.0.1"
 ## Open questions
 
 Cross-machine communication is deferred and requires a separate security design. Native Codex
-Desktop wake has passed isolated feasibility checks but is not part of the supported daily entry;
-the experimental migration and remaining cutover gates are recorded in
+Desktop wake passed isolated feasibility checks and one controlled ordinary-host trial, but is not
+yet a generally supported default; remaining release gates are recorded in
 [`../tasks/collaboration-messaging/native-wake-migration-plan.md`](../tasks/collaboration-messaging/native-wake-migration-plan.md).
 A scheduled inbox check was explored but is not a supported daily-use action; its remaining
 acceptance gaps are recorded in

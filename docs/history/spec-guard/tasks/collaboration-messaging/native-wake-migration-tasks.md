@@ -11,11 +11,14 @@ installed on one Mac for the
 and one idle Codex wake passed without changing Chrome settings. Task 6 now has a
 marker-gated one-step skill path. A
 [controlled cutover trial](native-wake-controlled-cutover-2026-09-26.md) verified the fresh Codex
-entry, then restored XATS because Claude Code account access failed before tool use. The complete
-Claude ↔ Codex one-step journey and dual-Chrome acceptance remain pending. These checkboxes
+entry, then restored XATS because Claude Code account access failed before tool use. A
+[later authorized live-host trial](native-wake-live-acceptance-2026-09-27.md) passed the ordinary
+Claude ↔ Codex one-step journey, idle wakes in both directions and functional checks of both
+Chrome integrations. A follow-up in an independent Git repository passed the different-project
+reply; other host permission modes and future app versions remain unverified. These checkboxes
 do not authorize changes to user configuration, live services, messages, Git remotes, or app
-permissions. XATS remains the supported default until the go/no-go checkpoint and subsequent
-reviewed delivery.
+permissions. This host selects experimental native; XATS remains the absent-marker default until
+the remaining gates and a reviewed general release.
 
 ## Task 1: Prove exact current-session binding primitives
 
@@ -102,9 +105,9 @@ cannot be proved, record no-go.
 
 ## Task 3: Amend the collaboration contract
 
-**Progress:** The accepted Spec now describes the optional experimental backend and explicitly
-preserves XATS as the active transport. Final replacement clauses and operator references wait for
-the one-step host adapter and cutover evidence.
+**Progress:** The accepted Spec and operator reference describe the optional experimental backend,
+single-mailbox selection and retained old mail. XATS remains the absent-marker product default;
+the authorized trial selected native on one host. General-release review remains open.
 
 **Description:** After a go decision, update the accepted module Spec and operator references to
 describe one new backend, the experimental wake boundary, delivery states, and old-mail archive.
@@ -136,8 +139,8 @@ an isolated MCP `tools/list` returned the expected 17 upstream tools (ten commun
 and seven denied tools). The installer now creates a private `mailbox/backups/` directory and
 status rejects unsafe backup directories/files. An explicit probe started the pinned build with
 a disposable mailbox and observed all 17 tools; it never opened the real mailbox. A later
-explicit installation and real-host startup passed; live backup creation and restoration still
-need final acceptance.
+explicit installation and real-host startup passed. The authorized cutover created and verified
+a private XATS archive; restoration from that archive was not needed or tested.
 
 **Description:** Add only the pinned open-source runtime needed for same-Mac messaging. Do not call
 the upstream general installer, open a listener, or mutate existing XATS data.
@@ -163,8 +166,8 @@ its own table with ten communication tools. Claude checks
 for an existing entry, writes seven exact deny rules before asking its CLI to add the user-scoped
 server, and preserves unrelated settings such as Chrome; a failed CLI registration leaves the
 deny rules in place. The real user host entries were added with private pre-install backups;
-fresh-host catalogs and a two-way message smoke passed. Chrome control entry survived, but
-full browser workflow acceptance remains open.
+fresh-host catalogs and a two-way message smoke passed. The later live-host trial exercised both
+Chrome integrations without changing their settings.
 
 **Description:** Add explicit user-level host adapters for the private runtime while preserving
 native Codex Desktop and both Chrome integrations. Do not switch to a managed app-server.
@@ -187,12 +190,14 @@ native Codex Desktop and both Chrome integrations. Do not switch to a managed ap
 **Progress:** The same `collab` skill now selects exactly one backend using a read-only private
 marker. With no marker, the current XATS journey is unchanged. A valid native marker enables
 host-self-binding, inbox/discovery/send/ack guidance; invalid or unavailable native state stops
-instead of splitting mail across backends. No code in this slice writes the marker, so the native
-path still needs explicit cutover and ordinary-host acceptance before it can be called complete.
+instead of splitting mail across backends. No code in this slice writes the marker. The later
+authorized live-host trial used the operator-only cutover and proved the ordinary one-step
+Claude ↔ Codex flow on one Mac; an independent-project follow-up also passed. General-release
+review remains open.
 Source contract tests and a temporary-marker selector test cannot prove that a fresh host's
 installed, one-invocation `collab` works: the ordinary skill reads the user-level marker, and
 temporarily flipping that marker while XATS sessions may be active would split mail. This
-acceptance is the first live check inside a separately approved, rollback-guarded cutover.
+acceptance was therefore performed inside a separately approved, rollback-guarded cutover.
 
 **Description:** Map registration, discovery, inbox, send, reply, acknowledgement, and wake-status
 reporting onto the single new mailbox while keeping the existing natural-language entry.
@@ -230,7 +235,8 @@ native now has 0 registered and 0 unacknowledged. A private SQLite backup primit
 command now have fixture tests for WAL content, integrity, unread-state preservation,
 non-overwrite, mandatory stopped-service assertion and reviewed inventory counts. The command
 was also run against the real mailbox during the authorized trial, after separate confirmation
-that XATS was stopped. Installed one-step cross-host verification and dual-Chrome acceptance remain open.
+that XATS was stopped. Installed one-step cross-host verification and dual-Chrome acceptance were
+still open at that first trial.
 An operator-only activation command is now implemented and fixture-tested: it checks the private
 archive checksum, integrity, reviewed counts and complete logical contents against the unchanged
 source, then atomically
@@ -242,8 +248,11 @@ the selector marker; native mailbox history remains in place. Its stopped-native
 running-XATS flags are operator assertions, not process checks. The real trial exposed an
 overstrict shared-parent permission check; a failing regression reproduced it, the scoped mailbox
 check was corrected, and the guarded rollback then completed with XATS running and all history
-retained. The trial did not complete the cross-host acceptance gate.
-The [read-only legacy session audit](native-wake-legacy-session-audit-2026-09-25.md) found that
+retained. That first trial did not complete the cross-host acceptance gate.
+The [later live-host acceptance](native-wake-live-acceptance-2026-09-27.md) preserved that XATS
+archive, completed the installed one-step two-host and dual-Chrome checks, and left native selected
+with zero registered test identities and zero unacknowledged native deliveries. The earlier
+[read-only legacy session audit](native-wake-legacy-session-audit-2026-09-25.md) found that
 none of three stored Claude PIDs still runs, but the five Codex registrations lack an exact task
 binding. It did not establish that all old sessions are closed or classify the three unread
 deliveries as disposable.
@@ -257,8 +266,9 @@ session from accidentally using two daily inboxes. Do not auto-migrate historica
       historical unread delivery remains in the private archive, never silently dropped.
 - [ ] Old data is preserved; no cleanup/deletion or service shutdown happens without explicit approval.
 - [ ] Rollback identifies new-backend unread mail and never silently strands it.
-- [ ] The installed one-step skill and both Chrome workflows pass before live cutover.
-- [ ] A consistent private XATS archive passes integrity, count and checksum checks before the
+- [x] The installed one-step skill and both Chrome workflows pass in a separately authorized,
+      rollback-guarded live trial before general release.
+- [x] A consistent private XATS archive passes integrity, count and checksum checks before the
       marker is written; the 3 currently unread deliveries remain unread in retained history.
 
 **Verification:** Cutover/rollback fixtures and one controlled real-host rehearsal with test data.
@@ -275,15 +285,25 @@ session from accidentally using two daily inboxes. Do not auto-migrate historica
 Chrome integrations, then run repository checks and review only this feature's diff.
 
 **Acceptance criteria:**
-- [ ] Claude ↔ Codex replies work in same and different projects with no manual relay.
-- [ ] ChatGPT in Chrome and Claude Code in Chrome both work after fresh host restart.
-- [ ] Wake failure preserves unread mail; no message is described as read or handled without evidence.
+- [x] Claude ↔ Codex replies work in same and different projects with no manual relay.
+- [x] ChatGPT in Chrome and Claude Code in Chrome both work after fresh host restart.
+- [x] Wake failure preserves unread mail; no message is described as read or handled without evidence.
+
+For the last criterion, the [isolated real-host failure trial](native-wake-failure-fork-smoke-2026-09-25.md)
+kept an explicitly held message unread, while the
+[live cross-project follow-up](native-wake-live-acceptance-2026-09-27.md#independent-project-follow-up)
+kept an offline recipient's reply in the mailbox until that same conversation resumed and
+acknowledged it. The sender's `acknowledgedAt`, not the bridge's potentially stale wake detail,
+was the handling evidence. These cases do not certify every future host permission mode or update.
 
 **Verification:** Sanitized real-host acceptance; focused collaboration tests;
 `/bin/bash scripts/validate.sh`; `/bin/bash evals/codex-plugin-smoke.sh --selftest`;
 `git diff --check`.
 
 **Dependencies:** Task 7.
+
+The checked scenario results above do not sign off the remaining Task 3–7 criteria or authorize
+a general release.
 
 **Likely files:** acceptance record and relevant tests/docs only.
 
