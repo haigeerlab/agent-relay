@@ -31,8 +31,9 @@ python3 -B plugins/spec-guard/hooks/native_collaboration_runtime.py probe
 且只在私有目录
 原子创建一次 `transport.json`。`--confirm-xats-stopped` 和
 `--confirm-old-sessions-closed` 是操作员断言，**命令不能独立证明进程已退出**；沙箱里的
-离线探测也不能代替实机确认。任何一步失败均不应手工补写标记。一次经确认的实机切换已
-因 Claude Code 账号访问失败而回退；再次切换仍需重新核对会话、归档与操作授权。
+离线探测也不能代替实机确认。任何一步失败均不应手工补写标记。首次受控试验因 Claude Code
+账号访问失败而回退；获批的第二次试验完成双向唤醒后在该测试主机保持 native。其他主机切换
+仍需各自重新核对会话、归档与操作授权。
 
 回退使用独立的 `native_collaboration_rollback.py`，也不是日常命令。操作员先停止原生后端的
 新发送，确认其会话已结束、XATS 服务已运行，并检查原生未确认投递。命令要求

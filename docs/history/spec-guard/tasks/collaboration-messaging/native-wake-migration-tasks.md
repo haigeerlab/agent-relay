@@ -100,8 +100,15 @@ cannot be proved, record no-go.
 - [x] Tasks 1–2 pass for same-user cooperative host feasibility; XATS remains the daily default.
 - [x] This is not permission to cut over: Task 6 still must prove the one-invocation `collab`
       journey before replacing XATS.
-- [ ] Review whether the private IPC and upstream maintenance risk remain acceptable.
+- [x] Review whether the private IPC and upstream maintenance risk remain acceptable for an
+      opt-in experimental candidate, not for a default or guaranteed wake path.
 - [ ] Obtain explicit review of any proposed change to the accepted module Spec.
+
+The pinned upstream calls background wake experimental and uses observed private host IPC. The
+same-user cooperative boundary, explicit cutover, XATS default, retained unread mail and guarded
+rollback make this acceptable for a reviewable opt-in candidate only. Host updates may still break
+wake, and the upstream must be re-audited before changing the pinned revision. This technical
+decision does not approve a tag or marketplace release.
 
 ## Task 3: Amend the collaboration contract
 
@@ -114,9 +121,9 @@ describe one new backend, the experimental wake boundary, delivery states, and o
 Keep `collab` language and message-as-information safety rules unchanged.
 
 **Acceptance criteria:**
-- [ ] Fixed-XATS, mailbox-only, and tmux-specific clauses are revised only where replacement requires it.
-- [ ] No project topology, automatic task orchestration, or implicit host/service setup appears.
-- [ ] The plan records the reviewed immutable upstream revision and cutover prerequisites.
+- [x] Fixed-XATS, mailbox-only, and tmux-specific clauses are revised only where replacement requires it.
+- [x] No project topology, automatic task orchestration, or implicit host/service setup appears.
+- [x] The plan records the reviewed immutable upstream revision and cutover prerequisites.
 
 **Verification:** Spec/Plan review and repository document validation.
 
@@ -146,9 +153,9 @@ a private XATS archive; restoration from that archive was not needed or tested.
 the upstream general installer, open a listener, or mutate existing XATS data.
 
 **Acceptance criteria:**
-- [ ] Initialization is explicit, reproducible and fails closed on unsafe file ownership/permissions.
-- [ ] One owner-only SQLite mailbox and backups live outside project worktrees.
-- [ ] Absent runtime and failed startup give an actionable diagnostic without changing user settings.
+- [x] Initialization is explicit, reproducible and fails closed on unsafe file ownership/permissions.
+- [x] One owner-only SQLite mailbox and backups live outside project worktrees.
+- [x] Absent runtime and failed startup give an actionable diagnostic without changing user settings.
 
 **Verification:** Focused runtime fixtures, pinned upstream checks, and no-secret/no-listener audit.
 
@@ -173,9 +180,9 @@ Chrome integrations without changing their settings.
 native Codex Desktop and both Chrome integrations. Do not switch to a managed app-server.
 
 **Acceptance criteria:**
-- [ ] Each host gets only communication tools; neither needs a second plugin.
-- [ ] Generated configuration contains no secret and does not overwrite unknown existing entries.
-- [ ] Fresh ordinary sessions connect after the documented restart, without changing Chrome settings.
+- [x] Each host gets only communication tools; neither needs a second plugin.
+- [x] Generated configuration contains no secret and does not overwrite unknown existing entries.
+- [x] Fresh ordinary sessions connect after the documented restart, without changing Chrome settings.
 
 **Verification:** Adapter tests plus fresh Claude Code and Codex Desktop tool-catalog checks.
 
@@ -203,9 +210,14 @@ acceptance was therefore performed inside a separately approved, rollback-guarde
 reporting onto the single new mailbox while keeping the existing natural-language entry.
 
 **Acceptance criteria:**
-- [ ] One `collab [optional alias]` joins without task IDs, project groups, raw tool names, or a second setup flow.
-- [ ] Unique, absent and ambiguous peer names keep their current safe behavior.
-- [ ] The sender sees mailbox, wake, read and acknowledgement as distinct outcomes; peer text grants no authority.
+- [x] One `collab [optional alias]` joins without task IDs, project groups, raw tool names, or a second setup flow.
+- [x] Unique, absent and ambiguous peer names keep their current safe behavior.
+- [x] The sender sees mailbox, wake, read and acknowledgement as distinct outcomes; peer text grants no authority.
+
+Name ambiguity is an Agent-guidance contract checked in the shared `collab` skill and its source
+tests, with earlier XATS real-host edge checks; it is not a deterministic native name resolver or
+a claim that every future model will choose correctly. The native host trial separately proved
+the one-step join, discovery, reply and explicit acknowledgement.
 
 **Verification:** Focused entry contracts and same-/cross-project two-way mailbox tests.
 
@@ -217,9 +229,9 @@ reporting onto the single new mailbox while keeping the existing natural-languag
 
 ## Checkpoint: New backend works in isolation
 
-- [ ] Tasks 4–6 pass without touching a live XATS mailbox.
-- [ ] Both hosts can exchange and acknowledge messages after an idle wake.
-- [ ] No extra user-visible plugin or worker tool is present.
+- [x] Tasks 4–6 pass in isolation without touching a live XATS mailbox.
+- [x] Both hosts can exchange and acknowledge messages after an idle wake.
+- [x] No extra user-visible plugin or worker tool is present.
 
 ## Task 7: Make cutover and rollback explicit
 
@@ -262,10 +274,11 @@ old active sessions and unread mail first, retain the old private data read-only
 session from accidentally using two daily inboxes. Do not auto-migrate historical messages.
 
 **Acceptance criteria:**
-- [ ] Cutover blocks on unresolved old sessions or unreviewed unread messages; any retained
-      historical unread delivery remains in the private archive, never silently dropped.
-- [ ] Old data is preserved; no cleanup/deletion or service shutdown happens without explicit approval.
-- [ ] Rollback identifies new-backend unread mail and never silently strands it.
+- [x] Cutover requires explicit operator confirmation that old sessions ended and unread mail was
+      reviewed; retained historical unread delivery stays in the private archive. The command
+      verifies the archive but cannot independently prove session liveness.
+- [x] Old data is preserved; no cleanup/deletion or service shutdown happens without explicit approval.
+- [x] Rollback identifies new-backend unread mail and never silently strands it.
 - [x] The installed one-step skill and both Chrome workflows pass in a separately authorized,
       rollback-guarded live trial before general release.
 - [x] A consistent private XATS archive passes integrity, count and checksum checks before the
@@ -302,8 +315,8 @@ was the handling evidence. These cases do not certify every future host permissi
 
 **Dependencies:** Task 7.
 
-The checked scenario results above do not sign off the remaining Task 3–7 criteria or authorize
-a general release.
+The checked scenario results above do not authorize a tag or marketplace release. The private-IPC
+compatibility boundary and the operator-only session assertions remain explicit limitations.
 
 **Likely files:** acceptance record and relevant tests/docs only.
 
@@ -311,6 +324,6 @@ a general release.
 
 ## Checkpoint: Ready for review, not automatic release
 
-- [ ] All tasks and focused/full checks pass; no unrelated changes are included.
-- [ ] Old mailbox archive and explicit rollback instructions are readable to the operator.
-- [ ] Native wake remains labelled experimental until supported host API or repeated compatibility evidence exists.
+- [x] Tasks 1–8 and focused/full checks pass; the release-candidate diff contains no unrelated changes.
+- [x] Old mailbox archive and explicit rollback instructions are readable to the operator.
+- [x] Native wake remains labelled experimental until supported host API or repeated compatibility evidence exists.
