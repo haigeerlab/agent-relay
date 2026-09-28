@@ -6,6 +6,7 @@ bridge_retire (it is denied), and its default closes the backlog, which would ma
 as handled. This command retires one exact name through the pinned CLI with --keep-backlog,
 and only when that identity has no unacknowledged direct or broadcast delivery.
 """
+from __future__ import annotations
 import argparse
 from contextlib import closing
 import json
