@@ -127,3 +127,8 @@ The Proposal is promoted. Post-merge proof identified
 `d05b8cff6d8edcd9ba1bd3388a452ee18b5507bf` as the first valid mainline inclusion. The runtime and
 host adapters are already on `main`; the one-step entry, focused contracts, and sanitized real-host
 acceptance record are isolated in the separate delivery change described by this Plan.
+
+XATS sunset: XATS stays the default until native is promoted through a Proposal. The evidence threshold
+(two consecutive releases accepted on at least two hosts, wake still working after one pinned upstream
+upgrade, no open native P1/P2) and the one-minor retirement are recorded in
+`docs/decisions/2026-09-28-xats-sunset.md`. Not yet triggered.
