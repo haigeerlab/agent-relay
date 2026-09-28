@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from native_collaboration_adapters import (CODEX_SERVER_NAME, DENIED_TOOLS,
-                                           MAILBOX_TOOLS, claude_config,
+                                           claude_config,
                                            codex_fragment, install_claude_config,
                                            install_codex_config)
 from native_collaboration_runtime import BRIDGE_COMMIT
@@ -37,7 +37,10 @@ class NativeCollaborationAdaptersTests(unittest.TestCase):
         self.assertIn(f"BRIDGE_DB_PATH = {json.dumps(str(self.root / 'mailbox' / 'bridge.sqlite'))}",
                       fragment)
         self.assertIn(f"XDG_DATA_HOME = {json.dumps(str(self.root / 'data'))}", fragment)
-        self.assertIn(f"enabled_tools = {json.dumps(list(MAILBOX_TOOLS))}", fragment)
+        self.assertIn("enabled_tools = " + json.dumps([
+            "bridge_register", "bridge_send", "bridge_inbox", "bridge_ack", "bridge_outbox",
+            "bridge_agents", "bridge_sessions", "bridge_wake_status", "bridge_thread",
+            "bridge_wait"]), fragment)
         self.assertNotIn("ask_codex", fragment)
         self.assertNotIn("token", fragment.lower())
 
@@ -48,7 +51,12 @@ class NativeCollaborationAdaptersTests(unittest.TestCase):
         self.assertEqual(server["env"]["BRIDGE_DB_PATH"],
                          str(self.root / "mailbox" / "bridge.sqlite"))
         self.assertEqual(server["env"]["XDG_DATA_HOME"], str(self.root / "data"))
-        self.assertEqual(len(result["denyRules"]), len(DENIED_TOOLS))
+        # 逐字写死期望的拒绝清单，不能用被测常量的长度去验证它自己。
+        self.assertEqual(sorted(result["denyRules"]), sorted(
+            "mcp__spec-guard-native-collaboration__" + tool for tool in (
+                "bridge_retire", "ask_codex", "review_with_codex", "bridge_orchestrate_codex",
+                "bridge_continue_codex", "bridge_orchestration_wait",
+                "bridge_orchestration_status")))
         self.assertTrue(all(rule.startswith("mcp__spec-guard-native-collaboration__")
                             for rule in result["denyRules"]))
         self.assertNotIn("chrome", json.dumps(result).lower())

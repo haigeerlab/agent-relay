@@ -1,7 +1,8 @@
 # Collaboration runtime（第一期）
 
-本参考定义受管本机消息运行时的安全前置条件和显式操作命令。它不写宿主配置，也不让 Agent
-获得 Git、Issue 或 Ticket 写权限。
+本参考定义受管本机消息运行时的安全前置条件和显式操作命令。诊断命令只读；写入宿主配置（Claude、
+Codex 的 MCP 条目与 LaunchAgent）只在用户明确要求时由下文对应的命令执行，每一项都有对应的移除命令。
+它不让 Agent 获得 Git、Issue 或 Ticket 写权限。
 
 ## 实验性 native 后端（默认未切换，可显式选择）
 
@@ -43,6 +44,31 @@ python3 -B plugins/spec-guard/hooks/native_collaboration_runtime.py probe
 该命令只在经过单独批准的实机切换后使用；它已在首次受控试验的回退中运行，原生邮箱历史
 保留。随后获批的第二次试验通过 Claude Code ↔ Codex 双向空闲唤醒及两种 Chrome 功能验收，
 当前测试主机保持 native；历史试验中的“XATS 已恢复”不是当前主机状态。
+
+### 切换与回退检查清单
+
+激活只写选择标记，不会停掉另一个后端。激活成功后，若不按顺序收尾，XATS 的 LaunchAgent 会在下次登录时
+重新启动，宿主里也会同时留着两个协作 MCP，新会话会看到两套工具。以下每一步都需要用户明确要求：
+
+1. `collaboration_runtime.py service-disable`：bootout 并删除受管 LaunchAgent plist。
+2. `collaboration_adapters.py uninstall-claude --confirm-uninstall` 与
+   `collaboration_adapters.py uninstall-codex --confirm-uninstall`：移除 XATS 的 MCP 条目。Codex 表只有与
+   安装时生成的内容逐字一致才会删除；若它由另一份源码安装，传入当时的 `--header-helper` 路径，否则命令拒绝
+   并给出需要手动删除的行号。
+3. `native_collaboration_adapters.py install-claude` 与 `install-codex`：接入 native。
+4. 重启客户端，确认新会话只加载 `spec-guard-native-collaboration`。
+
+回退要求所有 native 身份都已退役且没有未确认投递。Agent 无法调用被拒绝的 `bridge_retire`，而它默认会把
+未读消息标记为已处理；因此由操作员逐个退役已结束会话的身份：
+
+```bash
+# 只退役一个精确名称；保留其消息，仍有未确认的直发或广播投递时拒绝。
+python3 -B plugins/spec-guard/hooks/native_collaboration_retire.py --name "<精确名称>" --confirm-retire
+```
+
+`--confirm-retire` 是“该会话已结束”的操作员断言。全部退役后运行上面的回退命令，再用
+`native_collaboration_adapters.py uninstall-claude --confirm-uninstall` 与 `uninstall-codex --confirm-uninstall`
+移除 native 条目（Claude 的拒绝规则保留，它们只拒绝本服务的工具），最后按需重新启用 XATS 服务与条目。
 
 ## 固定上游与范围
 
@@ -196,8 +222,8 @@ python3 -B plugins/spec-guard/hooks/collaboration_adapters.py install-claude \
 [package metadata](https://github.com/punkpeye/mcp-remote/blob/main/package.json)。
 
 该用户级配置不会让一个已经运行的 Claude Code Desktop 会话即时出现新工具；需要关闭并新开该会话。若
-Node/npx 主版本路径变化，重新执行一次 `install-claude` 即可，但它会先拒绝同名条目，需先由用户显式移除或
-人工核对现有配置，绝不静默覆盖。
+Node/npx 主版本路径变化，需要重新接入：`install-claude` 会拒绝同名条目，先在用户明确要求下运行
+`uninstall-claude --confirm-uninstall` 再安装，绝不静默覆盖。
 
 `collaboration_claude.py` 保留为一次性受管启动包装器：它临时设置 HTTP MCP 所需环境变量，并以私有、
 进程退出后删除的 `--mcp-config` 文件启动 Claude Code：

@@ -11,6 +11,15 @@ from native_collaboration_runtime import (BRIDGE_COMMIT, NativeRuntimeError,
                                           install_runtime, probe_runtime, status)
 
 
+
+# 固定提交 8f12c880 的 server.ts 实际注册的 17 个工具（逐字写死，不从被测常量推导）。
+PINNED_TOOLS = [
+    "ask_codex", "bridge_ack", "bridge_agents", "bridge_continue_codex", "bridge_inbox",
+    "bridge_orchestrate_codex", "bridge_orchestration_status", "bridge_orchestration_wait",
+    "bridge_outbox", "bridge_register", "bridge_retire", "bridge_send", "bridge_sessions",
+    "bridge_thread", "bridge_wait", "bridge_wake_status", "review_with_codex",
+]
+
 class NativeCollaborationRuntimeTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix="sg-native-runtime-")
@@ -133,14 +142,11 @@ class NativeCollaborationRuntimeTests(unittest.TestCase):
             self.assertTrue(kwargs["env"]["BRIDGE_DB_PATH"].startswith(str(self.root)))
             self.assertEqual(kwargs["env"]["BRIDGE_BACKUPS"], "0")
             self.assertIn('"method": "tools/list"', kwargs["input"])
-            return subprocess.CompletedProcess(command, 0,
-                '{"jsonrpc":"2.0","id":2,"result":{"tools":['
-                '{"name":"bridge_register"},{"name":"bridge_send"},'
-                '{"name":"bridge_inbox"},{"name":"bridge_ack"}]}}\n', "")
+            return subprocess.CompletedProcess(command, 0, self.catalog(PINNED_TOOLS), "")
 
         with patch("native_collaboration_runtime.subprocess.run", side_effect=fake_run):
             self.assertEqual(probe_runtime(self.root, node="node"),
-                             {"state": "ready", "toolCount": 4})
+                             {"state": "ready", "toolCount": 17})
         self.assertEqual(list(self.root.glob("native-probe-*")), [])
         self.assertFalse((self.root / "mailbox" / "bridge.sqlite").exists())
 
@@ -165,6 +171,30 @@ class NativeCollaborationRuntimeTests(unittest.TestCase):
         with patch("native_collaboration_runtime.subprocess.run", side_effect=
                    subprocess.TimeoutExpired(["node"], 15)):
             self.assertIn("TimeoutExpired", probe_runtime(self.root)["diagnostic"])
+        with patch("native_collaboration_runtime.subprocess.run", return_value=
+                   subprocess.CompletedProcess(["node"], 0, self.catalog(
+                       [tool for tool in PINNED_TOOLS if tool != "bridge_wait"]), "")):
+            self.assertIn("incomplete", probe_runtime(self.root)["diagnostic"])
+
+    def test_probe_rejects_an_upstream_tool_nobody_reviewed(self):
+        self.root.mkdir(mode=0o700)
+        (self.root / "dist").mkdir()
+        for name in ("mailbox", "data"):
+            (self.root / name).mkdir(mode=0o700)
+        (self.root / "mailbox" / "backups").mkdir(mode=0o700)
+        (self.root / "dist" / "server.js").write_text("server\n")
+        (self.root / "manifest.json").write_text(json.dumps({"commit": BRIDGE_COMMIT}))
+        with patch("native_collaboration_runtime.subprocess.run", return_value=
+                   subprocess.CompletedProcess(["node"], 0, self.catalog(
+                       PINNED_TOOLS + ["bridge_run_shell"]), "")):
+            self.assertEqual(probe_runtime(self.root), {
+                "state": "invalid",
+                "diagnostic": "native MCP exposes unreviewed tools: bridge_run_shell"})
+
+    @staticmethod
+    def catalog(names):
+        return json.dumps({"jsonrpc": "2.0", "id": 2,
+                           "result": {"tools": [{"name": name} for name in names]}}) + "\n"
 
 
 if __name__ == "__main__":

@@ -58,6 +58,13 @@ When registering a natively launched Codex Desktop session, use `agent_type="cus
 `agent_type_name="codex-desktop-native"`; it is mailbox-only. Do not claim or configure Codex push
 wake unless the user explicitly accepts the separate managed app-server mode and its Desktop tradeoff.
 
+For the experimental native backend, follow the cutover and rollback checklists in
+`references/collaboration-runtime.md` step by step, and only when the user explicitly asks for each step:
+`service-disable` plus `uninstall-claude`/`uninstall-codex --confirm-uninstall` for the XATS entries after
+activation; `native_collaboration_retire.py --name <exact> --confirm-retire` for each finished native
+identity before rollback. Retire never closes unread mail, and uninstall never removes an entry the user
+edited. Do not run these to "clean up" on your own initiative.
+
 If the user explicitly requests one-time Codex configuration, run
 `python3 -B "$ROOT/hooks/collaboration_adapters.py" install-codex`. It appends only the no-secret
 table to the Codex user config and refuses to overwrite an existing table; tell the user a Codex restart
