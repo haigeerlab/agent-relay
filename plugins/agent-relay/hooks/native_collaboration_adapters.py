@@ -5,6 +5,7 @@ Printing does not install or merge user configuration. The Claude deny rules
 must be applied before its MCP server is enabled; a config fragment alone would
 expose upstream worker tools.
 """
+from __future__ import annotations
 import argparse
 import json
 import os

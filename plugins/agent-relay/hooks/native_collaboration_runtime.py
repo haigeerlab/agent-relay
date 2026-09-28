@@ -5,6 +5,7 @@ This does not run the upstream setup, configure either host, start a service, or
 touch the existing XATS mailbox. The ordinary collaboration entry still uses
 XATS until a separate, reviewed cutover.
 """
+from __future__ import annotations
 import argparse
 import json
 import os

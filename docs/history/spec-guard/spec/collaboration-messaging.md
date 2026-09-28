@@ -120,6 +120,7 @@ python3 -B plugins/spec-guard/hooks/collaboration_runtime.py health --format jso
 python3 -B plugins/spec-guard/hooks/collaboration_runtime.py service-status --format json
 python3 -B plugins/spec-guard/hooks/collaboration_adapters.py codex
 python3 -B plugins/spec-guard/hooks/collaboration_adapters.py claude
+python3 -B plugins/spec-guard/hooks/collaboration_claude.py --help  # launch Claude Code with an ephemeral, token-free MCP config
 python3 -B plugins/spec-guard/hooks/native_collaboration_runtime.py status
 python3 -B plugins/spec-guard/hooks/native_collaboration_runtime.py install  # explicit opt-in only
 python3 -B plugins/spec-guard/hooks/native_collaboration_adapters.py codex  # print only
@@ -127,14 +128,20 @@ python3 -B plugins/spec-guard/hooks/native_collaboration_adapters.py claude # pr
 python3 -B plugins/spec-guard/hooks/native_collaboration_adapters.py install-codex  # explicit only
 python3 -B plugins/spec-guard/hooks/native_collaboration_adapters.py install-claude # explicit only
 python3 -B plugins/spec-guard/hooks/collaboration_backend.py          # read-only selector
+python3 -B plugins/spec-guard/hooks/native_collaboration_cutover.py --help  # read-only XATS preflight inventory
+python3 -B plugins/spec-guard/hooks/native_collaboration_archive.py --help  # operator-only private XATS snapshot before cutover
 python3 -B plugins/spec-guard/hooks/native_collaboration_activate.py --help  # operator-only switch
 python3 -B plugins/spec-guard/hooks/native_collaboration_rollback.py --help  # operator-only rollback
+python3 -B plugins/spec-guard/hooks/native_collaboration_retire.py --help  # operator-only single-identity retirement, keeps backlog
 python3 -B plugins/spec-guard/hooks/test_collaboration_runtime.py
 python3 -B plugins/spec-guard/hooks/test_native_collaboration_runtime.py
 python3 -B plugins/spec-guard/hooks/test_native_collaboration_adapters.py
 python3 -B plugins/spec-guard/hooks/test_collaboration_backend.py
+python3 -B plugins/spec-guard/hooks/test_native_collaboration_cutover.py
 python3 -B plugins/spec-guard/hooks/test_native_collaboration_activate.py
 python3 -B plugins/spec-guard/hooks/test_native_collaboration_rollback.py
+python3 -B plugins/spec-guard/hooks/test_native_collaboration_retire.py
+python3 -B plugins/spec-guard/hooks/test_host_config_removal.py
 python3 -B plugins/spec-guard/hooks/test_native_collab_entry.py
 python3 -B plugins/spec-guard/hooks/test_collab_entry.py
 /bin/bash scripts/validate.sh
@@ -150,10 +157,13 @@ plugins/spec-guard/hooks/collaboration_auth_header.py   -> Codex dynamic authori
 plugins/spec-guard/hooks/collaboration_claude*.py       -> Claude launch and stdio bridge boundaries
 plugins/spec-guard/hooks/native_collaboration_*.py      -> opt-in pinned runtime and host fragments
 plugins/spec-guard/hooks/collaboration_backend.py        -> read-only one-mailbox selector
+plugins/spec-guard/hooks/host_config_removal.py          -> host MCP entry add/remove, exact-fragment matching only
 plugins/spec-guard/skills/collab/SKILL.md               -> daily join, inbox, discovery, and send flow
 plugins/spec-guard/skills/collaboration-ops/SKILL.md     -> explicit operator actions
 plugins/spec-guard/references/collaboration-*.md         -> runtime and protocol contracts
 plugins/spec-guard/hooks/test_collaboration_*.py         -> runtime and adapter regressions
+plugins/spec-guard/hooks/test_native_collaboration_*.py  -> native transport and cutover/retire regressions
+plugins/spec-guard/hooks/test_host_config_removal.py     -> host MCP entry add/remove regressions
 plugins/spec-guard/hooks/test_collab_entry.py            -> user-facing entry contract
 ~~~
 

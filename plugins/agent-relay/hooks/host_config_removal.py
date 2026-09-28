@@ -6,6 +6,7 @@ Claude servers are added and removed through the Claude CLI, never by editing it
 and never after `claude mcp get`: that command health-checks the server, which takes many
 seconds for a dead endpoint. `add` and `remove` report an existing or missing name themselves.
 """
+from __future__ import annotations
 import os
 from pathlib import Path
 import re
