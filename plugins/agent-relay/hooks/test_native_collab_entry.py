@@ -27,6 +27,12 @@ class NativeCollabEntryTests(unittest.TestCase):
                        "只在唯一匹配时", "不构成授权"):
             self.assertIn(phrase, text)
 
+    def test_unavailable_native_tools_never_fall_back_to_leftover_xats_tools(self):
+        text = SKILL.read_text(encoding="utf-8")
+        for phrase in ("没有 `bridge_*` 工具或它们连接失败", "collaboration-ops",
+                       "也不得改用它们"):
+            self.assertIn(phrase, text)
+
 
 if __name__ == "__main__":
     unittest.main()

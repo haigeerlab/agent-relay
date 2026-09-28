@@ -43,6 +43,11 @@ python3 -B "$ROOT/hooks/collaboration_runtime.py" status --format json
 运行的 Claude Code 会话必须重启后才会加载。该命令需要已可用的 `npx`，用于执行固定版开源 MCP bridge；不得
 将 token 作为 `--env`、`--header` 或任意 Claude 配置值传给 `claude mcp add`。
 
+用户明确要求移除时，`uninstall-claude --confirm-uninstall` 与 `uninstall-codex --confirm-uninstall` 只删除
+Spec Guard 安装的条目；被用户改过的 Codex 表会被拒绝并给出需手动删除的行号。切换到 native 或回退时，按
+`references/collaboration-runtime.md` 的检查清单逐步执行，包括停用服务、移除另一后端的条目和退役已结束的
+native 身份。
+
 用户询问 Claude Code CLI 主动唤醒时，先读 `references/collaboration-runtime.md` 的
 “Claude Code CLI 主动唤醒的预览边界”。不要把下载的第三方 Channel 通过开发预览开关
 作为普通用户启用步骤，也不要声称原生 Claude/Codex Desktop 因此获得主动唤醒。

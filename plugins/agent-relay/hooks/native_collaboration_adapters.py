@@ -16,20 +16,12 @@ import subprocess
 import tempfile
 from typing import Any, Sequence
 
-from native_collaboration_runtime import default_root, status
+from host_config_removal import remove_claude_server, remove_codex_table
+from native_collaboration_runtime import DENIED_TOOLS, MAILBOX_TOOLS, default_root, status
 
 
 CLAUDE_SERVER_NAME = "spec-guard-native-collaboration"
 CODEX_SERVER_NAME = "spec_guard_native_collaboration"
-MAILBOX_TOOLS = (
-    "bridge_register", "bridge_send", "bridge_inbox", "bridge_ack",
-    "bridge_outbox", "bridge_agents", "bridge_sessions", "bridge_wake_status",
-    "bridge_thread", "bridge_wait",
-)
-DENIED_TOOLS = (
-    "bridge_retire", "ask_codex", "review_with_codex", "bridge_orchestrate_codex",
-    "bridge_continue_codex", "bridge_orchestration_wait", "bridge_orchestration_status",
-)
 
 
 def _paths(root: Path, node: Path) -> tuple[str, str, str, str]:
@@ -153,14 +145,28 @@ def install_claude_config(root: Path, node: Path, settings: Path, claude_bin: st
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("host", choices=("codex", "claude", "install-codex", "install-claude"))
+    parser.add_argument("host", choices=("codex", "claude", "install-codex", "install-claude",
+                                         "uninstall-codex", "uninstall-claude"))
     parser.add_argument("--root", type=Path, default=default_root())
     parser.add_argument("--node", type=Path, default=shutil.which("node"))
     parser.add_argument("--codex-config", type=Path, default=Path.home() / ".codex" / "config.toml")
     parser.add_argument("--claude-settings", type=Path,
                         default=Path.home() / ".claude" / "settings.json")
     parser.add_argument("--claude-bin", default="claude")
+    parser.add_argument("--confirm-uninstall", action="store_true",
+                        help="allow an uninstall command to remove host configuration")
     args = parser.parse_args(argv)
+    if args.host.startswith("uninstall-") and not args.confirm_uninstall:
+        print("uninstall-confirmation-required: rerun with --confirm-uninstall")
+        return 1
+    if args.host == "uninstall-claude":
+        # Claude 的拒绝规则保留：它们只拒绝本服务的工具，服务移除后无害，重新安装时仍然生效。
+        try:
+            state = remove_claude_server(args.claude_bin, CLAUDE_SERVER_NAME)
+        except ValueError as error:
+            parser.error(str(error))
+        print("Native Claude MCP entry %s; deny rules kept; restart Claude to apply." % state)
+        return 0
     if args.node is None:
         parser.error("Node executable is unavailable")
     try:
@@ -171,6 +177,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.host == "install-codex":
             install_codex_config(args.root, args.node, args.codex_config)
             result = "Native Codex MCP configuration installed; restart Codex to load it."
+        elif args.host == "uninstall-codex":
+            state = remove_codex_table(args.codex_config, codex_fragment(args.root, args.node),
+                                       CODEX_SERVER_NAME)
+            result = "Native Codex MCP entry %s; restart Codex to apply." % state
         else:
             install_claude_config(args.root, args.node, args.claude_settings, args.claude_bin)
             result = "Native Claude MCP configuration installed; restart Claude to load it."

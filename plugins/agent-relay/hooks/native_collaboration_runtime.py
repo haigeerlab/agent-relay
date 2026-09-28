@@ -138,6 +138,19 @@ def install_runtime(root: Path, *, node: str = "node", npm: str = "npm") -> dict
     return status(root)
 
 
+# 固定提交的完整工具面：邮箱工具暴露给宿主，其余一律拒绝。上游新增工具必须先审查再归入其中一类，
+# 否则 probe 失败，避免新的 worker 工具静默暴露给 Claude。
+MAILBOX_TOOLS = (
+    "bridge_register", "bridge_send", "bridge_inbox", "bridge_ack",
+    "bridge_outbox", "bridge_agents", "bridge_sessions", "bridge_wake_status",
+    "bridge_thread", "bridge_wait",
+)
+DENIED_TOOLS = (
+    "bridge_retire", "ask_codex", "review_with_codex", "bridge_orchestrate_codex",
+    "bridge_continue_codex", "bridge_orchestration_wait", "bridge_orchestration_status",
+)
+
+
 def probe_runtime(root: Path, *, node: str = "node") -> dict[str, Any]:
     """Start the pinned server against disposable private data, never the live mailbox."""
     if status(root)["state"] != "ready":
@@ -174,8 +187,12 @@ def probe_runtime(root: Path, *, node: str = "node") -> dict[str, Any]:
         names = {tool["name"] for tool in listing}
     except (ValueError, KeyError, StopIteration, TypeError, AttributeError):
         return {"state": "invalid", "diagnostic": "native MCP did not return a valid tool catalog"}
-    if not {"bridge_register", "bridge_send", "bridge_inbox", "bridge_ack"} <= names:
+    if not set(MAILBOX_TOOLS) <= names:
         return {"state": "invalid", "diagnostic": "native MCP mailbox tools are incomplete"}
+    unreviewed = sorted(names - set(MAILBOX_TOOLS) - set(DENIED_TOOLS))
+    if unreviewed:
+        return {"state": "invalid",
+                "diagnostic": "native MCP exposes unreviewed tools: " + ", ".join(unreviewed)}
     return {"state": "ready", "toolCount": len(names)}
 
 
