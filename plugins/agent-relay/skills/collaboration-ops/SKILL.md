@@ -49,10 +49,9 @@ LaunchAgent PATH read-only. A plugin source update does not refresh the running 
 the user explicitly approves a service refresh may `service-enable` replace and restart that
 managed user LaunchAgent. Never treat a sandbox-only `service-offline` result as the reason to restart.
 
-Claude Code CLI 的 `--enable-channel-wake` 目前只是研究预览实验入口，不是普通用户的启用步骤。
-Anthropic 的开发通道确认页明确警告：不要用它运行从互联网下载的 Channel；当前固定版 XATS
-Channel 属于这一类。在没有适用的官方批准路径或新的明确安全裁决前，不代用户确认该警告，
-不把包装器命令作为日常联调建议。普通 MCP 邮箱继续可用；仅 `send_message` 成功仍只是消息入箱。
+Spec Guard 不提供 Claude Code 的 channel 唤醒，原先的实验开关已移除。Anthropic 的开发通道确认页
+明确警告：不要用开发预览开关运行从互联网下载的 Channel，固定版 XATS Channel 属于这一类；不要代用户
+确认该警告。普通 MCP 邮箱继续可用；仅 `send_message` 成功仍只是消息入箱。
 
 When registering a natively launched Codex Desktop session, use `agent_type="custom"` and
 `agent_type_name="codex-desktop-native"`; it is mailbox-only. Do not claim or configure Codex push

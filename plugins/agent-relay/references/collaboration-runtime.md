@@ -242,16 +242,13 @@ python3 -B plugins/spec-guard/hooks/collaboration_claude.py -- --chrome
 不要把生成片段中的占位符手工替换为 token，也不要把 token 写入 `.mcp.json`、`settings.json` 或仓库。
 包装器拒绝调用者额外传入 `--mcp-config`，以免悄悄覆盖本次连接的安全配置。
 
-传入 `--include-channel` 时，Claude 片段还会生成固定版本的 channel 唤醒条目。这是开发预览增强，
-只有明确传入 `--enable-channel-wake` 才会由包装器开启 Claude Code 的 channel loader；未开启时仅使用
-收件箱式投递。
+包装器同样拒绝 `--dangerously-load-development-channels`：Spec Guard 不加载任何 Channel。
 
 ### Claude Code CLI 主动唤醒的预览边界
 
-Claude Channels 尚处研究预览。源码已有显式 `--enable-channel-wake` 实验开关，但它不是
-普通用户的推荐启用方式。真实 CLI 验收停在 Anthropic 的开发通道确认页：该页明确警告不要用
-`--dangerously-load-development-channels` 运行从互联网下载的 Channel；目前固定版 XATS
-Channel 正是下载的第三方包，因此未代用户确认，也未观察到实际唤醒。
+Claude Channels 尚处研究预览。Spec Guard 曾提供 channel 唤醒的实验开关，已移除：真实 CLI 验收停在
+Anthropic 的开发通道确认页，该页明确警告不要用 `--dangerously-load-development-channels` 运行从互联网
+下载的 Channel；固定版 XATS Channel 正是下载的第三方包，因此从未代用户确认，也未观察到实际唤醒。
 
 普通 Claude MCP 邮箱仍可用。仅运行时健康、MCP 工具连接或发送端 `send_message` 成功，
 都不能证明目标会话被唤醒。等待适用的官方批准路径或单独的安全裁决，再进行新 CLI 的主动

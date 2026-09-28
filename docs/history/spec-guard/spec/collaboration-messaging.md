@@ -105,7 +105,7 @@ new requirement and goes through the Proposal process.
 - On XATS, native Codex Desktop does not promise active wake-up. Claude Code CLI may explicitly
   start in a tmux pane for XATS's short inbox hints; this is not a read acknowledgement or a
   default. Native wake passed one controlled host trial but depends on private app IPC, so it is
-  not a general host guarantee. Claude channel wake remains a separate blocked preview enhancement.
+  not a general host guarantee. Claude channel wake is not offered; its experimental switches were removed.
 - Normal session exit unregisters the current identity. Cleanup of an abandoned identity requires
   an explicitly supplied UUID and can delete neither messages nor processes.
 
@@ -186,7 +186,7 @@ DEFAULT_HOST = "127.0.0.1"
 - Always: pin audited transport versions; use loopback and private files; distinguish accepted,
   delivered, read, and wake states; keep user-facing entry independent from operator actions.
 - Ask first: initialize or start the runtime; enable launchd; install or replace host configuration;
-  remove an exact stale identity; select Claude CLI tmux wake or Claude channel wake; change transport
+  remove an exact stale identity; select Claude CLI tmux wake; change transport
   versions.
 - Never: expose tokens; bind beyond loopback; silently alter Claude or Codex startup; disable
   ChatGPT in Chrome or Claude Code in Chrome; create project groups or automatic routing; translate

@@ -49,6 +49,6 @@ Spec Guard 安装的条目；被用户改过的 Codex 表会被拒绝并给出�
 native 身份。
 
 用户询问 Claude Code CLI 主动唤醒时，先读 `references/collaboration-runtime.md` 的
-“Claude Code CLI 主动唤醒的预览边界”。不要把下载的第三方 Channel 通过开发预览开关
-作为普通用户启用步骤，也不要声称原生 Claude/Codex Desktop 因此获得主动唤醒。
+“Claude Code CLI 主动唤醒的预览边界”。Spec Guard 已移除 channel 唤醒入口，不要通过开发预览开关加载
+下载的第三方 Channel，也不要声称原生 Claude/Codex Desktop 获得主动唤醒。
 Codex Desktop 和 ChatGPT in Chrome 配置不变。
