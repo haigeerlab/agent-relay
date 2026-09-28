@@ -10,6 +10,13 @@ and a one-step `collab` entry.
 It is a communication bridge, not a task orchestrator. It does not infer project groups, assign
 work, create Tickets or Issues, modify Git, or treat a message as authorization for another action.
 
+Governance: the accepted Proposal and its attestation
+(`spec/proposal-acceptances/collaboration-messaging-*.json`) cover the loopback XATS runtime only.
+The experimental native transport below was added afterwards without a Proposal revision and was
+brought into scope by the one-time registration of 2026-09-28
+(`docs/decisions/2026-09-28-initiative-rollover.md`). Promoting native to the default transport is a
+new requirement and goes through the Proposal process.
+
 ## Runtime contract
 
 - The transport is the audited MIT package `cross-agent-teams-mcp@0.8.6`; unpinned versions are
