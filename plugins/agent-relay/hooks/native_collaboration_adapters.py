@@ -12,11 +12,10 @@ from pathlib import Path
 import re
 import shutil
 import stat
-import subprocess
 import tempfile
 from typing import Any, Sequence
 
-from host_config_removal import remove_claude_server, remove_codex_table
+from host_config_removal import add_claude_server, remove_claude_server, remove_codex_table
 from native_collaboration_runtime import DENIED_TOOLS, MAILBOX_TOOLS, default_root, status
 
 
@@ -103,19 +102,13 @@ def install_codex_config(root: Path, node: Path, target: Path) -> None:
 
 
 def install_claude_config(root: Path, node: Path, settings: Path, claude_bin: str) -> None:
-    """Install exact deny rules before the user-scoped native MCP entry."""
+    """Install exact deny rules before the user-scoped native MCP entry.
+
+    The deny rules are written first so the server never exists without them. If the name is
+    already registered, the rules stay: they only deny this server's own tools.
+    """
     fragment = claude_config(root, node)
     name = CLAUDE_SERVER_NAME
-    try:
-        existing_server = subprocess.run([claude_bin, "mcp", "get", name], check=False,
-                                         capture_output=True, text=True, timeout=10)
-    except (OSError, subprocess.TimeoutExpired) as error:
-        raise ValueError("unable to inspect Claude MCP configuration") from error
-    if existing_server.returncode == 0:
-        raise ValueError("native Claude MCP server already exists; refusing to overwrite it")
-    if "No MCP server named" not in existing_server.stdout + existing_server.stderr:
-        raise ValueError("unable to confirm native Claude MCP server is absent")
-
     settings = Path(settings)
     current, mode = _existing_regular(settings)
     try:
@@ -133,14 +126,12 @@ def install_claude_config(root: Path, node: Path, settings: Path, claude_bin: st
     deny.extend(rule for rule in fragment["denyRules"] if rule not in deny)
     _atomic_write(settings, json.dumps(value, ensure_ascii=False, indent=2) + "\n", mode)
 
-    command = [claude_bin, "mcp", "add-json", name,
-               json.dumps(fragment["mcpServers"][name]), "--scope", "user"]
     try:
-        added = subprocess.run(command, check=False, capture_output=True, text=True, timeout=30)
-    except (OSError, subprocess.TimeoutExpired) as error:
-        raise ValueError("Claude deny rules are installed, but MCP registration failed") from error
-    if added.returncode != 0:
-        raise ValueError("Claude deny rules are installed, but MCP registration failed")
+        add_claude_server(claude_bin, ["add-json", name, json.dumps(fragment["mcpServers"][name]),
+                                       "--scope", "user"], name)
+    except ValueError as error:
+        raise ValueError("Claude deny rules are installed, but MCP registration stopped: "
+                         + str(error)) from error
 
 
 def main(argv: Sequence[str] | None = None) -> int:

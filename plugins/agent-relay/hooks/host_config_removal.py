@@ -1,8 +1,10 @@
-"""Remove host MCP entries that Spec Guard installed, and nothing a user changed.
+"""Add and remove host MCP entries that Spec Guard installs, and nothing a user changed.
 
 Codex tables are removed only when the file still contains the exact fragment an adapter
 would write today, as a complete table; any edited or partial table is left for the user.
-Claude servers are removed through the Claude CLI, never by editing its state files.
+Claude servers are added and removed through the Claude CLI, never by editing its state files,
+and never after `claude mcp get`: that command health-checks the server, which takes many
+seconds for a dead endpoint. `add` and `remove` report an existing or missing name themselves.
 """
 import os
 from pathlib import Path
@@ -53,6 +55,22 @@ def remove_codex_table(codex_config: Path, fragment: str, table_name: str) -> st
     finally:
         temporary.unlink(missing_ok=True)
     return "removed"
+
+
+def add_claude_server(claude_bin: str, arguments: list[str], name: str) -> None:
+    """Register a user-scoped server; the Claude CLI itself refuses an existing name."""
+    try:
+        added = subprocess.run([claude_bin, "mcp", *arguments], check=False,
+                               capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise ValueError("unable to run Claude MCP registration") from error
+    if added.returncode == 0:
+        return
+    output = (added.stdout + added.stderr).strip()
+    if "already exists" in output:
+        raise ValueError("Claude MCP server %s already exists; refusing to overwrite it" % name)
+    raise ValueError("Claude rejected MCP registration for %s: %s"
+                     % (name, output.splitlines()[-1] if output else "no output"))
 
 
 def remove_claude_server(claude_bin: str, name: str) -> str:
