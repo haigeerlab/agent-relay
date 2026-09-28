@@ -64,7 +64,8 @@ class CollabEntryContractTest(unittest.TestCase):
         reference = (PLUGIN_ROOT / "references" / "collaboration-runtime.md").read_text(
             encoding="utf-8"
         )
-        self.assertIn("--enable-channel-wake", ops)
+        self.assertNotIn("--enable-channel-wake", ops)
+        self.assertNotIn("--include-channel", reference)
         self.assertIn("Claude Code CLI", reference)
         self.assertIn("ChatGPT in Chrome", reference)
         self.assertIn("研究预览", reference)

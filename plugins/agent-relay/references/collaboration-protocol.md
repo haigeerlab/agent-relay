@@ -55,7 +55,6 @@ UUID 或工具名。目标只有一个时直接发送；没有目标时说明对
 - 原生启动的 Codex Desktop 已验证为邮箱式收发：消息持久化，目标会话在下次调用协作工具时读取；不宣称
   自动唤醒。为了保留 ChatGPT in Chrome，Spec Guard 当前明确不启用上游受管 app-server Desktop 模式，
   也不得将它作为自动升级或默认配置。
-- Claude Code 要做到 channel 唤醒，必须通过受管启动器明确启用 channel preview；普通受管启动只保证
-  收件箱可读。
+- Spec Guard 不提供 Claude Code 的 channel 唤醒；受管启动只保证收件箱可读，CLI 可另外显式选择 tmux 提醒。
 
 任何无法确认的唤醒都必须报告为“邮件已入箱、唤醒未确认”，不能称为实时对话成功。
