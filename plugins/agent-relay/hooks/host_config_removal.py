@@ -57,20 +57,14 @@ def remove_codex_table(codex_config: Path, fragment: str, table_name: str) -> st
 
 def remove_claude_server(claude_bin: str, name: str) -> str:
     """Return "removed" or "absent" for a user-scoped Claude MCP server."""
-    try:
-        existing = subprocess.run([claude_bin, "mcp", "get", name], check=False,
-                                  capture_output=True, text=True, timeout=10)
-    except (OSError, subprocess.TimeoutExpired) as error:
-        raise ValueError("unable to inspect Claude MCP configuration") from error
-    if existing.returncode != 0:
-        if "No MCP server named" in existing.stdout + existing.stderr:
-            return "absent"
-        raise ValueError("unable to confirm whether the Claude MCP server exists")
+    # 不先调用 `claude mcp get`：它会对条目做连接健康检查，失效端点要十几秒，正是需要移除的情形。
     try:
         removed = subprocess.run([claude_bin, "mcp", "remove", "--scope", "user", name],
                                  check=False, capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.TimeoutExpired) as error:
-        raise ValueError("unable to remove the Claude MCP server") from error
-    if removed.returncode != 0:
-        raise ValueError("Claude refused to remove the user-scoped MCP server " + name)
-    return "removed"
+        raise ValueError("unable to run Claude MCP removal") from error
+    if removed.returncode == 0:
+        return "removed"
+    if "No MCP server named" in removed.stdout + removed.stderr:
+        return "absent"
+    raise ValueError("Claude refused to remove the user-scoped MCP server " + name)
