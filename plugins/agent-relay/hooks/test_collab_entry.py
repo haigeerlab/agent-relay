@@ -59,6 +59,15 @@ class CollabEntryContractTest(unittest.TestCase):
             self.assertIn("collab", text)
             self.assertIn("日常", text)
 
+    def test_auto_approve_sessions_are_told_not_to_bind_wake(self) -> None:
+        skill = SKILL.read_text(encoding="utf-8")
+        reference = (PLUGIN_ROOT / "references" / "collaboration-runtime.md").read_text(
+            encoding="utf-8"
+        )
+        for text in (skill, reference):
+            self.assertIn("自动批准", text)
+            self.assertIn('wake: null', text)
+
     def test_operator_guidance_warns_against_general_preview_wake(self) -> None:
         ops = OPS_SKILL.read_text(encoding="utf-8")
         reference = (PLUGIN_ROOT / "references" / "collaboration-runtime.md").read_text(
