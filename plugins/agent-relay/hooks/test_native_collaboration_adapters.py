@@ -87,39 +87,38 @@ class NativeCollaborationAdaptersTests(unittest.TestCase):
 
         def fake_run(command, **_kwargs):
             calls.append(command)
-            if command[2] == "get":
-                return subprocess.CompletedProcess(command, 1, "No MCP server named", "")
             settings = json.loads(target.read_text())
             self.assertEqual(settings["chrome"], original["chrome"])
             self.assertEqual(settings["permissions"]["deny"][0], "existing-rule")
             self.assertEqual(len(settings["permissions"]["deny"]), 1 + len(DENIED_TOOLS))
             return subprocess.CompletedProcess(command, 0, "", "")
 
-        with patch("native_collaboration_adapters.subprocess.run", side_effect=fake_run):
+        with patch("host_config_removal.subprocess.run", side_effect=fake_run):
             install_claude_config(self.root, self.node, target, "claude")
-        self.assertEqual(calls[1][:3], ["claude", "mcp", "add-json"])
-        self.assertEqual(calls[1][-2:], ["--scope", "user"])
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][:3], ["claude", "mcp", "add-json"])
+        self.assertEqual(calls[0][-2:], ["--scope", "user"])
         self.assertEqual(json.loads(target.read_text())["chrome"], original["chrome"])
 
-    def test_claude_install_refuses_unknown_existing_server(self):
+    def test_claude_install_refuses_an_existing_server_and_keeps_only_its_deny_rules(self):
         target = Path(self.tmp.name) / "settings.json"
         target.write_text('{"permissions":{"deny":[]}}')
-        with patch("native_collaboration_adapters.subprocess.run", return_value=
-                   subprocess.CompletedProcess([], 0, "exists", "")):
-            with self.assertRaisesRegex(ValueError, "already exists"):
+        # 真实 CLI（2026-09-28 实测）：同名时 rc=1，输出 "MCP server X already exists in user config"。
+        with patch("host_config_removal.subprocess.run", return_value=subprocess.CompletedProcess(
+                [], 1, "", "MCP server spec-guard-native-collaboration already exists in user config")):
+            with self.assertRaisesRegex(ValueError, "already exists; refusing to overwrite"):
                 install_claude_config(self.root, self.node, target, "claude")
-        self.assertEqual(target.read_text(), '{"permissions":{"deny":[]}}')
+        self.assertTrue(all(rule.startswith("mcp__spec-guard-native-collaboration__")
+                            for rule in json.loads(target.read_text())["permissions"]["deny"]))
 
     def test_claude_registration_failure_keeps_deny_rules(self):
         target = Path(self.tmp.name) / "settings.json"
         target.write_text('{"chrome":{"enabled":true}}')
 
         def fake_run(command, **_kwargs):
-            if command[2] == "get":
-                return subprocess.CompletedProcess(command, 1, "No MCP server named", "")
             return subprocess.CompletedProcess(command, 1, "", "registration failed")
 
-        with patch("native_collaboration_adapters.subprocess.run", side_effect=fake_run):
+        with patch("host_config_removal.subprocess.run", side_effect=fake_run):
             with self.assertRaisesRegex(ValueError, "deny rules are installed"):
                 install_claude_config(self.root, self.node, target, "claude")
         saved = json.loads(target.read_text())

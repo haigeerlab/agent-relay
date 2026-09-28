@@ -8,7 +8,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-from host_config_removal import remove_claude_server, remove_codex_table
+from host_config_removal import add_claude_server, remove_claude_server, remove_codex_table
 import collaboration_adapters
 import collaboration_runtime
 import native_collaboration_adapters
@@ -73,30 +73,52 @@ class RemoveCodexTableTests(unittest.TestCase):
 
 
 class RemoveClaudeServerTests(unittest.TestCase):
-    def test_absent_server_is_not_removed(self):
+    def test_absent_server_is_reported_from_the_remove_result(self):
+        # 真实 CLI（2026-09-28 实测）：rc=1，输出 `No MCP server named "x" in user scope`。
         with patch("host_config_removal.subprocess.run", return_value=subprocess.CompletedProcess(
-                [], 1, "", 'No MCP server named "x" found')) as run:
+                [], 1, "", 'No MCP server named "x" in user scope')) as run:
             self.assertEqual(remove_claude_server("claude", "x"), "absent")
         self.assertEqual(run.call_count, 1)
 
-    def test_existing_server_is_removed_from_user_scope(self):
-        with patch("host_config_removal.subprocess.run", side_effect=[
-                subprocess.CompletedProcess([], 0, "x: ok", ""),
-                subprocess.CompletedProcess([], 0, "Removed", "")]) as run:
+    def test_existing_server_is_removed_without_a_slow_health_check(self):
+        with patch("host_config_removal.subprocess.run",
+                   return_value=subprocess.CompletedProcess([], 0, "Removed", "")) as run:
             self.assertEqual(remove_claude_server("claude", "x"), "removed")
-        self.assertEqual(run.call_args_list[1].args[0],
-                         ["claude", "mcp", "remove", "--scope", "user", "x"])
+        self.assertEqual([call.args[0] for call in run.call_args_list],
+                         [["claude", "mcp", "remove", "--scope", "user", "x"]])
 
-    def test_unclear_lookup_or_refused_removal_is_an_error(self):
+    def test_refused_or_unrunnable_removal_is_an_error(self):
         with patch("host_config_removal.subprocess.run", return_value=subprocess.CompletedProcess(
                 [], 1, "", "permission denied")):
-            with self.assertRaisesRegex(ValueError, "unable to confirm"):
-                remove_claude_server("claude", "x")
-        with patch("host_config_removal.subprocess.run", side_effect=[
-                subprocess.CompletedProcess([], 0, "x: ok", ""),
-                subprocess.CompletedProcess([], 1, "", "boom")]):
             with self.assertRaisesRegex(ValueError, "refused to remove"):
                 remove_claude_server("claude", "x")
+        with patch("host_config_removal.subprocess.run",
+                   side_effect=subprocess.TimeoutExpired(["claude"], 30)):
+            with self.assertRaisesRegex(ValueError, "unable to run"):
+                remove_claude_server("claude", "x")
+
+
+class AddClaudeServerTests(unittest.TestCase):
+    def test_registers_with_a_single_add_call(self):
+        with patch("host_config_removal.subprocess.run",
+                   return_value=subprocess.CompletedProcess([], 0, "Added", "")) as run:
+            add_claude_server("claude", ["add", "--scope", "user", "x", "--", "cmd"], "x")
+        self.assertEqual([call.args[0] for call in run.call_args_list],
+                         [["claude", "mcp", "add", "--scope", "user", "x", "--", "cmd"]])
+
+    def test_existing_name_and_other_failures_are_distinct_errors(self):
+        for output, pattern in (
+                ("MCP server x already exists in user config", "already exists; refusing"),
+                ("Invalid command path", "rejected MCP registration for x: Invalid command path")):
+            with self.subTest(output=output), patch(
+                    "host_config_removal.subprocess.run",
+                    return_value=subprocess.CompletedProcess([], 1, "", output)):
+                with self.assertRaisesRegex(ValueError, pattern):
+                    add_claude_server("claude", ["add", "x"], "x")
+        with patch("host_config_removal.subprocess.run",
+                   side_effect=subprocess.TimeoutExpired(["claude"], 30)):
+            with self.assertRaisesRegex(ValueError, "unable to run"):
+                add_claude_server("claude", ["add", "x"], "x")
 
 
 class NativeUninstallRoundTripTests(unittest.TestCase):
