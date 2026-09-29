@@ -68,6 +68,17 @@ class CollabEntryContractTest(unittest.TestCase):
             self.assertIn("自动批准", text)
             self.assertIn('wake: null', text)
 
+    def test_docs_state_the_no_wake_default(self) -> None:
+        reference = (PLUGIN_ROOT / "references" / "collaboration-runtime.md").read_text(
+            encoding="utf-8"
+        )
+        optional = (PLUGIN_ROOT.parents[1] / "docs" / "optional-features.md").read_text(
+            encoding="utf-8"
+        )
+        for text in (reference, optional):
+            self.assertIn("默认不绑定唤醒", text)
+            self.assertIn("wake: null", text)
+
     def test_operator_guidance_warns_against_general_preview_wake(self) -> None:
         ops = OPS_SKILL.read_text(encoding="utf-8")
         reference = (PLUGIN_ROOT / "references" / "collaboration-runtime.md").read_text(
