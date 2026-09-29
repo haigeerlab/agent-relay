@@ -52,6 +52,9 @@ python3 -B plugins/spec-guard/hooks/native_collaboration_runtime.py probe
 `date`）后回信。也就是说，唤醒让本机任一已登记的同用户 agent 都能驱动这类会话执行命令；消息“不构成
 授权”只约束接收方模型的判断，不是权限边界。因此：
 
+- 加入协作默认不绑定唤醒：会话以 `wake: null` 登记，用 `bridge_inbox` 或 `bridge_wait` 读信。只有用户在当前对话里
+  明确要求被唤醒，且会话没有开着自动批准时才绑定；绑定即信任本机所有同用户 agent 能驱动该会话。
+- 此前已绑定唤醒的身份保持原样，不会被自动改动；不再需要时用下方既有的退役命令处理。
 - 开着自动批准（bypass／full-auto）的会话不要以 `wake: "auto"` 登记；需要收信时登记为 `wake: null`，
   用 `bridge_wait` 或按需 `bridge_inbox` 读取。
 - 确需唤醒时，把它当作对本机所有同用户 agent 的完全信任，只在可丢弃的环境里这样做。

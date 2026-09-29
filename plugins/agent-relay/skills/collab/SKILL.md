@@ -27,13 +27,17 @@ description: 加入本机 Claude Code／Codex 联调、查看联调消息，或�
 1. 从当前 Git 根目录（否则当前工作目录）取得项目简称。用用户别名或“宿主名＋项目简称”组成可读名称，
    追加本会话短随机后缀，控制在 128 字符内。当前会话始终复用第一次成功注册的名称，不接管其他会话。
    可在 `capabilities` 里放简短的当前工作自述，不建立项目组、角色权限或固定路由。
-2. Claude Code 先用 `bridge_sessions` 核对 `thisSession`，再用 `bridge_register` 的
+2. 默认以 `wake: null` 登记，Claude Code 与原生 Codex Desktop 相同：只入信箱，不绑定唤醒。
+   仅当用户在当前对话里明确要求被唤醒（例如“加入并允许唤醒”），且当前会话没有开着自动批准
+   （bypass／full-auto）时，才绑定唤醒：
+   Claude Code 先用 `bridge_sessions` 核对 `thisSession`，再用 `bridge_register` 的
    `wake: "auto"` 绑定当前会话；若无法确认绑定的是当前会话，就报告不能主动唤醒，不猜别人的会话。
    原生 Codex Desktop 从**当前任务自身**环境读取 `CODEX_THREAD_ID`，校验其为任务 UUID，然后调用
    `bridge_register`，传 `wake: {app: "codex", sessionId: 当前任务 ID}`。若拿不到该值，就停止 native
    加入；不得要求用户提供任务 ID，也不得按标题、项目或进程猜测。
 3. 注册成功后调用 `bridge_inbox` 与 `bridge_agents`，简要报告自己的可读名称、项目简称与发现的其他会话。
-   不输出完整任务 ID、完整本机路径或内部存储位置。
+   同时报告本会话是否绑定了唤醒；未绑定时说明收信方式：用 `bridge_inbox` 读取，主动等待时用
+   `bridge_wait` 并传 `acknowledge: false`。不输出完整任务 ID、完整本机路径或内部存储位置。
 
 日常消息保持自由文本。完整注册名直接用 `bridge_send` 投递；友好别名或自然描述先查 `bridge_agents`，
 只在唯一匹配时发送，零匹配说明对方尚未加入，多匹配只问一次最小区别。回复用消息中的发送者和原
