@@ -204,6 +204,9 @@ DEFAULT_HOST = "127.0.0.1"
 - Never: expose tokens; bind beyond loopback; silently alter Claude or Codex startup; disable
   ChatGPT in Chrome or Claude Code in Chrome; create project groups or automatic routing; translate
   a message into Git, Issue, Ticket, code, requirement, or authorization writes.
+- Residual risk (accepted): `cross-agent-teams-mcp@0.8.6` and `mcp-remote@0.1.38` are still fetched
+  with `npx --yes` at launch and their transitive dependencies are not locked. This stays accepted
+  until the XATS sunset (`docs/decisions/2026-09-28-xats-sunset.md`) removes those launch paths.
 
 ## Success criteria
 
