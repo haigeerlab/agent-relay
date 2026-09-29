@@ -82,8 +82,10 @@ one-minor XATS retirement that follows it are fixed in `docs/decisions/2026-09-2
 - Codex reads its authorization header through a local `http_headers_helper`. Native Codex Desktop
   remains in mailbox mode so ChatGPT in Chrome continues to work; the capability does not switch it
   to a managed app-server.
-- Claude Code uses a fixed stdio-to-loopback bridge whose token exists only in the child process
-  environment. User configuration and repository files contain no token.
+- Claude Code uses a fixed stdio-to-loopback bridge, both when registered by `install-claude` and when
+  started by the collaboration launcher. The bridge reads the token from the `0600` file itself, so the
+  token exists only in the `mcp-remote` child's environment, never in the Claude session's environment.
+  User configuration, the launcher's temporary config, and repository files contain no token.
 - Claude Code's Chrome integration remains available alongside collaboration, including when its
   explicit launcher forwards `--chrome`; collaboration must not replace or disable `claude-in-chrome`.
 - The daily user contract is `collab [optional alias]`, or equivalent natural language such as
