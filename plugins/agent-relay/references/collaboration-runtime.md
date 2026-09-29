@@ -324,3 +324,6 @@ ChatGPT in Chrome，因此不属于 `start` 或 `install-codex` 的隐式副作�
 
 消息收发、内部本机命名空间与“邮件已入箱”和“已唤醒”的区别，见
 `references/collaboration-protocol.md`。
+
+XATS 残余风险：`cross-agent-teams-mcp@0.8.6` 与 `mcp-remote@0.1.38` 仍在启动时用 `npx --yes` 拉取，其传递依赖
+未锁定。该风险在 XATS 退役（`docs/decisions/2026-09-28-xats-sunset.md`）移除这些启动路径之前被接受。
