@@ -159,6 +159,12 @@ transport；同宿主 native capability unavailable 只有在当前授权、brid
 
 **预计规模：** M（3 个文件）。
 
+**2026-10-04 实施结果：** 新增统一 `session-routing` skill；Claude 同宿主只在当前会话真实暴露
+`ListAgents`/`SendMessage` 时选择 `host-native-claude`，唯一解析后单次发送，回复复用来信地址。
+delivered/held/refused、等待超时和权限拒绝分别保留独立 dispatch/wake/receipt/response 事实；响应未知
+只对账不重发。`collab` 已改为先交统一 selector，同宿主原生成功不进入邮箱选择或复制正文。入口契约
+9 项、既有 collab 契约 14 项与路由核心 15 项均通过；真实双向证据继续引用 Task 1 的隔离会话记录。
+
 ## Task 4：Codex 同宿主原生双向切片
 
 **描述：** 在同一 routing skill 中加入 Codex 路径，严格使用 Codex App 暴露的 list/read/send/wait
