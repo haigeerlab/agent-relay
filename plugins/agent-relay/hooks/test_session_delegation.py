@@ -276,6 +276,25 @@ class PrivateStoreTests(DelegationTestCase):
 
 
 class ClaimAndStateTests(DelegationTestCase):
+    def test_launch_keeps_a_friendly_name_and_rejects_idempotent_rename(self):
+        store = self.store()
+        envelope = self.authorize(store, target_hosts=("codex",))
+        claim = store.claim_launch(
+            envelope.envelope_id, "friendly-launch-1", "codex", self.project,
+            "a" * 40, "safe-review", friendly_name="播放器复审",
+        )
+        self.assertEqual(claim.friendly_name, "播放器复审")
+        same = store.claim_launch(
+            envelope.envelope_id, "friendly-launch-1", "codex", self.project,
+            "a" * 40, "safe-review", friendly_name="播放器复审",
+        )
+        self.assertEqual(same.delegation_id, claim.delegation_id)
+        with self.assertRaisesRegex(DelegationError, "launch-idempotency-conflict"):
+            store.claim_launch(
+                envelope.envelope_id, "friendly-launch-1", "codex", self.project,
+                "a" * 40, "safe-review", friendly_name="另一个名字",
+            )
+
     def test_exact_host_binding_and_authorized_follow_up_reuse_one_claim(self):
         store = self.store()
         envelope = self.authorize(store, target_hosts=("codex",))

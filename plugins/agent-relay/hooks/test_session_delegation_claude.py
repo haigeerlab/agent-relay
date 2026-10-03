@@ -17,6 +17,7 @@ from session_delegation_claude import (
     ClaudeCommandUncertain,
     ClaudeInstallation,
     build_create_command,
+    communication_rules,
     discover_claude,
     inspect_project_permissions,
     sanitized_environment,
@@ -120,6 +121,24 @@ class InstallationAndPermissionTests(unittest.TestCase):
         tools = command[command.index("--tools") + 1]
         self.assertIn("Read", tools)
         self.assertNotIn("Edit", tools)
+
+    def test_native_backend_uses_its_own_exact_tool_names_and_project_allow_rules(self):
+        server_name = "spec-guard-native-collaboration"
+        rules = communication_rules(server_name)
+        self.write_permissions(rules)
+        readiness = inspect_project_permissions(
+            self.project, "safe-review", None, server_name=server_name,
+        )
+        self.assertTrue(readiness.ready)
+        command = build_create_command(
+            ClaudeInstallation(Path("/opt/claude"), "2.1.288"),
+            Path("/private/tmp/session.mcp.json"),
+            "spec-guard-12345678", "Review", "safe-review", "dontAsk",
+            server_name=server_name,
+        )
+        tools = command[command.index("--tools") + 1]
+        self.assertIn("mcp__spec-guard-native-collaboration__bridge_register", tools)
+        self.assertNotIn("mcp__spec-guard-collaboration__bridge_register", tools)
 
     def test_environment_strips_both_hosts_session_identity_and_bridge_token(self):
         environment = sanitized_environment({

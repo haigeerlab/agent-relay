@@ -147,7 +147,7 @@ baseline 绑定、depth=0、期限、撤销、剩余额度、权限降级和扩�
 - `plugins/spec-guard/hooks/test_session_delegation_codex.py`
 - `plugins/spec-guard/hooks/session_delegation.py`
 
-**2026-10-03 实施结果：** 18 个 Codex 适配器聚焦用例与仓库完整校验通过。适配器只解析
+**2026-10-03 实施结果：** 19 个 Codex 适配器聚焦用例与仓库完整校验通过。适配器只解析
 app-managed `current`，拒绝 PATH 旧版，使用同一 0.160.0 二进制读取有效 MCP 清单；真实只读
 复查发现并修正了清单中相对 `cwd` 的兼容边界，最终读取 10 个继承项并全部生成禁用覆盖。
 线程创建、精确绑定、乱序事件、响应丢失、重连继续、状态、取消、独立工作树、有效权限及
@@ -181,7 +181,7 @@ session 路径；解析真实 session identity，按 permission intent 选择已
 - `plugins/spec-guard/hooks/collaboration_claude.py`
 - `plugins/spec-guard/hooks/test_collaboration_runtime.py`
 
-**2026-10-04 实施结果：** 15 个 Claude 适配器聚焦用例和 43 个既有 launcher/runtime 用例通过。
+**2026-10-04 实施结果：** 16 个 Claude 适配器聚焦用例和 43 个既有 launcher/runtime 用例通过。
 适配器复用项目 `.claude/settings.json` / `.claude/settings.local.json` 中已有的 allow/deny，默认
 `dontAsk + permission-prompts none`；安全审查只要求预批准十个通信 MCP 工具，开发会话才额外
 要求编辑、写入与至少一条 Bash allow，并限定到干净独立 worktree。缺少项目 allow、trust、
@@ -217,6 +217,11 @@ name、项目、真实 registration/wake/stale/unread 事实；同名只给最�
 - `plugins/spec-guard/skills/collab/SKILL.md`
 - `plugins/spec-guard/hooks/test_skill_entrypoints.py`
 - `docs/optional-features.md`
+
+**2026-10-04 接口切片：** 已新增 `session-delegation` 自然语言契约、统一的已加入目录展示规则和
+8 个入口契约用例；普通 `collab` 行为保持不变。控制记录新增 friendly name，所选 backend 显式映射到
+Codex/Claude 的单一进程内通信配置，3 个用例证明 XATS/native 不混用、invalid 不回退且不复制 token。
+完整仓库校验通过。统一动作控制器与故障对账属于下一任务，完成前 todo 仍保持未勾选。
 
 ### 6. 恢复、取消、到期与精确清理
 

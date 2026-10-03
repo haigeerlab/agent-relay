@@ -21,7 +21,7 @@ from uuid import UUID, uuid4
 
 
 DATABASE_FILENAME = "delegation.sqlite"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 HORIZONS = frozenset(("task", "strict", "batch", "session"))
 HOSTS = frozenset(("claude", "codex"))
 PERMISSION_INTENTS = frozenset(("safe-review", "bounded-development", "host-native"))
@@ -110,6 +110,7 @@ class DelegationClaim:
     launch_key: str
     target_host: str
     permission_intent: str
+    friendly_name: str
     state: str
     host_ref: str | None
     host_session_ref: str | None
@@ -287,6 +288,7 @@ def _delegation_row_is_valid(row: sqlite3.Row) -> bool:
         and _KEY.fullmatch(row["launch_key"]) is not None
         and row["target_host"] in HOSTS
         and row["permission_intent"] in PERMISSION_INTENTS
+        and _valid_text(row["friendly_name"], maximum=128)
         and row["state"] in DELEGATION_STATES
         and all(value is None or _valid_text(value, maximum=512) for value in binding)
         and (row["last_turn_ref"] is None
@@ -436,6 +438,7 @@ class DelegationStore:
                         launch_key TEXT NOT NULL UNIQUE,
                         target_host TEXT NOT NULL,
                         permission_intent TEXT NOT NULL,
+                        friendly_name TEXT NOT NULL,
                         state TEXT NOT NULL,
                         host_ref TEXT,
                         host_session_ref TEXT,
@@ -445,7 +448,7 @@ class DelegationStore:
                         created_at INTEGER NOT NULL,
                         updated_at INTEGER NOT NULL
                     );
-                    PRAGMA user_version = 1;
+                    PRAGMA user_version = 2;
                     COMMIT;
                     """
                 )
@@ -510,6 +513,7 @@ class DelegationStore:
             launch_key=row["launch_key"],
             target_host=row["target_host"],
             permission_intent=row["permission_intent"],
+            friendly_name=row["friendly_name"],
             state=row["state"],
             host_ref=row["host_ref"],
             host_session_ref=row["host_session_ref"],
@@ -600,11 +604,15 @@ class DelegationStore:
     def claim_launch(
         self, envelope_id: str, launch_key: str, target_host: str,
         project_root: Path, baseline: str, permission_intent: str, *,
-        confirmed: bool = False,
+        confirmed: bool = False, friendly_name: str | None = None,
     ) -> DelegationClaim:
         if not isinstance(launch_key, str) or not _KEY.fullmatch(launch_key):
             raise DelegationError("launch-key")
         project = _canonical_project(project_root)
+        selected_name = friendly_name or (
+            "Claude Code session" if target_host == "claude" else "Codex session")
+        if not _valid_text(selected_name, maximum=128):
+            raise DelegationError("friendly-name")
         with self._connection() as connection:
             try:
                 connection.execute("BEGIN IMMEDIATE")
@@ -629,7 +637,8 @@ class DelegationStore:
                 if existing is not None:
                     if (existing["envelope_id"] != envelope_id
                             or existing["target_host"] != target_host
-                            or existing["permission_intent"] != permission_intent):
+                            or existing["permission_intent"] != permission_intent
+                            or existing["friendly_name"] != selected_name):
                         raise DelegationError("launch-idempotency-conflict")
                     connection.execute("COMMIT")
                     return self._claim(existing)
@@ -643,10 +652,10 @@ class DelegationStore:
                 connection.execute(
                     """INSERT INTO delegations (
                         delegation_id, envelope_id, launch_key, target_host, permission_intent,
-                        state, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, 'creating', ?, ?)""",
+                        friendly_name, state, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, 'creating', ?, ?)""",
                     (delegation_id, envelope_id, launch_key, target_host,
-                     permission_intent, current, current),
+                     permission_intent, selected_name, current, current),
                 )
                 row = connection.execute(
                     "SELECT * FROM delegations WHERE delegation_id = ?", (delegation_id,)
@@ -663,6 +672,12 @@ class DelegationStore:
             return int(connection.execute(
                 "SELECT COUNT(*) FROM delegations WHERE envelope_id = ?", (envelope_id,)
             ).fetchone()[0])
+
+    def list_delegations(self) -> tuple[DelegationClaim, ...]:
+        with self._connection() as connection:
+            return tuple(self._claim(row) for row in connection.execute(
+                "SELECT * FROM delegations ORDER BY created_at, delegation_id"
+            ))
 
     def get_delegation(self, delegation_id: str) -> DelegationClaim:
         with self._connection() as connection:

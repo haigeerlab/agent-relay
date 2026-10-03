@@ -20,6 +20,25 @@ description: 加入本机 Claude Code／Codex 联调、查看联调消息，或�
 - `invalid` 或 `unavailable`：只报告诊断和一条下一步，停止本次联调；不得自动退回 XATS，
   以免把同一段对话分散到两个邮箱。不能自己写切换标记或初始化、启动、配置运行时。
 
+## 已加入会话目录
+
+用户说“加入会话”“有哪些会话”“谁可以联系”时，在完成当前后端的懒注册与只读目录读取后，用统一格式显示：
+
+```text
+[Claude Code] reviewer · player · registered · wakeable · recently-active · unread 2
+[Codex] api-check · server · registered · wake-held · online 未知 · unread 0
+```
+
+每行只组合后端实际提供的独立事实：`registered`、`wakeable`、`wake-held`、`unreachable`、`stale`、
+`recently-active`、`online` 与 `unread`。不能仅凭 registered 推断 online，也不能把最近活动推断为当前可唤醒；
+后端未提供的事实明确写“未知”。不扫描未注册的应用窗口，不读取标题补全隐藏身份。
+
+名称唯一时可直接联系；无匹配时说明对方还未加入；同名时只展示项目简称、宿主标签或短随机后缀中的
+最短区分项并问一次。不能按标题猜，不能输出完整内部 ID、PID、完整路径、token 或数据库位置。
+
+“创建一个 Claude Code/Codex 去审查或开发”不是普通传话，转交 `session-delegation` skill；本 skill 的
+普通消息、加入、读取和回复行为保持不变。
+
 ## 实验性 native 路径（仅选择器返回 `native` 时）
 
 第一次使用时，当前会话自行完成以下动作；用户仍只输入 `collab [可选别名]`：

@@ -16,6 +16,7 @@ from session_delegation_codex import (
     CodexAdapterError,
     CodexInstallation,
     CommunicationServer,
+    HttpCommunicationServer,
     JsonRpcClient,
     RpcReply,
     RpcUncertain,
@@ -230,6 +231,36 @@ class InstallationAndIsolationTests(unittest.TestCase):
             self.assertIn(tool, joined)
         for forbidden in ("model=", "worker", "orchestration", "review/start"):
             self.assertNotIn(forbidden, joined)
+
+    def test_xats_http_server_uses_only_loopback_and_a_nonsecret_header_helper(self):
+        binary = self.root / "codex"
+        binary.write_text("fake", encoding="utf-8")
+        binary.chmod(0o700)
+        helper = self.root / "header-helper.py"
+        helper.write_text("fake", encoding="utf-8")
+        command = build_process_command(
+            CodexInstallation(binary.resolve(), "0.160.0", self.root),
+            {},
+            HttpCommunicationServer(
+                "http://127.0.0.1:9100/mcp",
+                "/usr/bin/python3 %s --config-dir /private/runtime" % helper,
+            ),
+        )
+        joined = " ".join(command)
+        self.assertIn("http://127.0.0.1:9100/mcp", joined)
+        self.assertIn("http_headers_helper", joined)
+        self.assertIn(str(helper), joined)
+        self.assertNotIn("Bearer", joined)
+        self.assertNotIn("token=", joined.lower())
+
+        with self.assertRaisesRegex(CodexAdapterError, "loopback"):
+            build_process_command(
+                CodexInstallation(binary.resolve(), "0.160.0", self.root),
+                {},
+                HttpCommunicationServer(
+                    "https://example.test/mcp", "/usr/bin/python3 helper.py",
+                ),
+            )
 
     def test_environment_strips_both_hosts_ambient_session_identity(self):
         environment = sanitized_environment({
