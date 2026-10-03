@@ -98,6 +98,55 @@ class SessionRoutingEntryTests(unittest.TestCase):
         self.assertIn("session-routing", text)
         self.assertIn("不得为了传话创建新会话", text)
 
+    def test_cross_host_routes_both_directions_to_one_selected_bridge(self):
+        text = self.routing_text()
+        self.assertIn("Claude Code → Codex", text)
+        self.assertIn("Codex → Claude Code", text)
+        self.assertIn("spec-guard-bridge", text)
+        self.assertIn("collaboration_backend.py", text)
+        for state in ("xats", "native", "invalid", "unavailable"):
+            self.assertIn("`" + state + "`", text)
+        self.assertIn("不得切到另一个 backend", text)
+
+    def test_same_host_fallback_never_joins_or_configures_to_improve_its_grade(self):
+        text = self.routing_text()
+        for phrase in (
+            "当前授权仍覆盖", "两端已经唯一 bridge-joined", "bridge 已 ready",
+            "fallbackFrom", "routeReason", "不再逐条确认",
+        ):
+            self.assertIn(phrase, text)
+        self.assertIn("fallback 前不得懒注册", text)
+        self.assertIn("不能启动服务", text)
+        self.assertIn("不能修改配置", text)
+
+    def test_unified_directory_labels_host_source_and_only_proven_facts(self):
+        text = self.routing_text()
+        for phrase in (
+            "[Claude Code]", "[Codex]", "native-visible", "bridge-joined",
+            "项目简称", "liveness", "wake", "unread", "last activity",
+        ):
+            self.assertIn(phrase, text)
+        self.assertIn("不能把 bridge-joined 说成 online", text)
+        self.assertIn("不扫描未注册窗口", text)
+        self.assertIn("不自动注册每个新会话", text)
+
+    def test_bridge_outcome_keeps_enqueue_wake_ack_and_reply_independent(self):
+        text = self.routing_text()
+        self.assertIn("enqueue", text)
+        self.assertIn("wake admission", text)
+        self.assertIn("acknowledgement", text)
+        self.assertIn("reply", text)
+        self.assertIn("入箱不等于 wake", text)
+        self.assertIn("acknowledged 不等于 response=received", text)
+
+    def test_collab_routes_codex_native_and_cross_host_through_the_same_selector(self):
+        text = COLLAB.read_text(encoding="utf-8")
+        self.assertIn("Codex → Codex", text)
+        self.assertIn("host-native-codex", text)
+        self.assertIn("跨宿主", text)
+        self.assertIn("spec-guard-bridge", text)
+        self.assertIn("同一个 `session-routing` selector", text)
+
     def test_native_status_mapping_preserves_independent_evidence(self):
         text = self.routing_text()
         for field in ("transport", "dispatch", "wake", "receipt", "response"):

@@ -107,6 +107,25 @@ class RouteSelectionTests(unittest.TestCase):
                 self.assertEqual(result["transport"], "spec-guard-bridge")
                 self.assertEqual(result["routeReason"], "bridge-" + state)
 
+    def test_cross_host_bridge_requires_both_exact_joined_endpoints(self):
+        cases = (
+            ({"originJoined": False}, "origin-not-joined"),
+            ({"targetJoined": False}, "target-not-joined"),
+        )
+        base = {
+            "targetHost": "codex",
+            "nativeCapability": "not-applicable",
+            "bridgeState": "ready",
+            "originJoined": True,
+            "targetJoined": True,
+        }
+        for overrides, reason in cases:
+            with self.subTest(reason=reason):
+                result = select_route(self.facts(**(base | overrides)))
+                self.assertEqual(result["action"], "stop")
+                self.assertEqual(result["transport"], "spec-guard-bridge")
+                self.assertEqual(result["routeReason"], reason)
+
     def test_unknown_native_dispatch_requires_reconciliation_and_never_falls_back(self):
         result = select_route(self.facts(
             nativeDispatch="unknown",

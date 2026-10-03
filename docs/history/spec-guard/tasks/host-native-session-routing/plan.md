@@ -229,6 +229,13 @@ thread/turn primitive。名称与项目仅用于最小消歧，投递、等待�
 
 **预计规模：** M（4 个文件）。
 
+**2026-10-04 实施结果：** 统一入口已把 Claude→Codex 与 Codex→Claude 固定到当前 selector 选择的
+单一 `spec-guard-bridge` backend；`xats`/`native` 工具不混用，invalid/unavailable 不切换。跨宿主当前端
+可在 collaboration intent 下懒加入，目标必须已加入；同宿主 fallback 则禁止为回退新注册，只有原授权、
+bridge ready、双端唯一 joined 同时成立才自动执行并展示 `fallbackFrom`/`routeReason`。目录同时展示
+`[Claude Code]`/`[Codex]` 与 `native-visible`/`bridge-joined`，不把 registered 冒充 online。enqueue、
+wake、ack 与 reply 独立映射。路由核心 16 项、统一入口 19 项和既有 collab 14 项通过。
+
 ## Checkpoint B：三条消息路径
 
 - Claude 原生、Codex 原生和跨宿主 bridge 的契约测试全部通过。

@@ -14,9 +14,13 @@ description: 加入本机 Claude Code／Codex 联调、查看联调消息，或�
 ## 同宿主原生优先级
 
 用户点名已有会话并要求发现、发送、回复、等待或查看状态时，先转交统一 `session-routing` skill 判定唯一
-transport。当前宿主和唯一目标都是 Claude Code（Claude Code → Claude Code）且宿主提供 `ListAgents`、
-`SendMessage` 时，按 `host-native-claude` 执行，不进入下方邮箱后端选择，也不要先写入协作邮箱。只有
-`session-routing` 明确选择 `spec-guard-bridge` 时，才回到本 skill，并严格执行下方唯一后端规则。
+transport。Claude Code → Claude Code 且宿主提供 `ListAgents`/`SendMessage` 时走
+`host-native-claude`；Codex → Codex 且 App 提供 task/turn 工具时走 `host-native-codex`。两种同宿主
+原生路径都不进入下方邮箱后端选择，也不要先写入协作邮箱。
+
+跨宿主 Claude Code ↔ Codex 也先经过同一个 `session-routing` selector，并固定选择
+`spec-guard-bridge`。只有 `session-routing` 明确选择该 transport 时，才回到本 skill，严格执行下方唯一
+backend 规则；同宿主 fallback 也必须由 selector 显式批准，不能由本 skill 自行换路。
 
 “加入协作邮箱”“查看 bridge 未读”仍直接使用本 skill；“创建一个 Claude Code/Codex 去审查或开发”
 仍转交 `session-delegation`。
