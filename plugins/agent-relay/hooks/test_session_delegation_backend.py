@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import sqlite3
 import tempfile
 import unittest
 
@@ -71,6 +72,26 @@ class DelegationBackendTests(unittest.TestCase):
         self.assertEqual(list(result.claude_config["mcpServers"]), [MCP_SERVER_NAME])
         self.assertNotIn("test-only-secret", repr(result))
 
+    def test_xats_registration_probe_reads_only_the_exact_claude_identity(self):
+        database = self.xats / "messages.sqlite"
+        connection = sqlite3.connect(database)
+        connection.execute(
+            "CREATE TABLE agents (agent_id TEXT, agent_type TEXT, team TEXT, "
+            "name TEXT, runtime_ui_pid INTEGER)")
+        connection.execute(
+            "INSERT INTO agents VALUES ('agent-1','claude-code','spec-guard-local',?,?)",
+            ("review-12345678", 4321),
+        )
+        connection.commit()
+        connection.close()
+        database.chmod(0o600)
+        probe = self.resolve().claude_registration_probe
+        self.assertIsNotNone(probe)
+        self.assertTrue(probe("review-12345678", 4321))
+        self.assertFalse(probe("review-12345678", 9999))
+        database.chmod(0o644)
+        self.assertIsNone(probe("review-12345678", 4321))
+
     def test_native_marker_selects_only_live_native_mailbox_with_backups_enabled(self):
         self.marker.write_text(json.dumps({
             "backend": "native", "commit": BRIDGE_COMMIT,
@@ -82,6 +103,7 @@ class DelegationBackendTests(unittest.TestCase):
         self.assertEqual(result.codex_server.command, self.node.resolve())
         self.assertNotIn("BRIDGE_BACKUPS", result.codex_server.environment)
         self.assertEqual(result.claude_server_name, CLAUDE_SERVER_NAME)
+        self.assertIsNone(result.claude_registration_probe)
         serialized = json.dumps(result.claude_config)
         for hidden in ("ask_codex", "review_with_codex", "orchestration"):
             self.assertNotIn(hidden, serialized)

@@ -64,6 +64,15 @@ class SessionDelegationEntryTests(unittest.TestCase):
         self.assertIn("不推进 A10 native 转正", text)
         self.assertIn("不删除 XATS", text)
 
+    def test_entry_uses_the_control_surface_without_user_supplied_identity(self):
+        text = self.delegation_text()
+        for phrase in (
+            "session_delegation_control.py", "任务正文只从 stdin 传入",
+            "响应丢失后的重试必须复用", "origin session 只由控制器",
+            "八小时到期时间", "不初始化运行时",
+        ):
+            self.assertIn(phrase, text)
+
     def test_optional_feature_docs_explain_smooth_preapproval_and_limits(self):
         text = OPTIONAL.read_text(encoding="utf-8")
         self.assertIn("跨宿主会话委派", text)
@@ -72,10 +81,12 @@ class SessionDelegationEntryTests(unittest.TestCase):
         self.assertIn("不会自动修改", text)
 
     def test_repository_validation_runs_the_entry_contract(self):
-        self.assertIn(
+        validation = VALIDATE.read_text(encoding="utf-8")
+        for command in (
             "python3 -B plugins/spec-guard/hooks/test_skill_entrypoints.py",
-            VALIDATE.read_text(encoding="utf-8"),
-        )
+            "python3 -B plugins/spec-guard/hooks/test_session_delegation_recovery.py",
+        ):
+            self.assertIn(command, validation)
 
 
 if __name__ == "__main__":

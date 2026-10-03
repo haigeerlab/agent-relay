@@ -626,6 +626,8 @@ class CodexAdapter:
         envelope = self.store.get_authorization(claim.envelope_id)
         if claim.target_host != "codex":
             raise CodexAdapterError("target-host-is-not-codex")
+        if envelope.state != "authorized":
+            raise CodexAdapterError("authorization-" + envelope.state)
         permission = _permission(
             claim.permission_intent,
             envelope.host_permission,

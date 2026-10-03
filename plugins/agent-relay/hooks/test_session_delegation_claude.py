@@ -205,7 +205,7 @@ class AdapterTests(unittest.TestCase):
             completed(json.dumps([entry])),
         ])
 
-    def adapter(self, runner, *, wake=None):
+    def adapter(self, runner, *, wake=None, registration_probe=None):
         return ClaudeAdapter(
             self.store,
             self.installation,
@@ -213,6 +213,7 @@ class AdapterTests(unittest.TestCase):
             runner=runner,
             config_factory=lambda _delegation_id: self.config,
             native_wake=wake,
+            registration_probe=registration_probe,
             now=lambda: NOW,
         )
 
@@ -252,6 +253,32 @@ class AdapterTests(unittest.TestCase):
         result = self.adapter(runner).create(self.claim.delegation_id, "Review")
         self.assertEqual(result.state, "created")
         self.assertEqual(result.host_ref, "ce5b9501")
+
+    def test_status_requires_exact_registration_before_completing_initial_turn(self):
+        self.adapter(self.runner_for_create()).create(
+            self.claim.delegation_id, "Review")
+        expected_name = "Claude Code session-" + self.claim.delegation_id[:8]
+        seen = []
+        adapter = self.adapter(
+            ScriptedRunner([completed(json.dumps([self.entry()]))]),
+            registration_probe=lambda name, pid: seen.append((name, pid)) or True,
+        )
+        result = adapter.status(self.claim.delegation_id)
+        self.assertEqual(result.state, "completed")
+        self.assertEqual(seen, [(expected_name, 123)])
+        self.assertEqual(
+            self.store.get_delegation(self.claim.delegation_id).state, "completed")
+
+    def test_status_holds_when_exact_mailbox_registration_is_missing(self):
+        self.adapter(self.runner_for_create()).create(
+            self.claim.delegation_id, "Review")
+        adapter = self.adapter(
+            ScriptedRunner([completed(json.dumps([self.entry()]))]),
+            registration_probe=lambda _name, _pid: False,
+        )
+        result = adapter.status(self.claim.delegation_id)
+        self.assertEqual(result.state, "created")
+        self.assertEqual(result.prerequisite, "mailbox-registration-missing")
 
     def test_response_loss_without_exact_id_never_guesses_from_name_or_project(self):
         runner = ScriptedRunner([
@@ -311,6 +338,36 @@ class AdapterTests(unittest.TestCase):
         )])
         self.assertFalse(any("--resume" in command for command, _ in runner.calls))
 
+    def test_idle_follow_up_without_wake_stops_then_resumes_the_exact_session(self):
+        self.complete_claim()
+        runner = ScriptedRunner([
+            completed(json.dumps([self.entry()])),
+            completed("stopped ce5b9501\n"),
+            completed("backgrounded · ce5b9501 · test\n"),
+            completed(json.dumps([self.entry(state="running", status="working")])),
+        ])
+        result = self.adapter(runner).continue_turn(
+            self.claim.delegation_id, "Check again")
+        self.assertEqual(result.state, "running")
+        self.assertEqual(runner.calls[1][0], [
+            str(self.installation.binary), "stop", "ce5b9501",
+        ])
+        self.assertEqual(runner.calls[2][0][:4], [
+            str(self.installation.binary), "--background", "--resume",
+            "ce5b9501-0817-479d-886e-772bafbbee6f",
+        ])
+
+    def test_idle_stop_uncertainty_never_attempts_resume_or_creates_a_copy(self):
+        self.complete_claim()
+        runner = ScriptedRunner([
+            completed(json.dumps([self.entry()])),
+            ClaudeCommandUncertain("claude-stop"),
+        ])
+        result = self.adapter(runner).continue_turn(
+            self.claim.delegation_id, "Check again")
+        self.assertEqual(result.state, "unknown")
+        self.assertFalse(any("--resume" in command for command, _ in runner.calls))
+
     def test_stopped_follow_up_uses_full_session_id_and_no_startup_overrides(self):
         self.complete_claim()
         stopped = self.entry(state="stopped", status="stopped")
@@ -343,6 +400,10 @@ class AdapterTests(unittest.TestCase):
 
     def test_cancel_confirms_exact_stop_before_marking_cancelled_and_is_retryable(self):
         self.complete_claim()
+        managed = self.store.root / (
+            "claude-" + self.claim.delegation_id + ".mcp.json")
+        managed.write_text('{"mcpServers":{}}\n', encoding="utf-8")
+        managed.chmod(0o600)
         runner = ScriptedRunner([
             completed("stopped ce5b9501\n"),
         ])
@@ -353,6 +414,7 @@ class AdapterTests(unittest.TestCase):
         ])
         self.assertEqual(self.store.get_delegation(self.claim.delegation_id).state,
                          "cancelled")
+        self.assertFalse(managed.exists())
 
     def test_stop_failure_does_not_claim_the_host_stopped(self):
         self.complete_claim()

@@ -2,10 +2,15 @@
 """Map the selected collaboration mailbox to one non-secret delegation config."""
 from __future__ import annotations
 
+from contextlib import closing
 from dataclasses import dataclass
+import os
 from pathlib import Path
 import shlex
-from typing import Any
+import sqlite3
+import stat
+from typing import Any, Callable
+from urllib.parse import quote
 
 from collaboration_adapters import MCP_SERVER_NAME, claude_mcp_config, mcp_url
 from collaboration_auth_header import read_private_token
@@ -25,6 +30,39 @@ class DelegationBackend:
     codex_server: CommunicationServer | HttpCommunicationServer
     claude_server_name: str
     claude_config: dict[str, Any]
+    claude_registration_probe: Callable[[str, int | None], bool | None] | None
+
+
+def xats_registration_probe(database: Path) -> Callable[[str, int | None], bool | None]:
+    """Prove one Claude registration without reading messages or advancing cursors."""
+    database = Path(database)
+
+    def probe(name: str, pid: int | None) -> bool | None:
+        if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+            return None
+        try:
+            metadata = database.lstat()
+            if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid()
+                    or stat.S_IMODE(metadata.st_mode) & 0o077):
+                return None
+            uri = "file:%s?mode=ro" % quote(str(database.absolute()))
+            with closing(sqlite3.connect(uri, uri=True)) as connection:
+                columns = {
+                    row[1] for row in connection.execute("PRAGMA table_info(agents)")
+                }
+                required = {"agent_id", "agent_type", "team", "name", "runtime_ui_pid"}
+                if not required <= columns:
+                    return None
+                rows = connection.execute(
+                    "SELECT agent_id FROM agents WHERE agent_type='claude-code' "
+                    "AND team='spec-guard-local' AND name=? AND runtime_ui_pid=?",
+                    (name, pid),
+                ).fetchall()
+                return len(rows) == 1
+        except (OSError, sqlite3.Error, ValueError):
+            return None
+
+    return probe
 
 
 def _regular(path: Path, label: str, *, executable: bool = False) -> Path:
@@ -52,8 +90,8 @@ def resolve_backend(
     name = selection.get("backend")
     if name not in ("xats", "native"):
         raise BackendUnavailable("backend-" + str(name))
-    node = _regular(node, "node", executable=True)
     if name == "native":
+        node = _regular(node, "node", executable=True)
         generated = claude_config(native_root, node)
         server = generated["mcpServers"][CLAUDE_SERVER_NAME]
         environment = dict(server["env"])
@@ -65,6 +103,7 @@ def resolve_backend(
         return DelegationBackend(
             "native", codex, CLAUDE_SERVER_NAME,
             {"mcpServers": {CLAUDE_SERVER_NAME: server}},
+            None,
         )
 
     runtime = read_runtime_config(xats_config_dir)
@@ -83,4 +122,5 @@ def resolve_backend(
         MCP_SERVER_NAME,
         claude_mcp_config(
             stdio_helper, xats_config_dir, str(python_executable), str(npx)),
+        xats_registration_probe(Path(xats_config_dir) / "messages.sqlite"),
     )
