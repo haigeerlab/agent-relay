@@ -39,6 +39,10 @@
   让宿主使用配置默认值。不得因为 `PATH` 中旧的 Codex 0.154.0 失败而新增模型绕过。
 - Claude Code 使用其受支持的 background/session 生命周期和现有临时、无令牌 MCP 配置
   启动路径。权限映射必须由真实宿主预检证明，不能假设与 Codex 同名或等价。
+- Claude 适配器优先读取并复用目标项目已有的 `.claude/settings.json` allow/deny 规则；可用
+  `dontAsk` 将未预批准工具硬拒绝，使已明确允许的通信工具无需逐次弹窗。项目 trust、项目级
+  MCP 首次批准和工具权限是三个独立前置条件，必须分别核对；缺少任一项时返回
+  `held/prerequisite` 和最小配置建议，不自动修改项目或全局设置。
 - 适配器记录实际二进制路径来源、版本、创建 primitive、实际权限和宿主 session 引用；
   对外只显示短 disambiguator。版本或协议不兼容时失败关闭，不退回标题猜测或手填 ID。
 
@@ -86,6 +90,12 @@
 
 ### 2. 授权信封、私有状态与纯状态机
 
+2026-10-03 的真实宿主门槛记录见
+[`host-creation-preflight-2026-10-03.md`](host-creation-preflight-2026-10-03.md)。判决为有条件
+通过并进入本任务；已确认的实现约束是：Codex 后续轮次由控制面精确 `thread/resume`，不能把
+native offline wake 当成已唤醒；Claude 目标项目必须已受宿主信任，且停止后的恢复只复用保存
+选项。两个适配器都要剥离对方的环境会话变量。
+
 以红态测试固定 task/strict/batch/session 四种 horizon、三种 permission intent、项目与
 baseline 绑定、depth=0、期限、撤销、剩余额度、权限降级和扩权拒绝。实现最小 SQLite
 控制记录，目录与文件 owner-only，schema 只保留调度事实和宿主引用，不存 prompt 正文。
@@ -106,11 +116,22 @@ baseline 绑定、depth=0、期限、撤销、剩余额度、权限降级和扩�
 - `plugins/spec-guard/hooks/session_delegation.py`
 - `plugins/spec-guard/hooks/test_session_delegation.py`
 
+**2026-10-03 实施结果：** 18 个聚焦用例与仓库完整校验通过。已固定四种授权范围、三种
+权限意图（包含 `bounded-development` 向 `safe-review` 收窄）、单跳、期限、撤销、并发启动
+认领和可信证据状态迁移；owner-only SQLite 在打开前拒绝不安全目录、数据库与 sidecar，且
+不保存 prompt/message body。对 mailbox、friendly name、伪 batch id、真值伪确认、跨项目、
+超额和扩权均失败关闭。Task 3 可以只消费精确 envelope/claim，不再自行解释授权文本。
+
 ### 3. Codex 创建与继续适配器
 
 在任务 1 选定的官方接口上做一个垂直切片：安全解析 app-managed current binary，执行版本
 和协议预检，按 permission intent 映射 `cwd`、sandbox、approval policy，创建 thread/turn，
 继续同一 thread，读取终态并停止。协议事件仅抽取必要字段，完整 event/log 不落控制库。
+启动前必须用同一个 app-managed binary 枚举有效 MCP 配置，生成一次性的进程内覆盖：禁用
+所有继承 server 及 Apps/plugins/browser/computer-use/multi-agent 能力，只启用所选后端的精确通信工具；
+只复制禁用项的非秘密 transport identity，不复制 token/header，无法完整收紧就失败关闭。
+`thread/start` 返回的精确 ID 由控制器写入初始信封并保存；后续使用 `thread/resume`，不依赖
+现有 native transport 对 App Server 线程的后台唤醒。
 
 **验收标准：**
 
@@ -126,16 +147,31 @@ baseline 绑定、depth=0、期限、撤销、剩余额度、权限降级和扩�
 - `plugins/spec-guard/hooks/test_session_delegation_codex.py`
 - `plugins/spec-guard/hooks/session_delegation.py`
 
+**2026-10-04 实施结果：** 20 个 Codex 适配器聚焦用例与仓库完整校验通过。适配器只解析
+app-managed `current`，拒绝 PATH 旧版，使用同一 0.160.0 二进制读取有效 MCP 清单；真实只读
+复查发现并修正了清单中相对 `cwd` 的兼容边界，最终读取 10 个继承项并全部生成禁用覆盖。委派服务自身
+按后端使用不同目录：native 是十个 `bridge_*`，XATS 是七个真实的注册、收发、目录与投递状态工具；
+测试拒绝把 `ask_codex` 或 review/orchestration 工具混入任一目录。
+线程创建、精确绑定、乱序事件、响应丢失、重连继续、状态、取消、独立工作树、有效权限及
+工具目录均失败关闭；请求不传 model，也不注册 worker/review/orchestration 面。Codex 离线线程
+仍由控制器通过精确 `thread/resume` 恢复，不宣称 native mailbox 自动唤醒。
+
 ### 4. Claude Code 创建与继续适配器
 
 在现有 `collaboration_claude.py` 的临时无令牌配置和参数过滤基础上，添加受管 background
 session 路径；解析真实 session identity，按 permission intent 选择已验证的最窄宿主模式，
 支持 logs/status/continue/stop。不得放宽现有 `--mcp-config`、token 和隐藏工具限制。
+启动时剥离继承的 Codex session 环境变量。未受 Claude Code 信任的项目返回 held/prerequisite，
+不得代替用户接受信任。活跃 background 会话优先用其原生 ping；精确 stop 后只用保存选项恢复，
+不得重复附加启动参数，因为宿主会据此创建副本；每次都要核对实际返回 ID。
 
 **验收标准：**
 
 - 假 CLI 覆盖 background 创建、响应丢失、列表对账、第二轮、busy、退出、停止失败和重试；
   不从标题、进程列表或同项目候选中猜 identity。
+- 已预配置的项目级通信工具权限可以无提示完成两轮；缺少项目 trust、MCP 项目批准或必要
+  allow 规则时分别进入可诊断的 held 状态，且适配器不会替用户写入 `.claude/settings.json`
+  或接受 trust。
 - `safe-review` 不可写源码；`bounded-development` 默认只在指定独立 worktree；宿主要求的人工
   prompt 会真实暴露为 held，而不是自动绕过。
 - 现有无令牌环境、临时 MCP 文件权限、参数拒绝和通信工具 allowlist 回归保持通过。
@@ -146,6 +182,22 @@ session 路径；解析真实 session identity，按 permission intent 选择已
 - `plugins/spec-guard/hooks/test_session_delegation_claude.py`
 - `plugins/spec-guard/hooks/collaboration_claude.py`
 - `plugins/spec-guard/hooks/test_collaboration_runtime.py`
+
+**2026-10-04 实施结果：** 23 个 Claude 适配器聚焦用例和 43 个既有 launcher/runtime 用例通过。
+适配器复用项目 `.claude/settings.json` / `.claude/settings.local.json` 中已有的 allow/deny，默认
+`dontAsk + permission-prompts none`；安全审查只要求预批准所选后端的精确通信 MCP 工具，开发会话才额外
+要求编辑、写入与至少一条 Bash allow，并限定到干净独立 worktree。缺少项目 allow、trust、
+MCP 项目批准或宿主人工权限时分别返回可诊断 held，不写设置也不代替用户接受信任。
+
+真实格式探针在已受信项目创建并清理了一个无工具测试会话：Claude Code 2.1.288 的 `--bg`
+会忽略调用方提供的 `--session-id` 并返回 8 位 background id；停止后若用该短 ID `--resume`
+会创建副本，只有 `claude agents --json` 返回的完整 `sessionId` 才会按原 ID 唤醒并复用保存的
+权限、工具与名称。因此适配器只以首轮输出中的精确短 ID 对账完整 ID，响应丢失时不按标题或
+同项目候选猜测；恢复命令只传完整 `sessionId` 与新 prompt，不重放启动选项。当前仓库未预配
+通信 allow，真实只读预检如实返回 `held/project-allow-rules`，未修改项目或全局 Claude 配置。
+无可用的原生 active wake 时，空闲会话先用精确短 ID 停止并确认，再用完整 `sessionId` 恢复；
+stop 结果不确定时不调用 resume。XATS 默认后端只读核对精确注册名和 Claude 进程 PID，不读取
+消息正文或推进游标；注册证据不足时不把初始轮次升级为 completed。
 
 ### 5. 自然语言入口、非阻塞授权和已加入目录
 
@@ -171,6 +223,17 @@ name、项目、真实 registration/wake/stale/unread 事实；同名只给最�
 - `plugins/spec-guard/hooks/test_skill_entrypoints.py`
 - `docs/optional-features.md`
 
+**2026-10-04 实施结果：** 已新增 `session-delegation` 自然语言契约、统一的已加入目录展示规则和
+9 个入口契约用例；普通 `collab` 行为保持不变。统一控制入口只接受 friendly name，对外返回脱敏 JSON，
+prompt 只走 stdin，origin session 只从宿主环境读取。控制记录新增 friendly name，所选 backend 显式映射到
+Codex/Claude 的单一进程内通信配置，4 个用例证明 XATS/native 不混用、invalid 不回退、不复制 token，且
+XATS 注册核对只读精确身份。后续真实预检发现并修正了 native/XATS 工具名并不相同的缺口；两套目录、注册
+指令和证据现分别失败关闭，隐藏 worker/review/orchestration 工具在两端都被负例拒绝。列表在空状态下不初始化目录，在已有状态下也不启动宿主或消息后端。默认 task
+使用八小时安全上限；更宽 batch/session 必须由用户明确给出数量和期限。完整仓库校验通过。
+只读 `permissions` 动作按当前后端返回精确 `requiredAllow`、ready/prerequisite 和候选项目设置文件，明确
+`writesPerformed: false`；它不创建控制状态或修改配置。当前实际选择为 native，本项目预检返回
+`held/project-allow-rules`，所需清单为十个 `mcp__spec-guard-native-collaboration__bridge_*` 规则。
+
 ### 6. 恢复、取消、到期与精确清理
 
 为 create-before-register、结果丢失、宿主重启、held wake、超时和 origin 重启加入对账。
@@ -191,6 +254,13 @@ name、项目、真实 registration/wake/stale/unread 事实；同名只给最�
 - `plugins/spec-guard/hooks/session_delegation_codex.py`
 - `plugins/spec-guard/hooks/session_delegation_claude.py`
 - `plugins/spec-guard/hooks/test_session_delegation_recovery.py`
+
+**2026-10-04 实施结果：** 11 个控制器恢复用例以及 Codex 20、Claude 23、状态机 21 个聚焦用例通过。
+控制器先持久化唯一 launch claim 再启动宿主；重启复用 claim，unknown 不自动重建，held 重试不消耗额外
+容量，到期在接触宿主前阻断，取消只命中唯一绑定。Claude 空闲二轮采用“精确 stop 确认 → 完整 sessionId
+resume”，stop 不确定时保持 unknown；控制进程重启后仍只清理按 delegation id 派生的 owner-only 临时配置。
+列表、状态和取消不删除消息或推进收件游标，replacement 仍只允许在证明原会话不存在或另获用户授权后实现。
+`scripts/validate.sh` 已纳入恢复用例并完整通过。真实双向宿主结果仍由任务 7 单独裁决。
 
 ### 7. 双向真实验收、文档和完整回归
 
@@ -215,6 +285,14 @@ Claude Code 创建 Codex、Codex 创建 Claude Code。每条链路完成首轮�
 - `CHANGELOG.md`
 - `tasks/authorized-session-delegation/plan.md`
 - `tasks/authorized-session-delegation/todo.md`
+
+**2026-10-04 验收结果：** 独立源码候选已在真实 Claude Code 2.1.288 与 app-managed Codex
+0.160.0 完成双向创建、自注册、首轮、同一会话第二轮、safe-review 写入拒绝、取消和停止读回；
+修复了 Claude 创建 prompt 被可变长 `--tools` 吞掉、完成态 `blocked/idle` 无法二次唤醒，以及停止后
+`done/null/null` 无法读回三个兼容问题。随后补入唯一 origin mailbox 身份、逐轮 route、结果元数据核验、
+脱敏公开结果和同名 `--disambiguator`，并完成两个方向的最小真实 mailbox 回传及真实同名目录精确停止。
+完整证据见 [`live-acceptance-2026-10-04.md`](live-acceptance-2026-10-04.md)。本任务完成只裁决本机
+授权会话委派；不构成发布、XATS 实机覆盖、跨机器能力或 A10 native 转正。
 
 ## 检查点与停止条件
 
@@ -249,6 +327,9 @@ git diff --check
   SDK 运行时依赖。
 - Codex 官方 SDK 文档确认省略 model 时使用配置默认模型，并支持本地 thread 的 start、
   continue 和 resume。
+- Claude Code 官方权限文档确认项目 `.claude/settings.json` 的 allow/deny 规则可预批准工具；
+  `dontAsk` 会硬拒绝未预批准工具。项目 trust 与项目级 MCP 首次批准仍是独立前置条件，不能
+  由 allow 规则代替。
 - 2026-10-03 本机预检：app-managed current 为 Codex 0.160.0；PATH 首命中仍是 0.154.0，
   因此实现必须校验 provenance。Claude Code 为 2.1.288，帮助信息提供 background、agents、
   attach/logs/stop、session-id/resume 和 permission-mode；这些只是能力候选，任务 1 的真实
