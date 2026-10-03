@@ -24,6 +24,7 @@ from session_delegation_claude import (
     communication_rules,
     discover_claude,
     inspect_project_permissions,
+    required_project_allow,
     sanitized_environment,
 )
 
@@ -179,6 +180,18 @@ class InstallationAndPermissionTests(unittest.TestCase):
         self.assertIn("wake null", prompt)
         with self.assertRaisesRegex(ClaudeAdapterError, "communication-tools-invalid"):
             communication_rules("unsafe", ("ask_codex",))
+
+    def test_permission_preflight_rules_include_only_prompting_tools(self):
+        review = required_project_allow(
+            "safe-review", None, communication_tools=XATS_COMMUNICATION_TOOLS)
+        self.assertEqual(review, communication_rules(
+            MCP_SERVER_NAME, XATS_COMMUNICATION_TOOLS))
+        development = required_project_allow(
+            "bounded-development", None,
+            communication_tools=XATS_COMMUNICATION_TOOLS,
+        )
+        self.assertEqual(development[-3:], ("Edit", "Write", "Bash"))
+        self.assertNotIn("Read", development)
 
     def test_environment_strips_both_hosts_session_identity_and_bridge_token(self):
         environment = sanitized_environment({

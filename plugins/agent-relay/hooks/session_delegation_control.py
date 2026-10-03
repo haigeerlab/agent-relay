@@ -251,31 +251,67 @@ def _origin_session(host: str) -> str:
     raise ControlError("origin-session-unavailable")
 
 
-def _production_controller(args: argparse.Namespace) -> SessionDelegationController:
+def _selected_backend(args: argparse.Namespace):
     from collaboration_backend import default_marker
     from collaboration_runtime import default_config_dir
     from native_collaboration_runtime import default_root as default_native_root
     from session_delegation_backend import resolve_backend
+
+    plugin_root = Path(__file__).resolve().parent
+    return resolve_backend(
+        args.marker or default_marker(),
+        args.native_root or default_native_root(),
+        args.xats_config_dir or default_config_dir(),
+        node=Path(args.node or shutil.which("node") or "/unavailable/node"),
+        npx=Path(args.npx or shutil.which("npx") or "/unavailable/npx"),
+        python_executable=Path(sys.executable),
+        header_helper=plugin_root / "collaboration_auth_header.py",
+        stdio_helper=plugin_root / "collaboration_claude_stdio.py",
+    )
+
+
+def _permission_preflight(args: argparse.Namespace) -> dict[str, object]:
+    from session_delegation_claude import (
+        inspect_project_permissions,
+        required_project_allow,
+    )
+
+    selected = _selected_backend(args)
+    readiness = inspect_project_permissions(
+        args.project,
+        args.permission,
+        args.host_permission,
+        server_name=selected.claude_server_name,
+        communication_tools=selected.claude_tools,
+    )
+    return {
+        "backend": selected.name,
+        "ready": readiness.ready,
+        "permissionMode": readiness.permission_mode,
+        "prerequisite": readiness.prerequisite,
+        "requiredAllow": list(required_project_allow(
+            args.permission,
+            args.host_permission,
+            server_name=selected.claude_server_name,
+            communication_tools=selected.claude_tools,
+        )),
+        "settings": [".claude/settings.local.json", ".claude/settings.json"],
+        "writesPerformed": False,
+    }
+
+
+def _production_controller(args: argparse.Namespace) -> SessionDelegationController:
+    from collaboration_runtime import default_config_dir
     from session_delegation_claude import prepare_claude_adapter
     from session_delegation_codex import prepare_codex_adapter
 
     store = DelegationStore(args.state_root)
-    plugin_root = Path(__file__).resolve().parent
     resolved_backend = None
 
     def backend():
         nonlocal resolved_backend
         if resolved_backend is None:
-            resolved_backend = resolve_backend(
-                args.marker or default_marker(),
-                args.native_root or default_native_root(),
-                args.xats_config_dir or default_config_dir(),
-                node=Path(args.node or shutil.which("node") or "/unavailable/node"),
-                npx=Path(args.npx or shutil.which("npx") or "/unavailable/npx"),
-                python_executable=Path(sys.executable),
-                header_helper=plugin_root / "collaboration_auth_header.py",
-                stdio_helper=plugin_root / "collaboration_claude_stdio.py",
-            )
+            resolved_backend = _selected_backend(args)
         return resolved_backend
 
     def factory(host: str, project: Path) -> HostAdapter:
@@ -319,6 +355,14 @@ def _parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("list", help="list only delegated sessions using public facts")
 
+    permissions = subparsers.add_parser(
+        "permissions", help="read-only Claude project permission preflight")
+    permissions.add_argument("--project", type=Path, required=True)
+    permissions.add_argument("--permission", choices=(
+        "safe-review", "bounded-development", "host-native"),
+        default="safe-review")
+    permissions.add_argument("--host-permission")
+
     create = subparsers.add_parser("create")
     create.add_argument("--authority", choices=("direct-user", "confirmed-user"),
                         default="direct-user")
@@ -361,7 +405,9 @@ def _read_prompt() -> str:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        if args.command == "list" and not args.state_root.exists():
+        if args.command == "permissions":
+            payload = _permission_preflight(args)
+        elif args.command == "list" and not args.state_root.exists():
             payload: object = []
         elif args.command == "list":
             controller = SessionDelegationController(

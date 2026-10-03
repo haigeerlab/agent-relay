@@ -69,7 +69,8 @@ class SessionDelegationEntryTests(unittest.TestCase):
         for phrase in (
             "session_delegation_control.py", "任务正文只从 stdin 传入",
             "响应丢失后的重试必须复用", "origin session 只由控制器",
-            "八小时到期时间", "不初始化运行时",
+            "八小时到期时间", "不初始化运行时", "只读 `permissions`",
+            "`writesPerformed` 必须为 false",
         ):
             self.assertIn(phrase, text)
 

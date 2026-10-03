@@ -212,6 +212,26 @@ class RecoveryTests(unittest.TestCase):
                          "origin-session-unavailable")
         self.assertFalse(state_root.exists())
 
+    def test_permission_preflight_is_read_only_and_never_initializes_control_state(self):
+        state_root = self.root / "permission-state"
+        output = io.StringIO()
+        expected = {
+            "backend": "native", "ready": False,
+            "requiredAllow": ["mcp__native__bridge_register"],
+            "writesPerformed": False,
+        }
+        with mock.patch(
+            "session_delegation_control._permission_preflight",
+            return_value=expected,
+        ), redirect_stdout(output):
+            result = main([
+                "--state-root", str(state_root), "permissions",
+                "--project", str(self.project),
+            ])
+        self.assertEqual(result, 0)
+        self.assertEqual(json.loads(output.getvalue()), expected)
+        self.assertFalse(state_root.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

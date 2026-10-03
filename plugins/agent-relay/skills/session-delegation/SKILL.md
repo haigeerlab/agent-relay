@@ -53,6 +53,8 @@ Agent 自己建议新开会话（例如主动建议再找一个 Codex 复审）�
 出现 held 时只展示最小建议：`.claude/settings.json` / `.claude/settings.local.json` 的最小 allow 和一个下一步；
 不得自动修改项目或全局设置，不得代用户接受 trust/MCP，也不得改用 bypass。用户可以提前把通信 allow 配在
 项目目录中；这样后续已授权任务和同范围第二轮可以连贯执行。配置变更本身仍需用户明确要求。
+用户询问能否提前配置或创建前需要预检时，先运行控制器的只读 `permissions`；只展示它返回的当前后端、
+`requiredAllow`、ready/prerequisite 和两个候选项目设置文件。`writesPerformed` 必须为 false；未经明确授权不写文件。
 
 ## 只复用当前消息后端
 
@@ -71,7 +73,7 @@ Codex 使用 app-managed current 受支持二进制和 app-server；Claude Code 
 ## 内部控制入口
 
 解析已安装插件根目录为 `$ROOT`，通过
-`python3 -B "$ROOT/hooks/session_delegation_control.py"` 执行 `list`、`create`、`continue`、`status` 或
+`python3 -B "$ROOT/hooks/session_delegation_control.py"` 执行 `permissions`、`list`、`create`、`continue`、`status` 或
 `cancel`。运行参数放在子命令之前；用 `--help` 读取精确参数名。创建前从当前 Git checkout 取得规范项目根、
 repository identity、精确 baseline 和 dirty 状态，并在当前调用中生成一次 idempotency key 与 launch key；
 响应丢失后的重试必须复用这两个 key，不能换 key 重建。origin session 只由控制器从当前宿主可信环境读取，绝不让

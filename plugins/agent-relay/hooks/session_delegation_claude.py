@@ -188,12 +188,15 @@ def inspect_project_permissions(
 ) -> PermissionReadiness:
     project = Path(project).resolve(strict=True)
     allow, deny = _settings_rules(project)
-    mode, tools, prompt_allow = _permission_shape(
+    mode, tools, _prompt_allow = _permission_shape(
         intent, host_permission, server_name, communication_tools)
     for tool in tools:
         if any(_matches_rule(rule, tool) for rule in deny):
             return PermissionReadiness(False, mode, tools, "project-deny-rules")
-    required = communication_rules(server_name, communication_tools) + prompt_allow
+    required = required_project_allow(
+        intent, host_permission, server_name=server_name,
+        communication_tools=communication_tools,
+    )
     missing = []
     for tool in required:
         if tool == "Bash":
@@ -205,6 +208,16 @@ def inspect_project_permissions(
     if missing:
         return PermissionReadiness(False, mode, tools, "project-allow-rules")
     return PermissionReadiness(True, mode, tools)
+
+
+def required_project_allow(
+    intent: str, host_permission: str | None, *,
+    server_name: str = MCP_SERVER_NAME,
+    communication_tools: tuple[str, ...] = COMMUNICATION_TOOLS,
+) -> tuple[str, ...]:
+    _mode, _tools, prompt_allow = _permission_shape(
+        intent, host_permission, server_name, communication_tools)
+    return communication_rules(server_name, communication_tools) + prompt_allow
 
 
 def _internal_name(friendly_name: str, delegation_id: str) -> str:

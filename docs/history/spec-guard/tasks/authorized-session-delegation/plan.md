@@ -183,7 +183,7 @@ session 路径；解析真实 session identity，按 permission intent 选择已
 - `plugins/spec-guard/hooks/collaboration_claude.py`
 - `plugins/spec-guard/hooks/test_collaboration_runtime.py`
 
-**2026-10-04 实施结果：** 22 个 Claude 适配器聚焦用例和 43 个既有 launcher/runtime 用例通过。
+**2026-10-04 实施结果：** 23 个 Claude 适配器聚焦用例和 43 个既有 launcher/runtime 用例通过。
 适配器复用项目 `.claude/settings.json` / `.claude/settings.local.json` 中已有的 allow/deny，默认
 `dontAsk + permission-prompts none`；安全审查只要求预批准所选后端的精确通信 MCP 工具，开发会话才额外
 要求编辑、写入与至少一条 Bash allow，并限定到干净独立 worktree。缺少项目 allow、trust、
@@ -230,6 +230,9 @@ Codex/Claude 的单一进程内通信配置，4 个用例证明 XATS/native 不�
 XATS 注册核对只读精确身份。后续真实预检发现并修正了 native/XATS 工具名并不相同的缺口；两套目录、注册
 指令和证据现分别失败关闭，隐藏 worker/review/orchestration 工具在两端都被负例拒绝。列表在空状态下不初始化目录，在已有状态下也不启动宿主或消息后端。默认 task
 使用八小时安全上限；更宽 batch/session 必须由用户明确给出数量和期限。完整仓库校验通过。
+只读 `permissions` 动作按当前后端返回精确 `requiredAllow`、ready/prerequisite 和候选项目设置文件，明确
+`writesPerformed: false`；它不创建控制状态或修改配置。当前实际选择为 native，本项目预检返回
+`held/project-allow-rules`，所需清单为十个 `mcp__spec-guard-native-collaboration__bridge_*` 规则。
 
 ### 6. 恢复、取消、到期与精确清理
 
@@ -252,7 +255,7 @@ XATS 注册核对只读精确身份。后续真实预检发现并修正了 nativ
 - `plugins/spec-guard/hooks/session_delegation_claude.py`
 - `plugins/spec-guard/hooks/test_session_delegation_recovery.py`
 
-**2026-10-04 实施结果：** 10 个控制器恢复用例以及 Codex 20、Claude 22、状态机 21 个聚焦用例通过。
+**2026-10-04 实施结果：** 11 个控制器恢复用例以及 Codex 20、Claude 23、状态机 21 个聚焦用例通过。
 控制器先持久化唯一 launch claim 再启动宿主；重启复用 claim，unknown 不自动重建，held 重试不消耗额外
 容量，到期在接触宿主前阻断，取消只命中唯一绑定。Claude 空闲二轮采用“精确 stop 确认 → 完整 sessionId
 resume”，stop 不确定时保持 unknown；控制进程重启后仍只清理按 delegation id 派生的 owner-only 临时配置。
