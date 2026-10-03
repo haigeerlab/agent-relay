@@ -286,6 +286,7 @@ def build_create_command(
         "--disable-slash-commands",
         "--no-chrome",
         "--tools", ",".join(tools),
+        "--",
         prompt,
     )
 
@@ -417,6 +418,9 @@ class ClaudeAdapter:
         state = item.get("state")
         status = item.get("status")
         pid = item.get("pid")
+        if (status is None and pid is None
+                and state in ("done", "stopped", "exited", "failed")):
+            status = state
         if (not valid_uuid or cwd != project.resolve(strict=True)
                 or item.get("kind") != "background"
                 or not isinstance(state, str) or not state
@@ -572,7 +576,8 @@ class ClaudeAdapter:
                 host_status=session.status, prerequisite="target-busy",
             )
         turn_ref = "claude-turn-" + uuid4().hex
-        if session.status == "idle" and session.state in ("done", "running", "active"):
+        if session.status == "idle" and session.state in (
+                "blocked", "done", "running", "active"):
             if self.native_wake is not None:
                 self.store.begin_follow_up(delegation_id, turn_ref)
                 try:

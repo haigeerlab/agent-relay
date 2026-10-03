@@ -126,6 +126,7 @@ class InstallationAndPermissionTests(unittest.TestCase):
         tools = command[command.index("--tools") + 1]
         self.assertIn("Read", tools)
         self.assertNotIn("Edit", tools)
+        self.assertEqual(command[-2:], ("--", "Review the diff"))
 
     def test_native_backend_uses_its_own_exact_tool_names_and_project_allow_rules(self):
         server_name = "spec-guard-native-collaboration"
@@ -414,6 +415,28 @@ class AdapterTests(unittest.TestCase):
             "ce5b9501-0817-479d-886e-772bafbbee6f",
         ])
 
+    def test_blocked_idle_follow_up_uses_the_same_exact_resume_path(self):
+        self.complete_claim()
+        runner = ScriptedRunner([
+            completed(json.dumps([
+                self.entry(state="blocked", status="idle"),
+            ])),
+            completed("stopped ce5b9501\n"),
+            completed("backgrounded · ce5b9501 · test\n"),
+            completed(json.dumps([
+                self.entry(state="running", status="working"),
+            ])),
+        ])
+
+        result = self.adapter(runner).continue_turn(
+            self.claim.delegation_id, "Check again")
+
+        self.assertEqual(result.state, "running")
+        self.assertEqual(runner.calls[2][0][:4], [
+            str(self.installation.binary), "--background", "--resume",
+            "ce5b9501-0817-479d-886e-772bafbbee6f",
+        ])
+
     def test_idle_stop_uncertainty_never_attempts_resume_or_creates_a_copy(self):
         self.complete_claim()
         runner = ScriptedRunner([
@@ -472,6 +495,21 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(self.store.get_delegation(self.claim.delegation_id).state,
                          "cancelled")
         self.assertFalse(managed.exists())
+
+    def test_status_accepts_post_stop_done_entry_without_status_or_pid(self):
+        self.complete_claim()
+        self.adapter(ScriptedRunner([
+            completed("stopped ce5b9501\n"),
+        ])).cancel(self.claim.delegation_id)
+        terminal = self.entry(state="done", status=None)
+        terminal["pid"] = None
+
+        result = self.adapter(ScriptedRunner([
+            completed(json.dumps([terminal])),
+        ])).status(self.claim.delegation_id)
+
+        self.assertEqual(result.state, "cancelled")
+        self.assertEqual(result.host_status, "done")
 
     def test_stop_failure_does_not_claim_the_host_stopped(self):
         self.complete_claim()
