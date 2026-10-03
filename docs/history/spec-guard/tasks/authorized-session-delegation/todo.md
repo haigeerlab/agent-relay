@@ -1,8 +1,9 @@
 # authorized-session-delegation tasks
 
-- [ ] 在隔离临时项目完成 Claude Code → Codex、Codex → Claude Code 的真实创建门槛：精确
-      身份、自注册、首轮结果、同会话第二轮、实际权限、停止和遗留状态。
-- [ ] 用测试先固定 task/strict/batch/session 授权信封、权限 intent、owner-only SQLite、
+- [x] 在隔离 mailbox 完成 Claude Code → Codex、Codex → Claude Code 的真实创建门槛：
+      Codex 使用临时项目，Claude background 使用已受信项目并记录未受信条件；覆盖精确身份、
+      自注册、首轮结果、同会话第二轮、实际权限、停止和遗留状态。
+- [x] 用测试先固定 task/strict/batch/session 授权信封、权限 intent、owner-only SQLite、
       单跳、到期、撤销、并发幂等和普通 mailbox 不授予权限。
 - [ ] 实现 Codex app-server 创建/继续/状态/取消适配器，固定受支持 binary provenance、
       省略 model，并覆盖协议失败与响应丢失。
@@ -15,5 +16,6 @@
 - [ ] 安装可回滚候选并完成双向两轮真实宿主验收、负例、文档、changelog 和完整仓库回归；
       任一方向缺证据则保持未完成。
 
-当前阶段：Plan 已于 2026-10-03 获用户确认。未开始产品实现，也未创建真实目标会话；
-晋级合并后从任务 1 的真实宿主可行性门槛开始。
+当前阶段：Plan 已于 2026-10-03 获用户确认。任务 1 的真实宿主门槛已按
+`host-creation-preflight-2026-10-03.md` 有条件通过；任务 2 的授权、私有状态和纯状态机已通过
+聚焦测试与仓库完整校验，进入任务 3 的 Codex app-server 适配器。
