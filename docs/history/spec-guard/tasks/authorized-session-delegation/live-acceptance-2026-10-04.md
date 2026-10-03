@@ -59,15 +59,40 @@ allow 缺失，也没有使用 bypass。
 `protocol-result-unknown`；同一只读命令在与创建/取消一致的宿主权限下返回
 `cancelled / notLoaded`。前者记为环境不可用，不作为目标 thread 失败。
 
-## 契约与未完成项
+## 精确结果回传与同名消歧
 
 | 验收项 | 证据 | 结果 |
 | --- | --- | --- |
-| 同名消歧 | `test_session_delegation_recovery.py::test_same_name_lists_short_disambiguators_and_never_guesses` | 通过（测试）；真实双会话未重复创建 |
-| 控制器公开结果 | create/continue 公开 JSON 只有状态，不含目标的回复正文；本次必须额外读取 Claude logs / Codex thread 才取得标记 | 失败 |
-| mailbox 结果回传 | 两端都完成精确注册，但当前任务信封没有可信的 origin mailbox recipient，也没有自动把最终回复送回 origin | 未运行（产品入口缺失） |
+| Codex → Claude 最小回传 | `[Claude Code] result-claude-min` 完成后，控制器初始为 `pending`；精确 origin inbox 收到来自该目标的单条结果，thread 使用本轮独立 route，随后目标 `cancelled` | 通过 |
+| Claude → Codex 最小回传 | 固定 Claude origin wrapper 创建 `[Codex] result-codex-min`；公开 JSON 为 `completed / enqueued / RESULT-CODEX-MIN-OK`，Claude origin 精确 inbox 实到并确认，随后目标 `cancelled` | 通过 |
+| 控制器公开结果 | Codex 同步最终回复只取 app-server `final_text`，脱敏内部 ID、控制字符和绝对私有路径；不再从 Claude 原始日志补正文 | 通过（测试＋Codex 真实宿主） |
+| 同名消歧 | 隔离状态中创建两个 `[Codex] 同名验收`；`list` 返回两个不同 6 位短编号，不带编号的 `status` 返回 `session-name-ambiguous`，按各自 `--disambiguator` 均精确 `cancelled` | 通过 |
+| 结果消息清理 | 当前 Codex origin 收到的最小回传和同名验收消息均按精确 message id 确认；未扫描其他会话或推进未知游标 | 通过 |
+| XATS 结果回传 | 单元测试覆盖精确 agent type、delivery kind/payload、team、sender/recipient/subject；本次真实后端为 native，未切换后端重复实机写入 | 未运行（当前后端未选择 XATS） |
 
-因此任务 7 **保持未完成**。双向创建、两轮继续、权限负例和精确停止已经有真实证据，但“一句话
-委派后结果自动回到发起方”尚未成立。最小后续工作属于本模块原 Plan，不需要新建能力模块：先明确
-受控 return recipient／结果 provenance 契约，再用测试实现，最后重跑两端 mailbox result 与真实同名
-目录验收。在此之前不得把本模块或 A10 native 宣布为完成，也不得删除 XATS。
+Codex → Claude 的第一次结果回传使用了范围过大的代码审查 prompt，目标运行超过验收等待窗口后被精确
+中断并取消；该次记为**失败（任务规模超时）**，不作为通讯链路失败，也不拿它替代后续最小回传证据。
+这次执行同时暴露并修复了 Claude background 元数据短暂未落盘时过早报
+`background-entry-invalid` 的问题：适配器只对精确短 ID 做有限重试；持续无效时保留精确 host reference 并
+报告 `unknown`，不重建会话。
+
+结果回传只接受 `origin session → 唯一注册身份`。零个或多个匹配均返回
+`recipient-unavailable`，不会按标题、项目、最近活动或用户输入的名字猜收件人。每轮 route 独立，控制器只读
+核对 sender/recipient/thread 或 subject 元数据，不读取消息正文、不推进 inbox 游标；普通 mailbox 消息仍不
+授予开发权限。
+
+因此任务 7 的本机验收完成。这个结论只覆盖当前源码候选、同一台 Mac、已选择的 native 后端，以及表中列出的
+Claude Code/Codex 版本；不构成插件发布、XATS 实机结果回传、跨机器能力或 A10 native 转正。A10 的“两版本、
+两主机、上游 revision 升级、无开放 P1/P2”门槛保持不变，XATS 继续保留。
+
+## 收尾校验
+
+| 校验 | 结果 |
+| --- | --- |
+| `python3 -m unittest discover -s plugins/spec-guard/hooks -p 'test_session_delegation*.py'` | 通过（91 tests） |
+| `/bin/bash scripts/validate.sh` | 通过 |
+| `/bin/bash plugins/spec-guard/hooks/test-phase-guard.sh` | 通过（80 cases） |
+| `/bin/bash plugins/spec-guard/hooks/test-verify-artifacts.sh` | 通过（19 cases） |
+| `git diff --check` | 通过 |
+
+测试全绿只证明源码与仓库契约；双向宿主结果和 XATS 未运行边界仍以本记录上表单独裁决。
