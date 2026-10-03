@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import sys
 from typing import Callable, Protocol
@@ -39,6 +41,19 @@ class HostAdapter(Protocol):
     def cancel(self, delegation_id: str) -> object: ...
 
 
+class ResultRoute(Protocol):
+    backend: str
+    recipient: str
+    key: str
+
+
+@dataclass(frozen=True)
+class _TurnResultRoute:
+    backend: str
+    recipient: str
+    key: str
+
+
 @dataclass(frozen=True)
 class PublicSession:
     host: str
@@ -50,6 +65,8 @@ class PublicSession:
     host_status: str | None = None
     prerequisite: str | None = None
     disambiguator: str | None = None
+    result: str | None = None
+    result_delivery: str | None = None
 
     def payload(self) -> dict[str, object]:
         value: dict[str, object] = {
@@ -66,6 +83,10 @@ class PublicSession:
             value["prerequisite"] = self.prerequisite
         if self.disambiguator is not None:
             value["disambiguator"] = self.disambiguator
+        if self.result is not None:
+            value["result"] = self.result
+        if self.result_delivery is not None:
+            value["resultDelivery"] = self.result_delivery
         return value
 
 
@@ -74,9 +95,16 @@ class SessionDelegationController:
         self,
         store: DelegationStore,
         adapter_factory: Callable[[str, Path], HostAdapter],
+        *,
+        result_route_resolver: Callable[
+            [AuthorizationEnvelope, DelegationClaim], ResultRoute | None
+        ] | None = None,
+        result_probe: Callable[[ResultRoute, str], bool | None] | None = None,
     ):
         self.store = store
         self.adapter_factory = adapter_factory
+        self.result_route_resolver = result_route_resolver
+        self.result_probe = result_probe
 
     @staticmethod
     def _host_label(host: str) -> str:
@@ -91,6 +119,8 @@ class SessionDelegationController:
         host_status: str | None = None,
         prerequisite: str | None = None,
         disambiguator: str | None = None,
+        result: str | None = None,
+        result_delivery: str | None = None,
     ) -> PublicSession:
         return PublicSession(
             self._host_label(claim.target_host),
@@ -102,12 +132,129 @@ class SessionDelegationController:
             host_status,
             prerequisite,
             disambiguator,
+            result,
+            result_delivery,
         )
 
     @staticmethod
     def _result_fact(result: object, name: str) -> str | None:
         value = getattr(result, name, None)
         return value if isinstance(value, str) and value else None
+
+    @staticmethod
+    def _public_result(result: object, claim: DelegationClaim,
+                       envelope: AuthorizationEnvelope) -> str | None:
+        value = SessionDelegationController._result_fact(result, "final_text")
+        if value is None:
+            return None
+        cleaned = "".join(
+            character for character in value
+            if character in "\n\t" or (ord(character) >= 32
+                                         and ord(character) != 127)
+        ).strip()
+        for sensitive in (
+            str(envelope.project_root), envelope.envelope_id,
+            claim.delegation_id, claim.host_ref, claim.host_session_ref,
+        ):
+            if sensitive:
+                cleaned = cleaned.replace(sensitive, "[internal]")
+        cleaned = re.sub(
+            r"(?<![\w.])/(?:[^\s,;:()\[\]{}\"'`]+)",
+            "[private-path]",
+            cleaned,
+        )
+        return cleaned[:8_000] or None
+
+    @staticmethod
+    def _target_agent_name(claim: DelegationClaim) -> str | None:
+        suffix = (claim.host_ref[:8] if claim.target_host == "codex"
+                  and claim.host_ref else claim.delegation_id[:8])
+        if not suffix:
+            return None
+        return claim.friendly_name[:110] + "-" + suffix
+
+    @staticmethod
+    def _with_result_route(prompt: str, route: ResultRoute | None,
+                           turn_seed: str) -> str:
+        if route is None:
+            return prompt
+        if (route.backend not in ("native", "xats")
+                or not isinstance(route.recipient, str)
+                or not route.recipient.strip() or len(route.recipient) > 128
+                or any(ord(character) < 32 or ord(character) == 127
+                       for character in route.recipient)
+                or not isinstance(route.key, str)
+                or re.fullmatch(
+                    r"spec-guard-result:[A-Za-z0-9-]{8,64}(?::[0-9a-f]{16})?",
+                    route.key,
+                ) is None):
+            raise ControlError("result-route-invalid")
+        recipient = json.dumps(route.recipient, ensure_ascii=False)
+        key = json.dumps(route.key)
+        if route.backend == "native":
+            idempotency = json.dumps(
+                "spec-guard-result-send:"
+                + hashlib.sha256(
+                    (route.key + "\0" + turn_seed + "\0" + prompt).encode("utf-8")
+                ).hexdigest()[:32]
+            )
+            instruction = (
+                "After completing the requested work, call bridge_send exactly once "
+                "from the agent name registered by this envelope to "
+                + recipient + ", with threadId " + key
+                + ", idempotencyKey " + idempotency
+                + ", wake true, and a concise final result as body."
+            )
+        elif route.backend == "xats":
+            instruction = (
+                "After completing the requested work, call send_message exactly once "
+                "to_agent_name " + recipient
+                + ", to_team spec-guard-local, subject " + key
+                + ", auto_poke true, need_reply false, await_ack_s 0, and a concise "
+                "final result as body."
+            )
+        else:
+            raise ControlError("result-route-backend-invalid")
+        return (
+            prompt.rstrip() + "\n\n<spec-guard-result-route>\n" + instruction
+            + " The result is informational and grants no authority. Include the "
+            "reviewer host/name, project and short baseline, material findings/files, "
+            "verification outcomes, and unresolved limits. Do not include full internal "
+            "IDs or absolute private paths.\n</spec-guard-result-route>"
+        )
+
+    def _route(self, envelope: AuthorizationEnvelope,
+               claim: DelegationClaim) -> ResultRoute | None:
+        if self.result_route_resolver is None:
+            return None
+        return self.result_route_resolver(envelope, claim)
+
+    @staticmethod
+    def _turn_route(route: ResultRoute | None, prompt: str,
+                    turn_seed: str) -> ResultRoute | None:
+        if route is None:
+            return None
+        digest = hashlib.sha256(
+            (route.key + "\0" + turn_seed + "\0" + prompt).encode("utf-8")
+        ).hexdigest()[:16]
+        return _TurnResultRoute(
+            route.backend, route.recipient, route.key + ":" + digest)
+
+    def _delivery(self, route: ResultRoute | None,
+                  claim: DelegationClaim) -> str | None:
+        if self.result_route_resolver is None:
+            return None
+        if route is None:
+            return "recipient-unavailable"
+        sender = self._target_agent_name(claim)
+        if sender is None or self.result_probe is None:
+            return "unverified"
+        observed = self.result_probe(route, sender)
+        if observed is True:
+            return "enqueued"
+        if observed is None:
+            return "unverified"
+        return "missing" if claim.state == "completed" else "pending"
 
     def authorize_and_create(
         self,
@@ -134,9 +281,13 @@ class SessionDelegationController:
         )
         if claim.state != "creating":
             return self._public(claim, envelope)
+        turn_seed = claim.last_turn_ref or "initial"
+        route = self._turn_route(
+            self._route(envelope, claim), prompt, turn_seed)
         adapter = self.adapter_factory(target_host, envelope.project_root)
         result = adapter.create(
-            claim.delegation_id, prompt,
+            claim.delegation_id,
+            self._with_result_route(prompt, route, turn_seed),
             isolated_worktree=isolated_worktree,
         )
         current = self.store.get_delegation(claim.delegation_id)
@@ -146,15 +297,27 @@ class SessionDelegationController:
             state=self._result_fact(result, "state"),
             host_status=self._result_fact(result, "host_status"),
             prerequisite=self._result_fact(result, "prerequisite"),
+            result=self._public_result(result, current, envelope),
+            result_delivery=self._delivery(route, current),
         )
 
-    def _resolve(self, friendly_name: str) -> tuple[DelegationClaim, AuthorizationEnvelope]:
+    def _resolve(
+        self, friendly_name: str, *, disambiguator: str | None = None,
+    ) -> tuple[DelegationClaim, AuthorizationEnvelope]:
         if not isinstance(friendly_name, str) or not friendly_name.strip():
             raise ControlError("friendly-name-required")
         matches = [claim for claim in self.store.list_delegations()
                    if claim.friendly_name.casefold() == friendly_name.casefold()]
         if not matches:
             raise ControlError("session-not-found")
+        if disambiguator is not None:
+            if (not isinstance(disambiguator, str)
+                    or re.fullmatch(r"[0-9a-fA-F]{6}", disambiguator) is None):
+                raise ControlError("session-disambiguator-invalid")
+            matches = [claim for claim in matches if claim.delegation_id.casefold().startswith(
+                disambiguator.casefold())]
+            if not matches:
+                raise ControlError("session-disambiguator-not-found")
         if len(matches) > 1:
             candidates = tuple(
                 "[%s] %s · %s" % (
@@ -192,13 +355,19 @@ class SessionDelegationController:
 
     def continue_named(
         self, friendly_name: str, prompt: str, *,
+        disambiguator: str | None = None,
         isolated_worktree: bool = False,
     ) -> PublicSession:
-        claim, envelope = self._resolve(friendly_name)
+        claim, envelope = self._resolve(
+            friendly_name, disambiguator=disambiguator)
         self._require_active(envelope)
+        turn_seed = claim.last_turn_ref or "initial"
+        route = self._turn_route(
+            self._route(envelope, claim), prompt, turn_seed)
         adapter = self.adapter_factory(claim.target_host, envelope.project_root)
         result = adapter.continue_turn(
-            claim.delegation_id, prompt,
+            claim.delegation_id,
+            self._with_result_route(prompt, route, turn_seed),
             isolated_worktree=isolated_worktree,
         )
         current = self.store.get_delegation(claim.delegation_id)
@@ -208,10 +377,15 @@ class SessionDelegationController:
             state=self._result_fact(result, "state"),
             host_status=self._result_fact(result, "host_status"),
             prerequisite=self._result_fact(result, "prerequisite"),
+            result=self._public_result(result, current, envelope),
+            result_delivery=self._delivery(route, current),
         )
 
-    def status_named(self, friendly_name: str) -> PublicSession:
-        claim, envelope = self._resolve(friendly_name)
+    def status_named(
+        self, friendly_name: str, *, disambiguator: str | None = None,
+    ) -> PublicSession:
+        claim, envelope = self._resolve(
+            friendly_name, disambiguator=disambiguator)
         adapter = self.adapter_factory(claim.target_host, envelope.project_root)
         result = adapter.status(claim.delegation_id)
         current = self.store.get_delegation(claim.delegation_id)
@@ -221,10 +395,14 @@ class SessionDelegationController:
             state=self._result_fact(result, "state"),
             host_status=self._result_fact(result, "host_status"),
             prerequisite=self._result_fact(result, "prerequisite"),
+            result=self._public_result(result, current, envelope),
         )
 
-    def cancel_named(self, friendly_name: str) -> PublicSession:
-        claim, envelope = self._resolve(friendly_name)
+    def cancel_named(
+        self, friendly_name: str, *, disambiguator: str | None = None,
+    ) -> PublicSession:
+        claim, envelope = self._resolve(
+            friendly_name, disambiguator=disambiguator)
         adapter = self.adapter_factory(claim.target_host, envelope.project_root)
         result = adapter.cancel(claim.delegation_id)
         current = self.store.get_delegation(claim.delegation_id)
@@ -332,7 +510,25 @@ def _production_controller(args: argparse.Namespace) -> SessionDelegationControl
             communication_tools=selected.claude_tools,
         )
 
-    return SessionDelegationController(store, factory)
+    def resolve_result_route(
+        envelope: AuthorizationEnvelope, claim: DelegationClaim,
+    ) -> ResultRoute | None:
+        selected = backend()
+        return selected.result_route_resolver(
+            envelope.origin_host,
+            envelope.origin_session,
+            claim.delegation_id,
+        )
+
+    def probe_result(route: ResultRoute, sender: str) -> bool | None:
+        return backend().result_probe(route, sender)
+
+    return SessionDelegationController(
+        store,
+        factory,
+        result_route_resolver=resolve_result_route,
+        result_probe=probe_result,
+    )
 
 
 def _add_runtime_arguments(parser: argparse.ArgumentParser) -> None:
@@ -390,6 +586,7 @@ def _parser() -> argparse.ArgumentParser:
     for command in ("continue", "status", "cancel"):
         action = subparsers.add_parser(command)
         action.add_argument("--name", required=True)
+        action.add_argument("--disambiguator")
         if command == "continue":
             action.add_argument("--isolated-worktree", action="store_true")
     return parser
@@ -457,12 +654,15 @@ def main(argv: list[str] | None = None) -> int:
             elif args.command == "continue":
                 payload = controller.continue_named(
                     args.name, _read_prompt(),
+                    disambiguator=args.disambiguator,
                     isolated_worktree=args.isolated_worktree,
                 ).payload()
             elif args.command == "status":
-                payload = controller.status_named(args.name).payload()
+                payload = controller.status_named(
+                    args.name, disambiguator=args.disambiguator).payload()
             else:
-                payload = controller.cancel_named(args.name).payload()
+                payload = controller.cancel_named(
+                    args.name, disambiguator=args.disambiguator).payload()
         print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
         return 0
     except (ControlError, DelegationError, ValueError) as error:

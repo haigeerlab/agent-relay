@@ -20,6 +20,7 @@ from session_delegation import DelegationError, DelegationStore
 
 
 MINIMUM_CODEX_VERSION = (0, 160, 0)
+MAX_HOST_PROMPT_CHARS = 24_000
 PRIVATE_SERVER_NAME = "spec_guard_delegation"
 COMMUNICATION_TOOLS = (
     "bridge_register",
@@ -613,7 +614,8 @@ def _validate_catalog(result: dict[str, Any]) -> None:
 
 def _bound_prompt(prompt: str, thread_ref: str, friendly_name: str,
                   registration_tool: str) -> str:
-    if (not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 20_000
+    if (not isinstance(prompt, str) or not prompt.strip()
+            or len(prompt) > MAX_HOST_PROMPT_CHARS
             or any((ord(character) < 32 and character not in "\n\t")
                    or ord(character) == 127 for character in prompt)):
         raise CodexAdapterError("delegation-prompt-invalid")

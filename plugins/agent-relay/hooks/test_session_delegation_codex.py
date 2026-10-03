@@ -22,6 +22,7 @@ from session_delegation_codex import (
     RpcUncertain,
     TurnOutcome,
     XATS_COMMUNICATION_TOOLS,
+    _bound_prompt,
     build_process_command,
     discover_app_managed_codex,
     parse_mcp_inventory,
@@ -88,6 +89,14 @@ class ScriptedClient:
 
 
 class InstallationAndIsolationTests(unittest.TestCase):
+    def test_host_prompt_allows_control_envelope_after_maximum_user_body(self):
+        prompt = _bound_prompt(
+            "x" * 20_800, "thread-12345678", "review", "bridge_register")
+        self.assertIn("<spec-guard-control>", prompt)
+        with self.assertRaisesRegex(CodexAdapterError, "delegation-prompt-invalid"):
+            _bound_prompt(
+                "x" * 24_001, "thread-12345678", "review", "bridge_register")
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix="sg-codex-adapter-")
         self.addCleanup(temporary.cleanup)

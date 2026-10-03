@@ -74,6 +74,15 @@ class SessionDelegationEntryTests(unittest.TestCase):
         ):
             self.assertIn(phrase, text)
 
+    def test_result_return_requires_exact_origin_and_reports_delivery_truthfully(self):
+        text = self.delegation_text()
+        for phrase in (
+            "当前发起会话", "origin session", "唯一已注册身份",
+            "resultDelivery=enqueued", "recipient-unavailable",
+            "不读取结果正文", "不推进发起方收件游标",
+        ):
+            self.assertIn(phrase, text)
+
     def test_optional_feature_docs_explain_smooth_preapproval_and_limits(self):
         text = OPTIONAL.read_text(encoding="utf-8")
         self.assertIn("跨宿主会话委派", text)

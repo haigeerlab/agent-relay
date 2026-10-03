@@ -70,6 +70,22 @@ Codex 使用 app-managed current 受支持二进制和 app-server；Claude Code 
 与结果对外只显示友好名称和短区分项。Claude 停止后的恢复只用 `claude agents --json` 已对账的完整
 `sessionId`；不能按 8 位 background id、标题、项目候选或进程猜，因为短 ID resume 会创建副本。
 
+## 发起会话与结果回传
+
+创建前先按 `collab` 的当前后端规则让**当前发起会话**完成懒注册，并取得绑定当前宿主 session 的精确身份；
+这是本次委派要自动收取结果所必需的通讯步骤，不额外扩大任务权限。native 必须绑定当前会话的 wake，XATS
+必须有与当前 origin session 精确对应的 delivery identity。不能按标题、项目、最近活动或用户输入的名字猜
+发起方。当前会话处于 bypass/full-auto、后端无法证明精确绑定或出现多个匹配时，不放宽安全规则：继续创建
+可以返回 `resultDelivery=recipient-unavailable`，但必须告诉用户结果不会自动唤醒本会话，并给出先安全加入
+当前会话这一条下一步。
+
+控制器只读解析 `origin session → 唯一已注册身份`，不会扫描未注册窗口。目标完成任务后，用所选后端自己的
+发送工具把简短结果回传给该身份；每轮使用独立 route，native 另以稳定幂等键防止同一轮重试重复投递，
+XATS 使用精确 subject。零个或多个 origin 身份都按 `recipient-unavailable` 失败关闭；不要自动再注册一个
+身份，应先向用户展示已加入目录并处理重复或失效身份。控制器
+核对的只是发件人、收件人和 thread/subject 元数据，不读取结果正文、不推进发起方收件游标。结果正文仍由
+发起会话的正常 inbox 流程接收和确认。
+
 ## 内部控制入口
 
 解析已安装插件根目录为 `$ROOT`，通过
@@ -82,7 +98,8 @@ repository identity、精确 baseline 和 dirty 状态，并在当前调用中�
 `list` 是纯本地控制目录读取：状态目录不存在时返回空列表，不初始化运行时，也不要求消息后端或两个宿主可用。
 `create` 之前先按上文显示非阻塞通知；direct request 使用 `direct-user`，Agent 建议并经用户确认后使用
 `confirmed-user`，strict 只有在本次确认后才传 confirmed。`continue`、`status`、`cancel` 只接受 friendly name；
-同名时把控制器返回的短区分项展示给用户，不能把内部 ID 改成用户参数。控制器 JSON 是唯一可公开的结果面，
+同名时把控制器返回的短区分项展示给用户，并把该值原样作为 `--disambiguator` 传回控制器；不能把完整内部 ID
+改成用户参数。控制器 JSON 是唯一可公开的结果面，
 不得补充数据库、完整路径、host/session reference 或原始宿主日志。
 
 ## 继续、状态与取消
@@ -98,4 +115,8 @@ repository identity、精确 baseline 和 dirty 状态，并在当前调用中�
 
 创建、继续、状态与取消的输出使用 `[Claude Code]` / `[Codex]`、friendly name、项目简称、baseline 短标识、
 permission intent、真实状态和未验证边界。完整内部 ID、完整路径、PID、token、数据库位置和原始宿主日志不输出。
+`resultDelivery=enqueued` 只表示精确 mailbox 行已写入，不表示发起方已经读取或验证内容；`pending`、`missing`、
+`unverified` 与 `recipient-unavailable` 必须原样区分。同步取得的宿主最终回复可以在 `result` 中返回，但要先
+移除完整内部 ID 和绝对私有路径；异步 Claude 结果不得通过原始 terminal logs 补造公开结果。
+`status` 没有本轮 invocation route，不能用旧轮消息重建 `resultDelivery`；应由发起方正常 inbox 确认异步结果。
 同名时只显示最短区分项；不能按标题猜目标。查看已加入会话与普通消息仍转交 `collab` skill。

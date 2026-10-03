@@ -128,6 +128,16 @@ class InstallationAndPermissionTests(unittest.TestCase):
         self.assertNotIn("Edit", tools)
         self.assertEqual(command[-2:], ("--", "Review the diff"))
 
+    def test_host_prompt_allows_control_envelope_after_maximum_user_body(self):
+        prompt = _bounded_prompt(
+            "x" * 20_800, "12345678-1234-1234-1234-123456789abc",
+            "review", COMMUNICATION_TOOLS, "safe-review")
+        self.assertIn("<spec-guard-control>", prompt)
+        with self.assertRaisesRegex(ClaudeAdapterError, "delegation-prompt-invalid"):
+            _bounded_prompt(
+                "x" * 24_001, "12345678-1234-1234-1234-123456789abc",
+                "review", COMMUNICATION_TOOLS, "safe-review")
+
     def test_native_backend_uses_its_own_exact_tool_names_and_project_allow_rules(self):
         server_name = "spec-guard-native-collaboration"
         rules = communication_rules(server_name)
@@ -259,7 +269,7 @@ class AdapterTests(unittest.TestCase):
             completed(json.dumps([entry])),
         ])
 
-    def adapter(self, runner, *, wake=None, registration_probe=None):
+    def adapter(self, runner, *, wake=None, registration_probe=None, sleep=None):
         return ClaudeAdapter(
             self.store,
             self.installation,
@@ -269,6 +279,7 @@ class AdapterTests(unittest.TestCase):
             native_wake=wake,
             registration_probe=registration_probe,
             now=lambda: NOW,
+            sleep=sleep or (lambda _delay: None),
         )
 
     def complete_claim(self):
@@ -307,6 +318,44 @@ class AdapterTests(unittest.TestCase):
         result = self.adapter(runner).create(self.claim.delegation_id, "Review")
         self.assertEqual(result.state, "created")
         self.assertEqual(result.host_ref, "ce5b9501")
+
+    def test_create_retries_only_the_exact_id_during_transient_metadata_startup(self):
+        pending = self.entry(state="working", status="busy")
+        pending.pop("state")
+        delays = []
+        runner = ScriptedRunner([
+            completed("backgrounded · ce5b9501 · test\n"),
+            completed("[]"),
+            completed(json.dumps([pending])),
+            completed(json.dumps([self.entry(state="working", status="busy")])),
+        ])
+
+        result = self.adapter(runner, sleep=delays.append).create(
+            self.claim.delegation_id, "Review")
+
+        self.assertEqual(result.state, "created")
+        self.assertEqual(result.host_ref, "ce5b9501")
+        self.assertEqual(delays, [0.2, 0.5])
+        list_calls = [call for call, _kwargs in runner.calls if "agents" in call]
+        self.assertEqual(len(list_calls), 3)
+
+    def test_persistently_incomplete_exact_entry_preserves_host_ref_as_unknown(self):
+        pending = self.entry(state="working", status="busy")
+        pending.pop("state")
+        runner = ScriptedRunner([
+            completed("backgrounded · ce5b9501 · test\n"),
+            completed(json.dumps([pending])),
+            completed(json.dumps([pending])),
+            completed(json.dumps([pending])),
+        ])
+
+        result = self.adapter(runner).create(self.claim.delegation_id, "Review")
+
+        self.assertEqual(result.state, "unknown")
+        self.assertEqual(result.host_ref, "ce5b9501")
+        stored = self.store.get_delegation(self.claim.delegation_id)
+        self.assertEqual(stored.state, "unknown")
+        self.assertEqual(stored.host_ref, "ce5b9501")
 
     def test_status_requires_exact_registration_before_completing_initial_turn(self):
         self.adapter(self.runner_for_create()).create(

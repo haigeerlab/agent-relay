@@ -30,6 +30,13 @@ class BackendUnavailable(ValueError):
 
 
 @dataclass(frozen=True)
+class MailboxResultRoute:
+    backend: str
+    recipient: str
+    key: str
+
+
+@dataclass(frozen=True)
 class DelegationBackend:
     name: str
     codex_server: CommunicationServer | HttpCommunicationServer
@@ -39,6 +46,131 @@ class DelegationBackend:
         [str, int | None, str, str], bool | None
     ] | None
     claude_tools: tuple[str, ...]
+    result_route_resolver: Callable[
+        [str, str, str], MailboxResultRoute | None
+    ]
+    result_probe: Callable[[MailboxResultRoute, str], bool | None]
+
+
+def _mailbox_connection(database: Path) -> sqlite3.Connection:
+    database = Path(database)
+    metadata = database.lstat()
+    if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid()
+            or stat.S_IMODE(metadata.st_mode) & 0o077):
+        raise ValueError("mailbox-database-unsafe")
+    uri = "file:%s?mode=ro" % quote(str(database.absolute()))
+    connection = sqlite3.connect(uri, uri=True)
+    connection.row_factory = sqlite3.Row
+    return connection
+
+
+def _route(backend: str, recipient: str,
+           delegation_id: str) -> MailboxResultRoute:
+    if (not isinstance(recipient, str) or not recipient.strip()
+            or len(recipient) > 128
+            or any(ord(character) < 32 or ord(character) == 127
+                   for character in recipient)):
+        raise ValueError("mailbox-recipient-invalid")
+    return MailboxResultRoute(
+        backend, recipient, "spec-guard-result:" + delegation_id)
+
+
+def native_result_route(database: Path, origin_host: str, origin_session: str,
+                        delegation_id: str) -> MailboxResultRoute | None:
+    """Resolve one live native recipient by exact host session, without messages."""
+    try:
+        with closing(_mailbox_connection(database)) as connection:
+            if connection.execute("PRAGMA user_version").fetchone()[0] != 2:
+                return None
+            rows = connection.execute(
+                "SELECT a.name, w.target FROM agents a JOIN wake_targets w "
+                "ON w.agent=a.name WHERE a.retired_at IS NULL"
+            ).fetchall()
+            matches = []
+            for row in rows:
+                target = json.loads(row["target"])
+                if (isinstance(target, dict)
+                        and target.get("app") == origin_host
+                        and target.get("sessionId") == origin_session):
+                    matches.append(row["name"])
+            if len(matches) != 1:
+                return None
+            return _route("native", matches[0], delegation_id)
+    except (OSError, sqlite3.Error, ValueError, TypeError, json.JSONDecodeError):
+        return None
+
+
+def native_result_probe(database: Path, route: MailboxResultRoute,
+                        sender: str) -> bool | None:
+    """Check exact native result metadata; never select the message body."""
+    if route.backend != "native":
+        return None
+    try:
+        with closing(_mailbox_connection(database)) as connection:
+            rows = connection.execute(
+                "SELECT id FROM messages WHERE from_agent=? AND to_agent=? "
+                "AND thread_id=?",
+                (sender, route.recipient, route.key),
+            ).fetchall()
+            return len(rows) >= 1
+    except (OSError, sqlite3.Error, ValueError):
+        return None
+
+
+def xats_result_route(database: Path, origin_host: str, origin_session: str,
+                      delegation_id: str) -> MailboxResultRoute | None:
+    """Resolve one XATS recipient by exact host delivery identity."""
+    expected_kind = {
+        "claude": "claude-channel",
+        "codex": "codex-appserver",
+    }.get(origin_host)
+    expected_key = {
+        "claude": "channel_session_id",
+        "codex": "thread_id",
+    }.get(origin_host)
+    if expected_kind is None or expected_key is None:
+        return None
+    try:
+        with closing(_mailbox_connection(database)) as connection:
+            rows = connection.execute(
+                "SELECT name, delivery_payload FROM agents "
+                "WHERE team='spec-guard-local' AND agent_type=? "
+                "AND delivery_kind=?",
+                ("claude-code" if origin_host == "claude" else "codex",
+                 expected_kind),
+            ).fetchall()
+            matches = []
+            for row in rows:
+                payload = json.loads(row["delivery_payload"])
+                if (isinstance(payload, dict)
+                        and payload.get(expected_key) == origin_session):
+                    matches.append(row["name"])
+            if len(matches) != 1:
+                return None
+            return _route("xats", matches[0], delegation_id)
+    except (OSError, sqlite3.Error, ValueError, TypeError, json.JSONDecodeError):
+        return None
+
+
+def xats_result_probe(database: Path, route: MailboxResultRoute,
+                      sender: str) -> bool | None:
+    """Check exact XATS sender, recipient and subject without reading bodies."""
+    if route.backend != "xats":
+        return None
+    try:
+        with closing(_mailbox_connection(database)) as connection:
+            rows = connection.execute(
+                "SELECT m.id FROM messages m "
+                "JOIN agents source ON source.agent_id=m.from_agent_id "
+                "JOIN agents target ON target.agent_id=m.to_agent_id "
+                "WHERE source.team='spec-guard-local' "
+                "AND target.team='spec-guard-local' "
+                "AND source.name=? AND target.name=? AND m.subject=?",
+                (sender, route.recipient, route.key),
+            ).fetchall()
+            return len(rows) >= 1
+    except (OSError, sqlite3.Error, ValueError):
+        return None
 
 
 def xats_registration_probe(database: Path) -> Callable[
@@ -157,11 +289,15 @@ def resolve_backend(
             (server["args"][0],),
             environment,
         )
+        database = Path(native_root) / "mailbox" / "bridge.sqlite"
         return DelegationBackend(
             "native", codex, CLAUDE_SERVER_NAME,
             {"mcpServers": {CLAUDE_SERVER_NAME: server}},
-            native_registration_probe(Path(native_root) / "mailbox" / "bridge.sqlite"),
+            native_registration_probe(database),
             codex.enabled_tools,
+            lambda host, session, delegation: native_result_route(
+                database, host, session, delegation),
+            lambda route, sender: native_result_probe(database, route, sender),
         )
 
     runtime = read_runtime_config(xats_config_dir)
@@ -174,6 +310,7 @@ def resolve_backend(
         str(python_executable), "-B", str(header_helper),
         "--config-dir", str(Path(xats_config_dir)),
     ))
+    database = Path(xats_config_dir) / "messages.sqlite"
     return DelegationBackend(
         "xats",
         HttpCommunicationServer(
@@ -181,6 +318,9 @@ def resolve_backend(
         MCP_SERVER_NAME,
         claude_mcp_config(
             stdio_helper, xats_config_dir, str(python_executable), str(npx)),
-        xats_registration_probe(Path(xats_config_dir) / "messages.sqlite"),
+        xats_registration_probe(database),
         XATS_COMMUNICATION_TOOLS,
+        lambda host, session, delegation: xats_result_route(
+            database, host, session, delegation),
+        lambda route, sender: xats_result_probe(database, route, sender),
     )

@@ -104,6 +104,114 @@ class RecoveryTests(unittest.TestCase):
         self.assertNotIn("host-", serialized)
         self.assertNotIn("session-", serialized)
 
+    def test_exact_origin_route_is_appended_and_completed_result_is_returned(self):
+        route = SimpleNamespace(
+            backend="native", recipient="origin-agent",
+            key="spec-guard-result:route-1234",
+        )
+        queue = [SimpleNamespace(
+            state="completed", host_status="idle", prerequisite=None,
+            final_text=("已审查 /Users/private/project 和 "
+                        "/private/tmp/internal.log; 无阻断问题\x7f"),
+        )]
+        adapter = FakeAdapter(self.store, queue)
+        controller = SessionDelegationController(
+            self.store,
+            lambda _host, _project: adapter,
+            result_route_resolver=lambda _envelope, _claim: route,
+            result_probe=lambda observed, sender: (
+                observed.backend == route.backend
+                and observed.recipient == route.recipient
+                and observed.key.startswith(route.key + ":")
+                and sender.startswith("复审-")
+            ),
+        )
+
+        result = self.create(controller)
+
+        self.assertEqual(result.state, "completed")
+        self.assertEqual(result.result_delivery, "enqueued")
+        self.assertEqual(
+            result.result,
+            "已审查 [private-path] 和 [private-path]; 无阻断问题",
+        )
+        delivered_prompt = adapter.calls[0][2]
+        self.assertIn("bridge_send", delivered_prompt)
+        self.assertIn("origin-agent", delivered_prompt)
+        self.assertIn(route.key, delivered_prompt)
+        self.assertNotIn(route.key, repr(result.payload()))
+
+    def test_delivery_states_and_xats_instruction_do_not_mix_backends(self):
+        for observed, state, expected in (
+            (False, "created", "pending"),
+            (False, "completed", "missing"),
+            (None, "completed", "unverified"),
+        ):
+            with self.subTest(observed=observed, state=state):
+                route = SimpleNamespace(
+                    backend="xats", recipient="origin-agent",
+                    key="spec-guard-result:delivery-1234",
+                )
+                controller = SessionDelegationController(
+                    self.store,
+                    lambda _host, _project: self.fail("host not required"),
+                    result_route_resolver=lambda _envelope, _claim: route,
+                    result_probe=lambda _route, _sender, value=observed: value,
+                )
+                claim = SimpleNamespace(
+                    state=state, target_host="claude", friendly_name="delivery",
+                    delegation_id="12345678-1234-1234-1234-123456789abc",
+                    host_ref=None,
+                )
+                self.assertEqual(controller._delivery(route, claim), expected)
+                prompt = controller._with_result_route("Review", route, "initial")
+                self.assertIn("send_message", prompt)
+                self.assertNotIn("bridge_send", prompt)
+        route = SimpleNamespace(
+            backend="native", recipient="origin-agent",
+            key="spec-guard-result:delivery-1234",
+        )
+        first = SessionDelegationController._turn_route(route, "Review", "turn-1")
+        retried = SessionDelegationController._turn_route(route, "Review", "turn-1")
+        second = SessionDelegationController._turn_route(route, "Review", "turn-2")
+        self.assertEqual(first, retried)
+        self.assertNotEqual(first.key, second.key)
+
+    def test_invalid_result_route_fails_before_starting_a_host(self):
+        adapter = FakeAdapter(self.store, [SimpleNamespace(
+            state="created", host_status=None, prerequisite=None,
+        )])
+        controller = SessionDelegationController(
+            self.store,
+            lambda _host, _project: adapter,
+            result_route_resolver=lambda _envelope, _claim: SimpleNamespace(
+                backend="native", recipient="bad\nrecipient", key="bad-key"),
+            result_probe=lambda _route, _sender: True,
+        )
+
+        with self.assertRaisesRegex(ControlError, "result-route-invalid"):
+            self.create(controller)
+        self.assertEqual(adapter.calls, [])
+
+    def test_missing_origin_route_is_truthfully_reported_without_guessing(self):
+        queue = [SimpleNamespace(
+            state="completed", host_status="idle", prerequisite=None,
+            final_text="No findings",
+        )]
+        adapter = FakeAdapter(self.store, queue)
+        controller = SessionDelegationController(
+            self.store,
+            lambda _host, _project: adapter,
+            result_route_resolver=lambda _envelope, _claim: None,
+            result_probe=lambda _route, _sender: self.fail("must not probe"),
+        )
+
+        result = self.create(controller)
+
+        self.assertEqual(result.result_delivery, "recipient-unavailable")
+        self.assertEqual(result.result, "No findings")
+        self.assertNotIn("bridge_send", adapter.calls[0][2])
+
     def test_restart_reuses_created_claim_and_never_calls_create_again(self):
         first, adapter = self.controller(["created"])
         self.create(first)
@@ -148,7 +256,7 @@ class RecoveryTests(unittest.TestCase):
             blocked.continue_named("复审", "Again")
 
     def test_same_name_lists_short_disambiguators_and_never_guesses(self):
-        first, _ = self.controller(["created", "created"])
+        first, adapter = self.controller(["created", "created", "cancelled"])
         self.create(first)
         self.create(
             first,
@@ -163,6 +271,16 @@ class RecoveryTests(unittest.TestCase):
             first.status_named("复审")
         self.assertEqual(len(caught.exception.candidates), 2)
         self.assertNotIn(str(self.project), repr(caught.exception.candidates))
+
+        selected = first.cancel_named(
+            "复审", disambiguator=listing[1].disambiguator)
+        self.assertEqual(selected.state, "cancelled")
+        self.assertEqual(adapter.calls[-1][1], self.store.list_delegations()[1].delegation_id)
+
+        with self.assertRaisesRegex(ControlError, "session-disambiguator-invalid"):
+            first.status_named("复审", disambiguator="not-id")
+        with self.assertRaisesRegex(ControlError, "session-disambiguator-not-found"):
+            first.status_named("复审", disambiguator="ffffff")
 
     def test_cancel_targets_the_unique_bound_claim(self):
         controller, adapter = self.controller(["created", "cancelled"])

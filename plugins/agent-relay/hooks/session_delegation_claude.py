@@ -10,6 +10,7 @@ import re
 import stat
 import subprocess
 import tempfile
+import time
 from typing import Callable, Mapping, Sequence
 from uuid import UUID, uuid4
 
@@ -20,6 +21,9 @@ from session_delegation_codex import COMMUNICATION_TOOLS, SAFE_COMMUNICATION_TOO
 
 
 MINIMUM_CLAUDE_VERSION = (2, 1, 288)
+MAX_HOST_PROMPT_CHARS = 24_000
+
+
 def communication_rules(server_name: str, tools: tuple[str, ...] = COMMUNICATION_TOOLS
                         ) -> tuple[str, ...]:
     if (not isinstance(server_name, str) or not server_name
@@ -226,7 +230,8 @@ def _internal_name(friendly_name: str, delegation_id: str) -> str:
 
 def _bounded_prompt(prompt: str, delegation_id: str, friendly_name: str,
                     communication_tools: tuple[str, ...], intent: str) -> str:
-    if (not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 20_000
+    if (not isinstance(prompt, str) or not prompt.strip()
+            or len(prompt) > MAX_HOST_PROMPT_CHARS
             or any((ord(character) < 32 and character not in "\n\t")
                    or ord(character) == 127 for character in prompt)):
         raise ClaudeAdapterError("delegation-prompt-invalid")
@@ -334,6 +339,7 @@ class ClaudeAdapter:
             [str, int | None, str, str], bool | None
         ] | None = None,
         now: Callable[[], int] | None = None,
+        sleep: Callable[[float], None] = time.sleep,
     ):
         self.store = store
         self.installation = installation
@@ -346,6 +352,7 @@ class ClaudeAdapter:
         self.native_wake = native_wake
         self.registration_probe = registration_probe
         self.now = now
+        self.sleep = sleep
         self._configs: dict[str, Path] = {}
 
     def _run(self, command: Sequence[str], project: Path, *, timeout: float = 60
@@ -432,7 +439,19 @@ class ClaudeAdapter:
     def _bind_observed(self, delegation_id: str, project: Path,
                        host_ref: str, permission: PermissionReadiness
                        ) -> ClaudeRunResult:
-        session = self._exact_session(project, host_ref)
+        session = None
+        for delay in (0.2, 0.5, None):
+            try:
+                session = self._exact_session(project, host_ref)
+            except ClaudeAdapterError as error:
+                if str(error) != "background-entry-invalid":
+                    raise
+                if delay is None:
+                    self.store.record_host_unknown(delegation_id, host_ref)
+                    return ClaudeRunResult("unknown", host_ref)
+            if session is not None or delay is None:
+                break
+            self.sleep(delay)
         if session is None:
             self.store.record_host_unknown(delegation_id, host_ref)
             return ClaudeRunResult("unknown", host_ref)
