@@ -19,5 +19,8 @@
 当前阶段：Plan 已于 2026-10-03 获用户确认。任务 1 的真实宿主门槛已按
 `host-creation-preflight-2026-10-03.md` 有条件通过；任务 2 的授权状态机、任务 3 的 Codex
 app-server 适配器、任务 4 的 Claude Code background 适配器、任务 5 的自然语言控制入口与任务 6
-的故障恢复均已通过聚焦测试和完整仓库回归。当前进入任务 7；真实双向两轮验收、候选安装、文档与
-changelog 尚未完成，当前项目的 Claude 通信 allow 只读预检仍为 `held/project-allow-rules`。
+的故障恢复均已通过聚焦测试和完整仓库回归。2026-10-04 的源码候选已在真实宿主完成双向两轮、
+native 自注册、safe-review 写入负例、取消和停止读回；本项目的最小 Claude 通信 allow 预检为
+`ready=true`。任务 7 仍未完成：控制器不会把目标回复自动回传给发起方，mailbox result 尚无可信
+origin recipient；同名消歧只有契约测试，尚未重复创建真实会话。详见
+`live-acceptance-2026-10-04.md`。

@@ -286,6 +286,14 @@ Claude Code 创建 Codex、Codex 创建 Claude Code。每条链路完成首轮�
 - `tasks/authorized-session-delegation/plan.md`
 - `tasks/authorized-session-delegation/todo.md`
 
+**2026-10-04 部分验收：** 独立源码候选已在真实 Claude Code 2.1.288 与 app-managed Codex
+0.160.0 完成双向创建、自注册、首轮、同一会话第二轮、safe-review 写入拒绝、取消和停止读回；
+修复了 Claude 创建 prompt 被可变长 `--tools` 吞掉、完成态 `blocked/idle` 无法二次唤醒，以及停止后
+`done/null/null` 无法读回三个兼容问题。完整证据见
+[`live-acceptance-2026-10-04.md`](live-acceptance-2026-10-04.md)。任务仍保持未完成：控制器公开 JSON
+不含目标回复，本次只能额外读取 Claude logs / Codex thread 取得结果；任务信封还没有可信的 origin
+mailbox recipient，mailbox result 因产品入口缺失而未运行。该缺口属于本模块 Task 7，不另建能力模块。
+
 ## 检查点与停止条件
 
 | 检查点 | 必要证据 | 失败后的动作 |
