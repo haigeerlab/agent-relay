@@ -11,7 +11,12 @@ from collaboration_adapters import MCP_SERVER_NAME
 from native_collaboration_adapters import CLAUDE_SERVER_NAME
 from native_collaboration_runtime import BRIDGE_COMMIT
 from session_delegation_backend import BackendUnavailable, resolve_backend
-from session_delegation_codex import CommunicationServer, HttpCommunicationServer
+from session_delegation_codex import (
+    COMMUNICATION_TOOLS,
+    CommunicationServer,
+    HttpCommunicationServer,
+    XATS_COMMUNICATION_TOOLS,
+)
 
 
 class DelegationBackendTests(unittest.TestCase):
@@ -67,6 +72,8 @@ class DelegationBackendTests(unittest.TestCase):
         self.assertEqual(result.name, "xats")
         self.assertIsInstance(result.codex_server, HttpCommunicationServer)
         self.assertEqual(result.codex_server.url, "http://127.0.0.1:9100/mcp")
+        self.assertEqual(result.codex_server.enabled_tools, XATS_COMMUNICATION_TOOLS)
+        self.assertEqual(result.claude_tools, XATS_COMMUNICATION_TOOLS)
         self.assertIn(str(self.header), result.codex_server.header_helper)
         self.assertEqual(result.claude_server_name, MCP_SERVER_NAME)
         self.assertEqual(list(result.claude_config["mcpServers"]), [MCP_SERVER_NAME])
@@ -87,10 +94,13 @@ class DelegationBackendTests(unittest.TestCase):
         database.chmod(0o600)
         probe = self.resolve().claude_registration_probe
         self.assertIsNotNone(probe)
-        self.assertTrue(probe("review-12345678", 4321))
-        self.assertFalse(probe("review-12345678", 9999))
+        self.assertTrue(probe("review-12345678", 4321, "session-1", "safe-review"))
+        self.assertFalse(probe("review-12345678", 9999, "session-1", "safe-review"))
+        self.assertTrue(probe(
+            "review-12345678", None, "session-1", "bounded-development"))
         database.chmod(0o644)
-        self.assertIsNone(probe("review-12345678", 4321))
+        self.assertIsNone(probe(
+            "review-12345678", 4321, "session-1", "safe-review"))
 
     def test_native_marker_selects_only_live_native_mailbox_with_backups_enabled(self):
         self.marker.write_text(json.dumps({
@@ -101,13 +111,45 @@ class DelegationBackendTests(unittest.TestCase):
         self.assertEqual(result.name, "native")
         self.assertIsInstance(result.codex_server, CommunicationServer)
         self.assertEqual(result.codex_server.command, self.node.resolve())
+        self.assertEqual(result.codex_server.enabled_tools, COMMUNICATION_TOOLS)
+        self.assertEqual(result.claude_tools, COMMUNICATION_TOOLS)
         self.assertNotIn("BRIDGE_BACKUPS", result.codex_server.environment)
         self.assertEqual(result.claude_server_name, CLAUDE_SERVER_NAME)
-        self.assertIsNone(result.claude_registration_probe)
+        self.assertIsNotNone(result.claude_registration_probe)
         serialized = json.dumps(result.claude_config)
         for hidden in ("ask_codex", "review_with_codex", "orchestration"):
             self.assertNotIn(hidden, serialized)
         self.assertNotIn(MCP_SERVER_NAME, serialized)
+
+        database = self.native / "mailbox" / "bridge.sqlite"
+        connection = sqlite3.connect(database)
+        connection.executescript("""
+            CREATE TABLE agents (
+                name TEXT PRIMARY KEY, capabilities TEXT, registered_at TEXT,
+                last_seen TEXT, retired_at TEXT);
+            CREATE TABLE wake_targets (agent TEXT PRIMARY KEY, target TEXT);
+            PRAGMA user_version = 2;
+        """)
+        connection.execute(
+            "INSERT INTO agents VALUES (?,?,?,?,NULL)",
+            ("review-12345678", "[]", "now", "now"),
+        )
+        connection.execute(
+            "INSERT INTO wake_targets VALUES (?,?)",
+            ("review-12345678", json.dumps({
+                "app": "claude", "sessionId": "session-exact",
+            })),
+        )
+        connection.commit()
+        connection.close()
+        database.chmod(0o600)
+        probe = result.claude_registration_probe
+        self.assertTrue(probe(
+            "review-12345678", None, "session-exact", "safe-review"))
+        self.assertFalse(probe(
+            "review-12345678", None, "session-copy", "safe-review"))
+        self.assertTrue(probe(
+            "review-12345678", None, "session-copy", "bounded-development"))
 
     def test_invalid_marker_fails_closed_without_xats_fallback(self):
         self.marker.write_text('{"backend":"xats"}', encoding="utf-8")

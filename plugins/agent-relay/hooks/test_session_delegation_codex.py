@@ -21,6 +21,7 @@ from session_delegation_codex import (
     RpcReply,
     RpcUncertain,
     TurnOutcome,
+    XATS_COMMUNICATION_TOOLS,
     build_process_command,
     discover_app_managed_codex,
     parse_mcp_inventory,
@@ -244,6 +245,7 @@ class InstallationAndIsolationTests(unittest.TestCase):
             HttpCommunicationServer(
                 "http://127.0.0.1:9100/mcp",
                 "/usr/bin/python3 %s --config-dir /private/runtime" % helper,
+                XATS_COMMUNICATION_TOOLS,
             ),
         )
         joined = " ".join(command)
@@ -252,6 +254,9 @@ class InstallationAndIsolationTests(unittest.TestCase):
         self.assertIn(str(helper), joined)
         self.assertNotIn("Bearer", joined)
         self.assertNotIn("token=", joined.lower())
+        for tool in XATS_COMMUNICATION_TOOLS:
+            self.assertIn(tool, joined)
+        self.assertNotIn("bridge_register", joined)
 
         with self.assertRaisesRegex(CodexAdapterError, "loopback"):
             build_process_command(
@@ -259,6 +264,15 @@ class InstallationAndIsolationTests(unittest.TestCase):
                 {},
                 HttpCommunicationServer(
                     "https://example.test/mcp", "/usr/bin/python3 helper.py",
+                ),
+            )
+        with self.assertRaisesRegex(CodexAdapterError, "communication-tools-invalid"):
+            build_process_command(
+                CodexInstallation(binary.resolve(), "0.160.0", self.root),
+                {},
+                HttpCommunicationServer(
+                    "http://127.0.0.1:9100/mcp",
+                    "/usr/bin/python3 helper.py", ("ask_codex",),
                 ),
             )
 
@@ -301,6 +315,23 @@ class JsonRpcTests(unittest.TestCase):
         with self.assertRaises(RpcUncertain) as caught:
             client.request("thread/start", {"cwd": "/tmp"}, timeout=0.1)
         self.assertEqual(caught.exception.observed_thread_ref, "thread-seen")
+
+    def test_xats_registration_event_uses_its_real_tool_name(self):
+        transport = FakeTransport([
+            {"id": 1, "result": {}},
+            {"method": "item/completed", "params": {"item": {
+                "type": "mcpToolCall", "server": "spec_guard_delegation",
+                "tool": "register_agent", "status": "completed",
+            }}},
+            {"method": "turn/completed", "params": {
+                "turn": {"id": "turn-xats", "status": "completed"},
+            }},
+        ])
+        client = JsonRpcClient(
+            transport, timeout=0.1, registration_tool="register_agent")
+        client.initialize()
+        self.assertTrue(client.wait_turn(
+            "turn-xats", require_registration=True, timeout=0.1).registered)
 
     def test_protocol_error_exposes_only_the_numeric_code(self):
         transport = FakeTransport([

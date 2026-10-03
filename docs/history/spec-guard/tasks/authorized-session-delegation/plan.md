@@ -128,7 +128,7 @@ baseline 绑定、depth=0、期限、撤销、剩余额度、权限降级和扩�
 和协议预检，按 permission intent 映射 `cwd`、sandbox、approval policy，创建 thread/turn，
 继续同一 thread，读取终态并停止。协议事件仅抽取必要字段，完整 event/log 不落控制库。
 启动前必须用同一个 app-managed binary 枚举有效 MCP 配置，生成一次性的进程内覆盖：禁用
-所有继承 server 及 Apps/plugins/browser/computer-use/multi-agent 能力，只启用十个通信工具；
+所有继承 server 及 Apps/plugins/browser/computer-use/multi-agent 能力，只启用所选后端的精确通信工具；
 只复制禁用项的非秘密 transport identity，不复制 token/header，无法完整收紧就失败关闭。
 `thread/start` 返回的精确 ID 由控制器写入初始信封并保存；后续使用 `thread/resume`，不依赖
 现有 native transport 对 App Server 线程的后台唤醒。
@@ -147,9 +147,11 @@ baseline 绑定、depth=0、期限、撤销、剩余额度、权限降级和扩�
 - `plugins/spec-guard/hooks/test_session_delegation_codex.py`
 - `plugins/spec-guard/hooks/session_delegation.py`
 
-**2026-10-03 实施结果：** 19 个 Codex 适配器聚焦用例与仓库完整校验通过。适配器只解析
+**2026-10-04 实施结果：** 20 个 Codex 适配器聚焦用例与仓库完整校验通过。适配器只解析
 app-managed `current`，拒绝 PATH 旧版，使用同一 0.160.0 二进制读取有效 MCP 清单；真实只读
-复查发现并修正了清单中相对 `cwd` 的兼容边界，最终读取 10 个继承项并全部生成禁用覆盖。
+复查发现并修正了清单中相对 `cwd` 的兼容边界，最终读取 10 个继承项并全部生成禁用覆盖。委派服务自身
+按后端使用不同目录：native 是十个 `bridge_*`，XATS 是七个真实的注册、收发、目录与投递状态工具；
+测试拒绝把 `ask_codex` 或 review/orchestration 工具混入任一目录。
 线程创建、精确绑定、乱序事件、响应丢失、重连继续、状态、取消、独立工作树、有效权限及
 工具目录均失败关闭；请求不传 model，也不注册 worker/review/orchestration 面。Codex 离线线程
 仍由控制器通过精确 `thread/resume` 恢复，不宣称 native mailbox 自动唤醒。
@@ -181,9 +183,9 @@ session 路径；解析真实 session identity，按 permission intent 选择已
 - `plugins/spec-guard/hooks/collaboration_claude.py`
 - `plugins/spec-guard/hooks/test_collaboration_runtime.py`
 
-**2026-10-04 实施结果：** 20 个 Claude 适配器聚焦用例和 43 个既有 launcher/runtime 用例通过。
+**2026-10-04 实施结果：** 22 个 Claude 适配器聚焦用例和 43 个既有 launcher/runtime 用例通过。
 适配器复用项目 `.claude/settings.json` / `.claude/settings.local.json` 中已有的 allow/deny，默认
-`dontAsk + permission-prompts none`；安全审查只要求预批准十个通信 MCP 工具，开发会话才额外
+`dontAsk + permission-prompts none`；安全审查只要求预批准所选后端的精确通信 MCP 工具，开发会话才额外
 要求编辑、写入与至少一条 Bash allow，并限定到干净独立 worktree。缺少项目 allow、trust、
 MCP 项目批准或宿主人工权限时分别返回可诊断 held，不写设置也不代替用户接受信任。
 
@@ -225,7 +227,8 @@ name、项目、真实 registration/wake/stale/unread 事实；同名只给最�
 9 个入口契约用例；普通 `collab` 行为保持不变。统一控制入口只接受 friendly name，对外返回脱敏 JSON，
 prompt 只走 stdin，origin session 只从宿主环境读取。控制记录新增 friendly name，所选 backend 显式映射到
 Codex/Claude 的单一进程内通信配置，4 个用例证明 XATS/native 不混用、invalid 不回退、不复制 token，且
-XATS 注册核对只读精确身份。列表在空状态下不初始化目录，在已有状态下也不启动宿主或消息后端。默认 task
+XATS 注册核对只读精确身份。后续真实预检发现并修正了 native/XATS 工具名并不相同的缺口；两套目录、注册
+指令和证据现分别失败关闭，隐藏 worker/review/orchestration 工具在两端都被负例拒绝。列表在空状态下不初始化目录，在已有状态下也不启动宿主或消息后端。默认 task
 使用八小时安全上限；更宽 batch/session 必须由用户明确给出数量和期限。完整仓库校验通过。
 
 ### 6. 恢复、取消、到期与精确清理
@@ -249,7 +252,7 @@ XATS 注册核对只读精确身份。列表在空状态下不初始化目录，
 - `plugins/spec-guard/hooks/session_delegation_claude.py`
 - `plugins/spec-guard/hooks/test_session_delegation_recovery.py`
 
-**2026-10-04 实施结果：** 10 个控制器恢复用例以及 Codex 19、Claude 20、状态机 21 个聚焦用例通过。
+**2026-10-04 实施结果：** 10 个控制器恢复用例以及 Codex 20、Claude 22、状态机 21 个聚焦用例通过。
 控制器先持久化唯一 launch claim 再启动宿主；重启复用 claim，unknown 不自动重建，held 重试不消耗额外
 容量，到期在接触宿主前阻断，取消只命中唯一绑定。Claude 空闲二轮采用“精确 stop 确认 → 完整 sessionId
 resume”，stop 不确定时保持 unknown；控制进程重启后仍只清理按 delegation id 派生的 owner-only 临时配置。

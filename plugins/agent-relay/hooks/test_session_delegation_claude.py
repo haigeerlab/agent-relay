@@ -9,13 +9,17 @@ from subprocess import CompletedProcess, TimeoutExpired
 import tempfile
 import unittest
 
+from collaboration_adapters import MCP_SERVER_NAME
 from session_delegation import AuthorizationRequest, DelegationStore
+from session_delegation_codex import XATS_COMMUNICATION_TOOLS
 from session_delegation_claude import (
     CLAUDE_COMMUNICATION_RULES,
+    COMMUNICATION_TOOLS,
     ClaudeAdapter,
     ClaudeAdapterError,
     ClaudeCommandUncertain,
     ClaudeInstallation,
+    _bounded_prompt,
     build_create_command,
     communication_rules,
     discover_claude,
@@ -140,6 +144,42 @@ class InstallationAndPermissionTests(unittest.TestCase):
         self.assertIn("mcp__spec-guard-native-collaboration__bridge_register", tools)
         self.assertNotIn("mcp__spec-guard-collaboration__bridge_register", tools)
 
+    def test_xats_backend_uses_register_agent_names_not_native_bridge_names(self):
+        rules = communication_rules(MCP_SERVER_NAME, XATS_COMMUNICATION_TOOLS)
+        self.write_permissions(rules)
+        readiness = inspect_project_permissions(
+            self.project, "safe-review", None,
+            communication_tools=XATS_COMMUNICATION_TOOLS,
+        )
+        self.assertTrue(readiness.ready)
+        command = build_create_command(
+            ClaudeInstallation(Path("/opt/claude"), "2.1.288"),
+            Path("/private/tmp/session.mcp.json"),
+            "spec-guard-12345678", "Review", "safe-review", "dontAsk",
+            communication_tools=XATS_COMMUNICATION_TOOLS,
+        )
+        tools = command[command.index("--tools") + 1]
+        self.assertIn("mcp__spec-guard-collaboration__register_agent", tools)
+        self.assertNotIn("bridge_register", tools)
+
+        prompt = _bounded_prompt(
+            "Review", "12345678-1234-1234-1234-123456789abc", "review",
+            XATS_COMMUNICATION_TOOLS, "safe-review",
+        )
+        self.assertIn("Call register_agent exactly once", prompt)
+        self.assertIn("ui_pid", prompt)
+        self.assertNotIn("bridge_register", prompt)
+
+    def test_native_registration_does_not_bind_general_wake_for_write_permission(self):
+        prompt = _bounded_prompt(
+            "Implement", "12345678-1234-1234-1234-123456789abc", "dev",
+            COMMUNICATION_TOOLS, "bounded-development",
+        )
+        self.assertIn("Call bridge_register exactly once", prompt)
+        self.assertIn("wake null", prompt)
+        with self.assertRaisesRegex(ClaudeAdapterError, "communication-tools-invalid"):
+            communication_rules("unsafe", ("ask_codex",))
+
     def test_environment_strips_both_hosts_session_identity_and_bridge_token(self):
         environment = sanitized_environment({
             "PATH": "/bin", "CODEX_THREAD_ID": "codex",
@@ -261,11 +301,15 @@ class AdapterTests(unittest.TestCase):
         seen = []
         adapter = self.adapter(
             ScriptedRunner([completed(json.dumps([self.entry()]))]),
-            registration_probe=lambda name, pid: seen.append((name, pid)) or True,
+            registration_probe=lambda name, pid, session, intent: (
+                seen.append((name, pid, session, intent)) or True),
         )
         result = adapter.status(self.claim.delegation_id)
         self.assertEqual(result.state, "completed")
-        self.assertEqual(seen, [(expected_name, 123)])
+        self.assertEqual(seen, [(
+            expected_name, 123, "ce5b9501-0817-479d-886e-772bafbbee6f",
+            "safe-review",
+        )])
         self.assertEqual(
             self.store.get_delegation(self.claim.delegation_id).state, "completed")
 
@@ -274,7 +318,7 @@ class AdapterTests(unittest.TestCase):
             self.claim.delegation_id, "Review")
         adapter = self.adapter(
             ScriptedRunner([completed(json.dumps([self.entry()]))]),
-            registration_probe=lambda _name, _pid: False,
+            registration_probe=lambda _name, _pid, _session, _intent: False,
         )
         result = adapter.status(self.claim.delegation_id)
         self.assertEqual(result.state, "created")

@@ -43,7 +43,8 @@ Agent 自己建议新开会话（例如主动建议再找一个 Codex 复审）�
 
 项目 trust、项目级 MCP 首次批准、工具 allow 是三个独立前置条件。适配器可能返回：
 
-- `held/project-allow-rules`：项目缺少所选后端十个通信工具的 allow；安全审查无需额外 allow
+- `held/project-allow-rules`：项目缺少所选后端精确通信工具的 allow；native 使用 `bridge_*`，XATS 使用
+  `register_agent` / `send_message` / `get_inbox` 等自身真实工具名，不能混用；安全审查无需额外 allow
   `Read/Grep/Glob`，开发才需要 `Edit`、`Write` 和符合任务范围的 `Bash(...)`。
 - `held/project-trust`：用户尚未在 Claude Code 中信任该项目。
 - `held/mcp-project-approval`：该项目尚未接受这次明确的临时 MCP。
@@ -58,6 +59,10 @@ Agent 自己建议新开会话（例如主动建议再找一个 Codex 复审）�
 先只读运行已安装插件的 `hooks/collaboration_backend.py`。只复用选择器返回的后端：`xats` 用 XATS 的无令牌
 临时配置，`native` 用已经选中且就绪的固定 native runtime；`invalid` / `unavailable` 直接 held。不得同时连接
 两个邮箱，不得自动回退或切换，不推进 A10 native 转正，不删除 XATS。
+
+两套后端的工具目录不是同名别名：native 只开放十个 `bridge_*` 邮箱工具；XATS 只开放七个日常注册、收发、
+目录和投递状态工具。任何 `ask_codex`、review、worker、broadcast、orchestration 或 lifecycle 管理工具均不得
+进入委派会话目录。目标注册也必须使用所选后端自己的参数；工具名不匹配时失败关闭，不能靠模型猜测。
 
 Codex 使用 app-managed current 受支持二进制和 app-server；Claude Code 使用 background session。创建通知
 与结果对外只显示友好名称和短区分项。Claude 停止后的恢复只用 `claude agents --json` 已对账的完整

@@ -293,6 +293,7 @@ def _production_controller(args: argparse.Namespace) -> SessionDelegationControl
             server_name=selected.claude_server_name,
             config_payload=selected.claude_config,
             registration_probe=selected.claude_registration_probe,
+            communication_tools=selected.claude_tools,
         )
 
     return SessionDelegationController(store, factory)
