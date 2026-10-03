@@ -272,6 +272,16 @@ wake、ack 与 reply 独立映射。路由核心 16 项、统一入口 19 项和
 
 **预计规模：** M（5 个文件）。
 
+**2026-10-04 实施结果：** 真实宿主记录见
+[`live-acceptance-2026-10-04.md`](live-acceptance-2026-10-04.md)。Claude Code 2.1.288 的两个安全模式
+background 会话只用 `ListAgents`/`SendMessage` 完成 A→B、B→A 两轮，并以 prompt 之外的回合日志
+裁决；四个正文在 bridge 中均无副本。Codex App 0.160.0 的同一隔离 task 连续两个 turn 均由
+`wait_threads` 取得精确回复，随后归档；目标 task 主动跨 task 发送仍诚实保留直接人类授权边界。
+跨宿主两方向复用同日 `authorized-session-delegation` 的真实两轮、结果回传与取消证据，没有为提高评级
+重复写入。受控 fallback 的前台双向两轮、四条 acknowledgement 和无双写通过；Claude
+`--background` 临时 MCP 探针未挂载工具，记为环境不可用而非产品失败，测试身份均已精确退休。
+XATS 未重复实机验收，A10 与跨机器边界保持不变。
+
 **2026-10-04 实施结果：** 委派控制器的公开结果新增 `hostOperation`，并通过统一 public outcome
 validator 独立输出 transport/dispatch/wake/receipt/response。内部 `native`/`xats` mailbox 均只公开为
 `spec-guard-bridge`；status/cancel 不复用旧轮 route。跨宿主结果继续使用精确 origin route，同宿主宿主
