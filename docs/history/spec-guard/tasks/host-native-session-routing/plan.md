@@ -272,6 +272,13 @@ wake、ack 与 reply 独立映射。路由核心 16 项、统一入口 19 项和
 
 **预计规模：** M（5 个文件）。
 
+**2026-10-04 实施结果：** 委派控制器的公开结果新增 `hostOperation`，并通过统一 public outcome
+validator 独立输出 transport/dispatch/wake/receipt/response。内部 `native`/`xats` mailbox 均只公开为
+`spec-guard-bridge`；status/cancel 不复用旧轮 route。跨宿主结果继续使用精确 origin route，同宿主宿主
+结果改走 `host-native-*` 公开路径且不再附加 mailbox 正文指令。原 launch/turn key、unknown 不重试、过期、
+同名消歧和精确取消逻辑保留。测试证明 prompt/final text 未进入 delegation SQLite。backend 6 项、恢复/幂等
+18 项、入口 11 项及全部既有 delegation 适配器测试通过。
+
 ## Task 7：真实双向验收、文档和完整回归
 
 **描述：** 用可回滚候选和隔离测试会话完成三条链路的同机双向两轮验收，再覆盖 busy/offline、同名、

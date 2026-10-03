@@ -21,6 +21,7 @@ from session_delegation import (
     DelegationStore,
     evaluate_authorization,
 )
+from session_routing import validate_public_outcome
 
 
 class ControlError(ValueError):
@@ -45,6 +46,7 @@ class ResultRoute(Protocol):
     backend: str
     recipient: str
     key: str
+    transport: str
 
 
 @dataclass(frozen=True)
@@ -67,6 +69,13 @@ class PublicSession:
     disambiguator: str | None = None
     result: str | None = None
     result_delivery: str | None = None
+    host_operation: str | None = None
+    transport: str | None = None
+    dispatch: str | None = None
+    wake: str | None = None
+    receipt: str | None = None
+    response: str | None = None
+    route_reason: str | None = None
 
     def payload(self) -> dict[str, object]:
         value: dict[str, object] = {
@@ -87,6 +96,18 @@ class PublicSession:
             value["result"] = self.result
         if self.result_delivery is not None:
             value["resultDelivery"] = self.result_delivery
+        if self.host_operation is not None:
+            value["hostOperation"] = self.host_operation
+        for field, item in (
+            ("transport", self.transport),
+            ("dispatch", self.dispatch),
+            ("wake", self.wake),
+            ("receipt", self.receipt),
+            ("response", self.response),
+            ("routeReason", self.route_reason),
+        ):
+            if item is not None:
+                value[field] = item
         return value
 
 
@@ -121,19 +142,28 @@ class SessionDelegationController:
         disambiguator: str | None = None,
         result: str | None = None,
         result_delivery: str | None = None,
+        host_operation: str | None = None,
+        routing: dict[str, object] | None = None,
     ) -> PublicSession:
         return PublicSession(
-            self._host_label(claim.target_host),
-            claim.friendly_name,
-            envelope.project_root.name or "project",
-            envelope.baseline[:12],
-            claim.permission_intent,
-            state or claim.state,
-            host_status,
-            prerequisite,
-            disambiguator,
-            result,
-            result_delivery,
+            host=self._host_label(claim.target_host),
+            friendly_name=claim.friendly_name,
+            project=envelope.project_root.name or "project",
+            baseline=envelope.baseline[:12],
+            permission=claim.permission_intent,
+            state=state or claim.state,
+            host_status=host_status,
+            prerequisite=prerequisite,
+            disambiguator=disambiguator,
+            result=result,
+            result_delivery=result_delivery,
+            host_operation=host_operation,
+            transport=None if routing is None else str(routing["transport"]),
+            dispatch=None if routing is None else str(routing["dispatch"]),
+            wake=None if routing is None else str(routing["wake"]),
+            receipt=None if routing is None else str(routing["receipt"]),
+            response=None if routing is None else str(routing["response"]),
+            route_reason=None if routing is None else str(routing["routeReason"]),
         )
 
     @staticmethod
@@ -225,9 +255,67 @@ class SessionDelegationController:
 
     def _route(self, envelope: AuthorizationEnvelope,
                claim: DelegationClaim) -> ResultRoute | None:
-        if self.result_route_resolver is None:
+        if (self.result_route_resolver is None
+                or envelope.origin_host == claim.target_host):
             return None
         return self.result_route_resolver(envelope, claim)
+
+    def _routing_outcome(
+        self,
+        envelope: AuthorizationEnvelope,
+        claim: DelegationClaim,
+        result: object,
+        route: ResultRoute | None,
+        delivery: str | None,
+    ) -> dict[str, object]:
+        target = {
+            "host": claim.target_host,
+            "name": claim.friendly_name,
+            "project": envelope.project_root.name or "project",
+        }
+        if envelope.origin_host == claim.target_host:
+            result_state = self._result_fact(result, "state") or claim.state
+            if result_state in ("created", "registered", "running", "completed", "cancelled"):
+                dispatch = "accepted"
+            elif result_state == "held":
+                dispatch = "held"
+            else:
+                dispatch = "unknown"
+            if self._result_fact(result, "final_text"):
+                response = "received"
+            elif result_state == "cancelled":
+                response = "cancelled"
+            elif result_state in ("created", "registered", "running", "held"):
+                response = "pending"
+            else:
+                response = "unknown"
+            outcome = {
+                "transport": "host-native-" + claim.target_host,
+                "target": target,
+                "dispatch": dispatch,
+                "wake": "not-applicable" if claim.target_host == "codex" else "unknown",
+                "receipt": "unavailable",
+                "response": response,
+                "routeReason": "same-host-native",
+            }
+        else:
+            if delivery == "enqueued":
+                dispatch, wake, receipt = "enqueued", "unknown", "unknown"
+            elif delivery == "recipient-unavailable":
+                dispatch, wake, receipt = "rejected", "unavailable", "unavailable"
+            else:
+                dispatch, wake, receipt = "unknown", "unknown", "unknown"
+            outcome = {
+                "transport": "spec-guard-bridge",
+                "target": target,
+                "dispatch": dispatch,
+                "wake": wake,
+                "receipt": receipt,
+                "response": "unknown",
+                "routeReason": ("cross-host-result-route" if route is not None
+                                else "recipient-unavailable"),
+            }
+        return validate_public_outcome(outcome)
 
     @staticmethod
     def _turn_route(route: ResultRoute | None, prompt: str,
@@ -280,7 +368,7 @@ class SessionDelegationController:
             friendly_name=friendly_name,
         )
         if claim.state != "creating":
-            return self._public(claim, envelope)
+            return self._public(claim, envelope, host_operation="create")
         turn_seed = claim.last_turn_ref or "initial"
         route = self._turn_route(
             self._route(envelope, claim), prompt, turn_seed)
@@ -291,6 +379,9 @@ class SessionDelegationController:
             isolated_worktree=isolated_worktree,
         )
         current = self.store.get_delegation(claim.delegation_id)
+        delivery = (None if envelope.origin_host == current.target_host
+                    else self._delivery(route, current))
+        routing = self._routing_outcome(envelope, current, result, route, delivery)
         return self._public(
             current,
             self.store.get_authorization(current.envelope_id),
@@ -298,7 +389,9 @@ class SessionDelegationController:
             host_status=self._result_fact(result, "host_status"),
             prerequisite=self._result_fact(result, "prerequisite"),
             result=self._public_result(result, current, envelope),
-            result_delivery=self._delivery(route, current),
+            result_delivery=delivery,
+            host_operation="create",
+            routing=routing,
         )
 
     def _resolve(
@@ -371,6 +464,9 @@ class SessionDelegationController:
             isolated_worktree=isolated_worktree,
         )
         current = self.store.get_delegation(claim.delegation_id)
+        delivery = (None if envelope.origin_host == current.target_host
+                    else self._delivery(route, current))
+        routing = self._routing_outcome(envelope, current, result, route, delivery)
         return self._public(
             current,
             self.store.get_authorization(current.envelope_id),
@@ -378,7 +474,9 @@ class SessionDelegationController:
             host_status=self._result_fact(result, "host_status"),
             prerequisite=self._result_fact(result, "prerequisite"),
             result=self._public_result(result, current, envelope),
-            result_delivery=self._delivery(route, current),
+            result_delivery=delivery,
+            host_operation="continue",
+            routing=routing,
         )
 
     def status_named(
@@ -396,6 +494,7 @@ class SessionDelegationController:
             host_status=self._result_fact(result, "host_status"),
             prerequisite=self._result_fact(result, "prerequisite"),
             result=self._public_result(result, current, envelope),
+            host_operation="status",
         )
 
     def cancel_named(
@@ -412,6 +511,7 @@ class SessionDelegationController:
             state=self._result_fact(result, "state"),
             host_status=self._result_fact(result, "host_status"),
             prerequisite=self._result_fact(result, "prerequisite"),
+            host_operation="cancel",
         )
 
 

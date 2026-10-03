@@ -5,8 +5,8 @@
 - [x] 接入 Claude Code 同宿主原生发现、发送、回复与等待，不打开私有 socket 或复制正文到 bridge。
 - [x] 接入 Codex 同宿主精确 task/thread 发现、发送、回复与等待，不按标题猜测或重复投递。
 - [x] 接入 Claude↔Codex bridge、受约束 fallback 与统一会话目录，保持单 backend 和真实状态语义。
-- [ ] 把消息路由接入现有委派生命周期，分离 `hostOperation`/`transport` 并覆盖幂等、恢复和取消。
+- [x] 把消息路由接入现有委派生命周期，分离 `hostOperation`/`transport` 并覆盖幂等、恢复和取消。
 - [ ] 完成三条链路的同机双向两轮真实验收、负例、文档、changelog 与完整仓库回归。
 
-当前阶段：Task 5 已完成，下一步实施 Task 6 委派生命周期、幂等与恢复接入。Task 1 或 Task 7 的宿主证据不可由单元测试替代。
+当前阶段：Task 6 已完成，下一步实施 Task 7 真实验收、文档与完整回归。Task 7 的宿主证据不可由单元测试替代。
 本模块不推进 A10 native 转正，不删除 XATS，不增加跨机器能力。

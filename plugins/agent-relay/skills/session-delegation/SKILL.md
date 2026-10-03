@@ -118,6 +118,14 @@ repository identity、精确 baseline 和 dirty 状态，并在当前调用中�
 
 创建、继续、状态与取消的输出使用 `[Claude Code]` / `[Codex]`、friendly name、项目简称、baseline 短标识、
 permission intent、真实状态和未验证边界。完整内部 ID、完整路径、PID、token、数据库位置和原始宿主日志不输出。
+`hostOperation` 单独说明本轮是 `create`、`continue`、`status` 或 `cancel`；`transport` 只说明本轮实际消息／
+结果路径，并与 `dispatch`、`wake`、`receipt`、`response` 独立展示。不能把 create/cancel 说成消息已送达，
+也不能从进程退出推断已读或回复。raw backend `xats`/`native` 对外统一为 `spec-guard-bridge`，不与
+`host-native-claude`/`host-native-codex` 混淆。
+
+同宿主结果不复制到 mailbox：Codex 的精确 turn final text 可作为 `host-native-codex` response；Claude
+没有实际入站回复时保持 pending/unknown。跨宿主结果继续使用唯一 `spec-guard-bridge` route，并保留
+`resultDelivery`。status 不从旧轮次补造 transport 或 `resultDelivery`，只返回本次宿主状态事实。
 `resultDelivery=enqueued` 只表示精确 mailbox 行已写入，不表示发起方已经读取或验证内容；`pending`、`missing`、
 `unverified` 与 `recipient-unavailable` 必须原样区分。同步取得的宿主最终回复可以在 `result` 中返回，但要先
 移除完整内部 ID 和绝对私有路径；异步 Claude 结果不得通过原始 terminal logs 补造公开结果。
