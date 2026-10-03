@@ -56,6 +56,48 @@ class SessionRoutingEntryTests(unittest.TestCase):
             self.assertIn(phrase, text)
         self.assertIn("完整内部 ID", text)
 
+    def test_codex_same_host_uses_supported_task_turn_operations(self):
+        text = self.routing_text()
+        for phrase in (
+            "list_threads", "read_thread", "send_message_to_thread", "wait_threads",
+            "host-native-codex", "精确 task 引用", "task/turn",
+        ):
+            self.assertIn(phrase, text)
+        self.assertIn("thread/start", text)
+        self.assertIn("turn/start", text)
+        self.assertIn("thread/resume", text)
+
+    def test_codex_bidirectional_contract_preserves_host_authorization_boundary(self):
+        text = self.routing_text()
+        self.assertIn("目标在该 turn 内返回 assistant reply", text)
+        self.assertIn("来源用 `wait_threads` 或 `read_thread`", text)
+        self.assertIn("不能要求目标 task 主动跨 task 回发", text)
+        self.assertIn("转述授权", text)
+        self.assertIn("当前发送 task", text)
+
+    def test_codex_never_guesses_private_identity_or_adds_a_model_override(self):
+        text = self.routing_text()
+        for phrase in (
+            "不能按标题", "不读取 Codex 私有状态", "不扫描进程",
+            "不使用 PATH 中的旧 Codex", "不传 `--model`",
+        ):
+            self.assertIn(phrase, text)
+        self.assertIn("标题和项目只用于向用户做最小消歧", text)
+
+    def test_codex_response_loss_reconciles_exact_turn_without_resending(self):
+        text = self.routing_text()
+        self.assertIn("afterCursor", text)
+        self.assertIn("响应丢失", text)
+        self.assertIn("不能再次调用 `send_message_to_thread`", text)
+        self.assertIn("timeout", text)
+        self.assertIn("response=unknown", text)
+
+    def test_delegation_routes_existing_session_messages_without_creating_a_duplicate(self):
+        text = DELEGATION.read_text(encoding="utf-8")
+        self.assertIn("已有会话", text)
+        self.assertIn("session-routing", text)
+        self.assertIn("不得为了传话创建新会话", text)
+
     def test_native_status_mapping_preserves_independent_evidence(self):
         text = self.routing_text()
         for field in ("transport", "dispatch", "wake", "receipt", "response"):

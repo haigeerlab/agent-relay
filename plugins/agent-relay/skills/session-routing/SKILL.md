@@ -81,6 +81,42 @@ Claude 的原生入站消息会唤醒空闲目标并开始宿主 turn；不要�
 公开结果必须包含 `transport`、`dispatch`、`wake`、`receipt`、`response` 和脱敏 target；通过 JSON stdin
 交给 `session_routing.py validate-outcome` 后再展示。不能把 receipt、wake 和 response 合并成“通信成功”。
 
+## Codex → Codex 原生路径
+
+仅当当前宿主是 Codex App，而且当前会话实际提供 `list_threads`、`read_thread`、
+`send_message_to_thread` 与 `wait_threads` 时，才把 `nativeCapability` 设为 `available`，主 transport 为
+`host-native-codex`。若走受支持 app-server，则只使用 App 管理的当前版本所提供的 `thread/start`、
+`turn/start`、`thread/resume` 和对应事件；不使用 PATH 中的旧 Codex，不传 `--model`，也不为默认模型
+增加绕过。
+
+Codex 的双向体验是 task/turn，不假装成 Claude peer socket：来源在精确 task 上发起一个 turn，
+目标在该 turn 内返回 assistant reply，来源用 `wait_threads` 或 `read_thread` 取得结果。用户随后在另一 task 直接
+要求反向联系时，另一 task 成为新的来源。不能要求目标 task 主动跨 task 回发，也不能让目标把另一会话的
+转述授权当作直接人类授权；每次发送的权限判断属于当前发送 task。
+
+### 发现、发送与回复
+
+1. 调用 `list_threads` 取得当前 App 可访问目录。会话名称、标题和项目只用于向用户做最小消歧；唯一匹配后
+   必须使用宿主返回的精确 task 引用。不能按标题、项目路径、最近活动或进程反推出引用。
+2. 在投递前用 selector 固定 route。只有 action 为 `dispatch` 且 transport 为 `host-native-codex` 时，
+   才对该精确引用调用一次 `send_message_to_thread`。用户当前直接要求可作为本轮人类授权；Agent 自己建议
+   联系或用户只在另一个 task 转述时，先按“授权连续性”取得当前来源的授权。
+3. 目标的普通 assistant 结果就是该 turn 的回复；不要再要求目标调用一次跨 task 发送，不把同一回复复制到
+   bridge。只有用户从目标会话发起新的反向消息时，才建立反方向的新 route。
+4. 不读取 Codex 私有状态、不扫描进程、不按窗口标题猜测，不要求用户提供完整 task/thread ID。
+
+### 等待、恢复与未知结果
+
+`wait_threads` 使用宿主返回的 cursor；后续等待传 `afterCursor`，避免把同一 final text 当作新回复。
+需要检查同一精确 task 的最新事实时才调用 `read_thread`，不借此读取无关会话。timeout 只表示本次等待没有
+新结果，保持 `response=pending` 或 `response=unknown`，不能升级成 failed、receipt 或 wake 事实。
+
+`send_message_to_thread` 响应丢失时，将 native dispatch 记为 unknown，并用同一精确 task/turn 做 wait/read
+对账；证明已接受后转为 observe，仍无法证明就保持 reconcile。不能再次调用 `send_message_to_thread`，
+也不能 fallback，因为第一次可能已经投递。App 只证明 turn 被接受时可报告 `dispatch=accepted`；
+`wait_threads` 返回匹配 assistant 结果时才报告 `response=received`。Codex 没有提供独立已读或 Claude 式
+peer wake 证据时，`receipt=unavailable`、`wake=not-applicable` 或 `unknown`，不得从 task status 推断。
+
 ## 授权连续性
 
 用户当前直接要求联系一个唯一会话时，这句话已授权这一轮受限通信，不重复确认。已有 task、batch 或
@@ -90,6 +126,6 @@ session 授权覆盖同一目标和范围时，在期限内复用。Agent 自己
 
 ## 与协作邮箱的边界
 
-同宿主 Claude 原生成功时，不调用 `bridge_send`、`send_message` 或其他协作邮箱写入，不保存第二份正文。
+同宿主 Claude 或 Codex 原生成功时，不调用 `bridge_send`、`send_message` 或其他协作邮箱写入，不保存第二份正文。
 跨宿主及 selector 明确批准的同宿主 fallback 才进入 `collab` 的单 backend 流程。若 selector 返回 stop
 或 reconcile，就把真实原因返回用户，不以“更流畅”为由双写。

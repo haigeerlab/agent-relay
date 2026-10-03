@@ -192,6 +192,13 @@ task/thread 能力或现有受支持 app-server 生命周期。目标必须来�
 
 **预计规模：** M（3 个文件）。
 
+**2026-10-04 实施结果：** 统一 skill 新增 Codex task/turn 原生路径，只使用 App 暴露的
+`list_threads`/`send_message_to_thread`/`wait_threads`/`read_thread` 或 App 管理版 app-server
+thread/turn primitive。名称与项目仅用于最小消歧，投递、等待和响应丢失对账始终绑定宿主返回的精确 task
+引用；timeout 不升级为失败，未知投递不重发或 fallback。双向语义保留“当前发送 task 必须有直接人类授权，
+目标在本轮 turn 内回复”的宿主边界。未使用 PATH 旧版本、model 参数、私有状态或 bridge 正文副本。入口
+契约扩展为 14 项并通过；Task 1 的隔离 task 已提供真实 send/wait/read 和授权拒绝边界证据。
+
 ## Task 5：跨宿主 bridge、显式 fallback 与统一目录
 
 **描述：** 把 Claude↔Codex 强制路由到现有 `collaboration-messaging`，并让同宿主 unavailable 路径
