@@ -120,6 +120,12 @@ reply address 回送、A 被唤醒处理和精确 stop。Codex App 管理版 0.1
 
 **预计规模：** M（3 个文件）。
 
+**2026-10-04 实施结果：** 新增纯标准库路由契约与 JSON stdin/stdout 入口。四格矩阵始终只返回一个
+transport；同宿主 native capability unavailable 只有在当前授权、bridge ready、两端唯一 joined
+同时成立时才显式 fallback。native dispatch unknown 返回 `reconcile` 而不换路。公开状态校验拒绝
+非法枚举、强于 dispatch 证据的 wake/receipt/response、额外内部字段和消息正文。聚焦测试 15 项通过；
+临时破坏 target joined 判据后，目标端未加入的反例按预期失败，恢复后重新全绿。
+
 ## Checkpoint A：路由基础
 
 - Task 1–2 聚焦检查全部通过。
