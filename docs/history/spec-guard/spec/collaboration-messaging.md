@@ -214,6 +214,9 @@ DEFAULT_HOST = "127.0.0.1"
   invocation and becomes discoverable by a human-readable name or description.
 - Two ordinary sessions in the same or different projects can exchange persistent messages and a
   reply without manual copy-paste or project-group setup.
+- A live session that explicitly binds native wake can be targeted by human-readable session,
+  host and project descriptions, then handle two consecutive idle-wake exchanges without a human
+  entering a seed message between rounds. An unbound or stopped target remains mailbox-only.
 - Runtime and host configuration contain no bearer token; unsafe paths, permissions, versions, or
   network binds fail closed.
 - ChatGPT in Chrome and Claude Code in Chrome remain available, mailbox delivery is described
