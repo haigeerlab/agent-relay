@@ -181,6 +181,19 @@ session 路径；解析真实 session identity，按 permission intent 选择已
 - `plugins/spec-guard/hooks/collaboration_claude.py`
 - `plugins/spec-guard/hooks/test_collaboration_runtime.py`
 
+**2026-10-04 实施结果：** 15 个 Claude 适配器聚焦用例和 43 个既有 launcher/runtime 用例通过。
+适配器复用项目 `.claude/settings.json` / `.claude/settings.local.json` 中已有的 allow/deny，默认
+`dontAsk + permission-prompts none`；安全审查只要求预批准十个通信 MCP 工具，开发会话才额外
+要求编辑、写入与至少一条 Bash allow，并限定到干净独立 worktree。缺少项目 allow、trust、
+MCP 项目批准或宿主人工权限时分别返回可诊断 held，不写设置也不代替用户接受信任。
+
+真实格式探针在已受信项目创建并清理了一个无工具测试会话：Claude Code 2.1.288 的 `--bg`
+会忽略调用方提供的 `--session-id` 并返回 8 位 background id；停止后若用该短 ID `--resume`
+会创建副本，只有 `claude agents --json` 返回的完整 `sessionId` 才会按原 ID 唤醒并复用保存的
+权限、工具与名称。因此适配器只以首轮输出中的精确短 ID 对账完整 ID，响应丢失时不按标题或
+同项目候选猜测；恢复命令只传完整 `sessionId` 与新 prompt，不重放启动选项。当前仓库未预配
+通信 allow，真实只读预检如实返回 `held/project-allow-rules`，未修改项目或全局 Claude 配置。
+
 ### 5. 自然语言入口、非阻塞授权和已加入目录
 
 新增用户面 skill，将“创建 Claude/Codex 审查/开发会话”“继续该会话”“取消委派”“查看已

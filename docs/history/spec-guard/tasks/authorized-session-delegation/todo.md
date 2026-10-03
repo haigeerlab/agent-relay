@@ -7,7 +7,7 @@
       单跳、到期、撤销、并发幂等和普通 mailbox 不授予权限。
 - [x] 实现 Codex app-server 创建/继续/状态/取消适配器，固定受支持 binary provenance、
       省略 model，并覆盖协议失败与响应丢失。
-- [ ] 实现 Claude Code background session 创建/继续/状态/停止适配器，复用临时无令牌 MCP
+- [x] 实现 Claude Code background session 创建/继续/状态/停止适配器，复用临时无令牌 MCP
       配置和参数过滤，并覆盖 held permission 与身份对账。
 - [ ] 接入自然语言委派、非阻塞授权通知和带宿主标签的已加入目录；不扫描未注册窗口或暴露
       完整内部 ID。
@@ -17,6 +17,6 @@
       任一方向缺证据则保持未完成。
 
 当前阶段：Plan 已于 2026-10-03 获用户确认。任务 1 的真实宿主门槛已按
-`host-creation-preflight-2026-10-03.md` 有条件通过；任务 2 的授权、私有状态和纯状态机与任务 3
-的 Codex app-server 适配器已通过聚焦测试、真实只读复查和仓库完整校验，进入任务 4 的
-Claude Code background session 适配器。
+`host-creation-preflight-2026-10-03.md` 有条件通过；任务 2 的授权状态机、任务 3 的 Codex
+app-server 适配器与任务 4 的 Claude Code background 适配器已通过聚焦测试和最小真实复查。
+当前进入任务 5 的自然语言入口、非阻塞授权与已加入目录。
