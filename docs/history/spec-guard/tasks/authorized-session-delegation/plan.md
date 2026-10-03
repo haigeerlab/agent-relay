@@ -147,6 +147,13 @@ baseline 绑定、depth=0、期限、撤销、剩余额度、权限降级和扩�
 - `plugins/spec-guard/hooks/test_session_delegation_codex.py`
 - `plugins/spec-guard/hooks/session_delegation.py`
 
+**2026-10-03 实施结果：** 18 个 Codex 适配器聚焦用例与仓库完整校验通过。适配器只解析
+app-managed `current`，拒绝 PATH 旧版，使用同一 0.160.0 二进制读取有效 MCP 清单；真实只读
+复查发现并修正了清单中相对 `cwd` 的兼容边界，最终读取 10 个继承项并全部生成禁用覆盖。
+线程创建、精确绑定、乱序事件、响应丢失、重连继续、状态、取消、独立工作树、有效权限及
+工具目录均失败关闭；请求不传 model，也不注册 worker/review/orchestration 面。Codex 离线线程
+仍由控制器通过精确 `thread/resume` 恢复，不宣称 native mailbox 自动唤醒。
+
 ### 4. Claude Code 创建与继续适配器
 
 在现有 `collaboration_claude.py` 的临时无令牌配置和参数过滤基础上，添加受管 background

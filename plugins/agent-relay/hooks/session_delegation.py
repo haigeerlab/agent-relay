@@ -38,7 +38,7 @@ _TRANSITIONS = {
     "registered": frozenset(("running", "unknown", "cancelled")),
     "running": frozenset(("completed", "unknown", "cancelled")),
     "unknown": frozenset(("created", "registered", "running", "completed", "cancelled")),
-    "completed": frozenset(),
+    "completed": frozenset(("unknown", "cancelled")),
     "cancelled": frozenset(),
 }
 _STATE_EVIDENCE = {
@@ -111,6 +111,11 @@ class DelegationClaim:
     target_host: str
     permission_intent: str
     state: str
+    host_ref: str | None
+    host_session_ref: str | None
+    host_version: str | None
+    actual_permission: str | None
+    last_turn_ref: str | None
 
 
 def _has_control_characters(value: str) -> bool:
@@ -271,6 +276,10 @@ def _authorization_row_is_valid(row: sqlite3.Row) -> bool:
 
 
 def _delegation_row_is_valid(row: sqlite3.Row) -> bool:
+    binding = (
+        row["host_ref"], row["host_session_ref"], row["host_version"],
+        row["actual_permission"],
+    )
     return (
         _is_uuid(row["delegation_id"])
         and _is_uuid(row["envelope_id"])
@@ -279,6 +288,11 @@ def _delegation_row_is_valid(row: sqlite3.Row) -> bool:
         and row["target_host"] in HOSTS
         and row["permission_intent"] in PERMISSION_INTENTS
         and row["state"] in DELEGATION_STATES
+        and all(value is None or _valid_text(value, maximum=512) for value in binding)
+        and (row["last_turn_ref"] is None
+             or _valid_text(row["last_turn_ref"], maximum=512))
+        and (row["state"] not in ("created", "registered", "running", "completed")
+             or all(value is not None for value in binding))
         and isinstance(row["created_at"], int)
         and isinstance(row["updated_at"], int)
     )
@@ -423,6 +437,11 @@ class DelegationStore:
                         target_host TEXT NOT NULL,
                         permission_intent TEXT NOT NULL,
                         state TEXT NOT NULL,
+                        host_ref TEXT,
+                        host_session_ref TEXT,
+                        host_version TEXT,
+                        actual_permission TEXT,
+                        last_turn_ref TEXT,
                         created_at INTEGER NOT NULL,
                         updated_at INTEGER NOT NULL
                     );
@@ -492,6 +511,11 @@ class DelegationStore:
             target_host=row["target_host"],
             permission_intent=row["permission_intent"],
             state=row["state"],
+            host_ref=row["host_ref"],
+            host_session_ref=row["host_session_ref"],
+            host_version=row["host_version"],
+            actual_permission=row["actual_permission"],
+            last_turn_ref=row["last_turn_ref"],
         )
 
     def authorize(self, request: AuthorizationRequest) -> AuthorizationEnvelope:
@@ -649,6 +673,146 @@ class DelegationStore:
                 raise DelegationError("delegation-not-found")
             return self._claim(row)
 
+    @staticmethod
+    def _validated_host_value(value: str, label: str) -> str:
+        if not _valid_text(value, maximum=512):
+            raise DelegationError(label)
+        return value
+
+    def bind_host(
+        self, delegation_id: str, host_ref: str, host_session_ref: str,
+        host_version: str, actual_permission: str,
+    ) -> DelegationClaim:
+        values = (
+            self._validated_host_value(host_ref, "host-ref"),
+            self._validated_host_value(host_session_ref, "host-session-ref"),
+            self._validated_host_value(host_version, "host-version"),
+            self._validated_host_value(actual_permission, "actual-permission"),
+        )
+        with self._connection() as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                row = connection.execute(
+                    "SELECT * FROM delegations WHERE delegation_id = ?", (delegation_id,)
+                ).fetchone()
+                if row is None:
+                    raise DelegationError("delegation-not-found")
+                existing = tuple(row[key] for key in
+                                 ("host_ref", "host_session_ref", "host_version",
+                                  "actual_permission"))
+                if any(current is not None and current != requested
+                       for current, requested in zip(existing, values)):
+                    raise DelegationError("host-binding-conflict")
+                if row["state"] not in ("creating", "unknown", "created"):
+                    raise DelegationError("invalid-state-transition")
+                connection.execute(
+                    """UPDATE delegations SET host_ref = ?, host_session_ref = ?,
+                       host_version = ?, actual_permission = ?, state = 'created',
+                       updated_at = ? WHERE delegation_id = ?""",
+                    (*values, int(self._now()), delegation_id),
+                )
+                updated = connection.execute(
+                    "SELECT * FROM delegations WHERE delegation_id = ?", (delegation_id,)
+                ).fetchone()
+                connection.execute("COMMIT")
+                return self._claim(updated)
+            except Exception:
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
+                raise
+
+    def record_host_unknown(self, delegation_id: str,
+                            host_ref: str | None = None) -> DelegationClaim:
+        if host_ref is not None:
+            self._validated_host_value(host_ref, "host-ref")
+        with self._connection() as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                row = connection.execute(
+                    "SELECT * FROM delegations WHERE delegation_id = ?", (delegation_id,)
+                ).fetchone()
+                if row is None:
+                    raise DelegationError("delegation-not-found")
+                if row["host_ref"] is not None and host_ref not in (None, row["host_ref"]):
+                    raise DelegationError("host-binding-conflict")
+                if row["state"] not in ("creating", "unknown"):
+                    raise DelegationError("invalid-state-transition")
+                connection.execute(
+                    "UPDATE delegations SET host_ref = COALESCE(host_ref, ?), "
+                    "state = 'unknown', updated_at = ? WHERE delegation_id = ?",
+                    (host_ref, int(self._now()), delegation_id),
+                )
+                updated = connection.execute(
+                    "SELECT * FROM delegations WHERE delegation_id = ?", (delegation_id,)
+                ).fetchone()
+                connection.execute("COMMIT")
+                return self._claim(updated)
+            except Exception:
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
+                raise
+
+    def set_turn_ref(self, delegation_id: str, turn_ref: str) -> DelegationClaim:
+        self._validated_host_value(turn_ref, "turn-ref")
+        with self._connection() as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                row = connection.execute(
+                    "SELECT * FROM delegations WHERE delegation_id = ?", (delegation_id,)
+                ).fetchone()
+                if row is None:
+                    raise DelegationError("delegation-not-found")
+                if row["host_ref"] is None:
+                    raise DelegationError("host-binding-required")
+                if row["last_turn_ref"] not in (None, turn_ref):
+                    raise DelegationError("turn-binding-conflict")
+                connection.execute(
+                    "UPDATE delegations SET last_turn_ref = ?, updated_at = ? "
+                    "WHERE delegation_id = ?",
+                    (turn_ref, int(self._now()), delegation_id),
+                )
+                updated = connection.execute(
+                    "SELECT * FROM delegations WHERE delegation_id = ?", (delegation_id,)
+                ).fetchone()
+                connection.execute("COMMIT")
+                return self._claim(updated)
+            except Exception:
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
+                raise
+
+    def begin_follow_up(self, delegation_id: str, turn_ref: str) -> DelegationClaim:
+        self._validated_host_value(turn_ref, "turn-ref")
+        with self._connection() as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                row = connection.execute(
+                    "SELECT * FROM delegations WHERE delegation_id = ?", (delegation_id,)
+                ).fetchone()
+                if row is None:
+                    raise DelegationError("delegation-not-found")
+                envelope = self._load_envelope(connection, row["envelope_id"])
+                if envelope.state == "cancelled":
+                    raise DelegationError("authorization-cancelled")
+                if envelope.state == "expired":
+                    raise DelegationError("authorization-expired")
+                if row["state"] != "completed" or row["host_ref"] is None:
+                    raise DelegationError("invalid-state-transition")
+                connection.execute(
+                    "UPDATE delegations SET state = 'running', last_turn_ref = ?, "
+                    "updated_at = ? WHERE delegation_id = ?",
+                    (turn_ref, int(self._now()), delegation_id),
+                )
+                updated = connection.execute(
+                    "SELECT * FROM delegations WHERE delegation_id = ?", (delegation_id,)
+                ).fetchone()
+                connection.execute("COMMIT")
+                return self._claim(updated)
+            except Exception:
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
+                raise
+
     def advance(self, delegation_id: str, new_state: str, evidence: str) -> DelegationClaim:
         if (not isinstance(new_state, str) or new_state not in DELEGATION_STATES
                 or new_state == "creating"):
@@ -665,6 +829,13 @@ class DelegationStore:
                     raise DelegationError("delegation-not-found")
                 if new_state not in _TRANSITIONS[row["state"]]:
                     raise DelegationError("invalid-state-transition")
+                if new_state == "created":
+                    raise DelegationError("host-binding-required")
+                if (new_state in ("registered", "running", "completed")
+                        and row["host_ref"] is None):
+                    raise DelegationError("host-binding-required")
+                if new_state in ("running", "completed") and row["last_turn_ref"] is None:
+                    raise DelegationError("turn-binding-required")
                 connection.execute(
                     "UPDATE delegations SET state = ?, updated_at = ? WHERE delegation_id = ?",
                     (new_state, int(self._now()), delegation_id),

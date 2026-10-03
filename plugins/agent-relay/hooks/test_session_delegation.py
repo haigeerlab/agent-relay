@@ -276,6 +276,54 @@ class PrivateStoreTests(DelegationTestCase):
 
 
 class ClaimAndStateTests(DelegationTestCase):
+    def test_exact_host_binding_and_authorized_follow_up_reuse_one_claim(self):
+        store = self.store()
+        envelope = self.authorize(store, target_hosts=("codex",))
+        claim = store.claim_launch(
+            envelope.envelope_id, "codex-launch-1", "codex", self.project,
+            "a" * 40, "safe-review",
+        )
+        created = store.bind_host(
+            claim.delegation_id, "thread-exact-1", "session-exact-1",
+            "0.160.0", "readOnly/never",
+        )
+        self.assertEqual(created.state, "created")
+        self.assertEqual(created.host_ref, "thread-exact-1")
+        self.assertEqual(created.host_session_ref, "session-exact-1")
+        self.assertEqual(created.host_version, "0.160.0")
+        self.assertEqual(created.actual_permission, "readOnly/never")
+        with self.assertRaisesRegex(DelegationError, "host-binding-conflict"):
+            store.bind_host(
+                claim.delegation_id, "thread-other", "session-exact-1",
+                "0.160.0", "readOnly/never",
+            )
+
+        store.advance(claim.delegation_id, "registered", "host-registered")
+        store.set_turn_ref(claim.delegation_id, "turn-exact-1")
+        store.advance(claim.delegation_id, "running", "host-running")
+        store.advance(claim.delegation_id, "completed", "host-completed")
+        follow_up = store.begin_follow_up(claim.delegation_id, "turn-exact-2")
+        self.assertEqual(follow_up.state, "running")
+        self.assertEqual(follow_up.last_turn_ref, "turn-exact-2")
+
+    def test_uncertain_creation_keeps_observed_exact_ref_without_promoting_state(self):
+        store = self.store()
+        envelope = self.authorize(store, target_hosts=("codex",))
+        claim = store.claim_launch(
+            envelope.envelope_id, "codex-launch-1", "codex", self.project,
+            "a" * 40, "safe-review",
+        )
+        unknown = store.record_host_unknown(claim.delegation_id, "thread-observed")
+        self.assertEqual(unknown.state, "unknown")
+        self.assertEqual(unknown.host_ref, "thread-observed")
+        recovered = store.bind_host(
+            claim.delegation_id, "thread-observed", "session-observed",
+            "0.160.0", "readOnly/never",
+        )
+        self.assertEqual(recovered.state, "created")
+        with self.assertRaisesRegex(DelegationError, "host-binding-conflict"):
+            store.record_host_unknown(claim.delegation_id, "thread-different")
+
     def test_bounded_development_allows_a_narrower_review_but_not_the_reverse(self):
         store = self.store()
         development = self.authorize(
@@ -383,7 +431,12 @@ class ClaimAndStateTests(DelegationTestCase):
         with self.assertRaisesRegex(DelegationError, "invalid-state-transition"):
             store.advance(claim.delegation_id, "running", "host-running")
         store.advance(claim.delegation_id, "unknown", "host-result-unknown")
+        store.bind_host(
+            claim.delegation_id, "thread-exact", "session-exact",
+            "0.160.0", "readOnly/never",
+        )
         store.advance(claim.delegation_id, "registered", "host-registered")
+        store.set_turn_ref(claim.delegation_id, "turn-exact")
         store.advance(claim.delegation_id, "running", "host-running")
         completed = store.advance(
             claim.delegation_id, "completed", "host-completed")
