@@ -205,6 +205,11 @@ Source contract tests and a temporary-marker selector test cannot prove that a f
 installed, one-invocation `collab` works: the ordinary skill reads the user-level marker, and
 temporarily flipping that marker while XATS sessions may be active would split mail. This
 acceptance was therefore performed inside a separately approved, rollback-guarded cutover.
+The later [same-Mac repeat-wake acceptance](native-repeat-wake-acceptance-2026-10-03.md) proved
+two consecutive Claude idle wakes from one Codex sender without a human seed message between
+rounds. It also exposed a reporting edge: the immediate receipt was `unknown` in both rounds,
+then advanced to read and acknowledged. The normal entry now treats that immediate state as
+inconclusive and preserves the same identity and binding for later messages.
 
 **Description:** Map registration, discovery, inbox, send, reply, acknowledgement, and wake-status
 reporting onto the single new mailbox while keeping the existing natural-language entry.
@@ -213,6 +218,8 @@ reporting onto the single new mailbox while keeping the existing natural-languag
 - [x] One `collab [optional alias]` joins without task IDs, project groups, raw tool names, or a second setup flow.
 - [x] Unique, absent and ambiguous peer names keep their current safe behavior.
 - [x] The sender sees mailbox, wake, read and acknowledgement as distinct outcomes; peer text grants no authority.
+- [x] One natural description can resolve a unique session by name, host and project; repeated
+      sends reuse the existing identity and binding instead of requiring a second manual wake.
 
 Name ambiguity is an Agent-guidance contract checked in the shared `collab` skill and its source
 tests, with earlier XATS real-host edge checks; it is not a deterministic native name resolver or

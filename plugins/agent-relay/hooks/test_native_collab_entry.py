@@ -49,6 +49,22 @@ class NativeCollabEntryTests(unittest.TestCase):
                        "只在唯一匹配时", "不构成授权"):
             self.assertIn(phrase, text)
 
+    def test_native_one_sentence_targeting_uses_host_project_and_name(self):
+        text = SKILL.read_text(encoding="utf-8")
+        for phrase in ("会话名、宿主类型与项目", "同一次调用", "零匹配", "多匹配"):
+            self.assertIn(phrase, text)
+
+    def test_native_repeat_wake_reuses_binding_and_treats_unknown_as_inconclusive(self):
+        text = SKILL.read_text(encoding="utf-8")
+        for phrase in ("连续消息复用", "不得重复注册", "`unknown`", "不能立即判定唤醒失败",
+                       "同一消息", "acknowledgedAt"):
+            self.assertIn(phrase, text)
+
+    def test_native_sender_cannot_bind_an_unbound_recipient(self):
+        text = SKILL.read_text(encoding="utf-8")
+        for phrase in ("目标未绑定唤醒", "只能入箱", "发送方不得替目标绑定"):
+            self.assertIn(phrase, text)
+
     def test_unavailable_native_tools_never_fall_back_to_leftover_xats_tools(self):
         text = SKILL.read_text(encoding="utf-8")
         for phrase in ("没有 `bridge_*` 工具或它们连接失败", "collaboration-ops",
