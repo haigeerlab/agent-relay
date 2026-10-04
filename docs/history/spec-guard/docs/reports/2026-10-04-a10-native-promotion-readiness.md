@@ -1,14 +1,15 @@
 # A10 native 转正就绪对账（2026-10-04）
 
-本报告是 [`2026-09-28-xats-sunset.md`](../decisions/2026-09-28-xats-sunset.md) 的当前状态
-对账，不修改原决定，也不把 `host-native-claude`／`host-native-codex` 与 A10 的实验性 native mailbox
+本报告是 [`2026-09-28-xats-sunset.md`](../decisions/2026-09-28-xats-sunset.md) 及其
+[`2026-10-04-a10-single-mac-promotion-gate.md`](../decisions/2026-10-04-a10-single-mac-promotion-gate.md)
+修订的当前状态对账，不把 `host-native-claude`／`host-native-codex` 与 A10 的实验性 native mailbox
 混为一谈。事实基线是 PR #152 合并后的远端默认分支 `f82a5092c091`；不沿用功能分支关系作结论。
 
 ## 当前判决
 
 **A10 尚未达到“可以提出 native 成为默认传输 Proposal”的门槛。** 三项门槛中：
 
-1. 连续两个发布版本、每版至少两台主机的实机验收：**仍缺验证**；
+1. 连续两个发布版本、每版在一台本机 Mac 的实机验收：**仍缺验证**；
 2. 固定上游 revision 升级后的唤醒复验：**条件未触发**，上游默认分支尚无新 revision；
 3. 无开放 native P1/P2：**公开仓库范围未发现，完整结论仍缺 Local 范围证据**。
 
@@ -16,20 +17,24 @@
 
 ## 门槛逐项对账
 
-### 1. 连续两版本、两主机、三类真实动作
+### 1. 连续两版本、单 Mac、三类真实动作
 
-决定要求连续两个发布版本，各自在至少两台主机完成：收发、空闲会话唤醒、回退演练，并把证据写入
+修订后的决定要求连续两个发布版本，各自在一台本机 Mac 完成：收发、空闲会话唤醒、回退演练，并把证据写入
 该版本的 `docs/releases/v<version>-*.json`。
 
 | 证据 | 当前事实 | 结果 |
 | --- | --- | --- |
-| v0.38.3 发布记录 | Claude/Codex 的安装、hook、Local 定向回复等记录已存在；没有 native mailbox 的两主机收发、空闲唤醒和回退记录 | 未运行（不满足 A10） |
-| 更早发布记录 | v0.18.0 有 XATS/普通 mailbox 双向记录和 native Codex Desktop 宿主记录；它们不是 A10 native backend 的“两主机＋空闲唤醒＋回退”组合 | 未运行（不满足 A10） |
-| 2026-10-04 同机验收 | `host-native-session-routing` 与 `authorized-session-delegation` 在一台 Mac 提供了强支持证据，但记录明确声明不构成 A10 转正 | 通过（支持性证据，不计入门槛） |
-| 合格发布版本计数 | 没有一个发布版本同时具备两台主机和三类动作的发布 JSON | 0 / 2，仍缺验证 |
+| v0.38.3 发布记录 | Claude/Codex 的安装、hook、Local 定向回复等记录已存在；没有 native mailbox 的收发、空闲唤醒和回退组合 | 未运行（不满足 A10） |
+| 更早发布记录 | v0.18.0 有 XATS/普通 mailbox 双向记录和 native Codex Desktop 宿主记录；它们不是 A10 native backend 的“单 Mac＋空闲唤醒＋回退”组合 | 未运行（不满足 A10） |
+| 2026-10-04 同机验收 | `host-native-session-routing` 与 `authorized-session-delegation` 在一台 Mac 提供了强支持证据，但它发生在候选源码而非已发布版本 | 通过（支持性证据，不计入发布门槛） |
+| 合格发布版本计数 | 没有一个发布版本具备单 Mac 三类动作的 release JSON | 0 / 2，仍缺验证 |
 
-这里的“两台主机”不是要求两台机器互相跨网通信。每台主机分别在本机运行同一套收发、空闲唤醒和
-回退验收即可；A10 不要求开放 LAN、公网服务或实现跨机器唤醒。
+一台本机 Mac 即可承担每个版本的实机验收，不再要求第二台 Mac。A10 不要求开放 LAN、公网服务或实现
+跨机器唤醒。
+
+GitHub-hosted macOS runner 每个 job 都是新建并在结束后销毁的虚拟机；当前工作流也没有 Claude Code／Codex
+登录态、既有目标会话或人工授权上下文。它可以补充 macOS 源码兼容性测试，但不能替代真实宿主的发现、收发、
+空闲唤醒和回退证据，因此本次不新增一个无法提高验收等级的 macOS job。
 
 ### 2. 上游 revision 升级后的唤醒
 
@@ -56,9 +61,9 @@
 
 ## 最快可执行路径
 
-1. **下一个实际发布版本（R1）**：在两台主机分别完成 native mailbox 的收发、空闲唤醒、回退演练，
-   将每台主机、宿主版本、固定 revision 和结果写入该版本 release JSON。
-2. **紧接的下一个发布版本（R2）**：在同样两台主机重复同一矩阵。版本必须真实发布且连续，源码候选或
+1. **下一个实际发布版本（R1）**：在本机 Mac 完成 native mailbox 的收发、空闲唤醒、回退演练，
+   将主机、宿主版本、固定 revision 和结果写入该版本 release JSON。
+2. **紧接的下一个发布版本（R2）**：在本机 Mac 重复同一矩阵。版本必须真实发布且连续，源码候选或
    同一版本重复运行不能代替。
 3. **上游出现新 revision 后**：单独审查并升级 `BRIDGE_COMMIT`，安装到隔离候选，再复验空闲唤醒；
    失败则按决定评估淘汰 native，而不是降低门槛。
@@ -69,7 +74,8 @@
 
 - 不需要创建 A10 转正 Proposal；门槛尚未达到。
 - 不需要删除、废弃或默认关闭 XATS。
-- 不需要为“两台主机”开发跨机器服务、端口或远程唤醒。
+- 不需要第二台 Mac，也不需要开发跨机器服务、端口或远程唤醒。
+- 不需要增加无法运行真实 Claude Code／Codex 会话的 GitHub-hosted macOS CI。
 - 不需要重跑已通过的同机 host-native 会话路由验收来提高评级。
 - 不需要修改全局 Claude/Codex 配置、添加 Codex model 参数或恢复旧 tracker bridge。
 
@@ -82,7 +88,8 @@
 | `verify-artifacts.sh` | 通过：3 通过、1 个既有兼容警告、0 失败；13 个旧模块缺 todo 仍按已记录边界处理 |
 | `native_collaboration_runtime.py status` | 通过：ready，固定 revision `8f12c880…` |
 | `collaboration_backend.py` | 通过：本机当前选择 native |
-| 发布 JSON 定向查询 | 通过：没有找到符合 A10 三动作／两主机组合的发布记录 |
+| 发布 JSON 定向查询 | 通过：没有找到符合 A10 三动作／单 Mac 组合的发布记录 |
+| GitHub Actions 工作流与 hosted runner 能力 | 通过：现有 CI 仅做源码校验；临时 VM 不具备真实宿主会话验收条件 |
 | `git ls-remote` 上游 HEAD/main | 通过：仍为 `8f12c880…`，无可升级 revision |
 | GitHub 开放 Issue 只读列表 | 通过：3 个 Proposal，无 native P1/P2 |
 | 真实 Local 账本 | 未运行：遵守不扫描边界 |

@@ -198,8 +198,9 @@ model override, or convert a communication authorization into a development auth
 - Automatically registering every new Claude Code or Codex conversation with the bridge.
 - A permanent project-wide allow policy, unrestricted silent authorization, or automatic model choice.
 - Automatic merge, push, release, Issue/PR/MR mutation, destructive cleanup, or global host configuration.
-- Promoting the existing experimental `native` mailbox backend, changing A10's evidence gates, or removing
-  XATS. Those remain governed by `docs/decisions/2026-09-28-xats-sunset.md`.
+- Promoting the existing experimental `native` mailbox backend or removing XATS. A10's evidence gates remain
+  governed by `docs/decisions/2026-09-28-xats-sunset.md` and its accepted 2026-10-04 single-Mac amendment;
+  this module does not change them.
 - Restoring the retired tracker bridge or the pinned bridge's hidden worker/orchestration surface.
 
 ## Verification
@@ -274,8 +275,8 @@ Repository verification runs focused tests plus:
   names safely, and never equates registration with online presence.
 - Busy, offline, permission-denied, timeout, response-loss, fallback, and cancellation paths preserve
   honest evidence and do not duplicate messages or sessions.
-- A10's two-version/two-host/upstream-revision/no-open-P1-P2 promotion gate remains unchanged, XATS remains
-  available, and this module introduces no cross-machine claim.
+- A10's two-version/single-Mac/upstream-revision/no-open-P1-P2 promotion gate remains externally governed,
+  XATS remains available, and this module introduces no cross-machine claim.
 
 ## Open questions
 
