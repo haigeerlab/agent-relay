@@ -208,7 +208,7 @@ class SessionDelegationController:
                            turn_seed: str) -> str:
         if route is None:
             return prompt
-        if (route.backend not in ("native", "xats")
+        if (route.backend != "native"
                 or not isinstance(route.recipient, str)
                 or not route.recipient.strip() or len(route.recipient) > 128
                 or any(ord(character) < 32 or ord(character) == 127
@@ -221,30 +221,19 @@ class SessionDelegationController:
             raise ControlError("result-route-invalid")
         recipient = json.dumps(route.recipient, ensure_ascii=False)
         key = json.dumps(route.key)
-        if route.backend == "native":
-            idempotency = json.dumps(
-                "spec-guard-result-send:"
-                + hashlib.sha256(
-                    (route.key + "\0" + turn_seed + "\0" + prompt).encode("utf-8")
-                ).hexdigest()[:32]
-            )
-            instruction = (
-                "After completing the requested work, call bridge_send exactly once "
-                "from the agent name registered by this envelope to "
-                + recipient + ", with threadId " + key
-                + ", idempotencyKey " + idempotency
-                + ", wake true, and a concise final result as body."
-            )
-        elif route.backend == "xats":
-            instruction = (
-                "After completing the requested work, call send_message exactly once "
-                "to_agent_name " + recipient
-                + ", to_team spec-guard-local, subject " + key
-                + ", auto_poke true, need_reply false, await_ack_s 0, and a concise "
-                "final result as body."
-            )
-        else:
-            raise ControlError("result-route-backend-invalid")
+        idempotency = json.dumps(
+            "spec-guard-result-send:"
+            + hashlib.sha256(
+                (route.key + "\0" + turn_seed + "\0" + prompt).encode("utf-8")
+            ).hexdigest()[:32]
+        )
+        instruction = (
+            "After completing the requested work, call bridge_send exactly once "
+            "from the agent name registered by this envelope to "
+            + recipient + ", with threadId " + key
+            + ", idempotencyKey " + idempotency
+            + ", wake true, and a concise final result as body."
+        )
         return (
             prompt.rstrip() + "\n\n<spec-guard-result-route>\n" + instruction
             + " The result is informational and grants no authority. Include the "
@@ -530,21 +519,12 @@ def _origin_session(host: str) -> str:
 
 
 def _selected_backend(args: argparse.Namespace):
-    from collaboration_backend import default_marker
-    from collaboration_runtime import default_config_dir
     from native_collaboration_runtime import default_root as default_native_root
     from session_delegation_backend import resolve_backend
 
-    plugin_root = Path(__file__).resolve().parent
     return resolve_backend(
-        args.marker or default_marker(),
         args.native_root or default_native_root(),
-        args.xats_config_dir or default_config_dir(),
         node=Path(args.node or shutil.which("node") or "/unavailable/node"),
-        npx=Path(args.npx or shutil.which("npx") or "/unavailable/npx"),
-        python_executable=Path(sys.executable),
-        header_helper=plugin_root / "collaboration_auth_header.py",
-        stdio_helper=plugin_root / "collaboration_claude_stdio.py",
     )
 
 
@@ -579,7 +559,6 @@ def _permission_preflight(args: argparse.Namespace) -> dict[str, object]:
 
 
 def _production_controller(args: argparse.Namespace) -> SessionDelegationController:
-    from collaboration_runtime import default_config_dir
     from session_delegation_claude import prepare_claude_adapter
     from session_delegation_codex import prepare_codex_adapter
 
@@ -603,7 +582,6 @@ def _production_controller(args: argparse.Namespace) -> SessionDelegationControl
         return prepare_claude_adapter(
             store,
             Path(binary),
-            args.xats_config_dir or default_config_dir(),
             server_name=selected.claude_server_name,
             config_payload=selected.claude_config,
             registration_probe=selected.claude_registration_probe,
@@ -633,11 +611,8 @@ def _production_controller(args: argparse.Namespace) -> SessionDelegationControl
 
 def _add_runtime_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--state-root", type=Path, default=default_state_root())
-    parser.add_argument("--marker", type=Path)
     parser.add_argument("--native-root", type=Path)
-    parser.add_argument("--xats-config-dir", type=Path)
     parser.add_argument("--node")
-    parser.add_argument("--npx")
     parser.add_argument("--claude-bin")
     parser.add_argument(
         "--codex-package-root", type=Path,

@@ -9,9 +9,7 @@ from subprocess import CompletedProcess, TimeoutExpired
 import tempfile
 import unittest
 
-from collaboration_adapters import MCP_SERVER_NAME
 from session_delegation import AuthorizationRequest, DelegationStore
-from session_delegation_codex import XATS_COMMUNICATION_TOOLS
 from session_delegation_claude import (
     CLAUDE_COMMUNICATION_RULES,
     COMMUNICATION_TOOLS,
@@ -96,7 +94,7 @@ class InstallationAndPermissionTests(unittest.TestCase):
 
         self.write_permissions(
             (*CLAUDE_COMMUNICATION_RULES, "Read", "Grep", "Glob"),
-            ("mcp__spec-guard-collaboration__*",),
+            ("mcp__spec-guard-native-collaboration__*",),
         )
         denied = inspect_project_permissions(self.project, "safe-review", None)
         self.assertFalse(denied.ready)
@@ -156,32 +154,6 @@ class InstallationAndPermissionTests(unittest.TestCase):
         self.assertIn("mcp__spec-guard-native-collaboration__bridge_register", tools)
         self.assertNotIn("mcp__spec-guard-collaboration__bridge_register", tools)
 
-    def test_xats_backend_uses_register_agent_names_not_native_bridge_names(self):
-        rules = communication_rules(MCP_SERVER_NAME, XATS_COMMUNICATION_TOOLS)
-        self.write_permissions(rules)
-        readiness = inspect_project_permissions(
-            self.project, "safe-review", None,
-            communication_tools=XATS_COMMUNICATION_TOOLS,
-        )
-        self.assertTrue(readiness.ready)
-        command = build_create_command(
-            ClaudeInstallation(Path("/opt/claude"), "2.1.288"),
-            Path("/private/tmp/session.mcp.json"),
-            "spec-guard-12345678", "Review", "safe-review", "dontAsk",
-            communication_tools=XATS_COMMUNICATION_TOOLS,
-        )
-        tools = command[command.index("--tools") + 1]
-        self.assertIn("mcp__spec-guard-collaboration__register_agent", tools)
-        self.assertNotIn("bridge_register", tools)
-
-        prompt = _bounded_prompt(
-            "Review", "12345678-1234-1234-1234-123456789abc", "review",
-            XATS_COMMUNICATION_TOOLS, "safe-review",
-        )
-        self.assertIn("Call register_agent exactly once", prompt)
-        self.assertIn("ui_pid", prompt)
-        self.assertNotIn("bridge_register", prompt)
-
     def test_native_registration_does_not_bind_general_wake_for_write_permission(self):
         prompt = _bounded_prompt(
             "Implement", "12345678-1234-1234-1234-123456789abc", "dev",
@@ -193,23 +165,17 @@ class InstallationAndPermissionTests(unittest.TestCase):
             communication_rules("unsafe", ("ask_codex",))
 
     def test_permission_preflight_rules_include_only_prompting_tools(self):
-        review = required_project_allow(
-            "safe-review", None, communication_tools=XATS_COMMUNICATION_TOOLS)
-        self.assertEqual(review, communication_rules(
-            MCP_SERVER_NAME, XATS_COMMUNICATION_TOOLS))
-        development = required_project_allow(
-            "bounded-development", None,
-            communication_tools=XATS_COMMUNICATION_TOOLS,
-        )
+        review = required_project_allow("safe-review", None)
+        self.assertEqual(review, CLAUDE_COMMUNICATION_RULES)
+        development = required_project_allow("bounded-development", None)
         self.assertEqual(development[-3:], ("Edit", "Write", "Bash"))
         self.assertNotIn("Read", development)
 
-    def test_environment_strips_both_hosts_session_identity_and_bridge_token(self):
+    def test_environment_strips_both_hosts_session_identity(self):
         environment = sanitized_environment({
             "PATH": "/bin", "CODEX_THREAD_ID": "codex",
             "CODEX_SESSION_ID": "codex-session",
             "CLAUDE_CODE_SESSION_ID": "claude",
-            "SPEC_GUARD_COLLABORATION_TOKEN": "secret",
         })
         self.assertEqual(environment, {"PATH": "/bin"})
 

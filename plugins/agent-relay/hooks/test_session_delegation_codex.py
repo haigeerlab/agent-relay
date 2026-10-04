@@ -16,13 +16,11 @@ from session_delegation_codex import (
     CodexAdapterError,
     CodexInstallation,
     CommunicationServer,
-    HttpCommunicationServer,
     JsonRpcClient,
     RpcRejected,
     RpcReply,
     RpcUncertain,
     TurnOutcome,
-    XATS_COMMUNICATION_TOOLS,
     _bound_prompt,
     build_process_command,
     discover_app_managed_codex,
@@ -243,49 +241,6 @@ class InstallationAndIsolationTests(unittest.TestCase):
         for forbidden in ("model=", "worker", "orchestration", "review/start"):
             self.assertNotIn(forbidden, joined)
 
-    def test_xats_http_server_uses_only_loopback_and_a_nonsecret_header_helper(self):
-        binary = self.root / "codex"
-        binary.write_text("fake", encoding="utf-8")
-        binary.chmod(0o700)
-        helper = self.root / "header-helper.py"
-        helper.write_text("fake", encoding="utf-8")
-        command = build_process_command(
-            CodexInstallation(binary.resolve(), "0.160.0", self.root),
-            {},
-            HttpCommunicationServer(
-                "http://127.0.0.1:9100/mcp",
-                "/usr/bin/python3 %s --config-dir /private/runtime" % helper,
-                XATS_COMMUNICATION_TOOLS,
-            ),
-        )
-        joined = " ".join(command)
-        self.assertIn("http://127.0.0.1:9100/mcp", joined)
-        self.assertIn("http_headers_helper", joined)
-        self.assertIn(str(helper), joined)
-        self.assertNotIn("Bearer", joined)
-        self.assertNotIn("token=", joined.lower())
-        for tool in XATS_COMMUNICATION_TOOLS:
-            self.assertIn(tool, joined)
-        self.assertNotIn("bridge_register", joined)
-
-        with self.assertRaisesRegex(CodexAdapterError, "loopback"):
-            build_process_command(
-                CodexInstallation(binary.resolve(), "0.160.0", self.root),
-                {},
-                HttpCommunicationServer(
-                    "https://example.test/mcp", "/usr/bin/python3 helper.py",
-                ),
-            )
-        with self.assertRaisesRegex(CodexAdapterError, "communication-tools-invalid"):
-            build_process_command(
-                CodexInstallation(binary.resolve(), "0.160.0", self.root),
-                {},
-                HttpCommunicationServer(
-                    "http://127.0.0.1:9100/mcp",
-                    "/usr/bin/python3 helper.py", ("ask_codex",),
-                ),
-            )
-
     def test_environment_strips_both_hosts_ambient_session_identity(self):
         environment = sanitized_environment({
             "PATH": "/bin", "CODEX_THREAD_ID": "origin",
@@ -325,23 +280,6 @@ class JsonRpcTests(unittest.TestCase):
         with self.assertRaises(RpcUncertain) as caught:
             client.request("thread/start", {"cwd": "/tmp"}, timeout=0.1)
         self.assertEqual(caught.exception.observed_thread_ref, "thread-seen")
-
-    def test_xats_registration_event_uses_its_real_tool_name(self):
-        transport = FakeTransport([
-            {"id": 1, "result": {}},
-            {"method": "item/completed", "params": {"item": {
-                "type": "mcpToolCall", "server": "spec_guard_delegation",
-                "tool": "register_agent", "status": "completed",
-            }}},
-            {"method": "turn/completed", "params": {
-                "turn": {"id": "turn-xats", "status": "completed"},
-            }},
-        ])
-        client = JsonRpcClient(
-            transport, timeout=0.1, registration_tool="register_agent")
-        client.initialize()
-        self.assertTrue(client.wait_turn(
-            "turn-xats", require_registration=True, timeout=0.1).registered)
 
     def test_protocol_error_exposes_only_the_numeric_code(self):
         transport = FakeTransport([
