@@ -24,3 +24,7 @@ native 自注册、safe-review 写入负例、取消和停止读回；本项目�
 `ready=true`。任务 7 又完成了双向最小真实 mailbox 结果回传与真实同名短编号消歧；控制器不读取消息
 正文或推进 inbox 游标。完整仓库回归结果与未覆盖的 XATS／跨机器边界详见
 `live-acceptance-2026-10-04.md`。这不推进 A10 native 转正，也不删除 XATS。
+
+同日发布后宿主复测又暴露了 Claude resume 后元数据短暂未稳定，以及 Codex Desktop 接管
+thread 后控制请求被拒绝的两项 P2 恢复问题。最小修复、回归结果与不推进 A10 计数的边界见
+`host-recovery-regression-2026-10-04.md`；原实机记录保留其历史时点事实。

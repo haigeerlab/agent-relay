@@ -361,6 +361,24 @@ class JsonRpcTests(unittest.TestCase):
         self.assertNotIn("secret host detail", str(caught.exception))
         self.assertNotIn("must-not-leak", str(caught.exception))
 
+    def test_protocol_error_replaces_a_non_numeric_code(self):
+        transport = FakeTransport([
+            {"id": 1, "result": {}},
+            {"id": 2, "error": {
+                "code": {"token": "must-not-leak"},
+                "message": "secret host detail",
+            }},
+        ])
+        client = JsonRpcClient(transport, timeout=0.1)
+        client.initialize()
+
+        with self.assertRaisesRegex(RpcRejected, "unknown") as caught:
+            client.request("thread/read", {"threadId": "thread-1"})
+
+        self.assertEqual(caught.exception.code, "unknown")
+        self.assertNotIn("secret host detail", str(caught.exception))
+        self.assertNotIn("must-not-leak", str(caught.exception))
+
 
 class AdapterTests(unittest.TestCase):
     def setUp(self):

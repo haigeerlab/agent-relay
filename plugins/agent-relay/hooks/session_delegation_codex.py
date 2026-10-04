@@ -497,6 +497,8 @@ class JsonRpcClient:
                 if "error" in message:
                     error = message.get("error") or {}
                     code = error.get("code") if isinstance(error, dict) else "unknown"
+                    if not isinstance(code, int) or isinstance(code, bool):
+                        code = "unknown"
                     raise RpcRejected(method, code)
                 result = message.get("result")
                 if not isinstance(result, dict):
