@@ -14,6 +14,7 @@ import time
 from typing import Callable, Mapping, Sequence
 from uuid import UUID, uuid4
 
+from defect_guard import is_defect
 from native_collaboration_adapters import CLAUDE_SERVER_NAME
 from session_delegation import DelegationStore
 from session_delegation_codex import COMMUNICATION_TOOLS, SAFE_COMMUNICATION_TOOLS
@@ -592,8 +593,14 @@ class ClaudeAdapter:
                 self.store.begin_follow_up(delegation_id, turn_ref)
                 try:
                     observed_turn = self.native_wake(claim.host_session_ref, prompt)
-                except Exception:
+                except Exception as error:
+                    # Advance first, then re-raise: `begin_follow_up` has already run, so
+                    # letting a defect out without the transition would strand the
+                    # delegation mid-follow-up. `advance` validates its evidence against
+                    # a locked enum, so the exception type cannot ride along in it.
                     self.store.advance(delegation_id, "unknown", "host-result-unknown")
+                    if is_defect(error):
+                        raise
                     return ClaudeRunResult(
                         "unknown", claim.host_ref, claim.host_session_ref, turn_ref)
                 if not isinstance(observed_turn, str) or not observed_turn.strip():
