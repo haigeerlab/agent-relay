@@ -1,234 +1,139 @@
-# Spec: collaboration-messaging
+# Collaboration messaging
 
-## Objective
+## Status
 
-Provide an optional, private same-Mac mailbox through which ordinary Claude Code and native Codex
-Desktop sessions can discover one another and exchange free-text technical messages without manual
-copy-paste. The capability supplies a local runtime, narrow host adapters, session self-description,
-and a one-step `collab` entry.
+- Module: collaboration-messaging
+- State: active
+- Scope: same-Mac Claude Code and Codex messaging, wake, routing, and bounded delegation
+- Transport: Spec Guard native bridge only
+- Decision: `docs/decisions/2026-10-04-native-only-collaboration-sunset.md`
 
-It is a communication bridge, not a task orchestrator. It does not infer project groups, assign
-work, create Tickets or Issues, modify Git, or treat a message as authorization for another action.
+Historical reports and decisions preserve earlier transport facts. They are not current runtime instructions.
 
-Governance: the accepted Proposal and its attestation
-(`spec/proposal-acceptances/collaboration-messaging-*.json`) cover the loopback XATS runtime only.
-The experimental native transport below was added afterwards without a Proposal revision and was
-brought into scope by the one-time registration of 2026-09-28
-(`docs/decisions/2026-09-28-single-capability-map.md`). Promoting native to the default transport is a
-new requirement and goes through the Proposal process. The evidence threshold for that Proposal and the
-one-minor XATS retirement that follows it are fixed in `docs/decisions/2026-09-28-xats-sunset.md`.
+## User outcome
+
+A user can name a Claude Code or Codex session and project, then ask the current agent to contact it. Existing
+same-host native communication is reused when available; cross-host messages use one private same-Mac bridge.
+Both directions are supported. The user never supplies transport names, database paths, process IDs, or full
+session identifiers.
+
+The directory shows only sessions that are visible through the current host or have explicitly joined the bridge.
+Registration does not imply online state. Wake, delivery, acknowledgement, and reply are separate facts.
 
 ## Runtime contract
 
-- The transport is the audited MIT package `cross-agent-teams-mcp@0.8.6`; unpinned versions are
-  rejected.
-- The first release binds only to `127.0.0.1` on the same Mac. LAN, public, Tailscale, and
-  cross-device modes require a separate security design.
-- User data lives under a private `0700` directory. The bearer token is a regular `0600` file and
-  never appears in project files, generated host configuration, process arguments, or diagnostics.
-- Initialization, service enablement, host configuration, cleanup, and restart are explicit
-  operator actions. Plugin installation and the daily collaboration entry perform none of them.
-- XATS requires a team field, so every session uses the fixed internal namespace
-  `spec-guard-local`. It is not a visible project group, router, ownership boundary, or permission
-  model.
+The pinned runtime is installed only after explicit approval under
+`~/.spec-guard/native-collaboration/`. Plugin installation alone neither creates data nor changes host config.
+The runtime contains an owner-private mailbox, pinned server bundle, manifest, and runtime data. It is not exposed
+over the network and has no compatibility transport or fallback selector.
 
-### Experimental native-wake replacement (opt-in host selection)
+Current operator commands are:
 
-- The MIT `WebisityStudio/claude-codex-mcp-bridge` runtime is pinned to commit
-  `8f12c880cfdba73812b6ab7bc0f373fc467e0343`. Its explicit installer obtains that exact
-  revision, installs locked dependencies without dependency scripts, and builds the local stdio
-  server. It never calls the upstream general `setup`, which would add worker skills and edit host
-  settings. An absent selector keeps XATS as the default. A separately authorized cutover selected
-  native on one host and then passed ordinary two-host and dual-Chrome acceptance; this does not
-  make it a general-release default.
-- The optional runtime and SQLite mailbox live in an owner-only directory outside project
-  worktrees. Both the mailbox path and the upstream process's XDG data home point inside that
-  directory, so even its worker-schema startup side effect cannot write into another live bridge
-  installation. Its status command and host adapter previews are read-only. Separate explicit
-  `install-codex` / `install-claude` actions apply only this backend's host entries; they do not
-  run during plugin installation or daily `collab`. Codex uses an exact communication-tool allowlist; Claude
-  must receive exact worker-tool deny rules before its MCP server is enabled.
-- Native wake uses observed private app IPC and is experimental, not a public host guarantee. A
-  failed or held wake leaves durable unread mail; mailbox write, wake admission, read and explicit
-  acknowledgement are separate outcomes. Agent names are same-user routing labels, not per-session
-  security identities. No message grants authority to change code, Git, Issues or settings.
-- A cutover requires an explicit old-mail and active-session preflight, one active mailbox per new
-  session, preservation of the XATS archive and a rollback path that identifies unread new mail.
-  The read-only XATS preflight counts deliverable unread mail without reading bodies or advancing
-  cursors; registered identities are not evidence that a session is online, so their liveness
-  still needs separate review. Its result is only a snapshot and cannot authorize cutover by itself.
-  A matching read-only native preflight counts unacknowledged direct messages (including unknown
-  recipient names) and broadcast deliveries under the pinned bridge's registration-time rule.
-  It blocks rollback while mail or unresolved registered sessions remain; it neither acknowledges
-  mail nor rewrites either selector or mailbox.
-  The daily `collab` skill reads a private, read-only backend selector: an absent marker keeps XATS;
-  a valid native marker requires a ready pinned runtime; a malformed marker or unavailable native
-  runtime stops instead of silently falling back to XATS. No code in the selector writes the marker.
-  A separate operator-only activation command requires a verified private XATS archive, matching
-  reviewed inventory, a ready pinned native runtime, and explicit assertions that XATS is stopped
-  and old sessions are closed. Those assertions cannot be inferred from registered identities or
-  checked by the command. Installation and fragment generation never switch the daily backend;
-  an absent marker keeps XATS selected.
-  The operator-only rollback command first checks that the XATS mailbox is readable and the native
-  mailbox has no registered sessions or unacknowledged deliveries. With explicit operator assertions
-  that native sessions have stopped and XATS is running, it removes only the private selector marker;
-  it retains the native mailbox and cannot independently verify either service assertion. A
-  controlled live trial exercised this path and restored XATS after Claude Code access blocked
-  cross-host acceptance. A later authorized retry passed the ordinary two-host exchange and kept
-  native selected on that host; the old archive and native mailbox history were retained.
-
-## Host and interaction contract
-
-- Codex reads its authorization header through a local `http_headers_helper`. Native Codex Desktop
-  remains in mailbox mode so ChatGPT in Chrome continues to work; the capability does not switch it
-  to a managed app-server.
-- Claude Code uses a fixed stdio-to-loopback bridge, both when registered by `install-claude` and when
-  started by the collaboration launcher. The bridge reads the token from the `0600` file itself, so the
-  token exists only in the `mcp-remote` child's environment, never in the Claude session's environment.
-  User configuration, the launcher's temporary config, and repository files contain no token.
-- Claude Code's Chrome integration remains available alongside collaboration, including when its
-  explicit launcher forwards `--chrome`; collaboration must not replace or disable `claude-in-chrome`.
-- The daily user contract is `collab [optional alias]`, or equivalent natural language such as
-  “加入本机联调”, “查看联调消息”, and “告诉可乐……”. Users do not provide the internal namespace,
-  PID, agent type, project path, UUID, or MCP tool names.
-- Every registration has a unique transport identity. Friendly aliases, project paths, host types,
-  roles, and current work are voluntary self-description used by the Agent for human-name
-  resolution only.
-- A complete transport name is sent directly. A human alias or description is resolved from the
-  visible directory: one candidate is used, zero candidates produce a not-joined explanation, and
-  multiple candidates require one concise clarification. No fixed matcher, alias database, or
-  project topology is introduced.
-
-## Message and delivery contract
-
-- Messages are free text with optional subjects and references. Message content never grants
-  permission to modify code, Git, Issues, requirements, services, or user configuration.
-- Mailbox persistence and real-time wake-up are separate facts. A successful write means the
-  message entered the mailbox; only an explicit read acknowledgement means the recipient read it.
-- On XATS, native Codex Desktop does not promise active wake-up. Claude Code CLI may explicitly
-  start in a tmux pane for XATS's short inbox hints; this is not a read acknowledgement or a
-  default. Native wake passed one controlled host trial but depends on private app IPC, so it is
-  not a general host guarantee. Claude channel wake is not offered; its experimental switches were removed.
-- Normal session exit unregisters the current identity. Cleanup of an abandoned identity requires
-  an explicitly supplied UUID and can delete neither messages nor processes.
-
-## Commands
-
-~~~text
-python3 -B plugins/spec-guard/hooks/collaboration_runtime.py status --format json
-python3 -B plugins/spec-guard/hooks/collaboration_runtime.py init
-python3 -B plugins/spec-guard/hooks/collaboration_runtime.py start
-python3 -B plugins/spec-guard/hooks/collaboration_runtime.py health --format json
-python3 -B plugins/spec-guard/hooks/collaboration_runtime.py service-status --format json
-python3 -B plugins/spec-guard/hooks/collaboration_adapters.py codex
-python3 -B plugins/spec-guard/hooks/collaboration_adapters.py claude
-python3 -B plugins/spec-guard/hooks/collaboration_claude.py --help  # launch Claude Code with an ephemeral, token-free MCP config
+```bash
 python3 -B plugins/spec-guard/hooks/native_collaboration_runtime.py status
-python3 -B plugins/spec-guard/hooks/native_collaboration_runtime.py install  # explicit opt-in only
-python3 -B plugins/spec-guard/hooks/native_collaboration_adapters.py codex  # print only
-python3 -B plugins/spec-guard/hooks/native_collaboration_adapters.py claude # print only
-python3 -B plugins/spec-guard/hooks/native_collaboration_adapters.py install-codex  # explicit only
-python3 -B plugins/spec-guard/hooks/native_collaboration_adapters.py install-claude # explicit only
-python3 -B plugins/spec-guard/hooks/collaboration_backend.py          # read-only selector
-python3 -B plugins/spec-guard/hooks/native_collaboration_cutover.py --help  # read-only XATS preflight inventory
-python3 -B plugins/spec-guard/hooks/native_collaboration_archive.py --help  # operator-only private XATS snapshot before cutover
-python3 -B plugins/spec-guard/hooks/native_collaboration_activate.py --help  # operator-only switch
-python3 -B plugins/spec-guard/hooks/native_collaboration_rollback.py --help  # operator-only rollback
-python3 -B plugins/spec-guard/hooks/native_collaboration_retire.py --help  # operator-only single-identity retirement, keeps backlog
-python3 -B plugins/spec-guard/hooks/test_collaboration_runtime.py
+python3 -B plugins/spec-guard/hooks/native_collaboration_runtime.py install
+python3 -B plugins/spec-guard/hooks/native_collaboration_adapters.py claude
+python3 -B plugins/spec-guard/hooks/native_collaboration_adapters.py codex
+python3 -B plugins/spec-guard/hooks/native_collaboration_adapters.py install-claude
+python3 -B plugins/spec-guard/hooks/native_collaboration_adapters.py install-codex
+python3 -B plugins/spec-guard/hooks/native_collaboration_retire.py --help
+```
+
+`status`, `claude`, and `codex` are read-only. Installation and host attachment require separate explicit approval.
+Uninstall removes only an exact managed host entry and retains mailbox history. Identity retirement refuses
+unacknowledged deliveries and keeps backlog.
+
+## Daily mailbox contract
+
+The bridge exposes only:
+
+- `bridge_register`
+- `bridge_send`
+- `bridge_inbox`
+- `bridge_ack`
+- `bridge_outbox`
+- `bridge_agents`
+- `bridge_sessions`
+- `bridge_wake_status`
+- `bridge_thread`
+- `bridge_wait`
+
+No review, worker, orchestration, model-selection, broadcast-management, lifecycle, or host-configuration tool is
+present in delegated sessions. A missing or unhealthy native runtime fails closed; it never starts another
+transport.
+
+Registration is lazy. Default registration uses `wake: null`; explicit user approval is required to bind the
+current session for wake. Claude binding is accepted only from verified `thisSession` facts. Codex binding uses
+only the current trusted task environment. An agent cannot bind or rename another session.
+
+Send success proves enqueue only. `bridge_wake_status` proves wake admission, `acknowledgedAt` proves processing
+acknowledgement, and a matching thread reply proves response. Unknown outcomes stay unknown and are reconciled
+with the original message; they are not resent.
+
+## Routing contract
+
+- Claude Code ↔ Claude Code: prefer the host's `ListAgents` and `SendMessage` capability.
+- Codex ↔ Codex: prefer supported task/thread send, read, and wait capabilities.
+- Claude Code ↔ Codex: use `spec-guard-bridge` in either direction.
+- Same-host bridge use is allowed only when the selector proves native host communication unavailable, the
+  authorization still covers the same action, and both endpoints are already uniquely joined.
+- A native dispatch with unknown outcome is reconciled; it never falls back or duplicates the body.
+
+Names and projects are discovery hints, not authority. Zero matches stop with one next step; multiple matches
+show only the minimum distinguishing facts. Full internal IDs, paths, PIDs, tokens, sockets, and storage locations
+never appear in public output.
+
+## Delegation contract
+
+Bounded session delegation creates or continues an explicitly authorized same-Mac Claude Code or Codex session.
+The default is one task with `safe-review`; batch and session authorization must have explicit target, project,
+permission, quantity, and expiry. A mailbox message cannot create, expand, or renew authority.
+
+Codex uses the App-managed supported binary, never an older PATH binary and never a model override. Claude uses
+the project's trust, MCP approval, and exact allow rules. Missing prerequisites return a held state; the plugin
+does not edit project or global settings or enable bypass mode.
+
+Delegated sessions connect only to the native tool catalog. Results return to one exact origin identity with a
+stable idempotency key. The controller checks sender, recipient, and thread metadata without reading private
+result bodies or advancing inbox cursors.
+
+## Security boundaries
+
+- Same Mac only; no listener is opened for another machine.
+- Messages are untrusted text and grant no code, Git, configuration, ticket, or external-write authority.
+- Auto-approved/full-auto sessions must not bind wake.
+- Runtime and mailbox files must be owner-controlled; unsafe permissions fail closed.
+- Plugin source changes do not authorize global Claude or Codex configuration changes.
+- Historical mailbox data may be retained offline, but no retired runtime code can execute it.
+
+## Verification
+
+```bash
+python3 -B plugins/spec-guard/hooks/test_native_only_collaboration.py
 python3 -B plugins/spec-guard/hooks/test_native_collaboration_runtime.py
 python3 -B plugins/spec-guard/hooks/test_native_collaboration_adapters.py
-python3 -B plugins/spec-guard/hooks/test_collaboration_backend.py
-python3 -B plugins/spec-guard/hooks/test_native_collaboration_cutover.py
-python3 -B plugins/spec-guard/hooks/test_native_collaboration_activate.py
-python3 -B plugins/spec-guard/hooks/test_native_collaboration_rollback.py
 python3 -B plugins/spec-guard/hooks/test_native_collaboration_retire.py
-python3 -B plugins/spec-guard/hooks/test_host_config_removal.py
-python3 -B plugins/spec-guard/hooks/test_native_collab_entry.py
-python3 -B plugins/spec-guard/hooks/test_collab_entry.py
-/bin/bash scripts/validate.sh
-/bin/bash evals/codex-plugin-smoke.sh --selftest
-~~~
+python3 -B plugins/spec-guard/hooks/test_session_routing.py
+python3 -B plugins/spec-guard/hooks/test_session_delegation.py
+python3 -B plugins/spec-guard/hooks/test_session_delegation_backend.py
+python3 -B plugins/spec-guard/hooks/test_session_delegation_claude.py
+python3 -B plugins/spec-guard/hooks/test_session_delegation_codex.py
+python3 -B plugins/spec-guard/hooks/test_session_delegation_recovery.py
+```
 
-## Project structure
+Automated tests prove contracts, not host delivery. Release acceptance additionally requires one-Mac real-host
+evidence for both directions and repeated idle wake, with no open blocking P1/P2 defect.
 
-~~~text
-plugins/spec-guard/hooks/collaboration_runtime.py       -> private runtime lifecycle and recovery
-plugins/spec-guard/hooks/collaboration_adapters.py      -> no-secret Claude and Codex configuration
-plugins/spec-guard/hooks/collaboration_auth_header.py   -> Codex dynamic authorization header
-plugins/spec-guard/hooks/collaboration_claude*.py       -> Claude launch and stdio bridge boundaries
-plugins/spec-guard/hooks/native_collaboration_*.py      -> opt-in pinned runtime and host fragments
-plugins/spec-guard/hooks/collaboration_backend.py        -> read-only one-mailbox selector
-plugins/spec-guard/hooks/host_config_removal.py          -> host MCP entry add/remove, exact-fragment matching only
-plugins/spec-guard/skills/collab/SKILL.md               -> daily join, inbox, discovery, and send flow
-plugins/spec-guard/skills/collaboration-ops/SKILL.md     -> explicit operator actions
-plugins/spec-guard/references/collaboration-*.md         -> runtime and protocol contracts
-plugins/spec-guard/hooks/test_collaboration_*.py         -> runtime and adapter regressions
-plugins/spec-guard/hooks/test_native_collaboration_*.py  -> native transport and cutover/retire regressions
-plugins/spec-guard/hooks/test_host_config_removal.py     -> host MCP entry add/remove regressions
-plugins/spec-guard/hooks/test_collab_entry.py            -> user-facing entry contract
-~~~
+## Requirement mapping
 
-## Code style
-
-Use standard-library Python, immutable contract constants, explicit CLI subcommands, structured
-JSON results, and fail-closed validation. Security-sensitive defaults remain visible and pinned:
-
-~~~python
-PACKAGE_NAME = "cross-agent-teams-mcp"
-PACKAGE_VERSION = "0.8.6"
-LOCAL_NAMESPACE = "spec-guard-local"
-DEFAULT_HOST = "127.0.0.1"
-~~~
-
-## Testing strategy
-
-- Unit fixtures validate the pinned runtime, loopback-only bind, private permissions, symlink
-  rejection, no-secret host configuration, launchd lifecycle, stale registration cleanup, and
-  failure diagnostics without reading a real token or starting an uncontrolled daemon.
-- Contract tests validate one-step joining, unique transport identities, Agent-driven name
-  resolution, ambiguity handling, and the prohibition on implicit service or Git actions.
-- Real-host acceptance covers ordinary Claude Code, Codex CLI, and native Codex Desktop in same-
-  and different-project exchanges while preserving ChatGPT in Chrome.
-- Any wake-up enhancement must separately verify Claude Code in Chrome and ChatGPT in Chrome on
-  their ordinary hosts; launcher argument tests alone do not prove browser integration works.
-- Full repository validation and Codex smoke self-tests remain required before delivery.
-
-## Boundaries
-
-- Always: pin audited transport versions; use loopback and private files; distinguish accepted,
-  delivered, read, and wake states; keep user-facing entry independent from operator actions.
-- Ask first: initialize or start the runtime; enable launchd; install or replace host configuration;
-  remove an exact stale identity; select Claude CLI tmux wake; change transport
-  versions.
-- Never: expose tokens; bind beyond loopback; silently alter Claude or Codex startup; disable
-  ChatGPT in Chrome or Claude Code in Chrome; create project groups or automatic routing; translate
-  a message into Git, Issue, Ticket, code, requirement, or authorization writes.
-- Residual risk (accepted): `cross-agent-teams-mcp@0.8.6` and `mcp-remote@0.1.38` are still fetched
-  with `npx --yes` at launch and their transitive dependencies are not locked. This stays accepted
-  until the XATS sunset (`docs/decisions/2026-09-28-xats-sunset.md`) removes those launch paths.
-
-## Success criteria
-
-- A newly started Claude Code or native Codex Desktop session joins with at most one `collab`
-  invocation and becomes discoverable by a human-readable name or description.
-- Two ordinary sessions in the same or different projects can exchange persistent messages and a
-  reply without manual copy-paste or project-group setup.
-- A live session that explicitly binds native wake can be targeted by human-readable session,
-  host and project descriptions, then handle two consecutive idle-wake exchanges without a human
-  entering a seed message between rounds. An unbound or stopped target remains mailbox-only.
-- Runtime and host configuration contain no bearer token; unsafe paths, permissions, versions, or
-  network binds fail closed.
-- ChatGPT in Chrome and Claude Code in Chrome remain available, mailbox delivery is described
-  honestly, and unavailable or ambiguous states produce one actionable next step without hidden
-  side effects.
-
-## Open questions
-
-Cross-machine communication is deferred and requires a separate security design. Native Codex
-Desktop wake passed isolated feasibility checks and one controlled ordinary-host trial, but is not
-yet a generally supported default; remaining release gates are recorded in
-[`../tasks/collaboration-messaging/native-wake-migration-plan.md`](../tasks/collaboration-messaging/native-wake-migration-plan.md).
-A scheduled inbox check was explored but is not a supported daily-use action; its remaining
-acceptance gaps are recorded in
-[`../tasks/collaboration-messaging/codex-scheduled-inbox-acceptance-2026-09-25.md`](../tasks/collaboration-messaging/codex-scheduled-inbox-acceptance-2026-09-25.md).
+```text
+plugins/spec-guard/hooks/native_collaboration_runtime.py       -> pinned private runtime
+plugins/spec-guard/hooks/native_collaboration_adapters.py      -> explicit host attachment/removal
+plugins/spec-guard/hooks/native_collaboration_retire.py        -> safe identity retirement
+plugins/spec-guard/hooks/session_routing.py                     -> one-route selection and outcome validation
+plugins/spec-guard/hooks/session_delegation_*.py                -> bounded host creation and result delivery
+plugins/spec-guard/skills/collab/SKILL.md                       -> daily natural-language mailbox use
+plugins/spec-guard/skills/session-routing/SKILL.md              -> existing-session routing
+plugins/spec-guard/skills/session-delegation/SKILL.md           -> bounded new-session workflow
+plugins/spec-guard/references/collaboration-runtime.md          -> operator reference
+```

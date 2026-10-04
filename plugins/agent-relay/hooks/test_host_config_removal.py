@@ -9,8 +9,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 from host_config_removal import add_claude_server, remove_claude_server, remove_codex_table
-import collaboration_adapters
-import collaboration_runtime
 import native_collaboration_adapters
 from native_collaboration_runtime import BRIDGE_COMMIT
 
@@ -156,60 +154,6 @@ class NativeUninstallRoundTripTests(unittest.TestCase):
         code, output = self.cli("uninstall-codex", "--confirm-uninstall")
         self.assertEqual((code, "removed" in output), (0, True))
         self.assertEqual(self.config.read_text(encoding="utf-8"), original.rstrip("\n") + "\n")
-
-
-
-class XatsUninstallRoundTripTests(unittest.TestCase):
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(prefix="sg-xats-uninstall-")
-        self.addCleanup(self.tmp.cleanup)
-        self.runtime = Path(self.tmp.name) / "collaboration"
-        self.config = Path(self.tmp.name) / "config.toml"
-        with redirect_stdout(io.StringIO()):
-            self.assertEqual(collaboration_runtime.main([
-                "init", "--config-dir", str(self.runtime), "--format", "json"]), 0)
-
-    def cli(self, *arguments):
-        output = io.StringIO()
-        with redirect_stdout(output):
-            code = collaboration_adapters.main([
-                *arguments, "--config-dir", str(self.runtime), "--codex-config", str(self.config)])
-        return code, output.getvalue()
-
-    def test_install_then_uninstall_restores_the_original_file(self):
-        original = BEFORE + "\n" + AFTER
-        self.config.write_text(original, encoding="utf-8")
-        self.config.chmod(0o600)
-        self.assertEqual(self.cli("install-codex")[0], 0)
-        self.assertEqual(self.cli("uninstall-codex"),
-                         (1, "uninstall-confirmation-required: rerun with --confirm-uninstall\n"))
-        self.assertIn("spec_guard_collaboration", self.config.read_text(encoding="utf-8"))
-        code, output = self.cli("uninstall-codex", "--confirm-uninstall")
-        self.assertEqual((code, "removed" in output), (0, True))
-        self.assertEqual(self.config.read_text(encoding="utf-8"), original)
-
-    def test_table_installed_from_another_checkout_is_left_for_the_user(self):
-        self.assertEqual(self.cli("install-codex", "--header-helper",
-                                  str(Path(self.tmp.name) / "other" / "helper.py"))[0], 0)
-        installed = self.config.read_text(encoding="utf-8")
-        with redirect_stdout(io.StringIO()), patch("sys.stderr", new_callable=io.StringIO) as errors:
-            code = collaboration_adapters.main([
-                "uninstall-codex", "--confirm-uninstall", "--config-dir", str(self.runtime),
-                "--codex-config", str(self.config)])
-        self.assertEqual(code, 1)
-        self.assertIn("remove it manually", errors.getvalue())
-        self.assertEqual(self.config.read_text(encoding="utf-8"), installed)
-
-    def test_claude_uninstall_needs_no_runtime_and_uses_the_claude_cli(self):
-        with patch("collaboration_adapters.remove_claude_server", return_value="removed") as remove:
-            output = io.StringIO()
-            with redirect_stdout(output):
-                self.assertEqual(collaboration_adapters.main([
-                    "uninstall-claude", "--confirm-uninstall",
-                    "--config-dir", str(Path(self.tmp.name) / "missing")]), 0)
-        remove.assert_called_once_with("claude", "spec-guard-collaboration")
-        self.assertIn("removed", output.getvalue())
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -195,7 +195,7 @@ class RecoveryTests(unittest.TestCase):
         self.assertNotIn("PRIVATE_NATIVE_BODY", stored)
         self.assertNotIn("Same-host result", stored)
 
-    def test_delivery_states_and_xats_instruction_do_not_mix_backends(self):
+    def test_native_delivery_states_and_retry_keys_are_stable(self):
         for observed, state, expected in (
             (False, "created", "pending"),
             (False, "completed", "missing"),
@@ -203,7 +203,7 @@ class RecoveryTests(unittest.TestCase):
         ):
             with self.subTest(observed=observed, state=state):
                 route = SimpleNamespace(
-                    backend="xats", recipient="origin-agent",
+                    backend="native", recipient="origin-agent",
                     key="spec-guard-result:delivery-1234",
                 )
                 controller = SessionDelegationController(
@@ -219,8 +219,7 @@ class RecoveryTests(unittest.TestCase):
                 )
                 self.assertEqual(controller._delivery(route, claim), expected)
                 prompt = controller._with_result_route("Review", route, "initial")
-                self.assertIn("send_message", prompt)
-                self.assertNotIn("bridge_send", prompt)
+                self.assertIn("bridge_send", prompt)
         route = SimpleNamespace(
             backend="native", recipient="origin-agent",
             key="spec-guard-result:delivery-1234",

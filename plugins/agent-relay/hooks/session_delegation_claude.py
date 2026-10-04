@@ -14,8 +14,7 @@ import time
 from typing import Callable, Mapping, Sequence
 from uuid import UUID, uuid4
 
-from collaboration_adapters import MCP_SERVER_NAME
-from collaboration_claude import write_ephemeral_mcp_config
+from native_collaboration_adapters import CLAUDE_SERVER_NAME
 from session_delegation import DelegationStore
 from session_delegation_codex import COMMUNICATION_TOOLS, SAFE_COMMUNICATION_TOOLS
 
@@ -36,7 +35,7 @@ def communication_rules(server_name: str, tools: tuple[str, ...] = COMMUNICATION
     return tuple("mcp__%s__%s" % (server_name, tool) for tool in tools)
 
 
-CLAUDE_COMMUNICATION_RULES = communication_rules(MCP_SERVER_NAME)
+CLAUDE_COMMUNICATION_RULES = communication_rules(CLAUDE_SERVER_NAME)
 _VERSION = re.compile(r"^([0-9]+)\.([0-9]+)\.([0-9]+) \(Claude Code\)$")
 _BACKGROUND = re.compile(r"^backgrounded · ([0-9a-f]{8})(?: · .*)?$", re.MULTILINE)
 _STOPPED = re.compile(r"^stopped ([0-9a-f]{8})$", re.MULTILINE)
@@ -95,7 +94,6 @@ def sanitized_environment(environment: Mapping[str, str] | None = None) -> dict[
         "CODEX_THREAD_ID",
         "CODEX_SESSION_ID",
         "CLAUDE_CODE_SESSION_ID",
-        "SPEC_GUARD_COLLABORATION_TOKEN",
     ):
         result.pop(name, None)
     return result
@@ -187,7 +185,7 @@ def _permission_shape(intent: str, host_permission: str | None, server_name: str
 
 def inspect_project_permissions(
     project: Path, intent: str, host_permission: str | None,
-    *, server_name: str = MCP_SERVER_NAME,
+    *, server_name: str = CLAUDE_SERVER_NAME,
     communication_tools: tuple[str, ...] = COMMUNICATION_TOOLS,
 ) -> PermissionReadiness:
     project = Path(project).resolve(strict=True)
@@ -216,7 +214,7 @@ def inspect_project_permissions(
 
 def required_project_allow(
     intent: str, host_permission: str | None, *,
-    server_name: str = MCP_SERVER_NAME,
+    server_name: str = CLAUDE_SERVER_NAME,
     communication_tools: tuple[str, ...] = COMMUNICATION_TOOLS,
 ) -> tuple[str, ...]:
     _mode, _tools, prompt_allow = _permission_shape(
@@ -236,15 +234,7 @@ def _bounded_prompt(prompt: str, delegation_id: str, friendly_name: str,
                    or ord(character) == 127 for character in prompt)):
         raise ClaudeAdapterError("delegation-prompt-invalid")
     name = _internal_name(friendly_name, delegation_id)
-    if "register_agent" in communication_tools:
-        wake = (", and the current Claude parent process as ui_pid"
-                if intent == "safe-review" else "")
-        registration = (
-            "Call register_agent exactly once with agent_type claude-code, name "
-            + name + ", team spec-guard-local, and this project's directory"
-            + wake + "."
-        )
-    elif "bridge_register" in communication_tools:
+    if "bridge_register" in communication_tools:
         wake = '"auto"' if intent == "safe-review" else "null"
         registration = (
             "Call bridge_register exactly once with agent " + name
@@ -272,7 +262,7 @@ def build_create_command(
     permission_mode: str,
     host_permission: str | None = None,
     *,
-    server_name: str = MCP_SERVER_NAME,
+    server_name: str = CLAUDE_SERVER_NAME,
     communication_tools: tuple[str, ...] = COMMUNICATION_TOOLS,
 ) -> tuple[str, ...]:
     expected_mode, tools, _builtins = _permission_shape(
@@ -332,7 +322,7 @@ class ClaudeAdapter:
         *,
         runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
         config_factory: Callable[[str], Path],
-        server_name: str = MCP_SERVER_NAME,
+        server_name: str = CLAUDE_SERVER_NAME,
         communication_tools: tuple[str, ...] = COMMUNICATION_TOOLS,
         native_wake: Callable[[str, str], str] | None = None,
         registration_probe: Callable[
@@ -735,11 +725,10 @@ class ClaudeAdapter:
 def prepare_claude_adapter(
     store: DelegationStore,
     claude_binary: Path,
-    runtime_config_dir: Path,
     *,
     native_wake: Callable[[str, str], str] | None = None,
-    server_name: str = MCP_SERVER_NAME,
-    config_payload: Mapping[str, object] | None = None,
+    server_name: str = CLAUDE_SERVER_NAME,
+    config_payload: Mapping[str, object],
     registration_probe: Callable[
         [str, int | None, str, str], bool | None
     ] | None = None,
@@ -747,27 +736,23 @@ def prepare_claude_adapter(
 ) -> ClaudeAdapter:
     installation = discover_claude(claude_binary)
 
-    if config_payload is not None:
-        servers = config_payload.get("mcpServers")
-        if (set(config_payload) != {"mcpServers"} or not isinstance(servers, dict)
-                or set(servers) != {server_name} or not isinstance(servers[server_name], dict)):
-            raise ClaudeAdapterError("mcp-config-invalid")
+    servers = config_payload.get("mcpServers")
+    if (set(config_payload) != {"mcpServers"} or not isinstance(servers, dict)
+            or set(servers) != {server_name} or not isinstance(servers[server_name], dict)):
+        raise ClaudeAdapterError("mcp-config-invalid")
 
     def config_factory(delegation_id: str) -> Path:
         target = store.root / ("claude-" + delegation_id + ".mcp.json")
         if target.exists() or target.is_symlink():
             return target
-        if config_payload is None:
-            temporary = write_ephemeral_mcp_config(runtime_config_dir)
-        else:
-            with tempfile.NamedTemporaryFile(
-                mode="w", encoding="utf-8", prefix="claude-delegation-",
-                suffix=".json", dir=store.root, delete=False,
-            ) as handle:
-                json.dump(config_payload, handle, separators=(",", ":"))
-                handle.write("\n")
-                temporary = Path(handle.name)
-            temporary.chmod(0o600)
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", prefix="claude-delegation-",
+            suffix=".json", dir=store.root, delete=False,
+        ) as handle:
+            json.dump(config_payload, handle, separators=(",", ":"))
+            handle.write("\n")
+            temporary = Path(handle.name)
+        temporary.chmod(0o600)
         try:
             temporary.replace(target)
             target.chmod(0o600)

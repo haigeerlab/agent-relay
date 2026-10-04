@@ -1,4 +1,4 @@
-"""The normal collab skill must have one safe native path, not a second command."""
+"""The normal collab skill exposes the native mailbox without a second command."""
 from pathlib import Path
 import unittest
 
@@ -7,68 +7,40 @@ SKILL = Path(__file__).resolve().parents[1] / "skills" / "collab" / "SKILL.md"
 
 
 class NativeCollabEntryTests(unittest.TestCase):
-    def test_one_entry_selects_one_backend_without_implicit_fallback(self):
-        text = SKILL.read_text(encoding="utf-8")
-        self.assertIn("collaboration_backend.py", text)
-        self.assertIn("`native`", text)
-        self.assertIn("`xats`", text)
-        self.assertIn("不得自动退回 XATS", text)
+    def text(self):
+        return SKILL.read_text(encoding="utf-8")
 
-    def test_native_join_registers_without_wake_by_default(self):
-        text = SKILL.read_text(encoding="utf-8")
-        start = text.index("## 实验性 native 路径")
-        end = text.index("## 当前 XATS 路径")
-        native = text[start:end]
-        self.assertIn("默认以 `wake: null` 登记", native)
-        # The old unconditional binding instruction must be gone.
-        self.assertNotIn("2. Claude Code 先用", native)
-        # Binding phrases appear only after the explicit-opt-in condition.
-        opt_in = native.index("明确要求")
-        for phrase in ("wake: \"auto\"", "wake: {app: \"codex\", sessionId:"):
-            self.assertIn(phrase, native)
-            self.assertGreater(native.index(phrase), opt_in)
-        self.assertLess(native.index("默认以 `wake: null` 登记"), opt_in)
-        condition = native[opt_in:native.index("wake: \"auto\"")]
-        self.assertIn("自动批准", condition)
+    def test_one_native_mailbox_and_no_implicit_fallback(self):
+        text = self.text()
+        self.assertIn("唯一邮箱", text)
+        self.assertIn("native bridge", text)
+        self.assertIn("不尝试第二条传输", text)
 
-    def test_native_wake_opt_in_keeps_current_session_verification(self):
-        text = SKILL.read_text(encoding="utf-8")
-        for phrase in ("bridge_register", "bridge_sessions", "thisSession", "CODEX_THREAD_ID",
-                       "不得要求用户提供任务 ID"):
+    def test_current_session_wake_binding_is_verified(self):
+        text = self.text()
+        for phrase in (
+            "默认 `wake: null`", "明确要求", "自动批准", "bridge_sessions",
+            "thisSession", "CODEX_THREAD_ID", "不能替另一个会话注册",
+        ):
             self.assertIn(phrase, text)
 
-    def test_native_join_reports_whether_wake_is_bound(self):
-        text = SKILL.read_text(encoding="utf-8")
-        self.assertIn("报告本会话是否绑定了唤醒", text)
-        self.assertIn("bridge_inbox", text)
-
-    def test_native_mailbox_has_honest_handling_and_safe_name_resolution(self):
-        text = SKILL.read_text(encoding="utf-8")
-        for phrase in ("bridge_agents", "bridge_send", "bridge_inbox", "bridge_ack",
-                       "bridge_outbox", "bridge_wake_status", "acknowledge: false",
-                       "只在唯一匹配时", "不构成授权"):
+    def test_mailbox_handling_is_honest_and_idempotent(self):
+        text = self.text()
+        for phrase in (
+            "bridge_agents", "bridge_send", "bridge_inbox", "bridge_ack",
+            "bridge_outbox", "bridge_wake_status", "acknowledge: false",
+            "连续消息复用", "不重复注册", "`unknown` 保持未知",
+        ):
             self.assertIn(phrase, text)
 
-    def test_native_one_sentence_targeting_uses_host_project_and_name(self):
-        text = SKILL.read_text(encoding="utf-8")
-        for phrase in ("会话名、宿主类型与项目", "同一次调用", "零匹配", "多匹配"):
-            self.assertIn(phrase, text)
+    def test_sender_cannot_bind_an_unbound_target(self):
+        text = self.text()
+        self.assertIn("未绑定时只入箱", text)
+        self.assertIn("不能替另一个会话", text)
 
-    def test_native_repeat_wake_reuses_binding_and_treats_unknown_as_inconclusive(self):
-        text = SKILL.read_text(encoding="utf-8")
-        for phrase in ("连续消息复用", "不得重复注册", "`unknown`", "不能立即判定唤醒失败",
-                       "同一消息", "acknowledgedAt"):
-            self.assertIn(phrase, text)
-
-    def test_native_sender_cannot_bind_an_unbound_recipient(self):
-        text = SKILL.read_text(encoding="utf-8")
-        for phrase in ("目标未绑定唤醒", "只能入箱", "发送方不得替目标绑定"):
-            self.assertIn(phrase, text)
-
-    def test_unavailable_native_tools_never_fall_back_to_leftover_xats_tools(self):
-        text = SKILL.read_text(encoding="utf-8")
-        for phrase in ("没有 `bridge_*` 工具或它们连接失败", "collaboration-ops",
-                       "也不得改用它们"):
+    def test_cross_host_targeting_uses_host_project_and_name(self):
+        text = self.text()
+        for phrase in ("目标宿主", "会话名称", "项目", "唯一匹配", "零匹配", "多匹配"):
             self.assertIn(phrase, text)
 
 

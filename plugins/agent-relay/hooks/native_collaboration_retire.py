@@ -14,10 +14,11 @@ import os
 from pathlib import Path
 import shutil
 import sqlite3
+import stat
 import subprocess
 from typing import Any, Sequence
+from urllib.parse import quote
 
-from native_collaboration_cutover import _open_read_only
 from native_collaboration_runtime import default_root, status
 
 
@@ -25,10 +26,19 @@ class RetireError(ValueError):
     """The identity cannot be retired safely."""
 
 
+def _open_read_only(database: Path) -> sqlite3.Connection:
+    metadata = database.lstat()
+    if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid()
+            or stat.S_IMODE(metadata.st_mode) != 0o600):
+        raise ValueError("native mailbox must be an owner-owned 0600 regular file")
+    return sqlite3.connect(
+        "file:%s?mode=ro" % quote(str(database.absolute())), uri=True)
+
+
 def identity_state(database: Path, name: str) -> dict[str, Any]:
     """Read one identity and its unacknowledged deliveries from a single snapshot."""
     try:
-        with closing(_open_read_only(Path(database), private=True)) as connection:
+        with closing(_open_read_only(Path(database))) as connection:
             connection.execute("BEGIN")
             if connection.execute("PRAGMA user_version").fetchone()[0] != 2:
                 raise ValueError("unsupported native mailbox schema")

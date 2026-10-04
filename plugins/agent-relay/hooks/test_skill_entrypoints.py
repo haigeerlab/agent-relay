@@ -45,24 +45,23 @@ class SessionDelegationEntryTests(unittest.TestCase):
         text = COLLAB.read_text(encoding="utf-8")
         for phrase in (
             "[Claude Code]", "[Codex]", "registered", "wakeable",
-            "wake-held", "unreachable", "stale", "unread",
-            "recently-active", "online", "未知",
+            "wake-held", "unread", "在线", "最近活动", "未知",
         ):
             self.assertIn(phrase, text)
-        self.assertIn("不能仅凭 registered 推断 online", text)
-        self.assertIn("不扫描未注册", text)
+        self.assertIn("`registered` 不等于在线", text)
+        self.assertIn("不能替另一个会话注册", text)
 
     def test_name_resolution_never_exposes_or_guesses_full_identity(self):
         text = self.delegation_text() + COLLAB.read_text(encoding="utf-8")
         for phrase in ("同名", "最短区分项", "完整内部 ID", "不能按标题猜"):
             self.assertIn(phrase, text)
 
-    def test_selected_backend_is_reused_without_promoting_native(self):
+    def test_delegation_uses_only_the_native_mailbox(self):
         text = self.delegation_text()
-        self.assertIn("collaboration_backend.py", text)
-        self.assertIn("只复用选择器返回的后端", text)
-        self.assertIn("不推进 A10 native 转正", text)
-        self.assertIn("不删除 XATS", text)
+        self.assertIn("只复用 native 消息后端", text)
+        self.assertIn("固定 native runtime", text)
+        self.assertIn("不尝试其他传输", text)
+        self.assertIn("只开放十个 `bridge_*`", text)
 
     def test_entry_uses_the_control_surface_without_user_supplied_identity(self):
         text = self.delegation_text()

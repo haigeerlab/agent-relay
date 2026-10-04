@@ -2,8 +2,8 @@
 """Explicit, opt-in installer for the pinned local Claude/Codex mailbox runtime.
 
 This does not run the upstream setup, configure either host, start a service, or
-touch the existing XATS mailbox. The ordinary collaboration entry still uses
-XATS until a separate, reviewed cutover.
+touch retained history from the retired transport. Native is the only current
+collaboration runtime.
 """
 from __future__ import annotations
 import argparse

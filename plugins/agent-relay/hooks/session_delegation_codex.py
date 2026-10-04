@@ -34,16 +34,7 @@ COMMUNICATION_TOOLS = (
     "bridge_thread",
     "bridge_wait",
 )
-XATS_COMMUNICATION_TOOLS = (
-    "register_agent",
-    "reconnect",
-    "send_message",
-    "send_message_by_id",
-    "get_inbox",
-    "list_agents",
-    "get_delivery_status",
-)
-SAFE_COMMUNICATION_TOOLS = frozenset(COMMUNICATION_TOOLS + XATS_COMMUNICATION_TOOLS)
+SAFE_COMMUNICATION_TOOLS = frozenset(COMMUNICATION_TOOLS)
 DISABLED_FEATURES = (
     "apps",
     "plugins",
@@ -92,13 +83,6 @@ class CommunicationServer:
     command: Path
     args: tuple[str, ...]
     environment: Mapping[str, str]
-    enabled_tools: tuple[str, ...] = COMMUNICATION_TOOLS
-
-
-@dataclass(frozen=True)
-class HttpCommunicationServer:
-    url: str
-    header_helper: str
     enabled_tools: tuple[str, ...] = COMMUNICATION_TOOLS
 
 
@@ -307,30 +291,12 @@ def _toml_inline(value: Any) -> str:
 
 
 def _communication_config(
-    server: CommunicationServer | HttpCommunicationServer,
+    server: CommunicationServer,
 ) -> dict[str, Any]:
     tools = server.enabled_tools
     if (not isinstance(tools, tuple) or not tools or len(set(tools)) != len(tools)
             or any(tool not in SAFE_COMMUNICATION_TOOLS for tool in tools)):
         raise CodexAdapterError("communication-tools-invalid")
-    if isinstance(server, HttpCommunicationServer):
-        try:
-            parsed = urlsplit(server.url)
-        except (TypeError, ValueError) as error:
-            raise CodexAdapterError("communication-loopback-url-invalid") from error
-        if (not _safe_text(server.url) or parsed.scheme != "http"
-                or parsed.hostname not in ("127.0.0.1", "localhost")
-                or parsed.username is not None or parsed.password is not None
-                or parsed.query or parsed.fragment
-                or not _safe_text(server.header_helper, maximum=4096)):
-            raise CodexAdapterError("communication-loopback-url-invalid")
-        return {
-            "url": server.url,
-            "http_headers_helper": server.header_helper,
-            "enabled_tools": list(tools),
-            "default_tools_approval_mode": "approve",
-            "tool_timeout_sec": 300,
-        }
     command = Path(server.command)
     if (not command.is_absolute() or not command.is_file()
             or not os.access(command, os.X_OK)):
@@ -359,7 +325,7 @@ def _communication_config(
 def build_process_command(
     installation: CodexInstallation,
     disabled_servers: Mapping[str, Mapping[str, Any]],
-    communication: CommunicationServer | HttpCommunicationServer,
+    communication: CommunicationServer,
 ) -> tuple[str, ...]:
     servers = {name: dict(value) for name, value in disabled_servers.items()}
     if PRIVATE_SERVER_NAME in servers:
@@ -459,7 +425,7 @@ def _observed_thread(events: Sequence[dict[str, Any]]) -> str | None:
 class JsonRpcClient:
     def __init__(self, transport: _Transport, *, timeout: float = 60,
                  registration_tool: str = "bridge_register"):
-        if registration_tool not in ("bridge_register", "register_agent"):
+        if registration_tool != "bridge_register":
             raise CodexAdapterError("registration-tool-invalid")
         self.transport = transport
         self.timeout = timeout
@@ -632,13 +598,7 @@ def _bound_prompt(prompt: str, thread_ref: str, friendly_name: str,
                    or ord(character) == 127 for character in prompt)):
         raise CodexAdapterError("delegation-prompt-invalid")
     internal_name = friendly_name[:110] + "-" + thread_ref[:8]
-    if registration_tool == "register_agent":
-        registration = (
-            "Call register_agent exactly once with agent_type codex, name "
-            + internal_name + ", team spec-guard-local, this project's directory, "
-            "and thread_id " + thread_ref + "."
-        )
-    elif registration_tool == "bridge_register":
+    if registration_tool == "bridge_register":
         registration = (
             "Call bridge_register exactly once with agent " + internal_name
             + " and wake {app: codex, sessionId: " + thread_ref + "}."
@@ -665,7 +625,7 @@ class CodexAdapter:
         client_factory: Callable[[], _Client],
         registration_tool: str = "bridge_register",
     ):
-        if registration_tool not in ("bridge_register", "register_agent"):
+        if registration_tool != "bridge_register":
             raise CodexAdapterError("registration-tool-invalid")
         self.store = store
         self.installation = installation
@@ -904,16 +864,13 @@ def prepare_codex_adapter(
     store: DelegationStore,
     package_root: Path,
     project: Path,
-    communication: CommunicationServer | HttpCommunicationServer,
+    communication: CommunicationServer,
 ) -> CodexAdapter:
     installation = discover_app_managed_codex(package_root)
     inventory = read_mcp_inventory(installation, project)
     command = build_process_command(installation, inventory, communication)
     environment = sanitized_environment()
-    registration_tool = (
-        "register_agent" if "register_agent" in communication.enabled_tools
-        else "bridge_register"
-    )
+    registration_tool = "bridge_register"
 
     def client_factory() -> JsonRpcClient:
         return JsonRpcClient(

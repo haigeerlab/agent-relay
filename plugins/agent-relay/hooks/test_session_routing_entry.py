@@ -103,10 +103,10 @@ class SessionRoutingEntryTests(unittest.TestCase):
         self.assertIn("Claude Code → Codex", text)
         self.assertIn("Codex → Claude Code", text)
         self.assertIn("spec-guard-bridge", text)
-        self.assertIn("collaboration_backend.py", text)
-        for state in ("xats", "native", "invalid", "unavailable"):
+        self.assertIn("native runtime", text)
+        for state in ("invalid", "unavailable"):
             self.assertIn("`" + state + "`", text)
-        self.assertIn("不得切到另一个 backend", text)
+        self.assertIn("不切换到其他传输", text)
 
     def test_same_host_fallback_never_joins_or_configures_to_improve_its_grade(self):
         text = self.routing_text()
@@ -141,11 +141,11 @@ class SessionRoutingEntryTests(unittest.TestCase):
 
     def test_collab_routes_codex_native_and_cross_host_through_the_same_selector(self):
         text = COLLAB.read_text(encoding="utf-8")
-        self.assertIn("Codex → Codex", text)
+        self.assertIn("Codex ↔ Codex", text)
         self.assertIn("host-native-codex", text)
         self.assertIn("跨宿主", text)
-        self.assertIn("spec-guard-bridge", text)
-        self.assertIn("同一个 `session-routing` selector", text)
+        self.assertIn("native bridge", text)
+        self.assertIn("session-routing", text)
 
     def test_native_status_mapping_preserves_independent_evidence(self):
         text = self.routing_text()
@@ -176,10 +176,10 @@ class SessionRoutingEntryTests(unittest.TestCase):
     def test_collab_routes_claude_same_host_requests_to_the_unified_skill(self):
         text = COLLAB.read_text(encoding="utf-8")
         self.assertIn("session-routing", text)
-        self.assertIn("Claude Code → Claude Code", text)
+        self.assertIn("Claude Code ↔ Claude Code", text)
         self.assertIn("ListAgents", text)
         self.assertIn("SendMessage", text)
-        self.assertIn("不要先写入协作邮箱", text)
+        self.assertIn("不复制正文到 bridge", text)
 
     def test_repository_validation_runs_the_routing_entry_contract(self):
         text = VALIDATE.read_text(encoding="utf-8")
