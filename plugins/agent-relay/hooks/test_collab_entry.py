@@ -20,10 +20,20 @@ class CollabEntryContractTest(unittest.TestCase):
     def test_short_natural_language_entry_and_scope(self):
         text = self.skill_text()
         for phrase in (
-            "name: collab", "加入本机联调", "查看联调消息", "告诉",
+            # 「告诉某人一件事」的自然语言入口归 session-routing（见
+            # test_session_routing_entry.py 的同名断言）：两个 skill 的 description
+            # 曾经都宣称它，而选错是静默的 —— 正文会被复制进信箱而不走原生通道。
+            "name: collab", "加入本机联调", "查看联调消息", "有哪些会话",
             "不创建 Ticket", "session-delegation", "session-routing",
         ):
             self.assertIn(phrase, text)
+
+    def test_contacting_by_name_is_not_advertised_here(self):
+        """The description must not compete with session-routing for that intent."""
+        description = next(line for line in self.skill_text().splitlines()
+                           if line.startswith("description:"))
+        self.assertNotIn("告诉", description)
+        self.assertIn("session-routing", description)
 
     def test_native_join_is_lazy_private_and_current_session_only(self):
         text = self.skill_text()

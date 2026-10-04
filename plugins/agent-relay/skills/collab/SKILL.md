@@ -1,6 +1,6 @@
 ---
 name: collab
-description: 加入本机 Claude Code／Codex 联调、查看联调消息，或按名称告诉另一个 Agent 一件事。用户说“加入本机联调”“查看联调消息”“告诉可乐……”等自然表达时使用。
+description: 加入本机 Claude Code／Codex 联调、查看联调消息与已加入的会话清单。用户说“加入本机联调”“查看联调消息”“有哪些会话”等自然表达时使用；按名称联系某个已有会话改用 session-routing，创建新的审查／开发会话改用 session-delegation。
 ---
 
 # Collab
@@ -41,7 +41,10 @@ description: 加入本机 Claude Code／Codex 联调、查看联调消息，或�
 
 `registered` 不等于在线，最近活动不等于可唤醒；未知事实写“未知”。不展示完整内部 ID、完整路径或 PID。
 
-## 发送、回复与等待
+## 发送、回复与等待（先看上面的转交规则）
+
+联系一个**已有**会话时先转交 `session-routing`：它会先选路，在同宿主原生通道可用时走原生，
+不把正文复制进信箱。本节只在 `session-routing` 不可用、或目标只能经 bridge 到达时才直接使用。
 
 完整注册名可直接用 `bridge_send`；别名或自然描述先查 `bridge_agents`，唯一匹配才发送。零匹配说明目标尚未加入；
 多匹配只问一次最小区别。已绑定且宿主仍可达时，直接消息默认 `wake: true`；未绑定时只入箱。
