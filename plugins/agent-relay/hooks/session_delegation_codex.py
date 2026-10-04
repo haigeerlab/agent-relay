@@ -71,6 +71,15 @@ class RpcUncertain(CodexAdapterError):
         self.observed_thread_ref = observed_thread_ref
 
 
+class RpcRejected(CodexAdapterError):
+    """The app-server definitively rejected one request without exposing its body."""
+
+    def __init__(self, method: str, code: object):
+        super().__init__("app-server-request-rejected: " + str(code))
+        self.method = method
+        self.code = code
+
+
 @dataclass(frozen=True)
 class CodexInstallation:
     binary: Path
@@ -113,6 +122,7 @@ class CodexRunResult:
     turn_ref: str | None = None
     final_text: str = ""
     host_status: str | None = None
+    prerequisite: str | None = None
 
 
 @dataclass(frozen=True)
@@ -487,7 +497,9 @@ class JsonRpcClient:
                 if "error" in message:
                     error = message.get("error") or {}
                     code = error.get("code") if isinstance(error, dict) else "unknown"
-                    raise CodexAdapterError("app-server-request-rejected: " + str(code))
+                    if not isinstance(code, int) or isinstance(code, bool):
+                        code = "unknown"
+                    raise RpcRejected(method, code)
                 result = message.get("result")
                 if not isinstance(result, dict):
                     raise CodexAdapterError("app-server-response-invalid")
@@ -779,12 +791,18 @@ class CodexAdapter:
             raise CodexAdapterError("delegation-is-not-ready-for-follow-up")
         client = self._open(self.client_factory)
         try:
-            reply = client.request("thread/resume", {
-                "threadId": claim.host_ref,
-                "cwd": str(envelope.project_root),
-                "approvalPolicy": permission.approval_policy,
-                "sandbox": permission.request_sandbox,
-            })
+            try:
+                reply = client.request("thread/resume", {
+                    "threadId": claim.host_ref,
+                    "cwd": str(envelope.project_root),
+                    "approvalPolicy": permission.approval_policy,
+                    "sandbox": permission.request_sandbox,
+                })
+            except RpcRejected:
+                return CodexRunResult(
+                    "held", claim.host_ref, claim.last_turn_ref,
+                    host_status="unknown", prerequisite="host-request-rejected",
+                )
             thread_ref, session_ref = _validate_effective_permission(
                 reply.result, envelope.project_root, permission)
             if thread_ref != claim.host_ref or session_ref != claim.host_session_ref:
@@ -853,16 +871,27 @@ class CodexAdapter:
             return CodexRunResult("unknown")
         client = self._open(self.client_factory)
         try:
-            if claim.state == "running" and claim.last_turn_ref is not None:
-                client.request("turn/interrupt", {
-                    "threadId": claim.host_ref,
-                    "turnId": claim.last_turn_ref,
-                })
-                outcome = client.wait_turn(claim.last_turn_ref)
-                if outcome.status != "interrupted":
-                    self.store.advance(delegation_id, "unknown", "host-result-unknown")
-                    return CodexRunResult("unknown", claim.host_ref, claim.last_turn_ref)
-            client.request("thread/archive", {"threadId": claim.host_ref})
+            try:
+                if claim.state == "running" and claim.last_turn_ref is not None:
+                    client.request("turn/interrupt", {
+                        "threadId": claim.host_ref,
+                        "turnId": claim.last_turn_ref,
+                    })
+                    outcome = client.wait_turn(claim.last_turn_ref)
+                    if outcome.status != "interrupted":
+                        self.store.advance(delegation_id, "unknown", "host-result-unknown")
+                        return CodexRunResult(
+                            "unknown", claim.host_ref, claim.last_turn_ref)
+                client.request("thread/archive", {"threadId": claim.host_ref})
+            except RpcRejected:
+                current = self.store.get_delegation(delegation_id)
+                if current.state != "unknown":
+                    self.store.advance(
+                        delegation_id, "unknown", "host-result-unknown")
+                return CodexRunResult(
+                    "unknown", claim.host_ref, claim.last_turn_ref,
+                    host_status="unknown", prerequisite="host-request-rejected",
+                )
             current = self.store.get_delegation(delegation_id)
             if current.state != "cancelled":
                 self.store.advance(delegation_id, "cancelled", "host-cancelled")

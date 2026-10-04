@@ -18,6 +18,7 @@ from session_delegation_codex import (
     CommunicationServer,
     HttpCommunicationServer,
     JsonRpcClient,
+    RpcRejected,
     RpcReply,
     RpcUncertain,
     TurnOutcome,
@@ -353,8 +354,28 @@ class JsonRpcTests(unittest.TestCase):
         ])
         client = JsonRpcClient(transport, timeout=0.1)
         client.initialize()
-        with self.assertRaisesRegex(CodexAdapterError, "-32601") as caught:
+        with self.assertRaisesRegex(RpcRejected, "-32601") as caught:
             client.request("thread/read", {"threadId": "thread-1"})
+        self.assertEqual(caught.exception.method, "thread/read")
+        self.assertEqual(caught.exception.code, -32601)
+        self.assertNotIn("secret host detail", str(caught.exception))
+        self.assertNotIn("must-not-leak", str(caught.exception))
+
+    def test_protocol_error_replaces_a_non_numeric_code(self):
+        transport = FakeTransport([
+            {"id": 1, "result": {}},
+            {"id": 2, "error": {
+                "code": {"token": "must-not-leak"},
+                "message": "secret host detail",
+            }},
+        ])
+        client = JsonRpcClient(transport, timeout=0.1)
+        client.initialize()
+
+        with self.assertRaisesRegex(RpcRejected, "unknown") as caught:
+            client.request("thread/read", {"threadId": "thread-1"})
+
+        self.assertEqual(caught.exception.code, "unknown")
         self.assertNotIn("secret host detail", str(caught.exception))
         self.assertNotIn("must-not-leak", str(caught.exception))
 
@@ -552,6 +573,23 @@ class AdapterTests(unittest.TestCase):
         with self.assertRaisesRegex(CodexAdapterError, "not-ready-for-follow-up"):
             adapter.continue_turn(self.claim.delegation_id, "Do not duplicate")
 
+    def test_follow_up_rejected_by_host_is_held_without_changing_the_claim(self):
+        self.adapter([self.successful_client()]).create(self.claim.delegation_id, "Review")
+        resumed = ScriptedClient([
+            ("thread/resume", RpcRejected("thread/resume", -32600)),
+        ])
+
+        result = self.adapter([resumed]).continue_turn(
+            self.claim.delegation_id, "Follow up")
+
+        self.assertEqual(result.state, "held")
+        self.assertEqual(result.host_status, "unknown")
+        self.assertEqual(result.prerequisite, "host-request-rejected")
+        self.assertEqual(
+            self.store.get_delegation(self.claim.delegation_id).state,
+            "completed",
+        )
+
     def test_malformed_follow_up_turn_response_is_not_retried_automatically(self):
         self.adapter([self.successful_client()]).create(self.claim.delegation_id, "Review")
         resumed = ScriptedClient([
@@ -594,6 +632,26 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual([method for method, _ in cancel_client.calls], [
             "turn/interrupt", "wait_turn", "thread/archive",
         ])
+
+    def test_cancel_rejected_by_host_freezes_authority_and_reports_unknown(self):
+        self.adapter([self.successful_client()]).create(self.claim.delegation_id, "Review")
+        cancel_client = ScriptedClient([
+            ("thread/archive", RpcRejected("thread/archive", -32600)),
+        ])
+
+        result = self.adapter([cancel_client]).cancel(self.claim.delegation_id)
+
+        self.assertEqual(result.state, "unknown")
+        self.assertEqual(result.host_status, "unknown")
+        self.assertEqual(result.prerequisite, "host-request-rejected")
+        self.assertEqual(
+            self.store.get_delegation(self.claim.delegation_id).state,
+            "unknown",
+        )
+        self.assertEqual(
+            self.store.get_authorization(self.envelope.envelope_id).state,
+            "cancelled",
+        )
 
 
 if __name__ == "__main__":

@@ -436,22 +436,23 @@ class ClaudeAdapter:
             raise ClaudeAdapterError("background-entry-invalid")
         return ClaudeSession(host_ref, session_ref, state, status, pid)
 
-    def _bind_observed(self, delegation_id: str, project: Path,
-                       host_ref: str, permission: PermissionReadiness
-                       ) -> ClaudeRunResult:
-        session = None
+    def _settled_session(self, project: Path, host_ref: str) -> ClaudeSession | None:
         for delay in (0.2, 0.5, None):
             try:
                 session = self._exact_session(project, host_ref)
             except ClaudeAdapterError as error:
                 if str(error) != "background-entry-invalid":
                     raise
-                if delay is None:
-                    self.store.record_host_unknown(delegation_id, host_ref)
-                    return ClaudeRunResult("unknown", host_ref)
+                session = None
             if session is not None or delay is None:
-                break
+                return session
             self.sleep(delay)
+        return None
+
+    def _bind_observed(self, delegation_id: str, project: Path,
+                       host_ref: str, permission: PermissionReadiness
+                       ) -> ClaudeRunResult:
+        session = self._settled_session(project, host_ref)
         if session is None:
             self.store.record_host_unknown(delegation_id, host_ref)
             return ClaudeRunResult("unknown", host_ref)
@@ -655,7 +656,7 @@ class ClaudeAdapter:
                 self.store.advance(delegation_id, "unknown", "host-result-unknown")
                 return ClaudeRunResult(
                     "unknown", claim.host_ref, claim.host_session_ref, turn_ref)
-        confirmed = self._exact_session(envelope.project_root, claim.host_ref)
+        confirmed = self._settled_session(envelope.project_root, claim.host_ref)
         if confirmed is None or confirmed.session_ref != claim.host_session_ref:
             self.store.advance(delegation_id, "unknown", "host-result-unknown")
             return ClaudeRunResult(
