@@ -518,6 +518,33 @@ class AdapterTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, resume)
 
+    def test_stopped_follow_up_retries_transient_post_resume_metadata(self):
+        self.complete_claim()
+        stopped = self.entry(state="stopped", status="stopped")
+        incomplete = self.entry(state="running", status="working")
+        incomplete.pop("state")
+        delays = []
+        runner = ScriptedRunner([
+            completed(json.dumps([stopped])),
+            completed("backgrounded · ce5b9501 · test\n"),
+            completed(json.dumps([incomplete])),
+            completed(json.dumps([incomplete])),
+            completed(json.dumps([
+                self.entry(state="running", status="working"),
+            ])),
+        ])
+
+        result = self.adapter(runner, sleep=delays.append).continue_turn(
+            self.claim.delegation_id, "Check again")
+
+        self.assertEqual(result.state, "running")
+        self.assertEqual(result.host_status, "working")
+        self.assertEqual(delays, [0.2, 0.5])
+        resume_calls = [
+            command for command, _kwargs in runner.calls if "--resume" in command
+        ]
+        self.assertEqual(len(resume_calls), 1)
+
     def test_busy_active_session_is_held_instead_of_copied(self):
         self.complete_claim()
         busy = self.entry(state="running", status="working")
