@@ -1,5 +1,9 @@
 # Plan: collaboration-messaging
 
+> 登记说明：本模块是既有能力的一次性人工登记，未经 Proposal 流程
+> （见 [`docs/decisions/2026-09-28-single-capability-map.md`](../../docs/decisions/2026-09-28-single-capability-map.md)）。登记时已交付，因此没有
+> `tasks/<module-id>/todo.md`；`plan-without-todo` 判据据此按已完成计，这不是漏建。
+
 Proposal: `spec/proposals/collaboration-messaging.md`
 
 ## Overview
