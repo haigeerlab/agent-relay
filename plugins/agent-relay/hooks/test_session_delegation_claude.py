@@ -570,5 +570,46 @@ class AdapterTests(unittest.TestCase):
                          "cancelled")
 
 
+class NativeWakeDefectTests(AdapterTests):
+    """A defect in the injected native wake must not be reported as a host result.
+
+    `native_wake` is a seam, so this handler cannot name an exception type -- but it also
+    performs a state transition, not just a report: `begin_follow_up` has already run, so
+    simply re-raising would strand the delegation mid-follow-up. The guard therefore
+    advances the state first and re-raises afterwards, keeping the record recoverable
+    while still surfacing the defect. `advance` validates its evidence string against a
+    locked enum, so the exception type cannot be carried in the diagnostic instead.
+    """
+
+    def _wake_raising(self, error):
+        def wake(_session_ref, _prompt):
+            raise error
+        return wake
+
+    def test_a_defect_in_the_native_wake_propagates(self):
+        self.complete_claim()
+        adapter = self.adapter(ScriptedRunner([completed(json.dumps([self.entry()]))]),
+                               wake=self._wake_raising(AttributeError("no attribute 'typo'")))
+        with self.assertRaises(AttributeError):
+            adapter.continue_turn(self.claim.delegation_id, "Check again")
+
+    def test_the_delegation_is_still_advanced_before_the_defect_surfaces(self):
+        """Losing the state transition would strand the delegation mid-follow-up."""
+        self.complete_claim()
+        adapter = self.adapter(ScriptedRunner([completed(json.dumps([self.entry()]))]),
+                               wake=self._wake_raising(AttributeError("no attribute 'typo'")))
+        with self.assertRaises(AttributeError):
+            adapter.continue_turn(self.claim.delegation_id, "Check again")
+        self.assertEqual(
+            self.store.get_delegation(self.claim.delegation_id).state, "unknown")
+
+    def test_a_host_failure_in_the_native_wake_still_degrades(self):
+        self.complete_claim()
+        adapter = self.adapter(ScriptedRunner([completed(json.dumps([self.entry()]))]),
+                               wake=self._wake_raising(RuntimeError("wake transport down")))
+        result = adapter.continue_turn(self.claim.delegation_id, "Check again")
+        self.assertEqual(result.state, "unknown")
+
+
 if __name__ == "__main__":
     unittest.main()
