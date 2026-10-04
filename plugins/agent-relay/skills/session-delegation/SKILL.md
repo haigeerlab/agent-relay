@@ -46,8 +46,7 @@ Agent 自己建议新开会话（例如主动建议再找一个 Codex 复审）�
 
 项目 trust、项目级 MCP 首次批准、工具 allow 是三个独立前置条件。适配器可能返回：
 
-- `held/project-allow-rules`：项目缺少所选后端精确通信工具的 allow；native 使用 `bridge_*`，XATS 使用
-  `register_agent` / `send_message` / `get_inbox` 等自身真实工具名，不能混用；安全审查无需额外 allow
+- `held/project-allow-rules`：项目缺少 native `bridge_*` 通信工具的 allow；安全审查无需额外 allow
   `Read/Grep/Glob`，开发才需要 `Edit`、`Write` 和符合任务范围的 `Bash(...)`。
 - `held/project-trust`：用户尚未在 Claude Code 中信任该项目。
 - `held/mcp-project-approval`：该项目尚未接受这次明确的临时 MCP。
@@ -59,15 +58,11 @@ Agent 自己建议新开会话（例如主动建议再找一个 Codex 复审）�
 用户询问能否提前配置或创建前需要预检时，先运行控制器的只读 `permissions`；只展示它返回的当前后端、
 `requiredAllow`、ready/prerequisite 和两个候选项目设置文件。`writesPerformed` 必须为 false；未经明确授权不写文件。
 
-## 只复用当前消息后端
+## 只复用 native 消息后端
 
-先只读运行已安装插件的 `hooks/collaboration_backend.py`。只复用选择器返回的后端：`xats` 用 XATS 的无令牌
-临时配置，`native` 用已经选中且就绪的固定 native runtime；`invalid` / `unavailable` 直接 held。不得同时连接
-两个邮箱，不得自动回退或切换，不推进 A10 native 转正，不删除 XATS。
-
-两套后端的工具目录不是同名别名：native 只开放十个 `bridge_*` 邮箱工具；XATS 只开放七个日常注册、收发、
-目录和投递状态工具。任何 `ask_codex`、review、worker、broadcast、orchestration 或 lifecycle 管理工具均不得
-进入委派会话目录。目标注册也必须使用所选后端自己的参数；工具名不匹配时失败关闭，不能靠模型猜测。
+委派会话只连接已就绪的固定 native runtime；不可用时直接 held，不尝试其他传输。只开放十个 `bridge_*`
+邮箱工具。任何 `ask_codex`、review、worker、broadcast、orchestration 或 lifecycle 管理工具均不得进入委派
+会话目录；工具名不匹配时失败关闭，不能靠模型猜测。
 
 Codex 使用 app-managed current 受支持二进制和 app-server；Claude Code 使用 background session。创建通知
 与结果对外只显示友好名称和短区分项。Claude 停止后的恢复只用 `claude agents --json` 已对账的完整
@@ -76,15 +71,15 @@ Codex 使用 app-managed current 受支持二进制和 app-server；Claude Code 
 ## 发起会话与结果回传
 
 创建前先按 `collab` 的当前后端规则让**当前发起会话**完成懒注册，并取得绑定当前宿主 session 的精确身份；
-这是本次委派要自动收取结果所必需的通讯步骤，不额外扩大任务权限。native 必须绑定当前会话的 wake，XATS
-必须有与当前 origin session 精确对应的 delivery identity。不能按标题、项目、最近活动或用户输入的名字猜
+这是本次委派要自动收取结果所必需的通讯步骤，不额外扩大任务权限。native 必须绑定当前会话的 wake，并有
+与当前 origin session 精确对应的 delivery identity。不能按标题、项目、最近活动或用户输入的名字猜
 发起方。当前会话处于 bypass/full-auto、后端无法证明精确绑定或出现多个匹配时，不放宽安全规则：继续创建
 可以返回 `resultDelivery=recipient-unavailable`，但必须告诉用户结果不会自动唤醒本会话，并给出先安全加入
 当前会话这一条下一步。
 
 控制器只读解析 `origin session → 唯一已注册身份`，不会扫描未注册窗口。目标完成任务后，用所选后端自己的
-发送工具把简短结果回传给该身份；每轮使用独立 route，native 另以稳定幂等键防止同一轮重试重复投递，
-XATS 使用精确 subject。零个或多个 origin 身份都按 `recipient-unavailable` 失败关闭；不要自动再注册一个
+发送工具把简短结果回传给该身份；每轮使用独立 route，并以稳定幂等键防止同一轮重试重复投递。
+零个或多个 origin 身份都按 `recipient-unavailable` 失败关闭；不要自动再注册一个
 身份，应先向用户展示已加入目录并处理重复或失效身份。控制器
 核对的只是发件人、收件人和 thread/subject 元数据，不读取结果正文、不推进发起方收件游标。结果正文仍由
 发起会话的正常 inbox 流程接收和确认。
@@ -120,7 +115,7 @@ repository identity、精确 baseline 和 dirty 状态，并在当前调用中�
 permission intent、真实状态和未验证边界。完整内部 ID、完整路径、PID、token、数据库位置和原始宿主日志不输出。
 `hostOperation` 单独说明本轮是 `create`、`continue`、`status` 或 `cancel`；`transport` 只说明本轮实际消息／
 结果路径，并与 `dispatch`、`wake`、`receipt`、`response` 独立展示。不能把 create/cancel 说成消息已送达，
-也不能从进程退出推断已读或回复。raw backend `xats`/`native` 对外统一为 `spec-guard-bridge`，不与
+也不能从进程退出推断已读或回复。native mailbox 对外统一为 `spec-guard-bridge`，不与
 `host-native-claude`/`host-native-codex` 混淆。
 
 同宿主结果不复制到 mailbox：Codex 的精确 turn final text 可作为 `host-native-codex` response；Claude

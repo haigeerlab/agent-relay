@@ -188,7 +188,7 @@ same-user access to the SQLite mailbox are insufficient.
 - Automatic model choice, cost optimization, or parallelism beyond the user-declared batch.
 - Automatic acceptance, merge, release, Issue/PR/MR creation or closure, or modification of global host
   permissions.
-- Native-transport promotion or XATS retirement; those retain their independent evidence gates.
+- Reintroducing a compatibility transport or runtime selector; delegation uses the native bridge only.
 
 ## Verification
 
@@ -233,5 +233,5 @@ same-user access to the SQLite mailbox are insufficient.
   unread state without exposing full internal identifiers or calling a stale registration online.
 - Retry, response loss, held wake, cancellation, expiration, and cleanup do not duplicate sessions, lose
   unread results, or report false completion.
-- Existing A10/native promotion and XATS-retirement gates are unchanged, and no hidden worker/review/
-  orchestration surface becomes model-callable.
+- Native remains the only bridge transport, and no hidden worker/review/orchestration surface becomes
+  model-callable.

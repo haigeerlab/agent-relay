@@ -119,11 +119,9 @@ peer wake 证据时，`receipt=unavailable`、`wake=not-applicable` 或 `unknown
 
 ## Claude Code ↔ Codex bridge 路径
 
-Claude Code → Codex 与 Codex → Claude Code 都固定以 `spec-guard-bridge` 为 primary transport。先只读运行
-已安装插件的 `hooks/collaboration_backend.py`：`xats` 只使用当前 XATS 工具，`native` 只使用固定 native
-的 `bridge_*` 工具。这里的 backend 名 `native` 是 A10 实验性 mailbox selector，不是
-`host-native-claude` 或 `host-native-codex`。`invalid` 或 `unavailable` 时 route 停止并给一条下一步，
-不得切到另一个 backend，也不能同时读写两个邮箱。
+Claude Code → Codex 与 Codex → Claude Code 都固定以 `spec-guard-bridge` 为 primary transport，并只使用
+native runtime 的 `bridge_*` 工具。它不同于 `host-native-claude` 或 `host-native-codex`；运行时
+`invalid` 或 `unavailable` 时 route 停止并给一条下一步，不切换到其他传输。
 
 跨宿主请求本身是 collaboration intent：可按 `collab` 的既有规则让当前发起会话懒加入所选 backend，
 再只读目录解析已加入的目标。不能替目标注册，也不能扫描另一个宿主的未注册窗口。将
@@ -134,8 +132,8 @@ Claude Code → Codex 与 Codex → Claude Code 都固定以 `spec-guard-bridge`
 bridge 的状态保持四段证据，而不是一个“成功”：
 
 - enqueue 只映射为 `dispatch=enqueued`，入箱不等于 wake；
-- wake admission 只来自 XATS 的实际投递结果或 native `bridge_wake_status`，否则为 unknown/unavailable；
-- acknowledgement 只来自 XATS 的 read ack 或 native `bridge_outbox.acknowledgedAt`；
+- wake admission 只来自 `bridge_wake_status`，否则为 unknown/unavailable；
+- acknowledgement 只来自 `bridge_outbox.acknowledgedAt`；
   acknowledged 不等于 response=received；
 - reply 只有在当前精确 thread/subject 收到匹配回复时才映射为 `response=received`。
 

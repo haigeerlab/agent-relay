@@ -24,9 +24,8 @@ reviewed and explicitly confirmed the exact `module-insert` preview. This module
 - **Host-native Codex** means supported Codex App task/thread operations or the supported local app-server
   operations already used by the Codex adapter. Spec Guard does not infer a task from a window title or
   write directly to Codex's private state.
-- **Spec Guard bridge** means the currently selected `collaboration-messaging` backend. Its internal
-  selector may still be `xats` or `native`; this term must not be confused with host-native Claude or
-  host-native Codex.
+- **Spec Guard bridge** means the native `collaboration-messaging` mailbox. It must not be confused with
+  host-native Claude or host-native Codex.
 - The first release is one Mac only. Sessions may use different projects and worktrees on that Mac.
 - All directions are bidirectional. Arrows in documentation describe a selected route, not a one-way
   capability.
@@ -198,9 +197,8 @@ model override, or convert a communication authorization into a development auth
 - Automatically registering every new Claude Code or Codex conversation with the bridge.
 - A permanent project-wide allow policy, unrestricted silent authorization, or automatic model choice.
 - Automatic merge, push, release, Issue/PR/MR mutation, destructive cleanup, or global host configuration.
-- Promoting the existing experimental `native` mailbox backend or removing XATS. A10's evidence gates remain
-  governed by `docs/decisions/2026-09-28-xats-sunset.md` and its accepted 2026-10-04 single-Mac amendment;
-  this module does not change them.
+- Reintroducing a compatibility transport or a runtime selector. Native-only retirement is governed by
+  `docs/decisions/2026-10-04-native-only-collaboration-sunset.md`.
 - Restoring the retired tracker bridge or the pinned bridge's hidden worker/orchestration surface.
 
 ## Verification
@@ -261,7 +259,7 @@ Repository verification runs focused tests plus:
   self-proposed session, or perform any consequential external action.
 - Never: silently change transport; dispatch the same logical message on two transports; infer task IDs or
   authority from titles/names/messages; scan real unregistered sessions; modify global host settings; add
-  a Codex model workaround; claim cross-machine support; advance A10 or retire XATS from this module.
+  a Codex model workaround; claim cross-machine support; or recreate the retired compatibility transport.
 
 ## Success criteria
 
@@ -275,8 +273,7 @@ Repository verification runs focused tests plus:
   names safely, and never equates registration with online presence.
 - Busy, offline, permission-denied, timeout, response-loss, fallback, and cancellation paths preserve
   honest evidence and do not duplicate messages or sessions.
-- A10's two-version/single-Mac/upstream-revision/no-open-P1-P2 promotion gate remains externally governed,
-  XATS remains available, and this module introduces no cross-machine claim.
+- Native is the only bridge transport; this module introduces no cross-machine claim.
 
 ## Open questions
 
