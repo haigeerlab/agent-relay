@@ -9,4 +9,4 @@ Plan: [`native-only-retirement-plan.md`](native-only-retirement-plan.md)
 - [x] Add a current-surface retirement scan that rejects restored XATS product paths.
 - [x] Run focused and full repository verification.
 - [x] Complete one-Mac native-only real-host acceptance and record every passed, failed, unrun or unavailable item.
-- [ ] Prepare an independently reviewable PR; do not merge or publish without the user's next instruction.
+- [x] Prepare an independently reviewable PR; do not merge or publish without the user's next instruction.
