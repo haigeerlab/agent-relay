@@ -83,6 +83,17 @@ class SessionDelegationEntryTests(unittest.TestCase):
         ):
             self.assertIn(phrase, text)
 
+    def test_lifecycle_and_message_route_are_publicly_separate(self):
+        text = self.delegation_text()
+        for phrase in (
+            "`hostOperation`", "`transport`", "`dispatch`", "`wake`",
+            "`receipt`", "`response`", "spec-guard-bridge",
+        ):
+            self.assertIn(phrase, text)
+        self.assertIn("不能把 create/cancel 说成消息已送达", text)
+        self.assertIn("同宿主结果不复制到 mailbox", text)
+        self.assertIn("status 不从旧轮次补造 transport", text)
+
     def test_optional_feature_docs_explain_smooth_preapproval_and_limits(self):
         text = OPTIONAL.read_text(encoding="utf-8")
         self.assertIn("跨宿主会话委派", text)

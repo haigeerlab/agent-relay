@@ -35,6 +35,11 @@ class MailboxResultRoute:
     recipient: str
     key: str
 
+    @property
+    def transport(self) -> str:
+        """Both pinned mailbox implementations share one public transport."""
+        return "spec-guard-bridge"
+
 
 @dataclass(frozen=True)
 class DelegationBackend:

@@ -196,6 +196,7 @@ class DelegationBackendTests(unittest.TestCase):
             database, "codex", "origin-thread-exact", "delegation-12345678")
         self.assertEqual(route, MailboxResultRoute(
             "native", "origin-codex", "spec-guard-result:delegation-12345678"))
+        self.assertEqual(route.transport, "spec-guard-bridge")
         self.assertFalse(native_result_probe(database, route, "target-codex"))
 
         connection = sqlite3.connect(database)
@@ -257,6 +258,7 @@ class DelegationBackendTests(unittest.TestCase):
             database, "claude", "origin-session-exact", "delegation-87654321")
         self.assertEqual(route, MailboxResultRoute(
             "xats", "origin-claude", "spec-guard-result:delegation-87654321"))
+        self.assertEqual(route.transport, "spec-guard-bridge")
         self.assertFalse(xats_result_probe(database, route, "target-codex"))
 
         connection = sqlite3.connect(database)

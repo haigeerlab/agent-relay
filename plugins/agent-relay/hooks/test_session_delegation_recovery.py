@@ -6,6 +6,7 @@ import io
 import json
 import os
 from pathlib import Path
+import sqlite3
 from types import SimpleNamespace
 import tempfile
 import unittest
@@ -67,12 +68,13 @@ class RecoveryTests(unittest.TestCase):
         self.store = DelegationStore(self.root / "state", now=lambda: self.clock[0])
         self.adapters = []
 
-    def request(self, key="controller-request-1", horizon="task", max_sessions=1):
+    def request(self, key="controller-request-1", horizon="task", max_sessions=1,
+                target_host="codex"):
         return AuthorizationRequest(
             authority="direct-user", horizon=horizon, origin_host="claude",
             origin_session="origin-session", project_root=self.project,
             repo_identity="git:example/project", baseline="a" * 40, dirty=False,
-            target_hosts=("codex",), permission_intent="safe-review",
+            target_hosts=(target_host,), permission_intent="safe-review",
             host_permission=None, max_sessions=max_sessions,
             expires_at=NOW + 600, depth=0, idempotency_key=key,
             summary="Review current diff",
@@ -99,6 +101,7 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(result.host, "Codex")
         self.assertEqual(result.friendly_name, "复审")
         self.assertEqual(len(adapter.calls), 1)
+        self.assertEqual(result.payload()["hostOperation"], "create")
         serialized = repr(result.payload())
         self.assertNotIn(str(self.project), serialized)
         self.assertNotIn("host-", serialized)
@@ -131,6 +134,13 @@ class RecoveryTests(unittest.TestCase):
 
         self.assertEqual(result.state, "completed")
         self.assertEqual(result.result_delivery, "enqueued")
+        self.assertEqual(result.host_operation, "create")
+        self.assertEqual(result.transport, "spec-guard-bridge")
+        self.assertEqual(result.dispatch, "enqueued")
+        self.assertEqual(result.wake, "unknown")
+        self.assertEqual(result.receipt, "unknown")
+        self.assertEqual(result.response, "unknown")
+        self.assertEqual(result.route_reason, "cross-host-result-route")
         self.assertEqual(
             result.result,
             "已审查 [private-path] 和 [private-path]; 无阻断问题",
@@ -140,6 +150,50 @@ class RecoveryTests(unittest.TestCase):
         self.assertIn("origin-agent", delivered_prompt)
         self.assertIn(route.key, delivered_prompt)
         self.assertNotIn(route.key, repr(result.payload()))
+
+    def test_same_host_result_uses_native_output_without_mailbox_body_copy(self):
+        route_calls = []
+        queue = [SimpleNamespace(
+            state="completed", host_status="idle", prerequisite=None,
+            final_text="Same-host result",
+        )]
+        adapter = FakeAdapter(self.store, queue)
+        controller = SessionDelegationController(
+            self.store,
+            lambda _host, _project: adapter,
+            result_route_resolver=lambda envelope, claim: route_calls.append(
+                (envelope.origin_host, claim.target_host)) or SimpleNamespace(
+                    backend="native", recipient="must-not-be-used",
+                    key="spec-guard-result:must-not-be-used",
+                ),
+            result_probe=lambda _route, _sender: self.fail("must not probe mailbox"),
+        )
+
+        result = controller.authorize_and_create(
+            self.request(key="same-host-request", target_host="claude"),
+            "same-host-launch", "同宿主", "PRIVATE_NATIVE_BODY",
+            target_host="claude", permission_intent="safe-review",
+        )
+
+        self.assertEqual(route_calls, [])
+        self.assertEqual(result.host_operation, "create")
+        self.assertEqual(result.transport, "host-native-claude")
+        self.assertEqual(result.dispatch, "accepted")
+        self.assertEqual(result.receipt, "unavailable")
+        self.assertEqual(result.response, "received")
+        self.assertEqual(result.result, "Same-host result")
+        self.assertIsNone(result.result_delivery)
+        self.assertNotIn("bridge_send", adapter.calls[0][2])
+        self.assertNotIn("send_message", adapter.calls[0][2])
+        with sqlite3.connect(self.store.database) as connection:
+            stored = "\n".join(
+                str(value)
+                for table in ("authorizations", "delegations")
+                for row in connection.execute("SELECT * FROM " + table)
+                for value in row
+            )
+        self.assertNotIn("PRIVATE_NATIVE_BODY", stored)
+        self.assertNotIn("Same-host result", stored)
 
     def test_delivery_states_and_xats_instruction_do_not_mix_backends(self):
         for observed, state, expected in (
@@ -228,7 +282,43 @@ class RecoveryTests(unittest.TestCase):
             self.store, lambda _host, _project: self.fail("unknown must not relaunch"))
         result = self.create(restarted)
         self.assertEqual(result.state, "unknown")
+        self.assertEqual(result.host_operation, "create")
         self.assertEqual(len(adapter.calls), 1)
+
+    def test_status_and_cancel_report_lifecycle_without_replaying_message_route(self):
+        controller, adapter = self.controller(["created", "created", "cancelled"])
+        self.create(controller, name="生命周期")
+        status = controller.status_named("生命周期")
+        cancelled = controller.cancel_named("生命周期")
+        self.assertEqual(status.host_operation, "status")
+        self.assertIsNone(status.transport)
+        self.assertEqual(cancelled.host_operation, "cancel")
+        self.assertIsNone(cancelled.transport)
+        self.assertEqual([call[0] for call in adapter.calls], [
+            "create", "status", "cancel",
+        ])
+
+    def test_same_host_follow_up_reuses_exact_session_and_native_public_route(self):
+        controller, adapter = self.controller(["created", "completed"])
+        controller.authorize_and_create(
+            self.request(key="follow-up-request", horizon="session",
+                         target_host="claude"),
+            "follow-up-launch", "后续轮次", "First",
+            target_host="claude", permission_intent="safe-review",
+        )
+        claim = self.store.list_delegations()[0]
+        self.store.advance(claim.delegation_id, "registered", "host-registered")
+        self.store.set_turn_ref(claim.delegation_id, "turn-1")
+        self.store.advance(claim.delegation_id, "running", "host-running")
+        self.store.advance(claim.delegation_id, "completed", "host-completed")
+
+        result = controller.continue_named("后续轮次", "Second")
+
+        self.assertEqual(result.host_operation, "continue")
+        self.assertEqual(result.transport, "host-native-claude")
+        self.assertEqual(result.dispatch, "accepted")
+        self.assertEqual([call[0] for call in adapter.calls], ["create", "continue"])
+        self.assertEqual(adapter.calls[-1][1], claim.delegation_id)
 
     def test_held_prerequisite_can_retry_the_same_claim_without_consuming_capacity(self):
         controller, adapter = self.controller(["held", "created"])

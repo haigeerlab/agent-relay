@@ -8,6 +8,9 @@ description: 在同一台 Mac 上按自然语言创建、继续、查看或取�
 本 skill 负责有授权边界的跨宿主会话创建，不是普通自由文本信箱。第一版只支持同一台 Mac；不跨机器，
 不提供常驻 worker pool，不选择模型，不自动合并、发布、写远端 Issue/MR，也不让被创建的会话继续创建后代。
 
+用户只是要求联系、回复、等待或查看一个已有会话时，转交 `session-routing`；不得为了传话创建新会话。
+只有用户明确要求创建、继续受控任务或取消本 skill 创建的会话时，才进入下面的委派生命周期。
+
 ## 自然语言与授权范围
 
 从用户的话中解析目标宿主（Claude Code 或 Codex）、项目、baseline、任务和权限意图。不要让用户填写路径、
@@ -115,6 +118,14 @@ repository identity、精确 baseline 和 dirty 状态，并在当前调用中�
 
 创建、继续、状态与取消的输出使用 `[Claude Code]` / `[Codex]`、friendly name、项目简称、baseline 短标识、
 permission intent、真实状态和未验证边界。完整内部 ID、完整路径、PID、token、数据库位置和原始宿主日志不输出。
+`hostOperation` 单独说明本轮是 `create`、`continue`、`status` 或 `cancel`；`transport` 只说明本轮实际消息／
+结果路径，并与 `dispatch`、`wake`、`receipt`、`response` 独立展示。不能把 create/cancel 说成消息已送达，
+也不能从进程退出推断已读或回复。raw backend `xats`/`native` 对外统一为 `spec-guard-bridge`，不与
+`host-native-claude`/`host-native-codex` 混淆。
+
+同宿主结果不复制到 mailbox：Codex 的精确 turn final text 可作为 `host-native-codex` response；Claude
+没有实际入站回复时保持 pending/unknown。跨宿主结果继续使用唯一 `spec-guard-bridge` route，并保留
+`resultDelivery`。status 不从旧轮次补造 transport 或 `resultDelivery`，只返回本次宿主状态事实。
 `resultDelivery=enqueued` 只表示精确 mailbox 行已写入，不表示发起方已经读取或验证内容；`pending`、`missing`、
 `unverified` 与 `recipient-unavailable` 必须原样区分。同步取得的宿主最终回复可以在 `result` 中返回，但要先
 移除完整内部 ID 和绝对私有路径；异步 Claude 结果不得通过原始 terminal logs 补造公开结果。
