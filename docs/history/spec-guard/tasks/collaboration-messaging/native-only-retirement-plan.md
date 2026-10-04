@@ -78,4 +78,3 @@ python3 -B plugins/spec-guard/hooks/test_native_collaboration_adapters.py
 /bin/bash evals/codex-plugin-smoke.sh --selftest
 git diff --check
 ~~~
-
