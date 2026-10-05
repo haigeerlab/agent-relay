@@ -4,6 +4,8 @@
 > （见 [`docs/decisions/2026-09-28-single-capability-map.md`](../../docs/decisions/2026-09-28-single-capability-map.md)）。登记时已交付，因此没有
 > `tasks/<module-id>/todo.md`；`plan-without-todo` 判据据此按已完成计，这不是漏建。
 
+<!-- spec-guard: no-todo -->
+
 Proposal: `spec/proposals/collaboration-messaging.md`
 
 ## Overview
