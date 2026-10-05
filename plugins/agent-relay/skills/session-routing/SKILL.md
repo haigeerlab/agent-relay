@@ -1,6 +1,6 @@
 ---
 name: session-routing
-description: 按会话名称在本机 Claude Code／Codex 会话间发现、发送、回复、等待或查看状态，并优先复用同宿主原生通信。
+description: 按会话名称在本机 Claude Code／Codex 会话间发现、发送、回复、等待或查看状态，并优先复用同宿主原生通信。用户说“告诉可乐……”“回复一下刚才那个会话”等自然表达时使用；加入联调或看自己的收件箱用 collab，创建新的审查／开发会话用 session-delegation。
 ---
 
 # Session routing

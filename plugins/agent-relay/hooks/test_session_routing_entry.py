@@ -25,6 +25,12 @@ class SessionRoutingEntryTests(unittest.TestCase):
             self.assertIn(phrase, text)
         self.assertIn("创建或取消", text)
         self.assertIn("session-delegation", text)
+        # 这个意图从 collab 的 description 搬到这里，不能两边都没有：
+        # 用户说「告诉可乐……」时必须有一个 skill 宣称它。
+        description = next(line for line in text.splitlines()
+                           if line.startswith("description:"))
+        self.assertIn("告诉", description)
+        self.assertIn("collab", description)
 
     def test_route_core_receives_only_trusted_metadata_over_json_stdin(self):
         text = self.routing_text()
