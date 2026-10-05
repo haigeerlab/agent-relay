@@ -1,10 +1,14 @@
 # 决策：XATS 协作传输的日落条件
 
-状态：已批准（2026-09-28，用户决定）。尚未触发，XATS 仍是默认传输。
+状态：已批准（2026-09-28，用户决定），已被取代（2026-10-04）。本文件记录的日落门槛从未触发；
+同机协作改为 native-only，XATS 产品面已随 v0.40.0 删除，见
+[`2026-10-04-native-only-collaboration-sunset.md`](2026-10-04-native-only-collaboration-sunset.md)。
+本文件保留原方案作为记录，不代表其中任何门槛当时已经满足。
 
-后续修订：[`2026-10-04-a10-single-mac-promotion-gate.md`](2026-10-04-a10-single-mac-promotion-gate.md)
+当时的修订：[`2026-10-04-a10-single-mac-promotion-gate.md`](2026-10-04-a10-single-mac-promotion-gate.md)
 把第 1 条的“每版至少两台主机”改为“每版在一台本机 Mac”；连续两个发布版本、上游 revision
-升级复验、无开放 native P1/P2 及其余条款不变。以下保留 2026-09-28 决策的历史原文。
+升级复验、无开放 native P1/P2 及其余条款不变。那份修订的现状见它自己的状态行。以下保留
+2026-09-28 决策的历史原文。
 
 ## 背景
 
