@@ -8,7 +8,7 @@ PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 ROUTING = PLUGIN_ROOT / "skills" / "session-routing" / "SKILL.md"
 COLLAB = PLUGIN_ROOT / "skills" / "collab" / "SKILL.md"
 DELEGATION = PLUGIN_ROOT / "skills" / "session-delegation" / "SKILL.md"
-VALIDATE = PLUGIN_ROOT.parents[1] / "scripts" / "validate.sh"
+RUNNER = PLUGIN_ROOT / "hooks" / "test-collaboration-suite.sh"
 
 
 class SessionRoutingEntryTests(unittest.TestCase):
@@ -188,7 +188,7 @@ class SessionRoutingEntryTests(unittest.TestCase):
         self.assertIn("不复制正文到 bridge", text)
 
     def test_repository_validation_runs_the_routing_entry_contract(self):
-        text = VALIDATE.read_text(encoding="utf-8")
+        text = RUNNER.read_text(encoding="utf-8")
         self.assertIn(
             "python3 -B plugins/spec-guard/hooks/test_session_routing_entry.py", text,
         )

@@ -9,6 +9,7 @@ DELEGATION = PLUGIN_ROOT / "skills" / "session-delegation" / "SKILL.md"
 COLLAB = PLUGIN_ROOT / "skills" / "collab" / "SKILL.md"
 OPTIONAL = PLUGIN_ROOT.parents[1] / "docs" / "optional-features.md"
 VALIDATE = PLUGIN_ROOT.parents[1] / "scripts" / "validate.sh"
+RUNNER = PLUGIN_ROOT / "hooks" / "test-collaboration-suite.sh"
 
 
 class SessionDelegationEntryTests(unittest.TestCase):
@@ -101,7 +102,9 @@ class SessionDelegationEntryTests(unittest.TestCase):
         self.assertIn("不会自动修改", text)
 
     def test_repository_validation_runs_the_entry_contract(self):
-        validation = VALIDATE.read_text(encoding="utf-8")
+        self.assertIn("/bin/bash plugins/spec-guard/hooks/test-collaboration-suite.sh",
+                      VALIDATE.read_text(encoding="utf-8"))
+        validation = RUNNER.read_text(encoding="utf-8")
         for command in (
             "python3 -B plugins/spec-guard/hooks/test_skill_entrypoints.py",
             "python3 -B plugins/spec-guard/hooks/test_session_delegation_recovery.py",
