@@ -172,7 +172,10 @@ Spec Guard reaches collaboration through exactly two things, defined here and im
   `{"state": "ready" | "not-installed" | "incompatible" | "runtime-not-ready" | "unknown", "interface": "<x.y>" | null, "required": ">=1.0,<2.0", "message": "<user-facing text>"}`.
   It locates agent-relay through the host's own plugin listing (Claude installed-plugins record, `codex plugin
   list --json`) and reads the interface version from `interface.json` at the agent-relay plugin root
-  (`{"interface": "1.0"}`, shipped by agent-relay `packaging`). A failed probe reports `unknown`, never
+  (`{"interface": "1.0"}`, shipped by agent-relay `packaging`). `interface.json` may also declare
+  `"status": [<argv>]`, a command run from the plugin root that prints `{"ready": true | false, "setup":
+  "<command>"}`; `ready: false` gives `runtime-not-ready` with that setup command, and no `status` field means
+  no runtime check. A failed probe (unreadable record, timeout, bad status output) reports `unknown`, never
   `not-installed` (a failed check is not evidence about the plugin).
 - **agent-relay skill names in text.** Workflow docs and skills may tell the agent to use an agent-relay skill
   by name (for example `agent-relay:collab`, `agent-relay:session-routing`). That is the only way they invoke
@@ -185,6 +188,7 @@ collaboration-owned list [BL §Inventory and coupling points]:
 |---|---|
 | Collaboration module or file names | `native_collaboration_`, `session_routing`, `session_delegation`, `collaboration-runtime.md`, `collaboration-protocol.md` |
 | Collaboration skill or command paths inside Spec Guard | `skills/collab/`, `skills/collaboration-ops/`, `skills/session-routing/`, `skills/session-delegation/`, `commands/collaboration.md` |
+| Spec Guard's own collaboration skill and command names | bare `collab`, `collaboration-ops`, `session-routing`, `session-delegation`, `spec-guard:collab`, `/spec-guard:collaboration` (the `agent-relay:` prefixed names are the allowed form) |
 | Mailbox tool and server names | `bridge_register` and the other `bridge_*` tools, `spec-guard-native-collaboration`, `spec_guard_native_collaboration`, `agent-relay` MCP server name |
 | State paths | `~/.spec-guard/native-collaboration`, `~/.spec-guard/session-delegation`, `~/.agent-relay` |
 
