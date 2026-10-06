@@ -85,7 +85,7 @@ class SessionDelegationEntryTests(unittest.TestCase):
         text = self.delegation_text()
         for phrase in (
             "`hostOperation`", "`transport`", "`dispatch`", "`wake`",
-            "`receipt`", "`response`", "spec-guard-bridge",
+            "`receipt`", "`response`", "agent-relay-bridge",
         ):
             self.assertIn(phrase, text)
         self.assertIn("不能把 create/cancel 说成消息已送达", text)

@@ -35,7 +35,7 @@ route JSON、argv、日志或任何新 transcript。`originHost` 来自当前宿
 
 `nativeDispatch=unknown` 时只对账，绝对不得 fallback。同宿主 capability 明确 unavailable 时也不能
 自行换路；只有 selector 在已有授权、bridge ready、两端唯一 joined 都成立后明确返回
-`spec-guard-bridge`，才按 `fallbackFrom`/`routeReason` 执行一次。不得把原生消息正文复制到 bridge，
+`agent-relay-bridge`，才按 `fallbackFrom`/`routeReason` 执行一次。不得把原生消息正文复制到 bridge，
 不得为了 fallback 初始化服务、改配置、注册新身份或切换 A10 backend。
 
 ## 名称解析
@@ -119,14 +119,14 @@ peer wake 证据时，`receipt=unavailable`、`wake=not-applicable` 或 `unknown
 
 ## Claude Code ↔ Codex bridge 路径
 
-Claude Code → Codex 与 Codex → Claude Code 都固定以 `spec-guard-bridge` 为 primary transport，并只使用
+Claude Code → Codex 与 Codex → Claude Code 都固定以 `agent-relay-bridge` 为 primary transport，并只使用
 native runtime 的 `bridge_*` 工具。它不同于 `host-native-claude` 或 `host-native-codex`；运行时
 `invalid` 或 `unavailable` 时 route 停止并给一条下一步，不切换到其他传输。
 
 跨宿主请求本身是 collaboration intent：可按 `collab` 的既有规则让当前发起会话懒加入所选 backend，
 再只读目录解析已加入的目标。不能替目标注册，也不能扫描另一个宿主的未注册窗口。将
 `nativeCapability=not-applicable`、唯一目标、当前 authorization、实际 backend ready 和两端 joined 事实
-交给 selector；只有它返回 `dispatch/spec-guard-bridge` 才调用一次所选 backend 的发送操作。回复使用来信
+交给 selector；只有它返回 `dispatch/agent-relay-bridge` 才调用一次所选 backend 的发送操作。回复使用来信
 携带的精确 sender 与 thread/subject，不按名字重建关联。
 
 bridge 的状态保持四段证据，而不是一个“成功”：
@@ -143,7 +143,7 @@ held/offline 时消息是否耐久只按所选 backend 的入箱证据报告。�
 ## 同宿主受约束 fallback
 
 同宿主 native capability 明确 unavailable 时，自动 fallback 必须同时满足：当前授权仍覆盖同一目标和动作、
-两端已经唯一 bridge-joined、所选 bridge 已 ready，且 selector 明确返回 `spec-guard-bridge`。这时展示
+两端已经唯一 bridge-joined、所选 bridge 已 ready，且 selector 明确返回 `agent-relay-bridge`。这时展示
 `fallbackFrom` 与稳定 `routeReason`，在原授权范围内不再逐条确认，并且仍只投递一次。
 
 fallback 前不得懒注册当前端或目标端，不得为了提高成功率加入身份；不能启动服务，不能修改配置、切换

@@ -108,7 +108,7 @@ class SessionRoutingEntryTests(unittest.TestCase):
         text = self.routing_text()
         self.assertIn("Claude Code → Codex", text)
         self.assertIn("Codex → Claude Code", text)
-        self.assertIn("spec-guard-bridge", text)
+        self.assertIn("agent-relay-bridge", text)
         self.assertIn("native runtime", text)
         for state in ("invalid", "unavailable"):
             self.assertIn("`" + state + "`", text)
