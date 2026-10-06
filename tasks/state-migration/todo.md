@@ -1,8 +1,8 @@
 # Todo: state-migration
 
-- [ ] Task 1: `detect` (facts, blockers, host entry presence) with fixture tests; live read-only run
-- [ ] Task 2: `migrate --confirm` (backup, copy, verify, report; `--acknowledge-stale`)
-- [ ] Checkpoint (report): detect and migrate pass their tests
+- [x] Task 1: `detect` (facts, blockers, host entry presence) with fixture tests; live read-only run — live on this Mac: verdict blocked with exactly the three expected blockers (stale `27f0de` creating/never launched, 8 old servers running, agent-relay runtime absent); old mailbox 83 messages / 83 acks / 62 agents / 60 wake jobs (non-final: accepted 1, unknown 3); delegation 7/7; host entries old present on Claude and Codex, new absent; `~/.agent-relay` not created. Found while testing: opening a WAL database read-only can create `-wal`/`-shm` beside it, so all old-database reads now go through a plain file copy (`_snapshot`); fixture tests assert the old tree stays byte-identical
+- [x] Task 2: `migrate --confirm` (backup, copy, verify, report; `--acknowledge-stale`) — 12 tests: detect (counts, open work, no writes; host presence), 7 blockers each writing nothing (launched open delegation even if acknowledged, unacknowledged stale, running servers, runtime not ready, used target mailbox, existing target delegation db, nothing to migrate), success (counts equal, target modes 0600/0700, runtime still ready, delegation db passes DelegationStore validation, backup complete, old tree byte-identical), forced mismatch reported with backup kept and nothing removed, CLI guards. Target `data/` forced to 0700 (copytree copies the source mode). 238 tests green
+- [x] Checkpoint (report): detect and migrate pass their tests
 - [ ] Task 3: collaboration-ops and README sections; interface §13
 - [ ] Task 4: rehearsal on a scratch copy of this Mac's old data (network, approval)
 - [ ] Checkpoint (gate): module review; never pushed
