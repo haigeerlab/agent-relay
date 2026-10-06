@@ -75,6 +75,26 @@ and is covered by `validate.sh`.
 | Claude user MCP | `spec-guard-native-collaboration` → `node …/dist/server.js`, `BRIDGE_DB_PATH=…/bridge.sqlite`, connected | `claude mcp get` |
 | Codex config | `[mcp_servers.spec_guard_native_collaboration]` + `.env` at `~/.codex/config.toml:371` | grep |
 
+## Gap analysis against OpenSwarm (2026-10-06)
+
+OpenSwarm `rubinownz111/openswarm@8f31ce72` (MIT), README and `docs/protocol.md`, read for design ideas only.
+`B:` is the pinned upstream bridge `WebisityStudio/claude-codex-mcp-bridge@8f12c880`; `S:` is Spec Guard at
+`54d0426`.
+
+| Item | Status | Evidence |
+|---|---|---|
+| a. Delivery state machine queued/sending/accepted/failed/unknown/expired | Partial | Wake jobs have pending/sending/accepted/read/held/refused/unknown/cancelled/expired (B:src/wake-queue.ts:9); the message itself has no delivery state, only acknowledgement |
+| b. Unknown never replayed | Present | `sending` past retry time becomes `unknown`, not retried (B:src/wake-queue.ts:112-114) |
+| c. Expire after queue timeout, never delivered later | Partial | Wake expires after 1 h offline / 24 h busy (B:src/wake-queue.ts:37-39, 119-124); the message stays in the inbox and can be read later |
+| d. Persist before submitting to the native interface | Present | Message inserted before wake (B:src/bridge-store.ts:371-385); wake job set `sending` before the host call (B:src/wake-queue.ts:126-138) |
+| e. Per-recipient order, recipients independent, pending cap | Partial | Wake jobs claimed oldest-first with per-job backoff (B:src/wake-queue.ts:111-138); no mailbox pending cap; Claude wake holds at most 100 (B:src/claude-wake.ts:130) |
+| f. Idempotency key requires identical content; duplicate replies removed | Partial | Unique `(from, key)`; a reused key with different content returns the old message silently (B:src/bridge-store.ts:373-378); no reply de-duplication |
+| g. Only the recipient may reply; sender matches host identity | Absent | `from` is free text; an unregistered sender only gets a warning (B:src/server.ts:167, 181) |
+| h. doctor, whoami, status/wait by message id | Partial | Upstream CLI has doctor/status (B:src/cli-logic.ts:6-14) but Spec Guard never runs the upstream CLI; no whoami; `bridge_wait` waits for new mail, not a message id (B:src/server.ts:249-291) |
+| i. Message body from a file | Partial | Delegation task bodies come only from stdin (S:plugins/spec-guard/skills/session-delegation/SKILL.md); mailbox bodies are MCP arguments; no file input |
+| j. State directory override by environment | Partial | Bridge honours `BRIDGE_DB_PATH` and `XDG_DATA_HOME` (B:src/paths.ts:14-24); Spec Guard has `--root` only and a fixed delegation root (S:plugins/spec-guard/hooks/session_delegation_control.py:508) |
+| k. Back up host settings before change; complete uninstall keeping history | Partial | Uninstall removes only the exact managed entry and keeps mailbox history (S:plugins/spec-guard/references/collaboration-runtime.md:59-69); no automatic backup before writing host config; runtime directory not removed |
+
 ## Phase 0 decisions (user, 2026-10-06)
 
 | Decision | Choice |
