@@ -14,7 +14,7 @@ places where that is impossible:
 - `proposal_closeout` is deliberately transport-free (see `_rejection` there: duck-typed
   on `status_code` "so any adapter can report one without this module importing a
   transport"), so it cannot name an adapter's error class.
-- `session_delegation_claude`'s native wake is an injected `Callable` with no in-repo
+- the collaboration code's native wake is an injected `Callable` with no in-repo
   implementation, so its exception type is not knowable here.
 
 `ValueError` is deliberately absent: journals and transports across this plugin use it
