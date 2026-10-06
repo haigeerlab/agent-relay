@@ -21,7 +21,7 @@ from session_delegation import (
     DelegationStore,
     evaluate_authorization,
 )
-from session_routing import validate_public_outcome
+from session_routing import BRIDGE_TRANSPORT, validate_public_outcome
 
 
 class ControlError(ValueError):
@@ -295,7 +295,7 @@ class SessionDelegationController:
             else:
                 dispatch, wake, receipt = "unknown", "unknown", "unknown"
             outcome = {
-                "transport": "spec-guard-bridge",
+                "transport": BRIDGE_TRANSPORT,
                 "target": target,
                 "dispatch": dispatch,
                 "wake": wake,

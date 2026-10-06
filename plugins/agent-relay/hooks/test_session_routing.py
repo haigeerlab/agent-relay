@@ -33,8 +33,8 @@ class RouteSelectionTests(unittest.TestCase):
         cases = (
             ("claude", "claude", "available", "host-native-claude"),
             ("codex", "codex", "available", "host-native-codex"),
-            ("claude", "codex", "not-applicable", "spec-guard-bridge"),
-            ("codex", "claude", "not-applicable", "spec-guard-bridge"),
+            ("claude", "codex", "not-applicable", "agent-relay-bridge"),
+            ("codex", "claude", "not-applicable", "agent-relay-bridge"),
         )
         for origin, target, capability, transport in cases:
             with self.subTest(origin=origin, target=target):
@@ -61,7 +61,7 @@ class RouteSelectionTests(unittest.TestCase):
         self.assertEqual(result, {
             "schemaVersion": 1,
             "action": "dispatch",
-            "transport": "spec-guard-bridge",
+            "transport": "agent-relay-bridge",
             "routeReason": "native-capability-unavailable",
             "fallbackFrom": "host-native-claude",
         })
@@ -104,7 +104,7 @@ class RouteSelectionTests(unittest.TestCase):
                     bridgeState=state,
                 ))
                 self.assertEqual(result["action"], "stop")
-                self.assertEqual(result["transport"], "spec-guard-bridge")
+                self.assertEqual(result["transport"], "agent-relay-bridge")
                 self.assertEqual(result["routeReason"], "bridge-" + state)
 
     def test_cross_host_bridge_requires_both_exact_joined_endpoints(self):
@@ -123,7 +123,7 @@ class RouteSelectionTests(unittest.TestCase):
             with self.subTest(reason=reason):
                 result = select_route(self.facts(**(base | overrides)))
                 self.assertEqual(result["action"], "stop")
-                self.assertEqual(result["transport"], "spec-guard-bridge")
+                self.assertEqual(result["transport"], "agent-relay-bridge")
                 self.assertEqual(result["routeReason"], reason)
 
     def test_unknown_native_dispatch_requires_reconciliation_and_never_falls_back(self):
@@ -186,7 +186,7 @@ class PublicOutcomeTests(unittest.TestCase):
 
     def test_public_state_enums_and_optional_fallback_metadata_are_preserved(self):
         outcome = self.outcome(
-            transport="spec-guard-bridge",
+            transport="agent-relay-bridge",
             dispatch="enqueued",
             wake="held",
             receipt="unavailable",
@@ -195,6 +195,14 @@ class PublicOutcomeTests(unittest.TestCase):
             nextStep="Wait for the joined target to read the message.",
         )
         self.assertEqual(validate_public_outcome(outcome), outcome)
+
+    def test_the_pre_split_label_is_refused(self):
+        # D10: a stale emitter of the Spec Guard label must fail validation, not pass silently.
+        outcome = self.outcome(transport="spec-guard-bridge", dispatch="enqueued", wake="held",
+                               receipt="unavailable", fallbackFrom="host-native-claude",
+                               routeReason="native-capability-unavailable")
+        with self.assertRaises(RoutingError):
+            validate_public_outcome(outcome)
 
     def test_illegal_transport_state_and_extra_fields_fail_closed(self):
         cases = (
@@ -228,13 +236,13 @@ class PublicOutcomeTests(unittest.TestCase):
 
     def test_fallback_metadata_is_complete_and_only_names_native_primary(self):
         cases = (
-            self.outcome(transport="spec-guard-bridge",
+            self.outcome(transport="agent-relay-bridge",
                          fallbackFrom="host-native-claude"),
             self.outcome(transport="host-native-claude",
                          fallbackFrom="host-native-codex",
                          routeReason="wrong-transport"),
-            self.outcome(transport="spec-guard-bridge",
-                         fallbackFrom="spec-guard-bridge",
+            self.outcome(transport="agent-relay-bridge",
+                         fallbackFrom="agent-relay-bridge",
                          routeReason="recursive"),
         )
         for outcome in cases:

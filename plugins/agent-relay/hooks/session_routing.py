@@ -14,8 +14,10 @@ from typing import Mapping, Sequence
 
 SCHEMA_VERSION = 1
 HOSTS = frozenset(("claude", "codex"))
+# The mailbox route's public label (decisions D1, D10). Delegation imports it; it is never persisted.
+BRIDGE_TRANSPORT = "agent-relay-bridge"
 TRANSPORTS = frozenset(
-    ("host-native-claude", "host-native-codex", "spec-guard-bridge")
+    ("host-native-claude", "host-native-codex", BRIDGE_TRANSPORT)
 )
 AUTHORIZATION_STATES = frozenset(("authorized", "unauthorized", "unknown"))
 TARGET_RESOLUTIONS = frozenset(("unique", "missing", "ambiguous"))
@@ -83,7 +85,7 @@ def _text(value: object, label: str, *, maximum: int) -> str:
 
 def _primary_transport(host: str, target: str) -> str:
     if host != target:
-        return "spec-guard-bridge"
+        return BRIDGE_TRANSPORT
     return "host-native-" + host
 
 
@@ -167,7 +169,7 @@ def select_route(facts: object) -> dict[str, object]:
     if not target_joined:
         return _decision("stop", primary, "native-unavailable-target-not-joined")
     return _decision(
-        "dispatch", "spec-guard-bridge", "native-capability-unavailable",
+        "dispatch", BRIDGE_TRANSPORT, "native-capability-unavailable",
         fallback_from=primary,
     )
 
@@ -210,7 +212,7 @@ def validate_public_outcome(outcome: object) -> dict[str, object]:
             frozenset(("host-native-claude", "host-native-codex")),
             "fallbackFrom",
         )
-        if transport != "spec-guard-bridge":
+        if transport != BRIDGE_TRANSPORT:
             raise RoutingError("fallbackFrom: bridge transport required")
         if "routeReason" not in values:
             raise RoutingError("fallbackFrom: routeReason required")

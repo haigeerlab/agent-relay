@@ -101,7 +101,7 @@ class DelegationBackendTests(unittest.TestCase):
             database, "codex", "origin-thread-exact", "delegation-12345678")
         self.assertEqual(route, MailboxResultRoute(
             "native", "origin-codex", "spec-guard-result:delegation-12345678"))
-        self.assertEqual(route.transport, "spec-guard-bridge")
+        self.assertEqual(route.transport, "agent-relay-bridge")
         self.assertFalse(native_result_probe(database, route, "target-codex"))
 
         connection = sqlite3.connect(database)

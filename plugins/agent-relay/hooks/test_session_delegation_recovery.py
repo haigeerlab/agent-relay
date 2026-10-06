@@ -135,7 +135,7 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(result.state, "completed")
         self.assertEqual(result.result_delivery, "enqueued")
         self.assertEqual(result.host_operation, "create")
-        self.assertEqual(result.transport, "spec-guard-bridge")
+        self.assertEqual(result.transport, "agent-relay-bridge")
         self.assertEqual(result.dispatch, "enqueued")
         self.assertEqual(result.wake, "unknown")
         self.assertEqual(result.receipt, "unknown")

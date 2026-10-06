@@ -14,6 +14,7 @@ from urllib.parse import quote
 
 from native_collaboration_adapters import CLAUDE_SERVER_NAME, claude_config
 from session_delegation_codex import CommunicationServer
+from session_routing import BRIDGE_TRANSPORT
 
 
 class BackendUnavailable(ValueError):
@@ -28,7 +29,7 @@ class MailboxResultRoute:
 
     @property
     def transport(self) -> str:
-        return "spec-guard-bridge"
+        return BRIDGE_TRANSPORT
 
 
 @dataclass(frozen=True)
