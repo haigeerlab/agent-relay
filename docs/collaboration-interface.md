@@ -104,3 +104,60 @@ The MCP server exposes exactly these ten tools to hosts. Current server name `sp
 | Expiry | Wake job `expired` after 1 h offline or 24 h busy; **the message stays readable and can still be acted on later** (gap c). B:src/wake-queue.ts:37-39, 119-124 | Message `expired` after a configurable queue timeout; hidden from inbox/wait by default, kept in history (D2) — `delivery-state-machine` |
 | Wake after acknowledgement | Job stays `read` with detail "work is not yet acknowledged" after `acknowledgedAt` is set (finding 5). [BL §Findings 5] | Acknowledgement closes the job — `delivery-state-machine` |
 | Target state machine | None as a message state (gap a). | `queued → sending → accepted \| failed \| unknown`, `queued → expired`; no transition out of `unknown` or `expired` except by explicit user action — `delivery-state-machine` |
+
+## 6. Delivery semantics
+
+| Item | Current (baseline) | Hardening target |
+|---|---|---|
+| Exactly-once | Not promised. The mailbox and a host inbox share no transaction; a host "accepted" ping is not "processed by the peer". S:plugins/spec-guard/references/collaboration-runtime.md:80-82 | Stated in the agent-relay README and tool descriptions — `delivery-state-machine` |
+| Unknown is never replayed | Wake jobs: yes, B:src/wake-queue.ts:112-114. Routing: `nativeDispatch=unknown` only reconciles, never re-sends or falls back, S:plugins/spec-guard/skills/session-routing/SKILL.md:36-39, 61-62, 114-116 | Same rule for message delivery (gap b) — `delivery-state-machine` |
+| Persist before submit | Present: message row before wake, job `sending` before the host call [BL §Gap analysis, item d] | Unchanged; covered by crash-injection tests — `durable-ordering` |
+| Ordering, independence, cap | Partial [BL §Gap analysis, item e] | Per-recipient order, one recipient never blocks another, configurable pending cap with a proposed default — `durable-ordering` |
+| Retry key and reply de-duplication | Partial: a reused key with different content returns the old message silently [BL §Gap analysis, item f] | Same key with different content is rejected; same original + same reply text is de-duplicated — `idempotency` |
+| Evidence words | `delivered`, wake, ack, and reply are separate facts; fields without proof are `unknown`/`unavailable`, never inferred from exit status or activity. S:plugins/spec-guard/skills/session-routing/SKILL.md:75-79 | Unchanged |
+
+## 7. Identity rules
+
+| Item | Current (baseline) | Hardening target |
+|---|---|---|
+| Naming | Readable prefix (user alias or host + project) plus a short random suffix; lazily registered on first join/send/read intent. S:plugins/spec-guard/skills/collab/SKILL.md:24-30 | Unchanged |
+| Reuse and takeover | A session reuses its first successful identity; it must not register, bind wake for, or take over another session's name. S:plugins/spec-guard/skills/collab/SKILL.md:32-34 — enforced by instruction only; `bridge_register` itself accepts any name, B:src/server.ts:104-158 | Server refuses re-binding a name to a different host session without explicit confirmation — `identity-check` |
+| Sender | `from` is free text; an unregistered sender gets a warning only [BL §Gap analysis, item g] | `from` must match the calling host's identity; mismatch rejected — `identity-check` |
+| Who may reply | Anyone may send on any thread [BL §Gap analysis, item g] | Only the addressed recipient may reply to a message id — `identity-check` |
+| Missing identity | Wake binding stops when the session id cannot be confirmed; titles, processes, and recent activity are never guessed. S:plugins/spec-guard/skills/collab/SKILL.md:32-34 | Explicit guidance text returned to the agent — `identity-check` |
+
+## 8. Authorization and wake rules
+
+| Item | Current (baseline) | Hardening target |
+|---|---|---|
+| Default | Registration sets `wake: null`; binding only on the user's explicit request in the current session. S:plugins/spec-guard/references/collaboration-runtime.md:76-79 | Unchanged |
+| Auto-approved sessions | Full-auto or bypass sessions must not bind wake (rule in skill and docs). Codex `approvals_reviewer = "guardian_subagent"` is **not** detected; two threads bound under it [BL §Findings 1] | Binding refused when the host session is auto-approved, guardian included — `identity-check` |
+| Confirmations | Runtime install, host attachment, uninstall, identity retirement, and new wake bindings each need separate explicit approval. S:plugins/spec-guard/references/collaboration-runtime.md:29-94 | Unchanged |
+| Permission files | Never written automatically; missing allow rules are diagnosed with a minimal suggestion. S:plugins/spec-guard/references/collaboration-runtime.md:96-102 | Unchanged |
+| Messages are data | Mailbox text never authorizes code, Git, ticket, configuration changes, or new sessions. S:plugins/spec-guard/skills/collab/SKILL.md:18-20 | Unchanged |
+| Codex manual approval | Under 请求批准 every mailbox tool call and controller run in a woken turn waits for a human; the App's "reduce prompts" dialog defaults Enter to 帮我批准 [BL §Findings 7] | Documented operating mode — unchanged |
+
+## 9. Routing
+
+| Item | Current (baseline) | Hardening target |
+|---|---|---|
+| Selector | `session_routing.py select` returns one `action` (`dispatch`, `observe`, `reconcile`, `stop`) and one `transport`, from facts `originHost`, `targetHost`, `authorizationState`, `targetResolution`, `nativeCapability`, `nativeDispatch`, `bridgeState`, `originJoined`, `targetJoined`; no message body in route JSON, argv, or logs. S:plugins/spec-guard/skills/session-routing/SKILL.md:20-34 | Unchanged |
+| Claude ↔ Claude | `host-native-claude`: `ListAgents` + one `SendMessage`; nothing copied into the mailbox. S:plugins/spec-guard/skills/session-routing/SKILL.md:51-62; passed [BL §Results items 2-3] | Unchanged |
+| Codex ↔ Codex | `host-native-codex`: App thread tools (`list_threads`, `send_message_to_thread`, `wait_threads`); a turn-based exchange, authorized per sending task. S:plugins/spec-guard/skills/session-routing/SKILL.md:88-118; transport passed [BL §Results item 4] | Unchanged |
+| Claude ↔ Codex | `spec-guard-bridge` (the mailbox) is the primary transport. S:plugins/spec-guard/skills/session-routing/SKILL.md:122-123; passed both ways with wake [BL §Results items 5-6] | Transport label renamed with D1 (section 13) |
+| Fallback | Only when the selector returns `spec-guard-bridge` with authorization, a ready bridge, and both sides uniquely joined; once; never after an unknown native dispatch. S:plugins/spec-guard/skills/session-routing/SKILL.md:36-39 | Unchanged |
+
+## 10. Delegation
+
+| Item | Current (baseline) | Hardening target |
+|---|---|---|
+| Permission intents | `safe-review`, `bounded-development`, `host-native`. S:plugins/spec-guard/hooks/session_delegation.py:27 | Unchanged |
+| Authority and horizon | Authority `direct-user`, `confirmed-user`, `agent-proposed`, `mailbox` (the last two cannot create); horizon `task`, `strict`, `batch`, `session`. S:plugins/spec-guard/hooks/session_delegation.py:25-28 | Unchanged |
+| Lifecycle | `create`, `continue`, `status`, `cancel` by friendly name with a short disambiguator; Claude uses background sessions, Codex the app-managed app-server. S:plugins/spec-guard/skills/session-delegation/SKILL.md | Unchanged |
+| Public JSON | `state`, `hostOperation`, `hostStatus`, `transport`, `dispatch`, `wake`, `receipt`, `response`, `resultDelivery` (`enqueued`, `pending`, `missing`, `unverified`, `recipient-unavailable`), `routeReason`, `prerequisite`, `disambiguator` [BL §Results items 7-9] | Unchanged |
+| Result return | Target sends the result to the origin's single wake-bound identity; origin is woken and acks. Passed both directions [BL §Results items 7, 9] | Unchanged |
+| Expiry argument | `--expires-at` takes integer epoch seconds; ISO strings exit 2; undocumented [BL §Findings 2] | Accepts and documents one format — `ops-commands` |
+| Held create | A create held on a prerequisite still persists a named envelope, which later makes the name ambiguous and cancels as `unknown` [BL §Findings 3] | A held create leaves no launchable envelope, or one that cancels cleanly — owner decided in the agent-relay capability map (translation keeps current behavior) |
+| Claude round two | `continue` to an idle Claude target returned `held`/`target-busy` while `hostStatus=idle`, twice [BL §Findings 4]; passed on 2026-10-04 | Root cause found and fixed — owner decided in the agent-relay capability map |
+| Background prompts | A Claude background session in `default` mode hangs on any permission prompt; `dontAsk` avoids it [BL §Findings 6] | Controller launches only in a mode that cannot hang — `ops-commands` reports it |
+| Prerequisites | `held/project-allow-rules`, `held/project-trust`, `held/mcp-project-approval`, `held/host-permission-prompt`; read-only `permissions` preflight with `writesPerformed=false` [BL §Results items 8-9] | Unchanged |
