@@ -224,9 +224,9 @@ Rules:
 - Not-installed message, verbatim:
 
   > 协作能力已移到独立插件 agent-relay，当前未安装。工作流不受影响。安装与旧状态迁移见
-  > `docs/migrations/<date>-collaboration-split.md`。
+  > `docs/migrations/2026-10-07-collaboration-split.md`。
 
-  (`<date>` is filled when `collaboration-dependency` publishes the migration document.)
+  (The path is in the Spec Guard repository; published by Spec Guard's `collaboration-dependency` on 2026-10-07.)
 - `/spec-guard:collaboration` remains for one to two Spec Guard releases after the split: when the probe is
   `ready` it hands off to agent-relay; otherwise it prints the message above. It is then removed.
 - Detection is at run time on both hosts; Codex 0.160 has no plugin-dependency field [BL §Prerequisites].
