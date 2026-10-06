@@ -75,6 +75,41 @@ and is covered by `validate.sh`.
 | Claude user MCP | `spec-guard-native-collaboration` → `node …/dist/server.js`, `BRIDGE_DB_PATH=…/bridge.sqlite`, connected | `claude mcp get` |
 | Codex config | `[mcp_servers.spec_guard_native_collaboration]` + `.env` at `~/.codex/config.toml:371` | grep |
 
+## Inventory and coupling points (at `54d0426`)
+
+Collaboration-owned files (move to agent-relay):
+
+| Kind | Paths |
+|---|---|
+| Code | `plugins/spec-guard/hooks/native_collaboration_{runtime,adapters,retire}.py`, `session_routing.py`, `session_delegation{,_backend,_claude,_codex,_control}.py` |
+| Tests | the thirteen collaboration test files in [Automated suites](#automated-suites-pre-split) |
+| Skills / command | `skills/collab`, `skills/collaboration-ops`, `skills/session-routing`, `skills/session-delegation`, `commands/collaboration.md` |
+| References | `references/collaboration-runtime.md`, `references/collaboration-protocol.md` |
+| Specs, plans, records | `spec/{collaboration-messaging,collaboration-safe-defaults,authorized-session-delegation,host-native-session-routing}.md`, their `spec/proposals/` and `tasks/` directories, and `docs/{decisions,reports,research,retirements}/` collaboration records |
+
+Not collaboration despite the name: `hooks/session_context.py` and `hooks/session_handoff.py` (phase injection
+and handoff) stay in Spec Guard.
+
+Workflow → collaboration (each must go through the single entry or be removed):
+
+| # | Location | Coupling |
+|---|---|---|
+| W1 | `plugins/spec-guard/skills/ticket/SKILL.md:76` | Notifying another agent sends through the `collab` mailbox, with the ticket short id in the message |
+| W2 | `plugins/spec-guard/skills/local-ticket-ledger-ops/SKILL.md:10, 19` | States the ledger is separate from the collaboration mailbox |
+| W3 | `plugins/spec-guard/commands/local-ticket-ledger.md:6, 86` | Same distinction in the command text |
+| W4 | `plugins/spec-guard/commands/proposal-closeout.md:96` | Mailbox messages are data, never write authority |
+| W5 | `scripts/validate.sh:87-88, 103-113` | Runs the thirteen collaboration tests |
+| W6 | `plugins/spec-guard/hooks/test_skill_entrypoints.py:8, 21, 69, 107` | Asserts the session-delegation skill and controller |
+| W7 | `README.md:25-28`, `docs/optional-features.md:4-77, 90`, `docs/workflow.md:233`, `CLAUDE.md:24` | Feature tables and usage docs |
+| W8 | `plugins/spec-guard/hooks/defect_guard.py:17` | Comment naming `session_delegation_claude` |
+
+Collaboration → Spec Guard internals (agent-relay needs its own copy or must drop the use):
+
+| # | Location | Dependency |
+|---|---|---|
+| C1 | `native_collaboration_adapters.py:19` | `host_config_removal` (also used by `local_ledger_adapters.py`, so it stays in Spec Guard) |
+| C2 | `session_delegation_claude.py:17` | `defect_guard.is_defect` |
+
 ## Gap analysis against OpenSwarm (2026-10-06)
 
 OpenSwarm `rubinownz111/openswarm@8f31ce72` (MIT), README and `docs/protocol.md`, read for design ideas only.
