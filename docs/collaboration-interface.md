@@ -161,3 +161,82 @@ The MCP server exposes exactly these ten tools to hosts. Current server name `sp
 | Claude round two | `continue` to an idle Claude target returned `held`/`target-busy` while `hostStatus=idle`, twice [BL §Findings 4]; passed on 2026-10-04 | Root cause found and fixed — owner decided in the agent-relay capability map |
 | Background prompts | A Claude background session in `default` mode hangs on any permission prompt; `dontAsk` avoids it [BL §Findings 6] | Controller launches only in a mode that cannot hang — `ops-commands` reports it |
 | Prerequisites | `held/project-allow-rules`, `held/project-trust`, `held/mcp-project-approval`, `held/host-permission-prompt`; read-only `permissions` preflight with `writesPerformed=false` [BL §Results items 8-9] | Unchanged |
+
+## 11. Spec Guard's single entry
+
+Spec Guard reaches collaboration through exactly two things, defined here and implemented and enforced by
+`collaboration-boundary`.
+
+- **The detection helper.** One file in Spec Guard, `plugins/spec-guard/hooks/agent_relay_probe.py`. It takes
+  no message content, writes nothing, and prints one JSON object:
+  `{"state": "ready" | "not-installed" | "incompatible" | "runtime-not-ready" | "unknown", "interface": "<x.y>" | null, "required": ">=1.0,<2.0", "message": "<user-facing text>"}`.
+  It locates agent-relay through the host's own plugin listing (Claude installed-plugins record, `codex plugin
+  list --json`) and reads the interface version from `interface.json` at the agent-relay plugin root
+  (`{"interface": "1.0"}`, shipped by agent-relay `packaging`). A failed probe reports `unknown`, never
+  `not-installed` (a failed check is not evidence about the plugin).
+- **agent-relay skill names in text.** Workflow docs and skills may tell the agent to use an agent-relay skill
+  by name (for example `agent-relay:collab`, `agent-relay:session-routing`). That is the only way they invoke
+  collaboration.
+
+What counts as a violation, checked by `collaboration-boundary` over every Spec Guard file outside the
+collaboration-owned list [BL §Inventory and coupling points]:
+
+| Forbidden reference | Examples |
+|---|---|
+| Collaboration module or file names | `native_collaboration_`, `session_routing`, `session_delegation`, `collaboration-runtime.md`, `collaboration-protocol.md` |
+| Collaboration skill or command paths inside Spec Guard | `skills/collab/`, `skills/collaboration-ops/`, `skills/session-routing/`, `skills/session-delegation/`, `commands/collaboration.md` |
+| Mailbox tool and server names | `bridge_register` and the other `bridge_*` tools, `spec-guard-native-collaboration`, `spec_guard_native_collaboration`, `agent-relay` MCP server name |
+| State paths | `~/.spec-guard/native-collaboration`, `~/.spec-guard/session-delegation`, `~/.agent-relay` |
+
+Plain words ("协作信箱", "mailbox", "agent-relay") and agent-relay skill names are allowed.
+
+Coupling points to cut [BL §Inventory and coupling points]:
+
+| # | Current | After the split |
+|---|---|---|
+| W1 | `ticket` skill sends through the `collab` mailbox | Names the agent-relay skill; if the probe is not `ready`, says so and skips the notification |
+| W2–W4 | Ledger and closeout text contrasting with "the Spec Guard collaboration mailbox" | Reworded to "the agent-relay mailbox" without internal names |
+| W5 | `validate.sh` runs thirteen collaboration tests | Tests move with the code; `validate.sh` runs the boundary check instead |
+| W6 | `test_skill_entrypoints.py` asserts session-delegation | Assertion moves to agent-relay |
+| W7 | README, optional-features, workflow, CLAUDE.md feature text | Point to agent-relay and the migration document |
+| W8 | `defect_guard.py` comment names a delegation module | Comment removed or generalized |
+| C1 | Adapters import `host_config_removal` | agent-relay ships its own copy (Spec Guard keeps the original for the ledger) |
+| C2 | Delegation imports `defect_guard.is_defect` | agent-relay ships its own copy or inlines the check |
+
+## 12. Detection and degradation
+
+| Probe state | Meaning | Spec Guard behavior |
+|---|---|---|
+| `ready` | agent-relay installed and enabled, interface within range, runtime status ready | Collaboration steps proceed through agent-relay skills |
+| `not-installed` | No enabled agent-relay plugin on this host | Workflow continues unchanged; any collaboration step prints the not-installed message and is skipped |
+| `incompatible` | Interface outside `>=1.0,<2.0` | Same as not-installed, with the found and required versions |
+| `runtime-not-ready` | Plugin present, mailbox runtime absent or invalid | Points to agent-relay's own setup command; Spec Guard never installs it |
+| `unknown` | The probe itself failed (timeout, unreadable listing) | Says the state could not be checked; never reports "not installed" |
+
+Rules:
+
+- No Spec Guard command, hook, or check fails because agent-relay is absent; phase injection never calls the
+  probe.
+- Not-installed message, verbatim:
+
+  > 协作能力已移到独立插件 agent-relay，当前未安装。工作流不受影响。安装与旧状态迁移见
+  > `docs/migrations/<date>-collaboration-split.md`。
+
+  (`<date>` is filled when `collaboration-dependency` publishes the migration document.)
+- `/spec-guard:collaboration` remains for one to two Spec Guard releases after the split: when the probe is
+  `ready` it hands off to agent-relay; otherwise it prints the message above. It is then removed.
+- Detection is at run time on both hosts; Codex 0.160 has no plugin-dependency field [BL §Prerequisites].
+
+## 13. State data and migration
+
+| Item | Current (baseline) | Hardening target |
+|---|---|---|
+| Mailbox and runtime | `~/.spec-guard/native-collaboration/` (pinned bridge build, `mailbox/bridge.sqlite` 0600, `mailbox/backups/`, `data/`, `manifest.json`); 72 messages, 50 agents at baseline [BL §Local state] | New root `~/.agent-relay/` (D1); same file modes |
+| Delegation records | `~/.spec-guard/session-delegation/delegation.sqlite` (`delegations`, `authorizations`) [BL §Local state] | Under `~/.agent-relay/` (D1) |
+| Retired XATS history | `~/.spec-guard/collaboration/` [BL §Local state] | Not migrated, not deleted; mentioned in the migration document only |
+| Host entries | Claude user MCP `spec-guard-native-collaboration`; Codex `[mcp_servers.spec_guard_native_collaboration]` [BL §Local state] | Claude `agent-relay`, Codex `agent_relay` (D1); old entries removed only by exact match after the new ones work |
+| Permission rules | Project allow rules name `mcp__spec-guard-native-collaboration__bridge_*` [BL §Results item 9] | Users told the new rule names; Spec Guard and agent-relay never rewrite permission files |
+| Migration | None | `state-migration` (translation): detect old state → stop if a session is mid-turn → copy everything to a timestamped backup under `~/.agent-relay/backups/` → migrate → verify counts of messages, acknowledgements, agents, wake jobs, delegations match → keep the old directories until the user confirms removal. Every step is confirmed; nothing is deleted silently |
+| Backup before host config writes | None [BL §Gap analysis, item k] | Every host config write keeps a copy first — `safe-uninstall` |
+| Uninstall | Exact entry removal; mailbox history kept; runtime directory left [BL §Gap analysis, item k] | Documented complete uninstall; history kept by default — `safe-uninstall` |
+| State root override | Bridge honours `BRIDGE_DB_PATH`/`XDG_DATA_HOME`; Spec Guard has `--root` only [BL §Gap analysis, item j] | One environment variable relocates the whole state root; all tests use it — `test-isolation` |
