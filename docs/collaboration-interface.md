@@ -157,8 +157,8 @@ The MCP server exposes exactly these ten tools to hosts. Current server name `sp
 | Public JSON | `state`, `hostOperation`, `hostStatus`, `transport`, `dispatch`, `wake`, `receipt`, `response`, `resultDelivery` (`enqueued`, `pending`, `missing`, `unverified`, `recipient-unavailable`), `routeReason`, `prerequisite`, `disambiguator` [BL §Results items 7-9] | Unchanged |
 | Result return | Target sends the result to the origin's single wake-bound identity; origin is woken and acks. Passed both directions [BL §Results items 7, 9] | Unchanged |
 | Expiry argument | `--expires-at` takes integer epoch seconds; ISO strings exit 2; undocumented [BL §Findings 2] | Accepts and documents one format — `ops-commands` |
-| Held create | A create held on a prerequisite still persists a named envelope, which later makes the name ambiguous and cancels as `unknown` [BL §Findings 3] | A held create leaves no launchable envelope, or one that cancels cleanly — owner decided in the agent-relay capability map (translation keeps current behavior) |
-| Claude round two | `continue` to an idle Claude target returned `held`/`target-busy` while `hostStatus=idle`, twice [BL §Findings 4]; passed on 2026-10-04 | Root cause found and fixed — owner decided in the agent-relay capability map |
+| Held create | A create held on a prerequisite still persists a named envelope, which later makes the name ambiguous and cancels as `unknown` [BL §Findings 3] | A held create leaves no launchable envelope, or one that cancels cleanly — `delegation-fixes` (agent-relay, after translation; translation keeps current behavior) |
+| Claude round two | `continue` to an idle Claude target returned `held`/`target-busy` while `hostStatus=idle`, twice [BL §Findings 4]; passed on 2026-10-04 | Root cause found and fixed — `delegation-fixes` (agent-relay, after translation) |
 | Background prompts | A Claude background session in `default` mode hangs on any permission prompt; `dontAsk` avoids it [BL §Findings 6] | Controller launches only in a mode that cannot hang — `ops-commands` reports it |
 | Prerequisites | `held/project-allow-rules`, `held/project-trust`, `held/mcp-project-approval`, `held/host-permission-prompt`; read-only `permissions` preflight with `writesPerformed=false` [BL §Results items 8-9] | Unchanged |
 
@@ -260,8 +260,8 @@ Gap items are from [BL §Gap analysis]; findings from [BL §Findings for the int
 | k. Backup before host writes; complete uninstall | §2.3, §13 | `safe-uninstall` |
 | Finding 1. Guardian auto-review not detected | §2.1, §8 | `identity-check` |
 | Finding 2. `--expires-at` integer only | §10 | `ops-commands` |
-| Finding 3. Held create leaves a named envelope | §10 | Pending: no hardening module owns delegation defects; decided at this document's review |
-| Finding 4. Claude round two `target-busy` while idle | §10 | Pending: as finding 3 |
+| Finding 3. Held create leaves a named envelope | §10 | `delegation-fixes` (agent-relay; after translation, before hardening) |
+| Finding 4. Claude round two `target-busy` while idle | §10 | `delegation-fixes` (agent-relay; after translation, before hardening) |
 | Finding 5. Wake job stays `read` after acknowledgement | §5 | `delivery-state-machine` |
 | Finding 6. Background sessions hang on prompts | §4, §10 | `ops-commands` |
 | Finding 7. Codex manual approval prompts every call | §4, §8 | `packaging` (documented in the agent-relay README) |
