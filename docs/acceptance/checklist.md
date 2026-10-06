@@ -82,7 +82,7 @@ Run once with a Claude origin and a Codex target, once with a Codex origin and a
 | Id | Steps | Expected |
 |---|---|---|
 | E1 | Stop background test sessions; cancel delegated sessions | None left running; any `unknown` cancel recorded |
-| E2 | `scripts/acceptance/cleanup.sh <run>` (preview), then with `--confirm` | Only `ar-acc-<run>-*` and this run's delegated identities retired, history kept |
+| E2 | `scripts/acceptance/cleanup.sh <run>` (preview), then with `--confirm`; retire this run's delegated identities by exact name with `native_collaboration_retire.py --name <name> --confirm-retire` | Only `ar-acc-<run>-*` and the delegated identities listed in the record retired, history kept |
 | E3 | Revert host and project permission changes listed in the record (Codex approval selector, temporary allow rules) | Each reverted change listed with who reverted it |
 | E4 | Remove test artifacts from the design project's agreed temporary directory | Removal reported; no other design-project file changed |
 | E5 | Confirm the guide plugin versions | Claude and Codex `spec-guard` unchanged from the start of the run |
