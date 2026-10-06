@@ -75,6 +75,61 @@ and is covered by `validate.sh`.
 | Claude user MCP | `spec-guard-native-collaboration` → `node …/dist/server.js`, `BRIDGE_DB_PATH=…/bridge.sqlite`, connected | `claude mcp get` |
 | Codex config | `[mcp_servers.spec_guard_native_collaboration]` + `.env` at `~/.codex/config.toml:371` | grep |
 
+## Inventory and coupling points (at `54d0426`)
+
+Collaboration-owned files (move to agent-relay):
+
+| Kind | Paths |
+|---|---|
+| Code | `plugins/spec-guard/hooks/native_collaboration_{runtime,adapters,retire}.py`, `session_routing.py`, `session_delegation{,_backend,_claude,_codex,_control}.py` |
+| Tests | the thirteen collaboration test files in [Automated suites](#automated-suites-pre-split) |
+| Skills / command | `skills/collab`, `skills/collaboration-ops`, `skills/session-routing`, `skills/session-delegation`, `commands/collaboration.md` |
+| References | `references/collaboration-runtime.md`, `references/collaboration-protocol.md` |
+| Specs, plans, records | `spec/{collaboration-messaging,collaboration-safe-defaults,authorized-session-delegation,host-native-session-routing}.md`, their `spec/proposals/` and `tasks/` directories, and `docs/{decisions,reports,research,retirements}/` collaboration records |
+
+Not collaboration despite the name: `hooks/session_context.py` and `hooks/session_handoff.py` (phase injection
+and handoff) stay in Spec Guard.
+
+Workflow → collaboration (each must go through the single entry or be removed):
+
+| # | Location | Coupling |
+|---|---|---|
+| W1 | `plugins/spec-guard/skills/ticket/SKILL.md:76` | Notifying another agent sends through the `collab` mailbox, with the ticket short id in the message |
+| W2 | `plugins/spec-guard/skills/local-ticket-ledger-ops/SKILL.md:10, 19` | States the ledger is separate from the collaboration mailbox |
+| W3 | `plugins/spec-guard/commands/local-ticket-ledger.md:6, 86` | Same distinction in the command text |
+| W4 | `plugins/spec-guard/commands/proposal-closeout.md:96` | Mailbox messages are data, never write authority |
+| W5 | `scripts/validate.sh:87-88, 103-113` | Runs the thirteen collaboration tests |
+| W6 | `plugins/spec-guard/hooks/test_skill_entrypoints.py:8, 21, 69, 107` | Asserts the session-delegation skill and controller |
+| W7 | `README.md:25-28`, `docs/optional-features.md:4-77, 90`, `docs/workflow.md:233`, `CLAUDE.md:24` | Feature tables and usage docs |
+| W8 | `plugins/spec-guard/hooks/defect_guard.py:17` | Comment naming `session_delegation_claude` |
+
+Collaboration → Spec Guard internals (agent-relay needs its own copy or must drop the use):
+
+| # | Location | Dependency |
+|---|---|---|
+| C1 | `native_collaboration_adapters.py:19` | `host_config_removal` (also used by `local_ledger_adapters.py`, so it stays in Spec Guard) |
+| C2 | `session_delegation_claude.py:17` | `defect_guard.is_defect` |
+
+## Gap analysis against OpenSwarm (2026-10-06)
+
+OpenSwarm `rubinownz111/openswarm@8f31ce72` (MIT), README and `docs/protocol.md`, read for design ideas only.
+`B:` is the pinned upstream bridge `WebisityStudio/claude-codex-mcp-bridge@8f12c880`; `S:` is Spec Guard at
+`54d0426`.
+
+| Item | Status | Evidence |
+|---|---|---|
+| a. Delivery state machine queued/sending/accepted/failed/unknown/expired | Partial | Wake jobs have pending/sending/accepted/read/held/refused/unknown/cancelled/expired (B:src/wake-queue.ts:9); the message itself has no delivery state, only acknowledgement |
+| b. Unknown never replayed | Present | `sending` past retry time becomes `unknown`, not retried (B:src/wake-queue.ts:112-114) |
+| c. Expire after queue timeout, never delivered later | Partial | Wake expires after 1 h offline / 24 h busy (B:src/wake-queue.ts:37-39, 119-124); the message stays in the inbox and can be read later |
+| d. Persist before submitting to the native interface | Present | Message inserted before wake (B:src/bridge-store.ts:371-385); wake job set `sending` before the host call (B:src/wake-queue.ts:126-138) |
+| e. Per-recipient order, recipients independent, pending cap | Partial | Wake jobs claimed oldest-first with per-job backoff (B:src/wake-queue.ts:111-138); no mailbox pending cap; Claude wake holds at most 100 (B:src/claude-wake.ts:130) |
+| f. Idempotency key requires identical content; duplicate replies removed | Partial | Unique `(from, key)`; a reused key with different content returns the old message silently (B:src/bridge-store.ts:373-378); no reply de-duplication |
+| g. Only the recipient may reply; sender matches host identity | Absent | `from` is free text; an unregistered sender only gets a warning (B:src/server.ts:167, 181) |
+| h. doctor, whoami, status/wait by message id | Partial | Upstream CLI has doctor/status (B:src/cli-logic.ts:6-14) but Spec Guard never runs the upstream CLI; no whoami; `bridge_wait` waits for new mail, not a message id (B:src/server.ts:249-291) |
+| i. Message body from a file | Partial | Delegation task bodies come only from stdin (S:plugins/spec-guard/skills/session-delegation/SKILL.md); mailbox bodies are MCP arguments; no file input |
+| j. State directory override by environment | Partial | Bridge honours `BRIDGE_DB_PATH` and `XDG_DATA_HOME` (B:src/paths.ts:14-24); Spec Guard has `--root` only and a fixed delegation root (S:plugins/spec-guard/hooks/session_delegation_control.py:508) |
+| k. Back up host settings before change; complete uninstall keeping history | Partial | Uninstall removes only the exact managed entry and keeps mailbox history (S:plugins/spec-guard/references/collaboration-runtime.md:59-69); no automatic backup before writing host config; runtime directory not removed |
+
 ## Phase 0 decisions (user, 2026-10-06)
 
 | Decision | Choice |
