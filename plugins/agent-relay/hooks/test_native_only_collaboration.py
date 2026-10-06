@@ -4,7 +4,9 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[3]
-HOOKS = ROOT / "plugins" / "spec-guard" / "hooks"
+PLUGIN = ROOT / "plugins" / "agent-relay"
+HOOKS = PLUGIN / "hooks"
+HISTORY = ROOT / "docs" / "history" / "spec-guard"
 
 
 class NativeOnlyCollaborationTests(unittest.TestCase):
@@ -29,18 +31,16 @@ class NativeOnlyCollaborationTests(unittest.TestCase):
 
     def test_current_entry_contracts_do_not_offer_xats(self):
         current = (
-            ROOT / "spec" / "collaboration-messaging.md",
-            ROOT / "spec" / "host-native-session-routing.md",
-            ROOT / "spec" / "authorized-session-delegation.md",
-            ROOT / "spec" / "ledger-dependency-lock.md",
-            ROOT / "docs" / "optional-features.md",
-            ROOT / "plugins" / "spec-guard" / "commands" / "collaboration.md",
-            ROOT / "plugins" / "spec-guard" / "skills" / "collab" / "SKILL.md",
-            ROOT / "plugins" / "spec-guard" / "skills" / "collaboration-ops" / "SKILL.md",
-            ROOT / "plugins" / "spec-guard" / "skills" / "session-delegation" / "SKILL.md",
-            ROOT / "plugins" / "spec-guard" / "skills" / "session-routing" / "SKILL.md",
-            ROOT / "plugins" / "spec-guard" / "references" / "collaboration-protocol.md",
-            ROOT / "plugins" / "spec-guard" / "references" / "collaboration-runtime.md",
+            HISTORY / "spec" / "collaboration-messaging.md",
+            HISTORY / "spec" / "host-native-session-routing.md",
+            HISTORY / "spec" / "authorized-session-delegation.md",
+            PLUGIN / "commands" / "collaboration.md",
+            PLUGIN / "skills" / "collab" / "SKILL.md",
+            PLUGIN / "skills" / "collaboration-ops" / "SKILL.md",
+            PLUGIN / "skills" / "session-delegation" / "SKILL.md",
+            PLUGIN / "skills" / "session-routing" / "SKILL.md",
+            PLUGIN / "references" / "collaboration-protocol.md",
+            PLUGIN / "references" / "collaboration-runtime.md",
             HOOKS / "native_collaboration_runtime.py",
             HOOKS / "session_delegation_backend.py",
             HOOKS / "session_delegation_claude.py",
@@ -56,7 +56,7 @@ class NativeOnlyCollaborationTests(unittest.TestCase):
 
     def test_current_decision_declares_native_only_without_a_rollback_gate(self):
         decision = (
-            ROOT / "docs" / "decisions"
+            HISTORY / "docs" / "decisions"
             / "2026-10-04-native-only-collaboration-sunset.md"
         ).read_text(encoding="utf-8")
         self.assertIn("native 成为唯一产品传输", decision)

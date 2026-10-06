@@ -9,7 +9,7 @@ SKILL = PLUGIN_ROOT / "skills" / "collab" / "SKILL.md"
 OPS_SKILL = PLUGIN_ROOT / "skills" / "collaboration-ops" / "SKILL.md"
 OPS_COMMAND = PLUGIN_ROOT / "commands" / "collaboration.md"
 REFERENCE = PLUGIN_ROOT / "references" / "collaboration-runtime.md"
-RUNNER = PLUGIN_ROOT / "hooks" / "test-collaboration-suite.sh"
+VALIDATE = PLUGIN_ROOT.parents[1] / "scripts" / "validate.sh"
 
 
 class CollabEntryContractTest(unittest.TestCase):
@@ -88,8 +88,8 @@ class CollabEntryContractTest(unittest.TestCase):
 
     def test_repository_validation_runs_the_entry_contract(self):
         self.assertIn(
-            "python3 -B plugins/spec-guard/hooks/test_collab_entry.py",
-            RUNNER.read_text(encoding="utf-8"),
+            'TESTS_GLOB="plugins/agent-relay/hooks/test_*.py"',
+            VALIDATE.read_text(encoding="utf-8"),
         )
 
 

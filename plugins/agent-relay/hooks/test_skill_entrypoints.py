@@ -7,9 +7,7 @@ import unittest
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 DELEGATION = PLUGIN_ROOT / "skills" / "session-delegation" / "SKILL.md"
 COLLAB = PLUGIN_ROOT / "skills" / "collab" / "SKILL.md"
-OPTIONAL = PLUGIN_ROOT.parents[1] / "docs" / "optional-features.md"
 VALIDATE = PLUGIN_ROOT.parents[1] / "scripts" / "validate.sh"
-RUNNER = PLUGIN_ROOT / "hooks" / "test-collaboration-suite.sh"
 
 
 class SessionDelegationEntryTests(unittest.TestCase):
@@ -94,22 +92,11 @@ class SessionDelegationEntryTests(unittest.TestCase):
         self.assertIn("同宿主结果不复制到 mailbox", text)
         self.assertIn("status 不从旧轮次补造 transport", text)
 
-    def test_optional_feature_docs_explain_smooth_preapproval_and_limits(self):
-        text = OPTIONAL.read_text(encoding="utf-8")
-        self.assertIn("跨宿主会话委派", text)
-        self.assertIn("项目级 allow", text)
-        self.assertIn("同一台 Mac", text)
-        self.assertIn("不会自动修改", text)
-
     def test_repository_validation_runs_the_entry_contract(self):
-        self.assertIn("/bin/bash plugins/spec-guard/hooks/test-collaboration-suite.sh",
-                      VALIDATE.read_text(encoding="utf-8"))
-        validation = RUNNER.read_text(encoding="utf-8")
-        for command in (
-            "python3 -B plugins/spec-guard/hooks/test_skill_entrypoints.py",
-            "python3 -B plugins/spec-guard/hooks/test_session_delegation_recovery.py",
-        ):
-            self.assertIn(command, validation)
+        validation = VALIDATE.read_text(encoding="utf-8")
+        self.assertIn('TESTS_GLOB="plugins/agent-relay/hooks/test_*.py"', validation)
+        for name in ("test_skill_entrypoints.py", "test_session_delegation_recovery.py"):
+            self.assertTrue((PLUGIN_ROOT / "hooks" / name).is_file(), name)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Run every agent-relay test file. Tests are found by glob, so a test added by a later module cannot be
+# left out; finding none is a failure, not a pass.
+set -uo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
+
+TESTS_GLOB="plugins/agent-relay/hooks/test_*.py"
+F=0
+FILES=0
+TOTAL=0
+for test in $TESTS_GLOB; do
+  [ -f "$test" ] || continue
+  FILES=$((FILES + 1))
+  OUT="$(python3 -B "$test" 2>&1)"
+  RC=$?
+  RAN="$(printf '%s\n' "$OUT" | sed -n 's/^Ran \([0-9][0-9]*\) tests\{0,1\}.*/\1/p' | tail -1)"
+  TOTAL=$((TOTAL + ${RAN:-0}))
+  if [ "$RC" -eq 0 ]; then
+    printf '  ok    %-52s %s\n' "${test##*/}" "${RAN:-?}"
+  else
+    printf '  FAIL  %-52s %s\n' "${test##*/}" "${RAN:-?}"
+    printf '%s\n' "$OUT" | sed 's/^/        /'
+    F=1
+  fi
+done
+
+if [ "$FILES" -eq 0 ]; then
+  echo "no test files matched ${TESTS_GLOB}"
+  exit 1
+fi
+echo "${FILES} files, ${TOTAL} tests"
+if [ "$F" -eq 0 ]; then echo "validate: pass"; else echo "validate: FAIL"; fi
+exit "$F"
