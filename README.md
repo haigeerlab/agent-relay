@@ -105,6 +105,7 @@ skill 名使用协作；未安装时 Spec Guard 的工作流照常运行，只�
 - [运行时说明](plugins/agent-relay/references/collaboration-runtime.md)、
   [协作协议](plugins/agent-relay/references/collaboration-protocol.md)。
 
-## 致谢
+## 许可与致谢
 
+agent-relay 以 [MIT 许可](LICENSE) 发布。
 信箱运行时使用固定提交的上游 [claude-codex-mcp-bridge](https://github.com/WebisityStudio/claude-codex-mcp-bridge)（MIT）。
