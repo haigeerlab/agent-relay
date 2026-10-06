@@ -1,7 +1,9 @@
 # Todo: acceptance-kit
 
 - [x] Task 1: test entry `scripts/validate.sh` and standalone tests (D8) — glob runner: 16 files, 210 tests, all pass (= extracted suite 202 − 1 removed D8 test + 9 in `test_host_config_removal.py`, the C1 copy's own test, which the old suite never ran); breaking one assertion → exit 1; ShellCheck/bash32 clean. Besides D8, the self-wiring assertions in `test_collab_entry.py` and `test_session_routing_entry.py` also read the removed runner; re-pointed to the validate.sh glob (meaning kept, not weakened)
-- [ ] Task 2: checklist and record template, with the coverage table
-- [ ] Checkpoint (report): tests stand alone, checklist covers the baseline
+- [x] Task 2: checklist and record template, with the coverage table — 5 sections, 43 items; every 【加固】 item names its module
+  Coverage (baseline → checklist): item 1 → A5; 2 → B1; 3 → B2; 4 → B3; 5 → B4; 6 → B5; 7 → C1, C2, C3, C4, C6; 8 → C1; 9 → C2, C3, C6, C7; 10 → B6.
+  Findings: 1 → A2, B7, D11; 2 → C8; 3 → C7; 4 → C3; 5 → B5; 6 → A4; 7 → A2. Gap items: a/b/c → B4, D12, D13; d/e → D15; f → D14; g → B8; h → A1, A5; i → D16; k → D17; j (state root override) is unit-test isolation, not a real-host item
+- [x] Checkpoint (report): tests stand alone, checklist covers the baseline — 210 tests green; coverage table complete
 - [ ] Task 3: preflight and cleanup helpers with tests
 - [ ] Checkpoint (gate): module review; the repository is never pushed
