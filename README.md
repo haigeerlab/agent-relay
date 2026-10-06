@@ -87,8 +87,22 @@ codex plugin add agent-relay@agent-relay-marketplace
 [`interface.json`](plugins/agent-relay/interface.json)（接口 1.0）判断 agent-relay 是否可用，只通过 agent-relay 的
 skill 名使用协作；未安装时 Spec Guard 的工作流照常运行，只在需要协作的步骤提示安装。
 
-从旧版 Spec Guard 协作能力迁移（`~/.spec-guard/native-collaboration/` 等旧状态）由后续版本提供，迁移前会先备份，
-不会静默删除。
+### 从 Spec Guard 的协作能力迁移
+
+用过 Spec Guard 内置协作的话，旧数据在 `~/.spec-guard/native-collaboration/` 和 `~/.spec-guard/session-delegation/`。
+让 agent 走 `collaboration-ops` 的迁移步骤，或自己运行：
+
+```bash
+python3 -B plugins/agent-relay/hooks/state_migration.py detect
+python3 -B plugins/agent-relay/hooks/state_migration.py migrate --confirm
+```
+
+- `detect` 只读，列出旧数据的数量和挡住迁移的原因：还没结束的委派、仍在运行的旧信箱服务（先关掉或重启那些会话）、
+  agent-relay 运行时还没装。从没启动过的卡住委派，确认它已经没用后可加 `--acknowledge-stale <id>` 放行。
+- `migrate` 先把旧数据备份到 `~/.agent-relay/backups/<时间>/`，再复制到 agent-relay 并逐表核对数量；只迁到全新的
+  agent-relay（信箱为空），从不合并两个信箱。
+- 旧目录、宿主配置和权限文件一律不动；迁移后按提示接入新的宿主条目、用 Spec Guard 自己的卸载删掉旧条目，
+  并把项目权限规则手动改成 `mcp__agent-relay__bridge_*`。旧目录确认无误后由你自己删除。
 
 ## 卸载
 
