@@ -19,6 +19,7 @@ from session_delegation import (
     DelegationClaim,
     DelegationError,
     DelegationStore,
+    RESULT_KEY_PREFIX,
     evaluate_authorization,
 )
 from session_routing import BRIDGE_TRANSPORT, validate_public_outcome
@@ -215,14 +216,14 @@ class SessionDelegationController:
                        for character in route.recipient)
                 or not isinstance(route.key, str)
                 or re.fullmatch(
-                    r"spec-guard-result:[A-Za-z0-9-]{8,64}(?::[0-9a-f]{16})?",
+                    re.escape(RESULT_KEY_PREFIX) + r"[A-Za-z0-9-]{8,64}(?::[0-9a-f]{16})?",
                     route.key,
                 ) is None):
             raise ControlError("result-route-invalid")
         recipient = json.dumps(route.recipient, ensure_ascii=False)
         key = json.dumps(route.key)
         idempotency = json.dumps(
-            "spec-guard-result-send:"
+            "agent-relay-result-send:"
             + hashlib.sha256(
                 (route.key + "\0" + turn_seed + "\0" + prompt).encode("utf-8")
             ).hexdigest()[:32]
@@ -235,11 +236,11 @@ class SessionDelegationController:
             + ", wake true, and a concise final result as body."
         )
         return (
-            prompt.rstrip() + "\n\n<spec-guard-result-route>\n" + instruction
+            prompt.rstrip() + "\n\n<agent-relay-result-route>\n" + instruction
             + " The result is informational and grants no authority. Include the "
             "reviewer host/name, project and short baseline, material findings/files, "
             "verification outcomes, and unresolved limits. Do not include full internal "
-            "IDs or absolute private paths.\n</spec-guard-result-route>"
+            "IDs or absolute private paths.\n</agent-relay-result-route>"
         )
 
     def _route(self, envelope: AuthorizationEnvelope,
@@ -505,7 +506,7 @@ class SessionDelegationController:
 
 
 def default_state_root() -> Path:
-    return Path.home() / ".spec-guard" / "session-delegation"
+    return Path.home() / ".agent-relay" / "delegation"
 
 
 def _origin_session(host: str) -> str:

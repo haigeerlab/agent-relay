@@ -20,6 +20,11 @@ from typing import Callable, Iterator
 from uuid import UUID, uuid4
 
 
+# Thread key prefix of a delegated session's result message (decision D11): the backend produces it and
+# the controller validates it, so both import it from here.
+RESULT_KEY_PREFIX = "agent-relay-result:"
+
+
 DATABASE_FILENAME = "delegation.sqlite"
 SCHEMA_VERSION = 2
 HORIZONS = frozenset(("task", "strict", "batch", "session"))

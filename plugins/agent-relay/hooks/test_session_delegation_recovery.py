@@ -16,6 +16,7 @@ from session_delegation import AuthorizationRequest, DelegationStore
 from session_delegation_control import (
     ControlError,
     SessionDelegationController,
+    default_state_root,
     main,
 )
 
@@ -110,7 +111,7 @@ class RecoveryTests(unittest.TestCase):
     def test_exact_origin_route_is_appended_and_completed_result_is_returned(self):
         route = SimpleNamespace(
             backend="native", recipient="origin-agent",
-            key="spec-guard-result:route-1234",
+            key="agent-relay-result:route-1234",
         )
         queue = [SimpleNamespace(
             state="completed", host_status="idle", prerequisite=None,
@@ -164,7 +165,7 @@ class RecoveryTests(unittest.TestCase):
             result_route_resolver=lambda envelope, claim: route_calls.append(
                 (envelope.origin_host, claim.target_host)) or SimpleNamespace(
                     backend="native", recipient="must-not-be-used",
-                    key="spec-guard-result:must-not-be-used",
+                    key="agent-relay-result:must-not-be-used",
                 ),
             result_probe=lambda _route, _sender: self.fail("must not probe mailbox"),
         )
@@ -204,7 +205,7 @@ class RecoveryTests(unittest.TestCase):
             with self.subTest(observed=observed, state=state):
                 route = SimpleNamespace(
                     backend="native", recipient="origin-agent",
-                    key="spec-guard-result:delivery-1234",
+                    key="agent-relay-result:delivery-1234",
                 )
                 controller = SessionDelegationController(
                     self.store,
@@ -222,7 +223,7 @@ class RecoveryTests(unittest.TestCase):
                 self.assertIn("bridge_send", prompt)
         route = SimpleNamespace(
             backend="native", recipient="origin-agent",
-            key="spec-guard-result:delivery-1234",
+            key="agent-relay-result:delivery-1234",
         )
         first = SessionDelegationController._turn_route(route, "Review", "turn-1")
         retried = SessionDelegationController._turn_route(route, "Review", "turn-1")
@@ -239,6 +240,28 @@ class RecoveryTests(unittest.TestCase):
             lambda _host, _project: adapter,
             result_route_resolver=lambda _envelope, _claim: SimpleNamespace(
                 backend="native", recipient="bad\nrecipient", key="bad-key"),
+            result_probe=lambda _route, _sender: True,
+        )
+
+        with self.assertRaisesRegex(ControlError, "result-route-invalid"):
+            self.create(controller)
+        self.assertEqual(adapter.calls, [])
+
+    def test_default_state_root_is_the_delegation_directory_under_agent_relay(self):
+        # D9: runtime/, delegation/ and backups/ are siblings under ~/.agent-relay.
+        with mock.patch("session_delegation_control.Path.home", return_value=Path("/home/u")):
+            self.assertEqual(default_state_root(), Path("/home/u/.agent-relay/delegation"))
+
+    def test_a_pre_split_result_key_is_refused(self):
+        # D12: only the agent-relay prefix is accepted; in-flight Spec Guard delegations block migration instead.
+        adapter = FakeAdapter(self.store, [SimpleNamespace(
+            state="created", host_status=None, prerequisite=None,
+        )])
+        controller = SessionDelegationController(
+            self.store,
+            lambda _host, _project: adapter,
+            result_route_resolver=lambda _envelope, _claim: SimpleNamespace(
+                backend="native", recipient="origin-agent", key="spec-guard-result:route-1234"),
             result_probe=lambda _route, _sender: True,
         )
 

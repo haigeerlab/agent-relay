@@ -13,6 +13,7 @@ from typing import Any, Callable
 from urllib.parse import quote
 
 from native_collaboration_adapters import CLAUDE_SERVER_NAME, claude_config
+from session_delegation import RESULT_KEY_PREFIX
 from session_delegation_codex import CommunicationServer
 from session_routing import BRIDGE_TRANSPORT
 
@@ -67,7 +68,7 @@ def _route(recipient: str, delegation_id: str) -> MailboxResultRoute:
                    for character in recipient)):
         raise ValueError("mailbox-recipient-invalid")
     return MailboxResultRoute(
-        "native", recipient, "spec-guard-result:" + delegation_id)
+        "native", recipient, RESULT_KEY_PREFIX + delegation_id)
 
 
 def native_result_route(database: Path, origin_host: str, origin_session: str,

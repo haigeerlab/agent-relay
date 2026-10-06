@@ -100,7 +100,7 @@ class DelegationBackendTests(unittest.TestCase):
         route = native_result_route(
             database, "codex", "origin-thread-exact", "delegation-12345678")
         self.assertEqual(route, MailboxResultRoute(
-            "native", "origin-codex", "spec-guard-result:delegation-12345678"))
+            "native", "origin-codex", "agent-relay-result:delegation-12345678"))
         self.assertEqual(route.transport, "agent-relay-bridge")
         self.assertFalse(native_result_probe(database, route, "target-codex"))
 
