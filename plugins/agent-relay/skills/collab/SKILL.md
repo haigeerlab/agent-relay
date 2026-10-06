@@ -5,7 +5,7 @@ description: 加入本机 Claude Code／Codex 联调、查看联调消息与已�
 
 # Collab
 
-这是 Spec Guard 同机协作邮箱的日常入口。用户只需提供可选别名，或说出目标宿主、会话名称、项目和消息；
+这是 agent-relay 同机协作邮箱的日常入口。用户只需提供可选别名，或说出目标宿主、会话名称、项目和消息；
 不要要求用户填写内部 ID、PID、数据库位置、MCP 名或 transport。
 
 本 skill 只处理自由文本消息，不创建 Ticket、分支、提交、代码变更或新的审查／开发会话。创建受限会话转交
@@ -13,7 +13,7 @@ description: 加入本机 Claude Code／Codex 联调、查看联调消息与已�
 
 ## 唯一邮箱
 
-跨宿主 Claude Code ↔ Codex 固定使用 Spec Guard native bridge。没有选择器、旧传输或自动回退：
+跨宿主 Claude Code ↔ Codex 固定使用 agent-relay native bridge。没有选择器、旧传输或自动回退：
 
 - 当前会话没有 `bridge_*` 工具，或调用失败时，只报告 native 协作未就绪，并转交 `collaboration-ops`；
 - 不读取或写入旧邮箱，不启动兼容服务，不尝试第二条传输；

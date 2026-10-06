@@ -1,6 +1,6 @@
 ---
 name: collaboration-ops
-description: Inspect, explicitly initialize, or start Spec Guard's local Claude Code/Codex collaboration runtime.
+description: Inspect, explicitly initialize, or start agent-relay's local Claude Code/Codex collaboration runtime.
 ---
 
 # Collaboration operations
@@ -8,14 +8,15 @@ description: Inspect, explicitly initialize, or start Spec Guard's local Claude 
 This is the explicit setup, diagnosis, host-attachment, and cleanup surface for the same-Mac native
 collaboration runtime. Daily join, inbox, directory, and send operations use `collab`.
 
-Resolve the installed Spec Guard root as `$ROOT` and begin read-only:
+Resolve the installed agent-relay root as `$ROOT` (Claude: `CLAUDE_PLUGIN_ROOT`; Codex: `source.path` of the
+enabled `agent-relay` entry in `codex plugin list --json`) and begin read-only:
 
 ```bash
 python3 -B "$ROOT/hooks/native_collaboration_runtime.py" status
 ```
 
 - `absent`: explain that explicit installation creates private data under
-  `~/.spec-guard/native-collaboration/`; run `install` only after the user asks to enable it.
+  `~/.agent-relay/runtime/`; run `install` only after the user asks to enable it.
 - `ready`: the pinned runtime is usable; do not reinstall it merely to refresh a session.
 - any invalid or unavailable result: report the diagnostic and one next step. Do not loosen ownership or
   mode checks and do not substitute an unpinned package.

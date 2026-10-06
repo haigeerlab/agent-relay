@@ -1,12 +1,12 @@
 # Native collaboration runtime
 
-Spec Guard uses one private same-Mac bridge for Claude Code ↔ Codex communication. Same-host communication still
+agent-relay uses one private same-Mac bridge for Claude Code ↔ Codex communication. Same-host communication still
 prefers each host's built-in session tools. The bridge is not a network service, tracker, job queue, or authority
 channel.
 
 ## Private data
 
-The default root is `~/.spec-guard/native-collaboration/`. It is user-global rather than project-local, so sessions
+The default root is `~/.agent-relay/runtime/`. It is user-global rather than project-local, so sessions
 from different projects on the same Mac can discover one another after they explicitly join. A fresh plugin
 installation contains no user data and does not create this directory until explicit runtime installation.
 
@@ -15,11 +15,11 @@ runtime data. Project repositories never contain mailbox data or secrets.
 
 ## Read-only status
 
-From the installed plugin root:
+From the installed plugin root (`$ROOT`, resolved as in the `collaboration-ops` skill):
 
 ```bash
-python3 -B plugins/spec-guard/hooks/native_collaboration_runtime.py status
-python3 -B plugins/spec-guard/hooks/native_collaboration_runtime.py probe
+python3 -B "$ROOT/hooks/native_collaboration_runtime.py" status
+python3 -B "$ROOT/hooks/native_collaboration_runtime.py" probe
 ```
 
 Status verifies the pinned revision, expected files, ownership, permissions, and runtime shape. Probe checks the
@@ -31,7 +31,7 @@ condition, not permission to substitute another implementation.
 After the user approves creating the private runtime:
 
 ```bash
-python3 -B plugins/spec-guard/hooks/native_collaboration_runtime.py install
+python3 -B "$ROOT/hooks/native_collaboration_runtime.py" install
 ```
 
 The install command uses the repository-pinned upstream revision. It does not modify Claude or Codex config.
@@ -41,15 +41,15 @@ The install command uses the repository-pinned upstream revision. It does not mo
 Inspect exact generated fragments first:
 
 ```bash
-python3 -B plugins/spec-guard/hooks/native_collaboration_adapters.py claude
-python3 -B plugins/spec-guard/hooks/native_collaboration_adapters.py codex
+python3 -B "$ROOT/hooks/native_collaboration_adapters.py" claude
+python3 -B "$ROOT/hooks/native_collaboration_adapters.py" codex
 ```
 
 After separate explicit approval:
 
 ```bash
-python3 -B plugins/spec-guard/hooks/native_collaboration_adapters.py install-claude
-python3 -B plugins/spec-guard/hooks/native_collaboration_adapters.py install-codex
+python3 -B "$ROOT/hooks/native_collaboration_adapters.py" install-claude
+python3 -B "$ROOT/hooks/native_collaboration_adapters.py" install-codex
 ```
 
 Claude registration uses its supported user MCP CLI. Codex appends only the exact managed table and refuses an
@@ -59,9 +59,9 @@ for the user. Existing sessions normally need a restart to load a new entry.
 Removal also requires explicit approval:
 
 ```bash
-python3 -B plugins/spec-guard/hooks/native_collaboration_adapters.py \
+python3 -B "$ROOT/hooks/native_collaboration_adapters.py" \
   uninstall-claude --confirm-uninstall
-python3 -B plugins/spec-guard/hooks/native_collaboration_adapters.py \
+python3 -B "$ROOT/hooks/native_collaboration_adapters.py" \
   uninstall-codex --confirm-uninstall
 ```
 
@@ -86,7 +86,7 @@ registered row or recent activity.
 After a session has ended, read its inbox and acknowledge actually processed messages. Then, with user approval:
 
 ```bash
-python3 -B plugins/spec-guard/hooks/native_collaboration_retire.py \
+python3 -B "$ROOT/hooks/native_collaboration_retire.py" \
   --name '<exact-name>' --confirm-retire
 ```
 
@@ -96,9 +96,9 @@ delivery, and retires the identity while keeping backlog. It does not delete the
 ## Claude project permissions
 
 Claude project trust, first MCP approval, and `.claude/settings.json` allow rules are independent. For smooth
-authorized work, the user may preconfigure only the exact `mcp__spec-guard-native-collaboration__bridge_*` tools
+authorized work, the user may preconfigure only the exact `mcp__agent-relay__bridge_*` tools
 needed by the workflow. Review requires no extra edit tools; bounded development additionally needs explicit Edit,
-Write, and task-scoped Bash permission. Spec Guard diagnoses missing rules but never writes them without a separate
+Write, and task-scoped Bash permission. agent-relay diagnoses missing rules but never writes them without a separate
 request and never recommends bypass mode.
 
 ## Troubleshooting order

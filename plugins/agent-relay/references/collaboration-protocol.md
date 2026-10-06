@@ -1,6 +1,6 @@
 # Collaboration protocol
 
-本协议规定 Agent 如何使用 Spec Guard native bridge，不创造项目组、任务领取状态机或权限继承。
+本协议规定 Agent 如何使用 agent-relay native bridge，不创造项目组、任务领取状态机或权限继承。
 
 ## 一步加入
 

@@ -6,15 +6,15 @@ allowed-tools: Bash, Read
 本命令是 native 协作运行时的显式操作入口。日常加入、查看消息、列出联系人或按名称发送时使用
 `collab` skill。
 
-先定位已安装 Spec Guard 根目录，只读检查：
+先定位已安装的 agent-relay 根目录，只读检查：
 
 ```bash
 ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"
-[ -n "$ROOT" ] && [ -d "$ROOT" ] || { echo "spec-guard 插件根目录不可用" >&2; exit 2; }
+[ -n "$ROOT" ] && [ -d "$ROOT" ] || { echo "agent-relay 插件根目录不可用" >&2; exit 2; }
 python3 -B "$ROOT/hooks/native_collaboration_runtime.py" status
 ```
 
-- `absent`：说明启用会在 `~/.spec-guard/native-collaboration/` 创建私有运行时和邮箱；用户明确同意后才运行
+- `absent`：说明启用会在 `~/.agent-relay/runtime/` 创建私有运行时和邮箱；用户明确同意后才运行
   `native_collaboration_runtime.py install`。
 - `ready`：不重复安装。需要接入宿主时先展示 `native_collaboration_adapters.py claude` 或 `codex` 输出；
   只有用户明确授权后才运行 `install-claude` 或 `install-codex`。
