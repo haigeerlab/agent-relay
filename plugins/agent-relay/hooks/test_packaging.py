@@ -38,6 +38,14 @@ class ManifestTests(unittest.TestCase):
         self.assertTrue((PLUGIN / marker["status"][2]).is_file())
 
 
+class ReadmeTests(unittest.TestCase):
+    def test_readme_explains_smooth_preapproval_and_limits(self):
+        # Replaces Spec Guard's optional-features assertion removed in acceptance-kit (decision D8).
+        text = (REPO / "README.md").read_text(encoding="utf-8")
+        for phrase in ("跨宿主会话委派", "项目级 allow", "同一台 Mac", "不会自动修改"):
+            self.assertIn(phrase, text)
+
+
 class RelayStatusTests(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix="ar-relay-status-")
