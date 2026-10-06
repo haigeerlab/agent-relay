@@ -91,7 +91,7 @@ class InstallationAndIsolationTests(unittest.TestCase):
     def test_host_prompt_allows_control_envelope_after_maximum_user_body(self):
         prompt = _bound_prompt(
             "x" * 20_800, "thread-12345678", "review", "bridge_register")
-        self.assertIn("<spec-guard-control>", prompt)
+        self.assertIn("<agent-relay-control>", prompt)
         with self.assertRaisesRegex(CodexAdapterError, "delegation-prompt-invalid"):
             _bound_prompt(
                 "x" * 24_001, "thread-12345678", "review", "bridge_register")
@@ -257,7 +257,7 @@ class JsonRpcTests(unittest.TestCase):
                 "turn": {"id": "turn-1", "status": "completed"},
             }},
             {"method": "item/completed", "params": {"item": {
-                "type": "mcpToolCall", "server": "spec_guard_delegation",
+                "type": "mcpToolCall", "server": "agent_relay_delegation",
                 "tool": "bridge_register", "status": "completed",
             }}},
         ])
@@ -357,7 +357,7 @@ class AdapterTests(unittest.TestCase):
     def catalog(self):
         return {"data": [
             {"name": "disabled", "tools": {}},
-            {"name": "spec_guard_delegation",
+            {"name": "agent_relay_delegation",
              "tools": {tool: {} for tool in COMMUNICATION_TOOLS}},
         ]}
 

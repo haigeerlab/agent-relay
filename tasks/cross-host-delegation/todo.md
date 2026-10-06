@@ -1,7 +1,8 @@
 # Todo: cross-host-delegation
 
 - [x] Task 1: result route names and state root (D11, D9) + old-prefix refusal test — `RESULT_KEY_PREFIX = "agent-relay-result:"` placed in the core `session_delegation.py` (the controller imports the backend lazily on purpose, so the shared constant lives in the module both already import); idempotency `agent-relay-result-send:`; `<agent-relay-result-route>`; `default_state_root()` → `~/.agent-relay/delegation`. Root creation unchanged from baseline: `DelegationStore` makes the root 0700 with `mkdir(parents=True)`, so a parent it creates gets the default umask mode, as `~/.spec-guard` did; the runtime installer accepts an existing non-private parent. Moved assertions: backend (1), recovery (4); +2 tests (pre-split key refused, default root). 220 tests green; mutation (prefix back to old) → recovery tests red
-- [ ] Task 2: control tags and Codex private server/service names
-- [ ] Checkpoint (report): delegation names translated, suite green
+- [x] Task 2: control tags and Codex private server/service names — `<agent-relay-control>` (Claude, Codex), `agent_relay_delegation`, `agent_relay_session_delegation`, title "agent-relay Session Delegation"; the parameterized server-name test now uses `agent-relay`; session-name fixtures `agent-relay-…`. 220 tests green.
+  Name scan of `plugins/agent-relay/`, remaining lines all deliberate: `test_native_collaboration_adapters.py:74` (foreign legacy XATS Codex table must survive), `test_session_delegation_claude.py:155` (legacy XATS server must not appear), `test_native_only_collaboration.py:9` (path of the history directory), `test_session_routing.py:200-201` and `test_session_delegation_recovery.py:256-264` (pre-split label / key refusal tests)
+- [x] Checkpoint (report): delegation names translated, suite green
 - [ ] Task 3: interface §10 and §13 (D12 precondition)
 - [ ] Checkpoint (gate): module review; never pushed

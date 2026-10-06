@@ -105,7 +105,7 @@ class InstallationAndPermissionTests(unittest.TestCase):
         command = build_create_command(
             installation,
             Path("/private/tmp/session.mcp.json"),
-            "spec-guard-12345678",
+            "agent-relay-12345678",
             "Review the diff",
             "safe-review",
             "dontAsk",
@@ -130,14 +130,14 @@ class InstallationAndPermissionTests(unittest.TestCase):
         prompt = _bounded_prompt(
             "x" * 20_800, "12345678-1234-1234-1234-123456789abc",
             "review", COMMUNICATION_TOOLS, "safe-review")
-        self.assertIn("<spec-guard-control>", prompt)
+        self.assertIn("<agent-relay-control>", prompt)
         with self.assertRaisesRegex(ClaudeAdapterError, "delegation-prompt-invalid"):
             _bounded_prompt(
                 "x" * 24_001, "12345678-1234-1234-1234-123456789abc",
                 "review", COMMUNICATION_TOOLS, "safe-review")
 
     def test_native_backend_uses_its_own_exact_tool_names_and_project_allow_rules(self):
-        server_name = "spec-guard-native-collaboration"
+        server_name = "agent-relay"
         rules = communication_rules(server_name)
         self.write_permissions(rules)
         readiness = inspect_project_permissions(
@@ -147,11 +147,11 @@ class InstallationAndPermissionTests(unittest.TestCase):
         command = build_create_command(
             ClaudeInstallation(Path("/opt/claude"), "2.1.288"),
             Path("/private/tmp/session.mcp.json"),
-            "spec-guard-12345678", "Review", "safe-review", "dontAsk",
+            "agent-relay-12345678", "Review", "safe-review", "dontAsk",
             server_name=server_name,
         )
         tools = command[command.index("--tools") + 1]
-        self.assertIn("mcp__spec-guard-native-collaboration__bridge_register", tools)
+        self.assertIn("mcp__agent-relay__bridge_register", tools)
         self.assertNotIn("mcp__spec-guard-collaboration__bridge_register", tools)
 
     def test_native_registration_does_not_bind_general_wake_for_write_permission(self):
@@ -222,7 +222,7 @@ class AdapterTests(unittest.TestCase):
         return {
             "id": short_id,
             "sessionId": "ce5b9501-0817-479d-886e-772bafbbee6f",
-            "name": "spec-guard-" + self.claim.delegation_id[:8],
+            "name": "agent-relay-" + self.claim.delegation_id[:8],
             "cwd": str(self.project.resolve()),
             "kind": "background", "pid": 123, "state": state, "status": status,
             "startedAt": "2026-10-03T00:00:00Z",
