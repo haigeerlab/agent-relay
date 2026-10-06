@@ -1,0 +1,11 @@
+{
+  "name": "agent-relay-marketplace",
+  "owner": { "name": "haigeerlab" },
+  "plugins": [
+    {
+      "name": "agent-relay",
+      "source": "./plugins/agent-relay",
+      "description": "同一台 Mac 上 Claude Code 与 Codex 会话之间的协作信箱、会话路由与跨宿主委派。"
+    }
+  ]
+}
