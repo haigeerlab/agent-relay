@@ -4,5 +4,5 @@
 - [x] Task 2: control tags and Codex private server/service names — `<agent-relay-control>` (Claude, Codex), `agent_relay_delegation`, `agent_relay_session_delegation`, title "agent-relay Session Delegation"; the parameterized server-name test now uses `agent-relay`; session-name fixtures `agent-relay-…`. 220 tests green.
   Name scan of `plugins/agent-relay/`, remaining lines all deliberate: `test_native_collaboration_adapters.py:74` (foreign legacy XATS Codex table must survive), `test_session_delegation_claude.py:155` (legacy XATS server must not appear), `test_native_only_collaboration.py:9` (path of the history directory), `test_session_routing.py:200-201` and `test_session_delegation_recovery.py:256-264` (pre-split label / key refusal tests)
 - [x] Checkpoint (report): delegation names translated, suite green
-- [ ] Task 3: interface §10 and §13 (D12 precondition)
+- [x] Task 3: interface §10 and §13 (D12 precondition) — §10 Result return row lists the old names as current and the D11 names as target, with the D12 refusal; §13 delegation row: default since this module, records moved by state-migration; §13 migration row: stop while any Spec Guard delegation is non-terminal (D12). 220 tests green
 - [ ] Checkpoint (gate): module review; never pushed
