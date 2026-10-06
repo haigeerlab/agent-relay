@@ -240,3 +240,28 @@ Rules:
 | Backup before host config writes | None [BL §Gap analysis, item k] | Every host config write keeps a copy first — `safe-uninstall` |
 | Uninstall | Exact entry removal; mailbox history kept; runtime directory left [BL §Gap analysis, item k] | Documented complete uninstall; history kept by default — `safe-uninstall` |
 | State root override | Bridge honours `BRIDGE_DB_PATH`/`XDG_DATA_HOME`; Spec Guard has `--root` only [BL §Gap analysis, item j] | One environment variable relocates the whole state root; all tests use it — `test-isolation` |
+
+## 14. Gap and findings index
+
+Gap items are from [BL §Gap analysis]; findings from [BL §Findings for the interface document and hardening].
+
+| Item | Described in | Owner |
+|---|---|---|
+| a. Delivery state machine | §5 | `delivery-state-machine` |
+| b. Unknown never replayed | §5, §6 | `delivery-state-machine` |
+| c. Expiry, never delivered later | §5 (D2) | `delivery-state-machine` |
+| d. Persist before submit | §6 | `durable-ordering` |
+| e. Ordering, independence, cap | §6 | `durable-ordering` |
+| f. Retry key, reply de-duplication | §3, §6 | `idempotency` |
+| g. Only recipient replies; sender identity | §3, §7 | `identity-check` |
+| h. doctor, whoami, status/wait by id | §2.3 | `ops-commands` |
+| i. Body from file | §2.1, §2.3 | `ops-commands` |
+| j. State root override | §13 | `test-isolation` |
+| k. Backup before host writes; complete uninstall | §2.3, §13 | `safe-uninstall` |
+| Finding 1. Guardian auto-review not detected | §2.1, §8 | `identity-check` |
+| Finding 2. `--expires-at` integer only | §10 | `ops-commands` |
+| Finding 3. Held create leaves a named envelope | §10 | Pending: no hardening module owns delegation defects; decided at this document's review |
+| Finding 4. Claude round two `target-busy` while idle | §10 | Pending: as finding 3 |
+| Finding 5. Wake job stays `read` after acknowledgement | §5 | `delivery-state-machine` |
+| Finding 6. Background sessions hang on prompts | §4, §10 | `ops-commands` |
+| Finding 7. Codex manual approval prompts every call | §4, §8 | `packaging` (documented in the agent-relay README) |
