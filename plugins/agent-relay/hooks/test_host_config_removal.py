@@ -1,4 +1,4 @@
-"""Host MCP removal touches only exact Spec Guard entries; never real user configuration."""
+"""Host MCP removal touches only exact agent-relay entries; never real user configuration."""
 import subprocess
 import tempfile
 import unittest
@@ -8,7 +8,7 @@ from unittest.mock import patch
 from host_config_removal import add_claude_server, remove_claude_server, remove_codex_table
 
 
-FRAGMENT = '[mcp_servers.spec_guard_x]\ncommand = "/opt/node"\n\n[mcp_servers.spec_guard_x.env]\nA = "1"\n'
+FRAGMENT = '[mcp_servers.agent_relay_x]\ncommand = "/opt/node"\n\n[mcp_servers.agent_relay_x.env]\nA = "1"\n'
 BEFORE = '[mcp_servers.chrome]\ncommand = "chrome"\n'
 AFTER = '[desktop]\nfollowUpQueueMode = "queue"\n'
 
@@ -31,15 +31,15 @@ class RemoveCodexTableTests(unittest.TestCase):
                 (FRAGMENT, "")):
             with self.subTest(original=original):
                 self.write(original, 0o640)
-                self.assertEqual(remove_codex_table(self.config, FRAGMENT, "spec_guard_x"), "removed")
+                self.assertEqual(remove_codex_table(self.config, FRAGMENT, "agent_relay_x"), "removed")
                 self.assertEqual(self.config.read_text(encoding="utf-8"), expected)
                 self.assertEqual(self.config.stat().st_mode & 0o777, 0o640)
 
     def test_absent_table_or_file_changes_nothing(self):
-        self.assertEqual(remove_codex_table(self.config, FRAGMENT, "spec_guard_x"), "absent")
+        self.assertEqual(remove_codex_table(self.config, FRAGMENT, "agent_relay_x"), "absent")
         self.assertFalse(self.config.exists())
         self.write(BEFORE)
-        self.assertEqual(remove_codex_table(self.config, FRAGMENT, "spec_guard_x"), "absent")
+        self.assertEqual(remove_codex_table(self.config, FRAGMENT, "agent_relay_x"), "absent")
         self.assertEqual(self.config.read_text(encoding="utf-8"), BEFORE)
 
     def test_edited_extended_duplicated_or_quoted_tables_are_left_for_the_user(self):
@@ -47,13 +47,13 @@ class RemoveCodexTableTests(unittest.TestCase):
             "edited": BEFORE + "\n" + FRAGMENT.replace("/opt/node", "/usr/bin/node"),
             "extra key after the fragment": BEFORE + "\n" + FRAGMENT + 'B = "2"\n',
             "fragment twice": FRAGMENT + "\n" + FRAGMENT,
-            "second quoted table": FRAGMENT + '\n[mcp_servers."spec_guard_x".extra]\nC = 1\n',
+            "second quoted table": FRAGMENT + '\n[mcp_servers."agent_relay_x".extra]\nC = 1\n',
         }
         for name, original in cases.items():
             with self.subTest(name):
                 self.write(original)
                 with self.assertRaisesRegex(ValueError, r"at line \d+ differs .* remove it manually"):
-                    remove_codex_table(self.config, FRAGMENT, "spec_guard_x")
+                    remove_codex_table(self.config, FRAGMENT, "agent_relay_x")
                 self.assertEqual(self.config.read_text(encoding="utf-8"), original)
 
     def test_refuses_a_symlinked_configuration(self):
@@ -61,7 +61,7 @@ class RemoveCodexTableTests(unittest.TestCase):
         target.write_text(FRAGMENT, encoding="utf-8")
         self.config.symlink_to(target)
         with self.assertRaisesRegex(ValueError, "not a symlink"):
-            remove_codex_table(self.config, FRAGMENT, "spec_guard_x")
+            remove_codex_table(self.config, FRAGMENT, "agent_relay_x")
         self.assertEqual(target.read_text(encoding="utf-8"), FRAGMENT)
 
 

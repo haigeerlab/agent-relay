@@ -1,4 +1,4 @@
-"""Add and remove host MCP entries that Spec Guard installs, and nothing a user changed.
+"""Add and remove host MCP entries that agent-relay installs, and nothing a user changed.
 
 Codex tables are removed only when the file still contains the exact fragment an adapter
 would write today, as a complete table; any edited or partial table is left for the user.
@@ -42,7 +42,7 @@ def remove_codex_table(codex_config: Path, fragment: str, table_name: str) -> st
             (remainder and not remainder.startswith("[")) or
             _codex_table_line(content[:start] + content[end:], table_name) is not None):
         raise ValueError(
-            "Codex table [mcp_servers.%s] at line %d differs from what Spec Guard installed; "
+            "Codex table [mcp_servers.%s] at line %d differs from what agent-relay installed; "
             "remove it manually" % (table_name, line))
     before = content[:start].rstrip("\n")
     updated = before + ("\n\n" if before and remainder else "\n" if before else "") + remainder

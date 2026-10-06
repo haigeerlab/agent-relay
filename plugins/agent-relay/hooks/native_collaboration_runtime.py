@@ -27,7 +27,7 @@ class NativeRuntimeError(ValueError):
 
 
 def default_root() -> Path:
-    return Path.home() / ".spec-guard" / "native-collaboration"
+    return Path.home() / ".agent-relay" / "runtime"
 
 
 def _private_directory(path: Path) -> None:
@@ -159,7 +159,7 @@ def probe_runtime(root: Path, *, node: str = "node") -> dict[str, Any]:
     requests = (
         {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
             "protocolVersion": "2024-11-05", "capabilities": {},
-            "clientInfo": {"name": "spec-guard-probe", "version": "1"}}},
+            "clientInfo": {"name": "agent-relay-probe", "version": "1"}}},
         {"jsonrpc": "2.0", "method": "notifications/initialized"},
         {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
     )

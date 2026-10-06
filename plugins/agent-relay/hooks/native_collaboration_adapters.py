@@ -20,8 +20,8 @@ from host_config_removal import add_claude_server, remove_claude_server, remove_
 from native_collaboration_runtime import DENIED_TOOLS, MAILBOX_TOOLS, default_root, status
 
 
-CLAUDE_SERVER_NAME = "spec-guard-native-collaboration"
-CODEX_SERVER_NAME = "spec_guard_native_collaboration"
+CLAUDE_SERVER_NAME = "agent-relay"
+CODEX_SERVER_NAME = "agent_relay"
 
 
 def _paths(root: Path, node: Path) -> tuple[str, str, str, str]:

@@ -94,7 +94,7 @@ class InstallationAndPermissionTests(unittest.TestCase):
 
         self.write_permissions(
             (*CLAUDE_COMMUNICATION_RULES, "Read", "Grep", "Glob"),
-            ("mcp__spec-guard-native-collaboration__*",),
+            ("mcp__agent-relay__*",),
         )
         denied = inspect_project_permissions(self.project, "safe-review", None)
         self.assertFalse(denied.ready)

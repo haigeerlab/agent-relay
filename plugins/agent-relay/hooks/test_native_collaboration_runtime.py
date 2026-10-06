@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from native_collaboration_runtime import (BRIDGE_COMMIT, NativeRuntimeError,
+from native_collaboration_runtime import (BRIDGE_COMMIT, NativeRuntimeError, default_root,
                                           install_runtime, probe_runtime, status)
 
 
@@ -26,13 +26,41 @@ class NativeCollaborationRuntimeTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name) / "native"
 
+    def test_default_root_is_the_runtime_directory_under_agent_relay(self):
+        # Decision D9: ~/.agent-relay holds runtime/, delegation/ and backups/; install refuses an
+        # existing root, so the runtime cannot be ~/.agent-relay itself.
+        home = Path(self.tmp.name) / "home"
+        with patch("native_collaboration_runtime.Path.home", return_value=home):
+            self.assertEqual(default_root(), home / ".agent-relay" / "runtime")
+
+    def test_default_install_creates_a_private_agent_relay_parent(self):
+        home = Path(self.tmp.name) / "home"
+        home.mkdir()
+
+        def fake_run(command, **kwargs):
+            if command[:2] == ["node", "--version"]:
+                return subprocess.CompletedProcess(command, 0, "v22.5.0\n", "")
+            if command[-2:] == ["rev-parse", "HEAD"]:
+                return subprocess.CompletedProcess(command, 0, BRIDGE_COMMIT + "\n", "")
+            if command[:3] == ["npm", "run", "build"]:
+                (Path(kwargs["cwd"]) / "dist").mkdir()
+                (Path(kwargs["cwd"]) / "dist" / "server.js").write_text("server\n")
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        with patch("native_collaboration_runtime.Path.home", return_value=home), \
+                patch("native_collaboration_runtime.subprocess.run", side_effect=fake_run):
+            installed = install_runtime(default_root())
+        self.assertEqual(installed["state"], "ready")
+        self.assertEqual(stat.S_IMODE((home / ".agent-relay").stat().st_mode), 0o700)
+        self.assertTrue((home / ".agent-relay" / "runtime" / "manifest.json").is_file())
+
     def test_status_is_read_only_when_runtime_is_absent(self):
         self.assertEqual(status(self.root), {"state": "absent"})
         self.assertFalse(self.root.exists())
 
     def test_installer_pins_source_and_disables_dependency_scripts(self):
         commands = []
-        self.root.parent.chmod(0o755)  # Existing ~/.spec-guard may be readable; stage is private.
+        self.root.parent.chmod(0o755)  # Existing ~/.agent-relay may be readable; stage is private.
 
         def fake_run(command, **kwargs):
             commands.append(command)

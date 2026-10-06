@@ -46,18 +46,18 @@ class NativeCollaborationAdaptersTests(unittest.TestCase):
 
     def test_claude_fragment_and_exact_deny_rules_leave_chrome_alone(self):
         result = claude_config(self.root, self.node)
-        server = result["mcpServers"]["spec-guard-native-collaboration"]
+        server = result["mcpServers"]["agent-relay"]
         self.assertEqual(server["command"], str(self.node.resolve()))
         self.assertEqual(server["env"]["BRIDGE_DB_PATH"],
                          str(self.root / "mailbox" / "bridge.sqlite"))
         self.assertEqual(server["env"]["XDG_DATA_HOME"], str(self.root / "data"))
         # 逐字写死期望的拒绝清单，不能用被测常量的长度去验证它自己。
         self.assertEqual(sorted(result["denyRules"]), sorted(
-            "mcp__spec-guard-native-collaboration__" + tool for tool in (
+            "mcp__agent-relay__" + tool for tool in (
                 "bridge_retire", "ask_codex", "review_with_codex", "bridge_orchestrate_codex",
                 "bridge_continue_codex", "bridge_orchestration_wait",
                 "bridge_orchestration_status")))
-        self.assertTrue(all(rule.startswith("mcp__spec-guard-native-collaboration__")
+        self.assertTrue(all(rule.startswith("mcp__agent-relay__")
                             for rule in result["denyRules"]))
         self.assertNotIn("chrome", json.dumps(result).lower())
         self.assertNotIn("token", json.dumps(result).lower())
@@ -105,10 +105,10 @@ class NativeCollaborationAdaptersTests(unittest.TestCase):
         target.write_text('{"permissions":{"deny":[]}}')
         # 真实 CLI（2026-09-28 实测）：同名时 rc=1，输出 "MCP server X already exists in user config"。
         with patch("host_config_removal.subprocess.run", return_value=subprocess.CompletedProcess(
-                [], 1, "", "MCP server spec-guard-native-collaboration already exists in user config")):
+                [], 1, "", "MCP server agent-relay already exists in user config")):
             with self.assertRaisesRegex(ValueError, "already exists; refusing to overwrite"):
                 install_claude_config(self.root, self.node, target, "claude")
-        self.assertTrue(all(rule.startswith("mcp__spec-guard-native-collaboration__")
+        self.assertTrue(all(rule.startswith("mcp__agent-relay__")
                             for rule in json.loads(target.read_text())["permissions"]["deny"]))
 
     def test_claude_registration_failure_keeps_deny_rules(self):
