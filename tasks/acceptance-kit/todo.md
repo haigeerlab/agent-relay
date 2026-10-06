@@ -6,4 +6,4 @@
   Findings: 1 → A2, B7, D11; 2 → C8; 3 → C7; 4 → C3; 5 → B5; 6 → A4; 7 → A2. Gap items: a/b/c → B4, D12, D13; d/e → D15; f → D14; g → B8; h → A1, A5; i → D16; k → D17; j (state root override) is unit-test isolation, not a real-host item
 - [x] Checkpoint (report): tests stand alone, checklist covers the baseline — 210 tests green; coverage table complete
 - [x] Task 3: preflight and cleanup helpers with tests — 5 helper tests (preflight fields, no writes, missing hosts not fatal; cleanup preview exact prefix incl. `r1` vs `r10`, no writes, `--confirm` retires one name per call, unsafe run ids refused); live preflight on this Mac: Claude 2.1.289, codex-cli 0.160.0, agent-relay not installed on either host, `guardian_subagent` flagged; server name in the launch command is still the pre-D1 name (changes with mailbox-core). Runner: 17 files, 215 tests; ShellCheck/bash32 clean. Checklist E2 says delegated identities are retired by exact name
-- [ ] Checkpoint (gate): module review; the repository is never pushed
+- [x] Checkpoint (gate): module review; the repository is never pushed — user accepted 2026-10-07, including the two extra runner re-points beyond D8
