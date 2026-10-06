@@ -235,8 +235,8 @@ Rules:
 
 | Item | Current (baseline) | Hardening target |
 |---|---|---|
-| Mailbox and runtime | `~/.spec-guard/native-collaboration/` (pinned bridge build, `mailbox/bridge.sqlite` 0600, `mailbox/backups/`, `data/`, `manifest.json`); 72 messages, 50 agents at baseline [BL §Local state] | New root `~/.agent-relay/` (D1); same file modes |
-| Delegation records | `~/.spec-guard/session-delegation/delegation.sqlite` (`delegations`, `authorizations`) [BL §Local state] | Under `~/.agent-relay/` (D1) |
+| Mailbox and runtime | `~/.spec-guard/native-collaboration/` (pinned bridge build, `mailbox/bridge.sqlite` 0600, `mailbox/backups/`, `data/`, `manifest.json`); 72 messages, 50 agents at baseline [BL §Local state] | `~/.agent-relay/runtime/` under the new parent `~/.agent-relay/` (D1, D9: the runtime installer refuses an existing root, so runtime, delegation records and backups are siblings); same file modes |
+| Delegation records | `~/.spec-guard/session-delegation/delegation.sqlite` (`delegations`, `authorizations`) [BL §Local state] | `~/.agent-relay/delegation/delegation.sqlite` (D1, D9) — moved by `cross-host-delegation` |
 | Retired XATS history | `~/.spec-guard/collaboration/` [BL §Local state] | Not migrated, not deleted; mentioned in the migration document only |
 | Host entries | Claude user MCP `spec-guard-native-collaboration`; Codex `[mcp_servers.spec_guard_native_collaboration]` [BL §Local state] | Claude `agent-relay`, Codex `agent_relay` (D1); old entries removed only by exact match after the new ones work |
 | Permission rules | Project allow rules name `mcp__spec-guard-native-collaboration__bridge_*` [BL §Results item 9] | Users told the new rule names; Spec Guard and agent-relay never rewrite permission files |

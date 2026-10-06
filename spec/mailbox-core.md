@@ -106,7 +106,9 @@ Changed only: the files in assumption 1, `docs/collaboration-interface.md` §13,
 
 1. `scripts/validate.sh` green, 215 tests.
 2. Name scan clean apart from listed history lines.
-3. Scratch install and probe `ready`.
+3. Scratch install and probe `ready`. (Correction at build: probe reports `toolCount` 17, every tool the pinned
+   server registers, each either allowed (ten) or denied (seven); the ten-tool allow list is what the host
+   adapters expose. "Ten tools" in the testing strategy meant the allow list.)
 4. Interface §13 matches D9.
 
 ## Open questions
