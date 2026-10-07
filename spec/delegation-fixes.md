@@ -2,19 +2,22 @@
 
 ## Objective
 
-Fix the two delegation defects that the baseline recorded and the translation kept:
+Fix the delegation defects that the baseline recorded and the translation kept, plus one round 1 found:
 
 - **Finding 3.** A create that the host holds on a prerequisite leaves a named record that never launched. The
   name then stays ambiguous for every later create, and cancelling the record answers `unknown`.
 - **Finding 4.** A second round (`continue`) to an idle Claude target answers `held`/`target-busy` while
   `hostStatus=idle`.
+- **Round 1 finding 7.** Creating a Claude target on Claude Code 2.1.291 answers `state=unknown` although the
+  session starts and returns its result; every later `continue` then refuses with
+  `delegation-is-not-ready-for-follow-up`. On 2.1.291 this hides finding 4, so it is fixed first.
 
 Done means checklist C3 and C7 meet their target column: the second round passes both ways, and a held create
 leaves nothing that blocks or confuses a later create with the same name.
 
 Readers: the user reviewing the fix; the agent building it; the round-2 acceptance run.
 
-Sources: [baseline](../docs/baselines/collaboration-pre-split.md) item 9 and findings 3–4;
+Sources: [round 1 record](../docs/acceptance/2026-10-07-round1.md) row D10/C1–C5 and finding 7; [baseline](../docs/baselines/collaboration-pre-split.md) item 9 and findings 3–4;
 [interface](../docs/collaboration-interface.md) §10 rows "Held create" and "Claude round two"; checklist C3, C7;
 [cross-host-delegation](cross-host-delegation.md) assumption 3.
 
@@ -36,6 +39,14 @@ output (`target-busy` with `hostStatus=idle`). A few lines later the same method
 `state` in `blocked`, `done`, `running`, `active` as idle enough to wake natively (`claude.py:592-593`). The two
 rules disagree about `idle` + `active`.
 
+**Finding 7.** `create` parses the background id from the host's stdout and calls `_bind_observed`
+(`claude.py:441-457`), which looks the entry up through `_settled_session` three times within 0.7 s. On 2.1.291
+the entry appears later, so the row gets `host_ref` but no `host_session_ref` and goes `unknown`
+(`record_host_unknown`). Nothing looks again: `status()` compares the entry's session id with the stored `None`
+and answers `hostStatus=unknown`, and `continue_turn` refuses any row that is not `completed` with both refs. The
+store already allows the repair: `bind_host` accepts `unknown → created` when the refs it adds do not conflict
+(`session_delegation.py:702-741`).
+
 ## Assumptions
 
 1. **Finding 4's cause is the rule mismatch above,** most likely `claude agents --json --all` reporting an idle
@@ -43,18 +54,17 @@ rules disagree about `idle` + `active`.
    This is inferred from code and the recorded output, not yet seen in raw host JSON. The capture task records the raw
    entry before any change; if it shows something else, the fix follows the evidence and this spec is updated
    first.
-2. **Codex round two is out of scope;** it passed in the baseline (item 7).
+2. **Codex round two is out of scope;** it passed in the baseline (item 7) and in round 1 (D10, Claude → Codex).
 3. **The record schema stays** (`user_version = 2`, same tables and columns, same state enum and evidence words).
    The fixes change transitions the code takes and how rows are selected, not what is stored.
-4. **Build waits for round 1.** The map places this module after round 1 passes; round 1 still records C3 and C7
-   against the current column. The spec and plan can be written now; code changes start after round 1 closes.
+4. **Build after round 1.** Round 1 passed on 2026-10-07 (verdict in its record, release 0.1.0); code starts now.
 5. **Live checks are run by the agent** (user, 2026-10-07): the capture and the final C3/C7 check start a
    background Claude session in a throwaway scratchpad project. Temporary allow rules stay inside that project and
    are removed afterwards.
 
 ## Decisions
 
-All three taken as recommended by the user on 2026-10-07.
+D15–D17 taken as recommended by the user on 2026-10-07; D18 added by the project owner after round 1.
 
 - **D15 held create.** When the adapter answers `held` and no host reference was bound, the controller moves the
   row `creating → cancelled` (existing transition and evidence `host-cancelled`) and cancels its authorization,
@@ -71,6 +81,13 @@ All three taken as recommended by the user on 2026-10-07.
   `continue_turn` use it, built from the raw states the capture task records. A state the predicate does not know stays
   busy (safe default), and the answer names it so the next mismatch is diagnosable.
 
+- **D18 late Claude entry.** A row that is `unknown` with a `host_ref` and no `host_session_ref` is repaired on the
+  next `status` or `continue`: look the entry up by `host_ref`; if it passes the same checks as at create (session
+  id is a UUID prefixed by `host_ref`, cwd is the project, kind background), bind it with `bind_host` (moves to
+  `created`) and carry on as for a `created` row. If it is still absent or invalid, the answer stays `unknown` as
+  today. No longer sleep at create: the create path stays fail-closed and quick.
+  *Alternative rejected:* only lengthening the 0.7 s wait — it guesses a host timing that already changed once.
+
 ## Requirements
 
 1. A create held on a prerequisite leaves its row `cancelled`, its authorization `cancelled`, and its public
@@ -81,9 +98,12 @@ All three taken as recommended by the user on 2026-10-07.
    behaves as today.
 4. `continue` to a Claude target whose raw entry matches the captured idle entry proceeds (native wake or resume)
    instead of `target-busy`. A target that is genuinely working still answers `target-busy`.
-5. Interface §10 rows "Held create" and "Claude round two" move to "done in `delegation-fixes`"; checklist C3 and
+5. A Claude create whose entry appears after the create call returns: the next `status` answers `created` (or
+   later states) with the session bound, and `continue` works from there. A row whose entry never appears, or
+   appears with a different session prefix or cwd, stays `unknown`.
+6. Interface §10 rows "Held create" and "Claude round two" (and a row for finding 7) move to "done in `delegation-fixes`"; checklist C3 and
    C7 current columns updated; the `session-delegation` skill states D16.
-6. No change to records already on disk is required; migrated legacy rows are handled by D16 at cancel time.
+7. No change to records already on disk is required; migrated legacy rows are handled by D16 at cancel time.
 
 ## Commands
 
@@ -103,7 +123,8 @@ The raw host capture is stored as a test fixture, with ids replaced.
 ## Testing strategy
 
 - Prove-It per finding: a failing test reproduces each defect first (held create then same-name create and
-  cancel; Claude `continue` against the captured idle entry), then the fix turns it green.
+  cancel; Claude `status`/`continue` after a late entry; Claude `continue` against the captured idle entry), then
+  the fix turns it green.
 - Regression: a busy capture still gives `target-busy`; a launched row's cancel still needs host confirmation;
   existing ambiguity between two launched sessions with the same name is unchanged (C6).
 - Mutation: restoring the old reconcile rule turns the round-two test red; removing the `_resolve` filter turns the
@@ -121,9 +142,9 @@ The raw host capture is stored as a test fixture, with ids replaced.
 ## Success criteria
 
 1. The two Prove-It tests fail before and pass after; regression and mutation checks hold.
-2. Live C3 Codex → Claude round two passes; live C7 leaves no ambiguity and no `unknown` cancel.
+2. Live C3 Codex → Claude: create answers `created` or reaches it on the next `status`, and round two passes; live C7 leaves no ambiguity and no `unknown` cancel.
 3. Interface, checklist and skill updated as in requirement 5.
 
 ## Open questions
 
-None; D15–D17 are decided.
+None; D15–D18 are decided.
