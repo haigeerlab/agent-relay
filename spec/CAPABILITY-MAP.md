@@ -23,7 +23,7 @@ agent-relay 是从 Spec Guard 拆出的独立插件，让同一台 Mac 上的 Cl
 | cross-host-delegation | 平移跨宿主会话委派：授权意图、生命周期、结果回传与同名消歧，控制器与基线一致，基线记录的已知缺陷保持原样。 | mailbox-core, session-routing |
 | packaging | 双端插件清单与 marketplace、`interface.json`（接口 1.0）、README、安装与卸载说明，并在 Claude Code 与 Codex 上实装验证。 | mailbox-core, session-routing, cross-host-delegation |
 | state-migration | 检测 Spec Guard 时期的协作状态（`~/.spec-guard/native-collaboration/`、`session-delegation/` 与宿主中的旧 MCP 条目和权限规则），先备份再迁移到新名字并核验，不静默删除。 | mailbox-core, packaging |
-| delegation-fixes | 修复基线发现 3 与 4：等待前置条件的 create 不再留下会造成同名歧义的信封；空闲 Claude 目标第二轮不再误报 target-busy。在平移版本通过第一轮联调后、加固模块之前构建。 | cross-host-delegation, state-migration |
+| delegation-fixes | 修复基线发现 3、4 与第一轮联调发现 7：等待前置条件的 create 不再让之后的同名会话产生歧义，从未启动的记录能干净取消；git worktree 里的 Claude 目标创建后能找到，列表对不上时下一次调用补绑而不是一直停在 unknown；空闲 Claude 目标第二轮不再误报 target-busy。在平移版本通过第一轮联调后、加固模块之前构建。 | cross-host-delegation, state-migration |
 
 Build order: acceptance-kit → mailbox-core → session-routing → cross-host-delegation → packaging → state-migration → delegation-fixes
 
