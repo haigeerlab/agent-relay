@@ -22,7 +22,8 @@ agent-relay 原来是 [Spec Guard](https://github.com/haigeerlab/spec-guard-plug
 
 - macOS；Node.js 22.5 或更新（信箱运行时用的内置 `node:sqlite` 从 22.5.0 起才有）；Python 3.9 到 3.14
   （macOS 自带的 `/usr/bin/python3` 3.9 可用，3.9、3.10、3.14 都跑过全部测试）。
-- 委派控制器、`doctor`、运行时的 `install`／`upgrade` 和身份退役都用宿主条目里固定的 node（顺序：`--node` →
+- 委派控制器、`doctor`、运行时的 `install`／`upgrade`、身份退役和宿主适配器（`install-claude`／`install-codex`
+  及打印配置）都用宿主条目里固定的 node（顺序：`--node` →
   Claude 条目 → Codex 条目 → PATH），不受当前 shell 的 PATH 影响；安装时 npm 也在这个 node 上运行，`--npm` 默认取它
   旁边的 npm。选中的 node 低于 22.5.0 时直接拒绝（`node-too-old`），不会动宿主，也不会开始构建。
 - Claude Code 和／或 Codex（App 或 CLI）。
