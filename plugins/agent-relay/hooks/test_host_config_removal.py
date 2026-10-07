@@ -114,9 +114,6 @@ class AddClaudeServerTests(unittest.TestCase):
                 add_claude_server("claude", ["add", "x"], "x")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 # safe-uninstall (round 1 finding 6): Codex adds approval subtables when the user chooses 始终允许.
 MAIN = '[mcp_servers.agent_relay]\ncommand = "/opt/node"\nargs = ["/r/server.js"]\nenabled_tools = ["bridge_send"]\n'
@@ -187,3 +184,7 @@ class ApprovalSubtableTests(unittest.TestCase):
                     self.assertRegex(message, pattern)
                 self.assertNotIn("tok-123", message, "values are never printed")
                 self.assertEqual(self.config.read_text(encoding="utf-8"), text)
+
+
+if __name__ == "__main__":
+    unittest.main()
