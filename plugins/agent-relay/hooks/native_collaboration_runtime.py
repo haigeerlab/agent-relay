@@ -479,7 +479,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("command", choices=("status", "install", "probe", "upgrade", "doctor", "uninstall"))
     parser.add_argument("--confirm", action="store_true", help="required for upgrade and uninstall")
     parser.add_argument("--root", type=Path)
-    parser.add_argument("--node", default="node")
+    parser.add_argument("--node", help="default: doctor uses the node the host entries pin (then PATH); "
+                                       "the other commands use PATH's node")
     parser.add_argument("--npm", default="npm")
     for option in ("--codex-config", "--claude-json", "--claude-settings", "--claude-sessions"):
         parser.add_argument(option, type=Path, help="doctor: read this file or directory instead of the default")
@@ -494,6 +495,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "uninstall" and not args.confirm:
         parser.exit(2, f"{parser.prog}: error: uninstall removes the runtime build (history is kept); rerun with "
                        "--confirm after the user agrees and every session using the mailbox is closed\n")
+    if args.command != "doctor":
+        args.node = args.node or "node"
     if args.command == "doctor":
         from native_collaboration_doctor import doctor
         report = doctor(args.root, node=args.node, codex_config=args.codex_config, claude_json=args.claude_json,

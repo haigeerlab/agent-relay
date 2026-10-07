@@ -29,10 +29,11 @@ from session_routing import BRIDGE_TRANSPORT, validate_public_outcome
 class ControlError(ValueError):
     """The requested friendly target is missing, ambiguous, stale, or unauthorized."""
 
-    def __init__(self, reason: str, candidates: tuple[str, ...] = ()):
+    def __init__(self, reason: str, candidates: tuple[str, ...] = (), detail: str = ""):
         super().__init__(reason)
         self.reason = reason
         self.candidates = candidates
+        self.detail = detail
 
 
 class HostAdapter(Protocol):
@@ -539,14 +540,23 @@ def _origin_session(host: str) -> str:
     raise ControlError("origin-session-unavailable")
 
 
+def _selected_node(args: argparse.Namespace) -> Path:
+    """The node the attached host entries pin, checked before anything is written (round2-fixes D50)."""
+    from node_select import NodeSelectError, select_node
+
+    if getattr(args, "selected_node", None) is None:
+        try:
+            args.selected_node = select_node(args.node).path
+        except NodeSelectError as error:
+            raise ControlError(error.reason, detail=error.detail) from error
+    return args.selected_node
+
+
 def _selected_backend(args: argparse.Namespace):
     from native_collaboration_runtime import default_root as default_native_root
     from session_delegation_backend import resolve_backend
 
-    return resolve_backend(
-        args.native_root or default_native_root(),
-        node=Path(args.node or shutil.which("node") or "/unavailable/node"),
-    )
+    return resolve_backend(args.native_root or default_native_root(), node=_selected_node(args))
 
 
 def _permission_preflight(args: argparse.Namespace) -> dict[str, object]:
@@ -583,6 +593,7 @@ def _production_controller(args: argparse.Namespace) -> SessionDelegationControl
     from session_delegation_claude import prepare_claude_adapter
     from session_delegation_codex import prepare_codex_adapter
 
+    _selected_node(args)  # refuse an unusable node before the store or any host is touched
     store = DelegationStore(args.state_root)
     resolved_backend = None
 
@@ -794,6 +805,8 @@ def main(argv: list[str] | None = None) -> int:
         payload = {"state": "error", "reason": reason}
         if isinstance(error, ControlError) and error.candidates:
             payload["candidates"] = list(error.candidates)
+        if isinstance(error, ControlError) and error.detail:
+            payload["detail"] = error.detail
         print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
         return 1
 
