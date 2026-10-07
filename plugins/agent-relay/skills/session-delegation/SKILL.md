@@ -105,6 +105,8 @@ repository identity、精确 baseline 和 dirty 状态，并在当前调用中�
 继续前重新核对未过期 envelope、精确宿主引用、项目、baseline 和权限。活跃且空闲的 Claude background
 优先走已绑定的 native wake；busy 返回 `wake-held/target-busy`，绝不通过 resume 复制会话。Codex 精确使用
 `thread/resume`。响应丢失或宿主返回未知时保持 unknown，不能为了提高成功率再建一个。
+Claude 创建返回 `unknown` 且 `prerequisite=host-entry-pending` 时，会话可能已经启动、只是还没对上宿主列表：稍后用
+`status` 再查，下一次 `status` 或 `continue` 会补绑；`host-entry-invalid` 表示列表里的条目对不上，不要自动重建。
 
 取消先冻结该 envelope 的新启动与后续轮次，再请求精确宿主停止；只有宿主确认后才显示 cancelled。从未到达宿主的
 记录（例如因前置条件 held 的创建）没有可停止的宿主，冻结授权即完成取消，直接显示 cancelled。不得清理
