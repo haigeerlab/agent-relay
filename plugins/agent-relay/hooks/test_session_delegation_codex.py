@@ -623,6 +623,35 @@ class AdapterTests(unittest.TestCase):
             "cancelled",
         )
 
+    def test_cancel_closes_a_thread_that_never_got_a_turn_when_the_host_rejects_it(self):
+        # cleanup-gaps D60: thread/start returned an id, the launch failed before bind_host and turn/start (R2-7).
+        self.store.record_host_unknown(self.claim.delegation_id, "thread-never-turned")
+        cancel_client = ScriptedClient([
+            ("thread/archive", RpcRejected("thread/archive", -32600)),
+        ])
+
+        result = self.adapter([cancel_client]).cancel(self.claim.delegation_id)
+
+        self.assertEqual(result.state, "cancelled")
+        self.assertEqual(result.prerequisite, "host-thread-absent")
+        claim = self.store.get_delegation(self.claim.delegation_id)
+        self.assertEqual(claim.state, "cancelled")
+        self.assertIsNone(claim.host_session_ref)
+        self.assertIsNone(claim.last_turn_ref)
+
+    def test_cancel_keeps_unknown_when_a_turn_was_sent(self):
+        self.store.record_host_unknown(self.claim.delegation_id, "thread-never-turned")
+        self.store.set_turn_ref(self.claim.delegation_id, "turn-sent")
+        cancel_client = ScriptedClient([
+            ("thread/archive", RpcRejected("thread/archive", -32600)),
+        ])
+
+        result = self.adapter([cancel_client]).cancel(self.claim.delegation_id)
+
+        self.assertEqual(result.state, "unknown")
+        self.assertEqual(result.prerequisite, "host-request-rejected")
+        self.assertEqual(self.store.get_delegation(self.claim.delegation_id).state, "unknown")
+
 
 if __name__ == "__main__":
     unittest.main()

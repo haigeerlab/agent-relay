@@ -136,6 +136,7 @@ Claude 创建返回 `unknown` 且 `prerequisite=host-entry-pending` 时，会话
 的记录返回 `unknown` + `host-ref-missing`：宿主会话可能仍在运行，绝不显示 cancelled，也不按名称或项目去找；请用户
 在 `claude agents` 里找到 `<友好名>-<短区分项开头的 8 位>` 并自行停止。不得清理
 同名的其他会话、用户项目、未读结果或未知归属的临时文件。
+Codex 记录拿到了线程 id、却从未发出过一轮（启动在发出第一轮之前失败），宿主又拒绝了对该线程的请求时，没有任何工作运行过，取消直接显示 cancelled，附 `host-thread-absent`；其他 `unknown` 照旧，不自动收尾。
 
 ## 用户可见结果
 

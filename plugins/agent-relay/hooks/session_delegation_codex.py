@@ -852,6 +852,12 @@ class CodexAdapter:
                 client.request("thread/archive", {"threadId": claim.host_ref})
             except RpcRejected:
                 current = self.store.get_delegation(delegation_id)
+                if (current.state == "unknown" and current.host_session_ref is None
+                        and current.last_turn_ref is None):
+                    # cleanup-gaps D60: thread/start answered but no turn was ever sent, so no work ran; the host
+                    # rejecting the thread leaves nothing to stop.
+                    self.store.advance(delegation_id, "cancelled", "host-cancelled")
+                    return CodexRunResult("cancelled", claim.host_ref, prerequisite="host-thread-absent")
                 if current.state != "unknown":
                     self.store.advance(
                         delegation_id, "unknown", "host-result-unknown")
