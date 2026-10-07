@@ -42,10 +42,10 @@ The MCP server exposes exactly these ten tools to hosts. Current server name `sp
 | Item | Current (baseline) | Hardening target |
 |---|---|---|
 | `bridge_register` | In: `agent` (unique readable name), `capabilities?` string[], `wake?` `"auto"` \| `{app: codex\|claude, sessionId}` \| `null` (omitted keeps the binding). Out: the agent row with wake binding. Registering again reactivates a retired agent. B:src/server.ts:104-158 | Reject a `wake` binding when the host session is auto-approved, including Codex `approvals_reviewer = "guardian_subagent"` (finding 1) — `identity-check` |
-| `bridge_send` | In: `from`, `to` (name or `*`), `body`, `threadId?`, `idempotencyKey?`, `wake?` (default true), `allowUnregistered?`. Out: the stored message plus `warnings`. B:src/server.ts:159-200 | `from` verified against the host identity; body may come from a file path; returns a delivery state (section 5) — `identity-check`, `ops-commands`, `delivery-state-machine` |
-| `bridge_inbox` | In: `agent`, `includeAcknowledged?`, `fromAgent?`, `threadId?`, `afterId?`, `limit?` (1–200, default 25), `maxChars?`, `maxBodyChars?`. Out: oldest-first page, `hasMore`. B:src/server.ts:226-248 | Expired messages hidden by default, readable on explicit request (D2) — `delivery-state-machine` |
-| `bridge_ack` | In: `agent`, `ids` (≥1). Marks handled; history kept. B:src/server.ts:292-308 | Acknowledgement advances the matching wake job (finding 5) — `delivery-state-machine` |
-| `bridge_outbox` | In: `agent`, `includeAcknowledged?`, `limit?` (1–200, default 30). Out: unacknowledged direct sends, newest first, with ping outcome and recipient status. B:src/server.ts:348-364 | Shows the delivery state of each send — `delivery-state-machine` |
+| `bridge_send` | In: `from`, `to` (name or `*`), `body`, `threadId?`, `idempotencyKey?`, `wake?` (default true), `allowUnregistered?`. Out: the stored message plus `warnings`. B:src/server.ts:159-200 | `from` verified against the host identity; body may come from a file path; returns a delivery state (section 5) — `identity-check`, `ops-commands`, `delivery-state-machine` (delivery state done in `delivery-state-machine`: `deliveryState`, `expiresAt`, `expiresInSeconds`) |
+| `bridge_inbox` | In: `agent`, `includeAcknowledged?`, `fromAgent?`, `threadId?`, `afterId?`, `limit?` (1–200, default 25), `maxChars?`, `maxBodyChars?`. Out: oldest-first page, `hasMore`. B:src/server.ts:226-248 | Done in `delivery-state-machine`: expired messages hidden by default; `bridge_inbox` lists them with `includeExpired` (history); `bridge_wait` never returns them |
+| `bridge_ack` | In: `agent`, `ids` (≥1). Marks handled; history kept. B:src/server.ts:292-308 | Done in `delivery-state-machine`: acknowledgement moves the wake job to the final state `acknowledged` (finding 5) |
+| `bridge_outbox` | In: `agent`, `includeAcknowledged?`, `limit?` (1–200, default 30). Out: unacknowledged direct sends, newest first, with ping outcome and recipient status. B:src/server.ts:348-364 | Done in `delivery-state-machine`: each entry carries `deliveryState` and `expiresAt` |
 | `bridge_agents` | In: `includeRetired?`. Out: agents with unread count, last activity, wake binding, recent ping health. B:src/server.ts:326-347 | Unchanged |
 | `bridge_sessions` | In: none. Out: live Claude session ids and `thisSession` when the host exposes it; reads no content. B:src/server.ts:201-213 | Unchanged |
 | `bridge_wake_status` | In: `agent?`. Out: up to 100 recent wake jobs with a per-state summary. B:src/server.ts:214-225 | Status by message id — `ops-commands` |
@@ -72,7 +72,7 @@ The MCP server exposes exactly these ten tools to hosts. Current server name `sp
 
 | Item | Current (baseline) | Hardening target |
 |---|---|---|
-| Stored message | `id` (integer, increasing), `from_agent`, `to_agent`, `body`, `thread_id?`, `idempotency_key?`, `created_at`. Unique `(from_agent, idempotency_key)`. B:src/schema.ts:27-40 | Adds a delivery state and its timestamps (section 5); idempotency key requires identical content (gap f) — `delivery-state-machine`, `idempotency` |
+| Stored message | `id` (integer, increasing), `from_agent`, `to_agent`, `body`, `thread_id?`, `idempotency_key?`, `created_at`. Unique `(from_agent, idempotency_key)`. B:src/schema.ts:27-40 | Adds a delivery state and its timestamps (section 5); idempotency key requires identical content (gap f) — `delivery-state-machine`, `idempotency` (delivery columns done in `delivery-state-machine`: schema 3) |
 | Acknowledgement | `(message_id, agent)` primary key, `acked_at`, `note?`. B:src/schema.ts:42-47, 103 | Unchanged |
 | Agent | `name`, `capabilities`, `registered_at`, `last_seen`, `retired_at?`, `retired_by?`, `retire_note?`; wake binding in `wake_targets(agent, target)`. B:src/schema.ts:49-54, 82-84, 100-102 | Records the host identity it was bound from — `identity-check` |
 | Wake job | `message_id`, `agent`, `target`, `state`, `attempt_id`, `attempts`, `retry_at`, `created_at`, `detail`, `pending_reason?`, `notified_at?`; unique `(message_id, agent)`. B:src/schema.ts:85-94, 104-105 | Unchanged shape; state rules in section 5 |
@@ -97,22 +97,22 @@ The MCP server exposes exactly these ten tools to hosts. Current server name `sp
 
 | Item | Current (baseline) | Hardening target |
 |---|---|---|
-| Message enqueued | Row written by `bridge_send`; durable before any wake. B:src/bridge-store.ts:371-385 | State `queued` — `delivery-state-machine` |
-| Message read | Not recorded on the message; a wake job moves to `read` when the recipient fetches it. B:src/wake-queue.ts:105-109 | Explicit state on the message — `delivery-state-machine` |
+| Message enqueued | Row written by `bridge_send`; durable before any wake. B:src/bridge-store.ts:371-385 | Done in `delivery-state-machine`: a direct message starts `queued` with `expires_at` (schema 3) |
+| Message read | Not recorded on the message; a wake job moves to `read` when the recipient fetches it. B:src/wake-queue.ts:105-109 | Done in `delivery-state-machine`: `messages.read_at`; a fetch moves the message to `accepted` |
 | Message acknowledged | Acknowledgement row; shown as `acknowledgedAt` in outbox and wake status. [BL §Results item 6] | Unchanged |
 | Message replied | Not tracked; inferred from a later message on the thread. | Reply linked to its original (section 3) — `idempotency` |
 | Wake job states | `pending`, `sending`, `accepted`, `read`, `held`, `refused`, `unknown`, `cancelled`, `expired`. B:src/wake-queue.ts:9 | Unchanged as wake facts |
-| Ambiguous submission | A job left `sending` past its retry time becomes `unknown` and is never replayed. B:src/wake-queue.ts:112-114 | Same rule for the message state machine (gap b) — `delivery-state-machine` |
-| Expiry | Wake job `expired` after 1 h offline or 24 h busy; **the message stays readable and can still be acted on later** (gap c). B:src/wake-queue.ts:37-39, 119-124 | Message `expired` after a configurable queue timeout; hidden from inbox/wait by default, kept in history (D2) — `delivery-state-machine` |
-| Wake after acknowledgement | Job stays `read` with detail "work is not yet acknowledged" after `acknowledgedAt` is set (finding 5). [BL §Findings 5] | Acknowledgement closes the job — `delivery-state-machine` |
-| Target state machine | None as a message state (gap a). | `queued → sending → accepted \| failed \| unknown`, `queued → expired`; no transition out of `unknown` or `expired` except by explicit user action — `delivery-state-machine` |
+| Ambiguous submission | A job left `sending` past its retry time becomes `unknown` and is never replayed. B:src/wake-queue.ts:112-114 | Done in `delivery-state-machine`: a lapsed or unconfirmed submission makes the message `unknown`; it is never re-claimed or re-sent; only evidence (late receipt, recipient fetch) moves it to `accepted` |
+| Expiry | Wake job `expired` after 1 h offline or 24 h busy; **the message stays readable and can still be acted on later** (gap c). B:src/wake-queue.ts:37-39, 119-124 | Done in `delivery-state-machine`: message `expired` after its queue timeout (default 24 h, `BRIDGE_QUEUE_TIMEOUT_MS`, per-send `expiresInSeconds` 1 min…7 d); its ping is marked `expired` so the sender is notified; hidden from inbox/wait, kept in history |
+| Wake after acknowledgement | Job stays `read` with detail "work is not yet acknowledged" after `acknowledgedAt` is set (finding 5). [BL §Findings 5] | Done in `delivery-state-machine`: wake state `acknowledged` |
+| Target state machine | None as a message state (gap a). | Done in `delivery-state-machine` (`bridge/src/delivery.ts`, one table): `queued → sending → queued \| accepted \| failed \| unknown`, `queued → accepted` (fetch), `queued → expired`, `unknown → accepted` by evidence only (user decision); `accepted`, `failed`, `expired` final |
 
 ## 6. Delivery semantics
 
 | Item | Current (baseline) | Hardening target |
 |---|---|---|
-| Exactly-once | Not promised. The mailbox and a host inbox share no transaction; a host "accepted" ping is not "processed by the peer". S:plugins/spec-guard/references/collaboration-runtime.md:80-82 | Stated in the agent-relay README and tool descriptions — `delivery-state-machine` |
-| Unknown is never replayed | Wake jobs: yes, B:src/wake-queue.ts:112-114. Routing: `nativeDispatch=unknown` only reconciles, never re-sends or falls back, S:plugins/spec-guard/skills/session-routing/SKILL.md:36-39, 61-62, 114-116 | Same rule for message delivery (gap b) — `delivery-state-machine` |
+| Exactly-once | Not promised. The mailbox and a host inbox share no transaction; a host "accepted" ping is not "processed by the peer". S:plugins/spec-guard/references/collaboration-runtime.md:80-82 | Done in `delivery-state-machine`: README and the `bridge_send` / `bridge_outbox` descriptions |
+| Unknown is never replayed | Wake jobs: yes, B:src/wake-queue.ts:112-114. Routing: `nativeDispatch=unknown` only reconciles, never re-sends or falls back, S:plugins/spec-guard/skills/session-routing/SKILL.md:36-39, 61-62, 114-116 | Done in `delivery-state-machine` (gap b) |
 | Persist before submit | Present: message row before wake, job `sending` before the host call [BL §Gap analysis, item d] | Unchanged; covered by crash-injection tests — `durable-ordering` |
 | Ordering, independence, cap | Partial [BL §Gap analysis, item e] | Per-recipient order, one recipient never blocks another, configurable pending cap with a proposed default — `durable-ordering` |
 | Retry key and reply de-duplication | Partial: a reused key with different content returns the old message silently [BL §Gap analysis, item f] | Same key with different content is rejected; same original + same reply text is de-duplicated — `idempotency` |
@@ -256,9 +256,9 @@ Gap items are from [BL §Gap analysis]; findings from [BL §Findings for the int
 
 | Item | Described in | Owner |
 |---|---|---|
-| a. Delivery state machine | §5 | `delivery-state-machine` |
-| b. Unknown never replayed | §5, §6 | `delivery-state-machine` |
-| c. Expiry, never delivered later | §5 (D2) | `delivery-state-machine` |
+| a. Delivery state machine | §5 | `delivery-state-machine` (done) |
+| b. Unknown never replayed | §5, §6 | `delivery-state-machine` (done) |
+| c. Expiry, never delivered later | §5 (D2) | `delivery-state-machine` (done) |
 | d. Persist before submit | §6 | `durable-ordering` |
 | e. Ordering, independence, cap | §6 | `durable-ordering` |
 | f. Retry key, reply de-duplication | §3, §6 | `idempotency` |
@@ -272,6 +272,6 @@ Gap items are from [BL §Gap analysis]; findings from [BL §Findings for the int
 | Finding 3. Held create leaves a named envelope | §10 | `delegation-fixes` (agent-relay; after translation, before hardening) |
 | Finding 4. Claude round two `target-busy` while idle | §10 | `delegation-fixes` (agent-relay; after translation, before hardening) |
 | Round 1 finding 7. Claude target in a git worktree not found after create | §10 | `delegation-fixes` |
-| Finding 5. Wake job stays `read` after acknowledgement | §5 | `delivery-state-machine` |
+| Finding 5. Wake job stays `read` after acknowledgement | §5 | `delivery-state-machine` (done) |
 | Finding 6. Background sessions hang on prompts | §4, §10 | `ops-commands` |
 | Finding 7. Codex manual approval prompts every call | §4, §8 | `packaging` (documented in the agent-relay README) |
