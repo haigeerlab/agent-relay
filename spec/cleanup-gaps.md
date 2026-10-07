@@ -36,6 +36,24 @@ The two real records match exactly: `r2-cx-review` e168eaf1… and 26977000…, 
 `docs/collaboration-interface.md` say "Registering again reactivates a retired agent". On 2026-10-08 my takeover
 reactivated the identity the coordinator had just retired, with no word in the result.
 
+**Who relies on "registering again reactivates" (searched hooks/, skills/, scripts/, bridge/src, bridge/test, docs;
+cross-checked with the coordinator's list, 2026-10-08).** No code retires a name and registers it again: agents cannot
+call `bridge_retire` (denied), and only operators retire (`native_collaboration_retire.py`, `scripts/acceptance/cleanup.sh`,
+the bridge CLI `retire`/`prune`). Every registration is a session calling `bridge_register` itself.
+- Codex delegation follow-up (`session_delegation_codex.py` `continue_turn` → `_bound_prompt`): every follow-up turn
+  tells the session to register `<friendly>-<thread[:8]>` again. If an operator retired that identity (e.g.
+  `cleanup.sh` at the end of a run), the new rule refuses it and the session cannot send its result. **Affected** → D63.
+- Claude delegation (`session_delegation_claude.py`): the name is `<friendly>-<delegation[:8]>`, registered on the
+  first turn; `_resend_registration` (D49) runs only when the name was never registered. Follow-ups do not register.
+  **Not affected.**
+- `state_migration.py`: refuses a target mailbox that already has agents (D14); never registers. **Not affected.**
+- `collab` skill and long-lived sessions with a fixed name: after an operator retires the name, the next register is
+  refused and the agent must ask the user or pick a new name. **Intended**; the MCP instructions say so.
+- Texts that state the old rule: `server.ts` `bridge_register` and `bridge_retire` descriptions and `INSTRUCTIONS`;
+  the `bridge-store.ts` `register` comment; `cli.ts` `prune` output; `bridge/README.md` § retire;
+  `docs/collaboration-interface.md` row `bridge_register`. Test asserting it: `bridge/test/lifecycle.test.ts`
+  "registration keeps capabilities when omitted and reactivates retired agents".
+
 The vendored bridge is already changed by five modules (delivery-state-machine, durable-ordering, idempotency, identity-check, ops-commands); `bridge/UPSTREAM.md` § "agent-relay changes" records each
 change and `UPSTREAM.sha256` is rewritten in the same commit (`scripts/bridge-manifest.py`); the installer refuses a
 copy that differs from the manifest.
@@ -75,6 +93,15 @@ Confirmed by the user on 2026-10-08.
     (Claude only; Codex has no equivalent, so a Codex session could still reactivate). Upstream syncs cost nothing,
     but B covers only part of the problem or adds a component larger than the fix.
 
+- **D62 interface 1.0 → 1.1.** Accepted on 2026-10-08. `bridge_register`'s semantics are part of the documented interface;
+  refusing a retired name by default, with an explicit `reactivate`, is a backward-compatible tightening inside 1.x.
+  `interface.json` becomes `"1.1"`; Spec Guard's probe range `>=1.0,<2.0` is unaffected.
+- **D63 a Codex follow-up to a retired delegated identity is held.** Accepted on 2026-10-08. Before sending a follow-up turn,
+  the Codex adapter checks the mailbox read-only (as `native_registration_probe` does); if `<friendly>-<thread[:8]>`
+  exists and is retired it returns `held` with `prerequisite = identity-retired` and sends nothing. The prompt never
+  passes `reactivate`: bringing a retired name back stays the user's decision. Alternative: change nothing and let the
+  session's register fail, leaving the follow-up without a result.
+
 ## Requirements
 
 1. Gap 1 tests: identity with one `expired` unacknowledged message → retired; with one `accepted` unacknowledged
@@ -86,11 +113,14 @@ Confirmed by the user on 2026-10-08.
 3. Gap 3 tests (bridge, `node --test`): retire then register → refused, row still retired; retire then
    `takeover: true` → refused; `reactivate: true` → active, `reactivated: true`, note names the earlier `retiredAt`;
    an active name with `reactivate: true` → normal registration, no `reactivated`.
-4. Docs: `bridge_register` tool description, `docs/collaboration-interface.md`, the `bridge retire` CLI message,
-   `UPSTREAM.md` (A), CHANGELOG `Unreleased`.
+4. Docs: every text in the audit above (tool descriptions, `INSTRUCTIONS` — a refused retired name means ask the user
+   or choose a new name —, store comment, CLI output, bridge README, `docs/collaboration-interface.md`), `UPSTREAM.md`
+   (A), `interface.json` (D62), CHANGELOG `Unreleased`. The lifecycle test is rewritten for the new rule.
 5. `scripts/validate.sh` green on Python 3.9, 3.10, 3.14; bridge tests green.
 6. Live check in a temporary `AGENT_RELAY_HOME`/HOME: gaps 1 and 3 end to end with the built runtime; gap 2 with the
    fake app-server only. The two real records are the coordinator's check after merge.
+7. D63 tests: a Codex follow-up whose delegated identity is retired → `held`, `identity-retired`, no `turn/start`;
+   an active identity → follow-up as today.
 
 ## Boundaries
 
