@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import type { BridgeMessage } from "./bridge-store.js";
-import { DeliveryTransitionError, type DeliveryState, expireDue, transition } from "./delivery.js";
+import { DeliveryTransitionError, type DeliveryState, atomically, expireDue, transition } from "./delivery.js";
 
 /**
  * agent-relay delivery-state-machine: what a wake job's state says about its message. A wake-window `expired`
@@ -138,6 +138,10 @@ export class WakeQueue {
    * outcome is already final for another reason (refused, expired, cancelled) keeps that outcome.
    */
   acknowledge(agent: string, messageId: number): void {
+    atomically(this.db, () => this.acknowledgeStep(agent, messageId));
+  }
+
+  private acknowledgeStep(agent: string, messageId: number): void {
     this.db.prepare(`UPDATE wake_jobs SET state = 'acknowledged', detail = 'Recipient acknowledged the message'
       WHERE agent = ? AND message_id = ? AND state IN ('pending', 'sending', 'accepted', 'read', 'held', 'unknown')`)
       .run(agent, messageId);
@@ -147,6 +151,10 @@ export class WakeQueue {
   }
 
   recordRead(agent: string, ids: number[]): void {
+    atomically(this.db, () => this.recordReadStep(agent, ids));
+  }
+
+  private recordReadStep(agent: string, ids: number[]): void {
     const stmt = this.db.prepare(`UPDATE wake_jobs SET state = 'read', detail = 'Recipient fetched the mailbox message; work is not yet acknowledged'
       WHERE agent = ? AND message_id = ? AND state IN ('sending', 'unknown', 'held', 'accepted')`);
     // The recipient holding the message is delivery, wake or no wake (unbound recipients poll their inbox).
@@ -160,6 +168,11 @@ export class WakeQueue {
   }
 
   claim(now = Date.now(), selfPid = process.pid): WakeJob | null {
+    // One transaction: taking a ping and moving its message must not be split by a crash (durable-ordering).
+    return atomically(this.db, () => this.claimStep(now, selfPid));
+  }
+
+  private claimStep(now: number, selfPid: number): WakeJob | null {
     // A message past its queue timeout is never pinged (agent-relay delivery-state-machine, D27).
     expireDue(this.db, now);
     // A dead sender may have delivered before crashing. Never automatically replay it.
@@ -176,11 +189,24 @@ export class WakeQueue {
       WHERE state = 'pending' AND (
         (created_at < ? AND COALESCE(pending_reason, 'offline') != 'busy') OR created_at < ?
       )`).run(now - OFFLINE_WAKE_WINDOW_MS, now - BUSY_WAKE_WINDOW_MS);
+    // agent-relay durable-ordering: the recipient already fetched this message, so a ping would only wake it for
+    // nothing it has not seen. Close the job instead (it stays visible as `read` to the sender).
+    this.db.prepare(`UPDATE wake_jobs SET state = 'read', detail = 'Recipient fetched the message before its ping; no ping sent'
+      WHERE state = 'pending' AND EXISTS (
+        SELECT 1 FROM messages m WHERE m.id = wake_jobs.message_id AND m.read_at IS NOT NULL
+      )`).run();
     // Jobs for a Claude session hosted by another live channel process are
-    // delivered by that process.
+    // delivered by that process. agent-relay durable-ordering: at most one ping in flight per recipient, oldest
+    // first — a job waits while an older job for the same recipient is pending or sending (in any process);
+    // an `unknown`, `held` or final older job does not hold it.
     const row = this.db.prepare(`UPDATE wake_jobs SET state = 'sending', attempt_id = ?,
       attempts = attempts + 1, retry_at = ? WHERE id = (
         SELECT id FROM wake_jobs WHERE state = 'pending' AND retry_at <= ?
+          AND NOT EXISTS (
+            SELECT 1 FROM wake_jobs older
+            WHERE older.agent = wake_jobs.agent AND older.id < wake_jobs.id
+              AND older.state IN ('pending', 'sending')
+          )
           AND NOT EXISTS (
             SELECT 1 FROM channel_hosts h
             WHERE json_extract(wake_jobs.target, '$.app') = 'claude'
@@ -194,6 +220,10 @@ export class WakeQueue {
   }
 
   finish(job: WakeJob, result: WakeResult): void {
+    atomically(this.db, () => this.finishStep(job, result));
+  }
+
+  private finishStep(job: WakeJob, result: WakeResult): void {
     const updated = this.db.prepare(`UPDATE wake_jobs SET state = ?, detail = ?, retry_at = ?,
         pending_reason = CASE WHEN ? = 'pending' THEN ? ELSE pending_reason END
       WHERE id = ? AND attempt_id = ? AND state IN ('sending', 'unknown', 'held')`)

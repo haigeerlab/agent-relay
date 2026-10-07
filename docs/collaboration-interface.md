@@ -113,8 +113,8 @@ The MCP server exposes exactly these ten tools to hosts. Current server name `sp
 |---|---|---|
 | Exactly-once | Not promised. The mailbox and a host inbox share no transaction; a host "accepted" ping is not "processed by the peer". S:plugins/spec-guard/references/collaboration-runtime.md:80-82 | Done in `delivery-state-machine`: README and the `bridge_send` / `bridge_outbox` descriptions |
 | Unknown is never replayed | Wake jobs: yes, B:src/wake-queue.ts:112-114. Routing: `nativeDispatch=unknown` only reconciles, never re-sends or falls back, S:plugins/spec-guard/skills/session-routing/SKILL.md:36-39, 61-62, 114-116 | Done in `delivery-state-machine` (gap b) |
-| Persist before submit | Present: message row before wake, job `sending` before the host call [BL §Gap analysis, item d] | Unchanged; covered by crash-injection tests — `durable-ordering` |
-| Ordering, independence, cap | Partial [BL §Gap analysis, item e] | Per-recipient order, one recipient never blocks another, configurable pending cap with a proposed default — `durable-ordering` |
+| Persist before submit | Present: message row before wake, job `sending` before the host call [BL §Gap analysis, item d] | Done in `durable-ordering`: each wake step (claim, finish, read, acknowledge, expiry) writes job and message in one transaction; crash-injection tests (SQLite triggers aborting the second write, a bridge dying between submit and finish) |
+| Ordering, independence, cap | Partial [BL §Gap analysis, item e] | Done in `durable-ordering`: one ping in flight per recipient, oldest first, across processes (an `unknown`/`held` head does not block; order is dispatch order — the inbox stays oldest-first); recipients independent; no ping for an already fetched message; pending cap `BRIDGE_MAX_PENDING_PER_RECIPIENT` default 100 counting undelivered (`queued`/`sending`/`unknown`, unacknowledged) messages, refused at the cap, warned at 80 % |
 | Retry key and reply de-duplication | Partial: a reused key with different content returns the old message silently [BL §Gap analysis, item f] | Same key with different content is rejected; same original + same reply text is de-duplicated — `idempotency` |
 | Evidence words | `delivered`, wake, ack, and reply are separate facts; fields without proof are `unknown`/`unavailable`, never inferred from exit status or activity. S:plugins/spec-guard/skills/session-routing/SKILL.md:75-79 | Unchanged |
 
@@ -259,8 +259,8 @@ Gap items are from [BL §Gap analysis]; findings from [BL §Findings for the int
 | a. Delivery state machine | §5 | `delivery-state-machine` (done) |
 | b. Unknown never replayed | §5, §6 | `delivery-state-machine` (done) |
 | c. Expiry, never delivered later | §5 (D2) | `delivery-state-machine` (done) |
-| d. Persist before submit | §6 | `durable-ordering` |
-| e. Ordering, independence, cap | §6 | `durable-ordering` |
+| d. Persist before submit | §6 | `durable-ordering` (done) |
+| e. Ordering, independence, cap | §6 | `durable-ordering` (done) |
 | f. Retry key, reply de-duplication | §3, §6 | `idempotency` |
 | g. Only recipient replies; sender identity | §3, §7 | `identity-check` |
 | h. doctor, whoami, status/wait by id | §2.3 | `ops-commands` |

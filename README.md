@@ -82,6 +82,9 @@ codex plugin add agent-relay@agent-relay-marketplace
   `expired`），发件箱里能看到。唤醒结果说不清时标为 `unknown`，**绝不自动重发**；一条消息排队超过时限（默认 24 小时，
   可用 `BRIDGE_QUEUE_TIMEOUT_MS` 或发送时的 `expiresInSeconds` 调整）还没被取走，就标为 `expired`，不再唤醒、
   收件箱默认不再显示，之后也不会再被执行，发件人会收到通知。
+- **按收件人排队、有上限**：同一个收件人同一时间只有一个唤醒在途，按发送顺序从旧到新；一个收件人卡住不影响别人；
+  收件人已经读到的消息不再单独唤醒。每个收件人最多积压 100 条还没送到的消息（`BRIDGE_MAX_PENDING_PER_RECIPIENT`
+  可调，10 到 10000），到 80% 会在发送结果里提醒，满了就拒绝发送并说明原因；读到、ack、过期或失败都会释放名额。
 - **Codex 的手动审批成本**：Codex 的审批选择器是全局的。设为“请求批准”时，被唤醒的 Codex 回合里每一次信箱
   调用（读收件箱、发送、确认）都会停下来等人点；设为 AI 自动审批（`approvals_reviewer = "guardian_subagent"`）
   则等同于自动批准，不应绑定唤醒。

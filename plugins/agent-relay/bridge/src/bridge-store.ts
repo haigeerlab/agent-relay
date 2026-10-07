@@ -1,4 +1,4 @@
-import { type DeliveryState, expireDue, sendTimeoutMs } from "./delivery.js";
+import { type DeliveryState, assertBelowPendingCap, expireDue, sendTimeoutMs } from "./delivery.js";
 import { WakeQueue } from "./wake-queue.js";
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
@@ -400,6 +400,9 @@ export class BridgeStore {
     }
 
     const direct = input.toAgent !== "*";
+    // agent-relay durable-ordering (D30, D31): after the idempotent return, so a retry of a stored message passes.
+    // The bridge's own notices (failure, retirement, results) must always get through.
+    if (direct && input.fromAgent !== "bridge") assertBelowPendingCap(this.db, input.toAgent);
     const sentAt = Date.now();
     const expiresAt = direct ? sentAt + sendTimeoutMs(input.expiresInSeconds) : null;
     const result = this.db
