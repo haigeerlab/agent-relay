@@ -4,6 +4,7 @@ Prints host versions, where agent-relay is installed on each host and whether ea
 checkout, Codex auto-review, the runtime root, and the exact background Claude launch command for a test identity.
 Writes nothing.
 """
+import argparse
 import hashlib
 import json
 import os
@@ -79,11 +80,28 @@ def _directory_plugin(marketplace):
     return None
 
 
-def claude_install():
+def _claude_records():
     home = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
+    return _json(home / "plugins" / "installed_plugins.json"), _json(home / "plugins" / "known_marketplaces.json") or {}
+
+
+def claude_loaded_root():
+    """The agent-relay directory Claude sessions load from a directory marketplace, else this checkout's."""
     try:
-        record = _json(home / "plugins" / "installed_plugins.json")
-        marketplaces = _json(home / "plugins" / "known_marketplaces.json") or {}
+        record, marketplaces = _claude_records()
+    except (OSError, ValueError):
+        return SOURCE
+    for key in (record or {}).get("plugins", {}):
+        name, _, market = key.partition("@")
+        found = _directory_plugin(marketplaces.get(market)) if name == "agent-relay" else None
+        if found is not None:
+            return found
+    return SOURCE
+
+
+def claude_install():
+    try:
+        record, marketplaces = _claude_records()
     except (OSError, ValueError) as exc:
         return [f"unknown ({exc.__class__.__name__})"]
     if record is None:
@@ -150,8 +168,20 @@ def block(label, lines):
     return "\n".join((f"{label:<22}" if index == 0 else pad) + line for index, line in enumerate(lines))
 
 
-def main():
-    tools = ",".join(["ListAgents", "SendMessage"] + [f"mcp__{CLAUDE_SERVER_NAME}__{t}" for t in MAILBOX_TOOLS])
+def allow_lists(root, design):
+    """D55: one quoted argument per rule, as cli-reference shows for --allowedTools (rules may contain spaces)."""
+    base = ["ListAgents", "SendMessage"] + [f"mcp__{CLAUDE_SERVER_NAME}__{tool}" for tool in MAILBOX_TOOLS]
+    routing = base + [f"Bash(python3 -B {Path(root) / 'hooks' / 'session_routing.py'} select *)"]
+    if design is not None:
+        routing.append(f"Read(/{Path(design).resolve()}/**)")  # `//abs/path` is an absolute path (permissions docs)
+    return tuple(" ".join(f'"{rule}"' for rule in rules) for rules in (base, routing))
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Read-only preflight for a real-host acceptance run.")
+    parser.add_argument("--design", type=Path, help="the design project a D9 receiver reads (adds its Read rule)")
+    args = parser.parse_args(argv)
+    base, routing = allow_lists(claude_loaded_root(), args.design)
     try:
         root = default_root()
         root_line = f"{root} ({'present' if root.exists() else 'absent'})"
@@ -164,8 +194,12 @@ def main():
     print(block("agent-relay (Codex)", codex_install()))
     print(f"codex approvals       {codex_reviewer()}")
     print(f"runtime root          {root_line}")
-    print("claude test session   claude --bg --permission-mode dontAsk "
-          f"--allowedTools \"{tools}\"")
+    print(f"allow (base)          {base}")
+    print(f"allow (routing)       {routing}")
+    if args.design is None:
+        print("                      (no --design: add \"Read(//<design project>/**)\" for D9, or pass --design <path>)")
+    print("claude test session   claude \"<prompt>\" --bg --permission-mode dontAsk --allowedTools <base or routing list>")
+    print("                      (the prompt must come first: --allowedTools takes every following argument as a rule)")
     print("                      (never pass --tools \"\": it removes ListAgents and SendMessage)")
 
 

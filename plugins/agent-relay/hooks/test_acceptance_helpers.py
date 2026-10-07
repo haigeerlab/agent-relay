@@ -61,8 +61,9 @@ class PreflightTests(PreflightFixture):
         launch = next(line for line in out.splitlines() if line.startswith("claude test session"))
         self.assertIn("--permission-mode dontAsk", launch)
         self.assertNotIn('--tools ""', launch)
+        base = next(line for line in out.splitlines() if line.startswith("allow (base)"))
         for tool in ("ListAgents", "SendMessage", "__bridge_register", "__bridge_wait"):
-            self.assertIn(tool, launch)
+            self.assertIn(f'"{tool}"' if "__" not in tool else tool, base)
 
     def test_missing_hosts_and_plugin_are_reported_not_fatal(self):
         out = self.run_preflight()
@@ -70,6 +71,41 @@ class PreflightTests(PreflightFixture):
         self.assertIn("agent-relay (Claude)  not installed", out)
         self.assertIn("agent-relay (Codex)   unknown", out)
         self.assertIn("codex approvals       no config.toml", out)
+
+
+class AllowListTests(PreflightFixture):
+    """acceptance-kit-round2 D55, D56 (round 2 R2-8, R2-3)."""
+
+    def lines(self, *args):
+        env = dict(os.environ, CLAUDE_CONFIG_DIR=str(self.claude_home), CODEX_HOME=str(self.codex_home),
+                   HOME=str(self.tmp), PATH=f"{self.bin}{os.pathsep}/usr/bin{os.pathsep}/bin")
+        done = subprocess.run(["/bin/bash", str(PREFLIGHT), *args], capture_output=True, text=True, env=env,
+                              timeout=60)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return done.stdout.splitlines()
+
+    def test_launch_line_puts_the_prompt_first_and_quotes_each_rule(self):
+        lines = self.lines()
+        launch = next(line for line in lines if line.startswith("claude test session"))
+        self.assertIn('claude "<prompt>" --bg --permission-mode dontAsk --allowedTools <base or routing list>', launch)
+        self.assertTrue(any("the prompt must come first" in line for line in lines))
+        base = next(line for line in lines if line.startswith("allow (base)"))
+        self.assertIn('"ListAgents" "SendMessage" "mcp__agent-relay__bridge_register"', base)
+        self.assertNotIn(",", base, "one quoted argument per rule (cli-reference --allowedTools)")
+
+    def test_routing_list_adds_the_selector_and_the_design_read_rule(self):
+        design = self.tmp / "design project"
+        design.mkdir()
+        lines = self.lines("--design", str(design))
+        routing = next(line for line in lines if line.startswith("allow (routing)"))
+        base = next(line for line in lines if line.startswith("allow (base)"))
+        self.assertTrue(routing.split(None, 2)[2].startswith(base.split(None, 2)[2]))
+        selector = f'"Bash(python3 -B {REPO / "plugins" / "agent-relay" / "hooks" / "session_routing.py"} select *)"'
+        self.assertIn(selector, routing)
+        self.assertIn(f'"Read(/{design.resolve()}/**)"', routing)
+        without = self.lines()
+        self.assertNotIn("Read(", next(line for line in without if line.startswith("allow (routing)")))
+        self.assertTrue(any("--design" in line and "D9" in line for line in without))
 
 
 def load_preflight():
