@@ -15,7 +15,7 @@ from pathlib import Path
 repo = Path(sys.argv[1])
 sys.path.insert(0, str(repo / "plugins" / "agent-relay" / "hooks"))
 from native_collaboration_adapters import CLAUDE_SERVER_NAME  # noqa: E402
-from native_collaboration_runtime import MAILBOX_TOOLS, default_root  # noqa: E402
+from native_collaboration_runtime import MAILBOX_TOOLS, StateHomeError, default_root  # noqa: E402
 
 
 def run(*command):
@@ -69,13 +69,17 @@ def codex_reviewer():
 
 
 tools = ",".join(["ListAgents", "SendMessage"] + [f"mcp__{CLAUDE_SERVER_NAME}__{t}" for t in MAILBOX_TOOLS])
-root = default_root()
+try:
+    root = default_root()
+    root_line = f"{root} ({'present' if root.exists() else 'absent'})"
+except StateHomeError as error:
+    root_line = f"error: {error}"
 print(f"claude version        {run('claude', '--version')[1]}")
 print(f"codex version         {run('codex', '--version')[1]}")
 print(f"agent-relay (Claude)  {claude_install()}")
 print(f"agent-relay (Codex)   {codex_install()}")
 print(f"codex approvals       {codex_reviewer()}")
-print(f"runtime root          {root} ({'present' if root.exists() else 'absent'})")
+print(f"runtime root          {root_line}")
 print("claude test session   claude --bg --permission-mode dontAsk "
       f"--allowedTools \"{tools}\"")
 print("                      (never pass --tools \"\": it removes ListAgents and SendMessage)")

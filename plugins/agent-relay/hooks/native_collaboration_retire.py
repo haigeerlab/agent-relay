@@ -19,7 +19,7 @@ import subprocess
 from typing import Any, Sequence
 from urllib.parse import quote
 
-from native_collaboration_runtime import default_root, status
+from native_collaboration_runtime import StateHomeError, default_root, status
 
 
 class RetireError(ValueError):
@@ -90,11 +90,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--name", required=True, help="exact native identity name")
     parser.add_argument("--note")
-    parser.add_argument("--root", type=Path, default=default_root())
+    parser.add_argument("--root", type=Path)
     parser.add_argument("--node", default=shutil.which("node"))
     parser.add_argument("--confirm-retire", action="store_true", required=True,
                         help="operator confirms this identity's session has ended")
     args = parser.parse_args(argv)
+    try:
+        args.root = args.root or default_root()
+    except StateHomeError as error:
+        parser.exit(2, f"{parser.prog}: error: {error}\n")
     if not args.node:
         parser.error("Node executable is unavailable")
     try:

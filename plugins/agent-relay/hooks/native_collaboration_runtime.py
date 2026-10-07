@@ -223,10 +223,14 @@ def probe_runtime(root: Path, *, node: str = "node") -> dict[str, Any]:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("status", "install", "probe"))
-    parser.add_argument("--root", type=Path, default=default_root())
+    parser.add_argument("--root", type=Path)
     parser.add_argument("--node", default="node")
     parser.add_argument("--npm", default="npm")
     args = parser.parse_args(argv)
+    try:
+        args.root = args.root or default_root()
+    except StateHomeError as error:
+        parser.exit(2, f"{parser.prog}: error: {error}\n")
     try:
         result = (status(args.root) if args.command == "status" else
                   probe_runtime(args.root, node=args.node) if args.command == "probe" else
