@@ -202,7 +202,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("host", choices=("codex", "claude", "install-codex", "install-claude",
                                          "uninstall-codex", "uninstall-claude"))
     parser.add_argument("--root", type=Path)
-    parser.add_argument("--node", type=Path, default=shutil.which("node"))
+    parser.add_argument("--node", type=Path, help="default: the node the host entries pin, else PATH's (D58)")
     parser.add_argument("--codex-config", type=Path, default=Path.home() / ".codex" / "config.toml")
     parser.add_argument("--claude-settings", type=Path,
                         default=Path.home() / ".claude" / "settings.json")
@@ -222,6 +222,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.host.startswith("uninstall-") and not args.confirm_uninstall:
         print("uninstall-confirmation-required: rerun with --confirm-uninstall")
         return 1
+    # adapter-node D58 (round 2 R2-13): the node the host entries pin, checked before the backup and any write.
+    # Removal never refuses on the node: the fragment only serves the comparison, which accepts another node path.
+    if args.host != "uninstall-claude":
+        from node_select import NodeSelectError, select_node
+
+        try:
+            args.node = select_node(args.node, claude_json=args.claude_json, codex_config=args.codex_config).path
+        except NodeSelectError as error:
+            if args.host != "uninstall-codex":
+                parser.exit(2, f"{parser.prog}: error: {error.reason}: {error.detail}\n")
+            found = shutil.which("node")
+            args.node = Path(found) if found else args.node
     # safe-uninstall (assumption 3): every host write keeps a private copy of the files it touches first.
     touched = {"install-codex": [args.codex_config], "uninstall-codex": [args.codex_config],
                "install-claude": [args.claude_settings, args.claude_json],

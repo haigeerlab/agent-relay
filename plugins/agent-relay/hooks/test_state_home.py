@@ -95,7 +95,7 @@ class EntryPointSweepTests(unittest.TestCase):
             path.write_text("#!/bin/sh\n" + body + "\n", encoding="utf-8")
             path.chmod(0o755)
         self.node = self.bin / "node"
-        self.node.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        self.node.write_text("#!/bin/sh\necho v24.18.0\n", encoding="utf-8")  # version checked (adapter-node D58)
         self.node.chmod(0o755)
 
     def plant_runtime(self):

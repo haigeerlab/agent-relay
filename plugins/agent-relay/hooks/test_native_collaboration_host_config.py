@@ -26,7 +26,7 @@ class NativeUninstallRoundTripTests(unittest.TestCase):
         (self.root / "dist" / "server.js").write_text("server\n")
         (self.root / "manifest.json").write_text(json.dumps({"commit": BRIDGE_COMMIT}))
         self.node = Path(self.tmp.name) / "node"
-        self.node.write_text("node\n")
+        self.node.write_text("#!/bin/sh\necho v24.18.0\n")  # adapters check the version (adapter-node D58)
         self.node.chmod(0o755)
         self.config = Path(self.tmp.name) / "config.toml"
 

@@ -1,6 +1,6 @@
 # Todo: adapter-node
 
-- [ ] Task 1: Adapters select the node (D58)
-- [ ] Task 2: Docs
+- [x] Task 1: Adapters select the node (D58) — `native_collaboration_adapters.py`: `--node` has no default; before the backup, every command except `uninstall-claude` calls `select_node(--node, claude_json=--claude-json, codex_config=--codex-config)`; `codex`, `claude`, `install-codex`, `install-claude` exit 2 with `node-too-old: …` / `node-unavailable: …` before any backup or host write; `uninstall-codex` never refuses (falls back to PATH's node; the comparison accepts another absolute node path). New `hooks/test_adapter_node.py` 4 tests, v12 first on PATH and a fake v24 pinned in a temporary `.claude.json` — red before (install-codex wrote v12; the refusals backed up and wrote): install-codex writes v24; `codex`/`claude` print v24; install-codex, install-claude, `--node <v12>` and `codex` with only v12 refuse with the `node:sqlite` reason, config bytes unchanged, no backup directory; uninstall-codex with only v12 removes a v24 table. Three older fixtures had a fake node that printed no version and now fail the check by design, so they print `v24.18.0`: `test_host_backup.py`, `test_native_collaboration_host_config.py`, `test_state_home.py`. validate 33 files / 516 tests on 3.10.7, 3.9.6, 3.14.3
+- [x] Task 2: Docs — README §需要什么: the pinned-node sentence names the host adapters (`install-claude`/`install-codex` and the printed configurations); `uninstall-codex` still works with any node, so no uninstall text changes
 - [ ] Task 3: Live (temporary HOME, coordinator told first)
 - [ ] Checkpoint (gate): module review

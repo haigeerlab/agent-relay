@@ -85,7 +85,7 @@ class AdapterBackupTests(unittest.TestCase):
         for directory in (self.root, self.root / "mailbox", self.root / "mailbox" / "backups", self.root / "data"):
             directory.chmod(0o700)
         self.node = self.base / "node"
-        self.node.write_text("#!/bin/sh\n")
+        self.node.write_text("#!/bin/sh\necho v24.18.0\n")  # adapters check the version (adapter-node D58)
         self.node.chmod(0o755)
         self.codex = self.base / "config.toml"
         self.codex.write_text('model = "x"\n')
