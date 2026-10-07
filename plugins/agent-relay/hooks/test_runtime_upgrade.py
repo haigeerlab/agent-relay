@@ -123,5 +123,12 @@ class RuntimeUpgradeTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, 2)
 
 
+    def test_the_backups_directory_ends_private_even_if_it_existed_open(self):
+        self.backups.mkdir(mode=0o755)
+        self.backups.chmod(0o755)
+        self.assertEqual(self.upgrade()["state"], "upgraded")
+        self.assertEqual(stat.S_IMODE(self.backups.stat().st_mode), 0o700)
+
+
 if __name__ == "__main__":
     unittest.main()

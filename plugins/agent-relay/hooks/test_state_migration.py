@@ -4,6 +4,7 @@ import hashlib
 import json
 import sqlite3
 import stat
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -220,6 +221,21 @@ class CommandLineTests(Fixture):
             with self.subTest(argv=argv), self.assertRaises(SystemExit):
                 state_migration.main(argv)
         self.assertFalse((self.home / ".agent-relay").exists())
+
+
+    def test_every_backup_directory_is_private_whatever_the_umask(self):
+        # 2026-10-07: intermediate directories (backups/, mailbox/) were created 0755 by mkdir(parents=True).
+        self.make_ready_case()
+        old = os.umask(0o022)
+        self.addCleanup(os.umask, old)
+        backups = self.home / ".agent-relay" / "backups"
+        backups.mkdir(parents=True)
+        backups.chmod(0o755)
+        _report, result = state_migration.migrate(self.home, (), no_servers)
+        self.assertEqual(result["state"], "migrated", result)
+        open_entries = [str(path) for path in [backups, *backups.rglob("*")]
+                        if path.is_dir() and stat.S_IMODE(path.stat().st_mode) & 0o077]
+        self.assertEqual(open_entries, [])
 
 
 if __name__ == "__main__":
