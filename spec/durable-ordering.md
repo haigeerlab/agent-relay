@@ -32,17 +32,25 @@ Readers: the user; the round 1 coordinator (D15); agents building `idempotency` 
 
 Confirmed by the user on 2026-10-07, including dropping redundant pings (assumption 2).
 
-1. **Per-recipient order = at most one ping in flight per recipient, oldest first.** A pending job for X is not claimed
+1. **Per-recipient order = dispatch order, not processing order:** at most one ping in flight per recipient, claimed
+   and sent oldest first. What the recipient reads is unchanged — its inbox stays oldest-first by id, whatever order
+   the pings arrive in. **Rule:** A pending job for X is not claimed
    while an older job for X is `pending` or `sending`. `unknown`, `held` and final states do not block (a lapsed or held
    head must not stall the queue). Other recipients are unaffected (the rule is per recipient, in the one `claim()`
    SQL, so it holds across processes).
 2. **Redundant pings are dropped:** a pending job whose message the recipient already fetched (`read_at` set) is
    closed as `read` at claim time instead of waking the session again.
-3. **The pending cap counts a recipient's direct messages that are not yet acknowledged, not expired and not
-   failed**; broadcasts are not counted. It is checked inside the send transaction (atomic across processes), after the
+3. **The pending cap counts only undelivered direct messages: delivery state `queued`, `sending` or `unknown`**
+   (user, 2026-10-07, refining the first wording after the round 1 coordinator's review). `accepted` (fetched or
+   confirmed, even if not yet acknowledged), `failed`, `expired` and broadcasts do not count. Capacity is released when
+   a message expires, is fetched or acknowledged (`unknown` → `accepted` by evidence), or fails. `unknown` never
+   expires, so a recipient that never reads its mailbox stays at the cap — which is what the cap is meant to expose. It is checked inside the send transaction (atomic across processes), after the
    idempotency early return (a retry of a stored message still succeeds).
 4. **The claim is one transaction:** the job update and the message move commit together, closing the seam above.
 5. No schema change; no change to `relay_status` or `interface.json`.
+6. **A message fetched but never acknowledged stays visible, not silent:** after assumption 2 it is never pinged again;
+   `bridge_outbox` shows it as `deliveryState: accepted`, `wake: read`, `acknowledgedAt: null`, and `bridge_wake_status`
+   shows its job `read` (tested).
 
 ## Decisions
 
@@ -63,8 +71,9 @@ D30 (default 100), D31 (refuse over the cap, warn at 80 %) and D32 accepted on 2
 2. Per-recipient order and independence (assumption 1) with tests: two messages to X, the first backing off → the second
    is not claimed; X failing does not delay Y; two processes never have two pings to X in flight.
 3. Redundant pings dropped (assumption 2), tested.
-4. Pending cap (D30, D31), tested: refusal at the cap, warning at 80 %, idempotent retry still accepted, acked / expired
-   / failed messages free capacity, broadcasts not counted.
+4. Pending cap (D30, D31), tested: refusal at the cap, warning at 80 %, idempotent retry still accepted; expiry, fetch,
+   ack (including `unknown` → `accepted`) and failure release capacity; accepted-unacknowledged and broadcasts not
+   counted. Read-but-unacknowledged visibility (assumption 6) tested.
 5. Crash-injection tests (D32).
 6. `UPSTREAM.md` / `UPSTREAM.sha256`, README (cap and setting), interface rows d and e and checklist D15 updated.
 
