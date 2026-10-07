@@ -172,7 +172,7 @@ test("two connections opening the same legacy file migrate it once", () => {
 const DELIVERY_COLUMNS = ["delivery_state", "delivery_changed_at", "read_at", "expires_at"];
 
 test("v3 adds nullable delivery columns and migrates a v2 mailbox with its rows", () => {
-  assert.equal(SCHEMA_VERSION, 3);
+  assert.ok(SCHEMA_VERSION >= 3);
   const dir = mkdtempSync(join(tmpdir(), "bridge-v3-"));
   const path = join(dir, "bridge.sqlite");
   const fresh = new BridgeStore(path);
@@ -186,7 +186,7 @@ test("v3 adds nullable delivery columns and migrates a v2 mailbox with its rows"
   raw.close();
 
   const store = new BridgeStore(path);
-  assert.deepEqual(store.migration, { from: 2, to: 3, newer: false });
+  assert.deepEqual(store.migration, { from: 2, to: SCHEMA_VERSION, newer: false });
   assert.equal(store.inbox("b").length, 1);
   store.close();
   const check = new DatabaseSync(path, { readOnly: true });
@@ -210,4 +210,66 @@ test("an older process can still insert a message into a v3 mailbox", () => {
   const row = raw.prepare("SELECT delivery_state FROM messages WHERE from_agent = 'old'").get() as { delivery_state: unknown };
   assert.equal(row.delivery_state, null);
   raw.close();
+});
+
+// agent-relay idempotency: v4 adds the reply link. Real runtimes still hold v2 mailboxes, so the v2 → v4 path is
+// tested on its own: one open migrates both steps after one pre-migration backup.
+function v2Mailbox(path: string): void {
+  const fresh = new BridgeStore(path);
+  fresh.register("a");
+  fresh.register("b");
+  fresh.send({ fromAgent: "a", toAgent: "b", body: "unread", idempotencyKey: "k1" });
+  const handled = fresh.send({ fromAgent: "b", toAgent: "a", body: "handled" });
+  fresh.ack("a", [handled.id]);
+  fresh.close();
+  const raw = new DatabaseSync(path);
+  raw.exec("DROP INDEX idx_messages_delivery");
+  raw.exec("DROP INDEX idx_messages_reply");
+  for (const column of [...DELIVERY_COLUMNS, "reply_to"]) raw.exec(`ALTER TABLE messages DROP COLUMN ${column}`);
+  raw.exec("PRAGMA user_version = 2");
+  raw.close();
+}
+
+test("a v2 mailbox migrates straight to v4 in one open, after one backup, with its rows", () => {
+  assert.equal(SCHEMA_VERSION, 4);
+  const dir = mkdtempSync(join(tmpdir(), "bridge-v2-v4-"));
+  const path = join(dir, "bridge.sqlite");
+  const backupDir = join(dir, "backups");
+  v2Mailbox(path);
+
+  const store = new BridgeStore(path, { backupDir });
+  assert.deepEqual(store.migration, { from: 2, to: 4, newer: false });
+  const backups = readdirSync(backupDir);
+  assert.equal(backups.length, 1);
+  assert.match(backups[0] ?? "", /^bridge-pre-v4-from-v2-/);
+  const copy = new DatabaseSync(join(backupDir, backups[0] as string), { readOnly: true });
+  assert.equal((copy.prepare("PRAGMA user_version").get() as { user_version: number }).user_version, 2);
+  assert.equal((copy.prepare("SELECT COUNT(*) AS n FROM messages").get() as { n: number }).n, 2);
+  assert.equal((copy.prepare("SELECT COUNT(*) AS n FROM acknowledgements").get() as { n: number }).n, 1);
+  copy.close();
+  assert.deepEqual(store.inbox("b").map((message) => message.body), ["unread"]);
+  assert.deepEqual(store.inbox("a").map((message) => message.body), []);
+  assert.equal(store.deliver({ fromAgent: "a", toAgent: "b", body: "unread", idempotencyKey: "k1" }).duplicate, true);
+  store.close();
+
+  const check = new DatabaseSync(path, { readOnly: true });
+  const names = check.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string; notnull: number }>;
+  for (const column of [...DELIVERY_COLUMNS, "reply_to"]) {
+    assert.equal(names.find((row) => row.name === column)?.notnull, 0, column);
+  }
+  check.close();
+});
+
+test("an older process can still insert a message into a v4 mailbox; its reply link reads as none", () => {
+  const dir = mkdtempSync(join(tmpdir(), "bridge-v4-old-"));
+  const path = join(dir, "bridge.sqlite");
+  new BridgeStore(path).close();
+  const raw = new DatabaseSync(path);
+  raw.prepare(
+    "INSERT INTO messages (from_agent, to_agent, body, thread_id, idempotency_key, created_at) VALUES (?, ?, ?, NULL, NULL, ?)",
+  ).run("old", "b", "from an older bridge", new Date().toISOString());
+  raw.close();
+  const store = new BridgeStore(path);
+  assert.equal(store.inbox("b")[0]?.replyTo, null);
+  store.close();
 });

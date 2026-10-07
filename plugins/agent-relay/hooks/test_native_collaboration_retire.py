@@ -73,8 +73,8 @@ class NativeRetireTests(unittest.TestCase):
         self.assertEqual(identity_state(self.database, "old")["state"], "retired")
         self.assertEqual(identity_state(self.database, "nobody"), {"state": "absent"})
 
-    def test_mailbox_schema_v3_is_read_and_an_unknown_newer_one_is_refused(self):
-        for version, readable in ((3, True), (4, False)):
+    def test_mailbox_schema_v3_and_v4_are_read_and_an_unknown_newer_one_is_refused(self):
+        for version, readable in ((3, True), (4, True), (5, False)):
             with self.subTest(version=version):
                 with sqlite3.connect(self.database) as connection:
                     connection.execute(f"PRAGMA user_version = {version}")

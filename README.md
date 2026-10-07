@@ -85,6 +85,10 @@ codex plugin add agent-relay@agent-relay-marketplace
 - **按收件人排队、有上限**：同一个收件人同一时间只有一个唤醒在途，按发送顺序从旧到新；一个收件人卡住不影响别人；
   收件人已经读到的消息不再单独唤醒。每个收件人最多积压 100 条还没送到的消息（`BRIDGE_MAX_PENDING_PER_RECIPIENT`
   可调，10 到 10000），到 80% 会在发送结果里提醒，满了就拒绝发送并说明原因；读到、ack、过期或失败都会释放名额。
+- **重试 key 只对应一条消息**：用同一个 `idempotencyKey` 重发相同内容，返回原来那条（`duplicate: true`），不会再唤醒；
+  同一个 key 换了收件人、正文、线程或回复对象会被拒绝，报错写明已存消息的编号并说明无需重发。回复可带
+  `replyTo`（原消息编号），自动落在原消息的线程上，发件箱里能看到每条消息收到了哪些回复；对同一条消息发同样的回复
+  只存一次，除非上一条最终失败或过期。
 - **Codex 的手动审批成本**：Codex 的审批选择器是全局的。设为“请求批准”时，被唤醒的 Codex 回合里每一次信箱
   调用（读收件箱、发送、确认）都会停下来等人点；设为 AI 自动审批（`approvals_reviewer = "guardian_subagent"`）
   则等同于自动批准，不应绑定唤醒。
@@ -124,8 +128,8 @@ python3 -B plugins/agent-relay/hooks/state_migration.py migrate --confirm
 插件更新带来新版 bridge 时，`status` 会报告 `bridge.current: false`。agent 会先问你，在你关掉所有正在用信箱的
 会话后再执行 `native_collaboration_runtime.py upgrade --confirm`：先把邮箱备份到 `~/.agent-relay/backups/<时间>/`，
 在旁边装好新版，把 `mailbox/` 和 `data/` 挪过去再整体替换，核对通过才算完成，失败会自动换回。旧目录
-`runtime.previous-<时间>` 保留，确认无误后由你删除；宿主接入不用动。新版 bridge 会把邮箱升级到 schema 3：
-回到旧运行时还能打开它，但旧版 agent-relay 插件只认 schema 2，所以回滚时要连插件一起回滚，或者用备份恢复邮箱
+`runtime.previous-<时间>` 保留，确认无误后由你删除；宿主接入不用动。新版 bridge 会把邮箱升级到 schema 4（从 schema 2 一次升到位，升级前自动备份）：
+回到旧运行时还能打开它，但旧版 agent-relay 插件只认 schema 2（或 3），所以回滚时要连插件一起回滚，或者用备份恢复邮箱
 （之后收到的消息会丢失）。
 
 ## 卸载

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { pendingWarning } from "./delivery.js";
+import { duplicateWarning } from "./idempotency.js";
 import { randomUUID } from "node:crypto";
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -169,13 +170,16 @@ function main(): void {
         to: z.string().min(1).describe("Recipient agent name, or '*' to broadcast."),
         body: z.string().min(1).describe("Message content."),
         threadId: z.string().optional().describe("Optional conversation thread identifier."),
-        idempotencyKey: z.string().optional().describe("Optional key to prevent duplicate delivery on retry."),
+        idempotencyKey: z.string().optional().describe(
+          "Optional retry key. A retry with the same key and content returns the stored message (duplicate: true) and pings nobody; the same key with a different recipient, body or thread is refused — the earlier message is already stored, so no resend is needed."),
+        replyTo: z.number().int().positive().optional().describe(
+          "Id of the message this one answers. The reply goes on that message's thread (omit threadId, or give the same one), and the sender's outbox lists it under the original."),
         allowUnregistered: z.boolean().optional().describe("Deliver even if the recipient is unknown or retired."),
         expiresInSeconds: z.number().int().min(60).max(604800).optional().describe(
           "Queue timeout for a direct message: if still undelivered after this many seconds it expires and is never delivered. Default 24 h (BRIDGE_QUEUE_TIMEOUT_MS)."),
       },
     },
-    async ({ from, to, body, threadId, idempotencyKey, wake, allowUnregistered, expiresInSeconds }) => {
+    async ({ from, to, body, threadId, idempotencyKey, replyTo, wake, allowUnregistered, expiresInSeconds }) => {
       if (from === BRIDGE_AGENT) throw new Error(`"${BRIDGE_AGENT}" is reserved for automated notices.`);
       const check = await checkRecipient(store, to, { allowUnregistered, isClaudeSessionLive });
       if (!check.ok) throw new Error(check.error);
@@ -183,16 +187,18 @@ function main(): void {
       if (!store.getAgent(from)) {
         warnings.push(`Sender "${from}" is not registered, so replies and delivery notices may not reach it. Call bridge_register first.`);
       }
-      const message = store.send({
+      const { message, duplicate } = store.deliver({
         wake,
         fromAgent: from,
         toAgent: to,
         body,
         threadId: threadId ?? null,
         idempotencyKey: idempotencyKey ?? null,
+        replyTo: replyTo ?? null,
         expiresInSeconds,
       });
       store.touch(from);
+      if (duplicate) warnings.push(duplicateWarning(message.id));
       if (to !== "*") {
         const capWarning = pendingWarning(store.database, to);
         if (capWarning) warnings.push(capWarning);
@@ -201,6 +207,7 @@ function main(): void {
       return jsonResult({
         ...message,
         wake: store.wakes.forMessage(message.id),
+        ...(duplicate ? { duplicate } : {}),
         ...(warnings.length ? { warnings } : {}),
       });
     },

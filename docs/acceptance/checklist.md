@@ -72,7 +72,7 @@ Run once with a Claude origin and a Codex target, once with a Codex origin and a
 | D11 | 4.3 | Authorization negatives | Unbound not woken; auto-approved cannot bind; read-only refused | Same, plus guardian detection 【加固】 |
 | D12 | 4.3 | Close the target session during delivery | — | Message marked `unknown`, never replayed — `delivery-state-machine` 【加固】 |
 | D13 | 4.3 | Let a queued message pass its expiry | — | Marked `expired`, not returned by default, never delivered later (D2) — `delivery-state-machine` 【加固】 |
-| D14 | 4.3 | Send twice with the same retry key | — | One message; a different body with the same key is refused — `idempotency` 【加固】 |
+| D14 | 4.3 | Send twice with the same retry key | — | One message, the retry reports `duplicate: true` and pings nobody; a different body with the same key is refused with a message naming the stored id and saying no resend is needed; the same reply (`replyTo`) sent twice is stored once on the original's thread — `idempotency` 【加固】 |
 | D15 | any | Two senders to one recipient while another recipient is offline | — | Each recipient's pings go out one at a time oldest first, the online recipient is not delayed by the offline one, and a send over `BRIDGE_MAX_PENDING_PER_RECIPIENT` is refused with a clear message (warning at 80 %) — `durable-ordering` 【加固】 |
 | D16 | any | Send a body from a file containing shell metacharacters | — | Body arrives byte-identical — `ops-commands` 【加固】 |
 | D17 | any | Uninstall agent-relay from both hosts | — | Host settings backed up before change; uninstall complete; message history kept — `safe-uninstall` 【加固】 |

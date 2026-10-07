@@ -1,5 +1,6 @@
 import { type DeliveryState, assertBelowPendingCap, expireDue, sendTimeoutMs } from "./delivery.js";
 import { WakeQueue } from "./wake-queue.js";
+import { conflictError, contentDifferences, ReplyLinkError, replyThread } from "./idempotency.js";
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -21,6 +22,8 @@ export interface BridgeMessage {
   deliveryState: DeliveryState | null;
   /** ISO time after which a still-queued direct message expires; null for broadcasts and older rows. */
   expiresAt: string | null;
+  /** agent-relay idempotency: id of the message this one replies to; null when it is not a reply. */
+  replyTo: number | null;
 }
 
 /** A registered agent and its advertised capabilities. */
@@ -134,6 +137,8 @@ export interface SendInput {
   body: string;
   threadId?: string | null;
   idempotencyKey?: string | null;
+  /** agent-relay idempotency: id of the message this one replies to (it must exist; D36 sets the thread). */
+  replyTo?: number | null;
 }
 
 export interface InboxOptions {
@@ -182,6 +187,9 @@ export interface OutboxEntry {
   /** agent-relay delivery-state-machine (D29). */
   deliveryState: DeliveryState;
   expiresAt: string | null;
+  /** agent-relay idempotency: the message this one replies to, and the ids of the replies it received. */
+  replyTo: number | null;
+  replies: number[];
 }
 
 export interface RetireInput {
@@ -217,6 +225,7 @@ interface MessageRow {
   created_at: string;
   delivery_state?: string | null;
   expires_at?: number | null;
+  reply_to?: number | bigint | null;
 }
 
 interface AgentRow {
@@ -363,6 +372,7 @@ export class BridgeStore {
       createdAt: row.created_at,
       deliveryState: row.to_agent === "*" ? null : ((row.delivery_state ?? "queued") as DeliveryState),
       expiresAt: row.expires_at == null ? null : new Date(Number(row.expires_at)).toISOString(),
+      replyTo: row.reply_to == null ? null : Number(row.reply_to),
     };
   }
 
@@ -377,26 +387,63 @@ export class BridgeStore {
    * is returned instead of creating a duplicate.
    */
   send(input: SendInput): BridgeMessage {
+    return this.deliver(input).message;
+  }
+
+  /**
+   * agent-relay idempotency (D33, D34): like `send`, and says whether the result is an already stored message.
+   * A reused key with different content is refused, except for the bridge's own notices, which fold by key.
+   */
+  deliver(input: SendInput): { message: BridgeMessage; duplicate: boolean } {
     this.db.exec("BEGIN IMMEDIATE");
     try {
-      const message = this.insertMessage(input);
+      const result = this.insertMessage(input);
       this.db.exec("COMMIT");
-      return message;
+      return result;
     } catch (error) {
       this.db.exec("ROLLBACK");
       throw error;
     }
   }
 
-  private insertMessage(input: SendInput): BridgeMessage {
-    const threadId = input.threadId ?? null;
+  private insertMessage(input: SendInput): { message: BridgeMessage; duplicate: boolean } {
+    const replyTo = input.replyTo ?? null;
+    let threadId = input.threadId ?? null;
+    if (replyTo !== null) {
+      const original = this.db.prepare("SELECT thread_id FROM messages WHERE id = ?").get(replyTo) as
+        | { thread_id: string | null }
+        | undefined;
+      if (!original) throw new ReplyLinkError(`No message #${replyTo} to reply to.`);
+      threadId = replyThread(replyTo, original.thread_id, input.threadId);
+    }
     const idempotencyKey = input.idempotencyKey ?? null;
 
     if (idempotencyKey !== null) {
       const existing = this.db
         .prepare("SELECT * FROM messages WHERE from_agent = ? AND idempotency_key = ?")
         .get(input.fromAgent, idempotencyKey) as unknown as MessageRow | undefined;
-      if (existing) return this.toMessage(existing);
+      if (existing) {
+        const stored = this.toMessage(existing);
+        const differs = contentDifferences(stored, { toAgent: input.toAgent, body: input.body, threadId, replyTo });
+        if (differs.length && input.fromAgent !== "bridge") {
+          throw conflictError(idempotencyKey, input.fromAgent, stored.id, stored.deliveryState, differs);
+        }
+        return { message: stored, duplicate: true };
+      }
+    }
+
+    // agent-relay idempotency (D35): the same reply to the same message is stored once, unless the earlier one
+    // never arrived (failed or expired), so a lost reply can be sent again.
+    if (replyTo !== null) {
+      expireDue(this.db);
+      const earlier = this.db
+        .prepare(
+          `SELECT * FROM messages WHERE reply_to = ? AND from_agent = ? AND to_agent = ? AND body = ?
+             AND COALESCE(delivery_state, 'queued') NOT IN ('failed', 'expired')
+           ORDER BY id LIMIT 1`,
+        )
+        .get(replyTo, input.fromAgent, input.toAgent, input.body) as unknown as MessageRow | undefined;
+      if (earlier) return { message: this.toMessage(earlier), duplicate: true };
     }
 
     const direct = input.toAgent !== "*";
@@ -408,15 +455,15 @@ export class BridgeStore {
     const result = this.db
       .prepare(
         `INSERT INTO messages (from_agent, to_agent, body, thread_id, idempotency_key, created_at,
-                               delivery_state, delivery_changed_at, expires_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                               delivery_state, delivery_changed_at, expires_at, reply_to)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(input.fromAgent, input.toAgent, input.body, threadId, idempotencyKey,
-        new Date(sentAt).toISOString(), direct ? "queued" : null, direct ? sentAt : null, expiresAt);
+        new Date(sentAt).toISOString(), direct ? "queued" : null, direct ? sentAt : null, expiresAt, replyTo);
 
     const message = this.messageById(Number(result.lastInsertRowid)) as BridgeMessage;
     if (input.wake !== false) this.wakes.enqueue(message);
-    return message;
+    return { message, duplicate: false };
   }
 
   messageById(id: number): BridgeMessage | undefined {
@@ -575,7 +622,9 @@ export class BridgeStore {
         `SELECT m.id, m.to_agent, m.thread_id, m.created_at, substr(m.body, 1, 200) AS preview,
                 length(m.body) AS body_length, a.acked_at, w.state AS wake_state,
                 w.detail AS wake_detail, r.name AS recipient_name, r.retired_at AS recipient_retired,
-                m.delivery_state, m.expires_at
+                m.delivery_state, m.expires_at, m.reply_to,
+                (SELECT json_group_array(id) FROM (SELECT x.id FROM messages x WHERE x.reply_to = m.id ORDER BY x.id))
+                  AS replies
          FROM messages m
          LEFT JOIN acknowledgements a ON a.message_id = m.id AND a.agent = m.to_agent
          LEFT JOIN wake_jobs w ON w.message_id = m.id AND w.agent = m.to_agent
@@ -611,6 +660,8 @@ export class BridgeStore {
           row.recipient_name === null ? "unknown" : row.recipient_retired ? "retired" : "active",
         deliveryState: ((row.delivery_state as string | null) ?? "queued") as DeliveryState,
         expiresAt: row.expires_at == null ? null : new Date(Number(row.expires_at)).toISOString(),
+        replyTo: row.reply_to == null ? null : Number(row.reply_to),
+        replies: JSON.parse(row.replies as string) as number[],
       })),
     };
   }
