@@ -143,3 +143,36 @@ test("a Claude session binds wake only to itself", async () => {
     await a.close();
   }
 });
+
+// agent-relay ops-commands: whoami (assumption 3).
+test("bridge_sessions.whoami lists this session's host, project and identities", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "agent-relay-whoami-"));
+  let a = await session(dir, "claude-session-a", { CLAUDE_PROJECT_DIR: "/work/my-project" });
+  const b = await session(dir, "claude-session-b");
+  const codex = await session(dir, null);
+  try {
+    await a.call("bridge_register", { agent: "alice" });
+    await b.call("bridge_register", { agent: "bob" });
+    await codex.call("bridge_register", { agent: "carol" });
+    const mine = (await a.call("bridge_sessions", {})).json().whoami;
+    assert.deepEqual(mine.host, { app: "claude", sessionId: "claude-session-a", verified: true });
+    assert.equal(mine.project, "my-project");
+    assert.equal(mine.sessionName, null, "no live Claude registry entry in this test");
+    assert.deepEqual(mine.identities.map((x: any) => [x.name, x.provenHere]), [["alice", true]]);
+    assert.deepEqual(mine.identities[0].recordedHost, { app: "claude", sessionId: "claude-session-a" });
+    assert.equal(mine.identities[0].wake, null);
+
+    const theirs = (await codex.call("bridge_sessions", {})).json().whoami;
+    assert.equal(theirs.host, null);
+    assert.equal(theirs.project, null);
+    assert.deepEqual(theirs.identities.map((x: any) => x.name), ["carol"]);
+    assert.match(theirs.note, /Codex/);
+
+    await a.close();
+    a = await session(dir, "claude-session-a", { CLAUDE_PROJECT_DIR: "/work/my-project" });
+    assert.deepEqual((await a.call("bridge_sessions", {})).json().whoami.identities.map((x: any) => [x.name, x.provenHere]),
+      [["alice", false]], "recorded for this session, not yet registered in this process");
+  } finally {
+    await Promise.all([a.close(), b.close(), codex.close()]);
+  }
+});

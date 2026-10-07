@@ -21,6 +21,12 @@ export class CallerIdentity {
     this.proven.add(name);
   }
 
+  /** agent-relay ops-commands (whoami): the names this session may act as, among `agents`. */
+  identities(agents: BridgeAgent[]): Array<{ agent: BridgeAgent; provenHere: boolean }> {
+    return agents.filter((agent) => this.owns(agent.name, agent))
+      .map((agent) => ({ agent, provenHere: this.proven.has(agent.name) }));
+  }
+
   owns(name: string, agent: BridgeAgent | undefined): boolean {
     const recorded = agent?.host ?? null;
     // For a verified caller the recorded host decides, so a name taken over by another session stops working here.

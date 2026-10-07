@@ -2,6 +2,7 @@
 import { pendingWarning } from "./delivery.js";
 import { duplicateWarning } from "./idempotency.js";
 import { readBodyFile } from "./body-file.js";
+import { basename } from "node:path";
 import { CallerIdentity } from "./identity.js";
 import type { MessageStatus } from "./bridge-store.js";
 import { codexApproval, codexAutoApprovalText } from "./codex-approval.js";
@@ -71,6 +72,23 @@ function main(): void {
   const localAgents: string[] = [];
   // agent-relay identity-check: names this session may act as (D37).
   const caller = new CallerIdentity(detectSession());
+  // agent-relay ops-commands (whoami): this session's host, title, project and the identities it may act as.
+  const whoami = (claude: Awaited<ReturnType<typeof claudeSessions>>) => {
+    const host = caller.host;
+    const own = host?.app === "claude"
+      ? claude.find((entry) => entry.sessionId === host.sessionId || entry.bridgeSessionId === host.sessionId)
+      : undefined;
+    const projectDir = process.env.CLAUDE_PROJECT_DIR?.trim() || own?.cwd || null;
+    return {
+      host: host ? { ...host, verified: true } : null,
+      sessionName: own?.name ?? null,
+      project: projectDir ? basename(projectDir) : null,
+      identities: caller.identities(store.agents()).map(({ agent, provenHere }) => ({
+        name: agent.name, provenHere, recordedHost: agent.host, wake: store.wakes.target(agent.name),
+      })),
+      ...(host ? {} : { note: "This bridge cannot see its session (Codex does not pass one to MCP servers): host, title and project are unknown, and only names registered through this connection are listed." }),
+    };
+  };
   // agent-relay ops-commands (D45): one message's status, for its sender or recipient only.
   const statusFor = (id: number, as?: string): MessageStatus => {
     const status = store.messageStatus(id);
@@ -255,14 +273,18 @@ function main(): void {
     title: "Discover local wake targets",
     description: "Read live Claude session IDs and this conversation's own session when the host exposes it. Does not wake anything or read conversation content.",
     inputSchema: {},
-  }, async () => jsonResult({
+  }, async () => {
+    const claude = await claudeSessions();
+    return jsonResult({
     mailboxPath: dbPath,
     thisSession: detectSession(),
-    claude: await claudeSessions(),
+    whoami: whoami(claude),
+    claude,
     codexSessionId: process.env.CODEX_THREAD_ID ?? null,
     channelMode: channelSessionId ? "enabled" : "off",
     note: "bridge_register with wake: \"auto\" uses thisSession. Codex does not expose its task ID to MCP servers in every version; pass it explicitly when thisSession is null. Background adapters are experimental macOS local interfaces.",
-  }));
+    });
+  });
 
   server.registerTool("bridge_wake_status", {
     title: "Inspect background ping delivery",
