@@ -237,7 +237,9 @@ class SessionDelegationController:
             "from the agent name registered by this envelope to "
             + recipient + ", with threadId " + key
             + ", idempotencyKey " + idempotency
-            + ", wake true, and a concise final result as body."
+            + ", wake true, and a concise final result as body. If bridge_send refuses "
+            "because this idempotencyKey was already used, your result is already delivered "
+            "(stored and on its way to the recipient): do not retry and do not report a failure."
         )
         return (
             prompt.rstrip() + "\n\n<agent-relay-result-route>\n" + instruction
