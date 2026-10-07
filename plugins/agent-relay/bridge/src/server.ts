@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 import { pendingWarning } from "./delivery.js";
 import { duplicateWarning } from "./idempotency.js";
+import { readBodyFile } from "./body-file.js";
+import { basename } from "node:path";
 import { CallerIdentity } from "./identity.js";
+import type { MessageStatus } from "./bridge-store.js";
 import { codexApproval, codexAutoApprovalText } from "./codex-approval.js";
 import { randomUUID } from "node:crypto";
 
@@ -69,6 +72,34 @@ function main(): void {
   const localAgents: string[] = [];
   // agent-relay identity-check: names this session may act as (D37).
   const caller = new CallerIdentity(detectSession());
+  // agent-relay ops-commands (whoami): this session's host, title, project and the identities it may act as.
+  const whoami = (claude: Awaited<ReturnType<typeof claudeSessions>>) => {
+    const host = caller.host;
+    const own = host?.app === "claude"
+      ? claude.find((entry) => entry.sessionId === host.sessionId || entry.bridgeSessionId === host.sessionId)
+      : undefined;
+    const projectDir = process.env.CLAUDE_PROJECT_DIR?.trim() || own?.cwd || null;
+    return {
+      host: host ? { ...host, verified: true } : null,
+      sessionName: own?.name ?? null,
+      project: projectDir ? basename(projectDir) : null,
+      identities: caller.identities(store.agents()).map(({ agent, provenHere }) => ({
+        name: agent.name, provenHere, recordedHost: agent.host, wake: store.wakes.target(agent.name),
+      })),
+      ...(host ? {} : { note: "This bridge cannot see its session (Codex does not pass one to MCP servers): host, title and project are unknown, and only names registered through this connection are listed." }),
+    };
+  };
+  // agent-relay ops-commands (D45): one message's status, for its sender or recipient only.
+  const statusFor = (id: number, as?: string): MessageStatus => {
+    const status = store.messageStatus(id);
+    if (!status) throw new Error(`No message #${id}.`);
+    const { fromAgent, toAgent } = status.message;
+    const party = (name: string) => (as === undefined ? caller.owns(name, store.getAgent(name)) : as === name);
+    if (!(party(fromAgent) || toAgent === "*" || party(toAgent))) {
+      throw new Error(`Message #${id} can be checked only by its sender or recipient ("${fromAgent}", "${toAgent}") from their own session.`);
+    }
+    return status;
+  };
   const defaultAgent = () => localAgents.at(-1) ?? "claude-main";
   const projectFallback = () => {
     const project = process.env.CLAUDE_PROJECT_DIR?.trim();
@@ -191,7 +222,9 @@ function main(): void {
         wake: z.boolean().optional().describe("Ping a bound direct recipient. Defaults true. False saves silently."),
         from: z.string().min(1).describe("Sender agent name."),
         to: z.string().min(1).describe("Recipient agent name, or '*' to broadcast."),
-        body: z.string().min(1).describe("Message content."),
+        body: z.string().min(1).optional().describe("Message content. Give exactly one of body and bodyFile."),
+        bodyFile: z.string().min(1).optional().describe(
+          "Absolute path of a UTF-8 text file (regular file you own, at most 256 KiB) whose content is sent unchanged, so nothing passes through shell quoting. Give exactly one of body and bodyFile."),
         threadId: z.string().optional().describe("Optional conversation thread identifier."),
         idempotencyKey: z.string().optional().describe(
           "Optional retry key. A retry with the same key and content returns the stored message (duplicate: true) and pings nobody; the same key with a different recipient, body or thread is refused — the earlier message is already stored, so no resend is needed."),
@@ -202,7 +235,9 @@ function main(): void {
           "Queue timeout for a direct message: if still undelivered after this many seconds it expires and is never delivered. Default 24 h (BRIDGE_QUEUE_TIMEOUT_MS)."),
       },
     },
-    async ({ from, to, body, threadId, idempotencyKey, replyTo, wake, allowUnregistered, expiresInSeconds }) => {
+    async ({ from, to, body: text, bodyFile, threadId, idempotencyKey, replyTo, wake, allowUnregistered, expiresInSeconds }) => {
+      if ((text === undefined) === (bodyFile === undefined)) throw new Error("Give exactly one of body and bodyFile.");
+      const body = text ?? readBodyFile(bodyFile as string);
       if (from === BRIDGE_AGENT) throw new Error(`"${BRIDGE_AGENT}" is reserved for automated notices.`);
       caller.require(from, store.getAgent(from), "send as");
       const check = await checkRecipient(store, to, { allowUnregistered, isClaudeSessionLive });
@@ -238,20 +273,29 @@ function main(): void {
     title: "Discover local wake targets",
     description: "Read live Claude session IDs and this conversation's own session when the host exposes it. Does not wake anything or read conversation content.",
     inputSchema: {},
-  }, async () => jsonResult({
+  }, async () => {
+    const claude = await claudeSessions();
+    return jsonResult({
     mailboxPath: dbPath,
     thisSession: detectSession(),
-    claude: await claudeSessions(),
+    whoami: whoami(claude),
+    claude,
     codexSessionId: process.env.CODEX_THREAD_ID ?? null,
     channelMode: channelSessionId ? "enabled" : "off",
     note: "bridge_register with wake: \"auto\" uses thisSession. Codex does not expose its task ID to MCP servers in every version; pass it explicitly when thisSession is null. Background adapters are experimental macOS local interfaces.",
-  }));
+    });
+  });
 
   server.registerTool("bridge_wake_status", {
     title: "Inspect background ping delivery",
     description: "Read up to 100 recent wake receipts with a per-state summary. Accepted means the app accepted a ping, not that the work is complete. Held/refused respect app permission checks; unknown outcomes are never replayed automatically.",
-    inputSchema: { agent: z.string().min(1).optional() },
-  }, async ({ agent }) => {
+    inputSchema: {
+      agent: z.string().min(1).optional(),
+      messageId: z.number().int().positive().optional().describe(
+        "Status of one message you sent or received: delivery state, ping, acknowledgement, replies and outcome (pending, acknowledged, replied, failed, expired)."),
+    },
+  }, async ({ agent, messageId }) => {
+    if (messageId !== undefined) return jsonResult(statusFor(messageId));
     const jobs = store.wakes.list(agent);
     const summary: Record<string, number> = {};
     for (const job of jobs) summary[job.state] = (summary[job.state] ?? 0) + 1;
@@ -296,11 +340,23 @@ function main(): void {
         threadId: z.string().min(1).optional().describe("Optional coordination thread filter."),
         timeoutSeconds: z.number().int().min(1).max(290).optional().describe("How long to keep the MCP call open. Defaults to 285 seconds so common five-minute host limits do not cut it off."),
         acknowledge: z.boolean().optional().describe("Mark returned messages handled before returning. Defaults true; history is preserved."),
+        messageId: z.number().int().positive().optional().describe(
+          "Instead of new inbox messages, wait for this message's outcome (acknowledged, replied, failed or expired). agent must be its sender or recipient; nothing is acknowledged."),
         limit: pagingInput.limit,
         maxChars: pagingInput.maxChars,
       },
     },
-    async ({ agent, fromAgent, threadId, timeoutSeconds, acknowledge, limit, maxChars }) => {
+    async ({ agent, fromAgent, threadId, timeoutSeconds, acknowledge, limit, maxChars, messageId }) => {
+      if (messageId !== undefined) {
+        caller.require(agent, store.getAgent(agent), "wait as");
+        const deadline = Date.now() + (timeoutSeconds ?? 285) * 1000;
+        let status = statusFor(messageId, agent);
+        while (status.outcome === "pending" && Date.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, Math.min(250, Math.max(0, deadline - Date.now()))));
+          status = statusFor(messageId, agent);
+        }
+        return jsonResult({ timedOut: status.outcome === "pending", ...status });
+      }
       if (acknowledge ?? true) caller.require(agent, store.getAgent(agent), "acknowledge messages for");
       const max = clampLimit(limit);
       store.touch(agent);

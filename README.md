@@ -66,6 +66,13 @@ codex plugin add agent-relay@agent-relay-marketplace
 - “回复一下刚才那个会话” → 回复最近的来信。
 - “创建一个 Codex 审查，看看这次改动” → 创建一个只读的审查会话，结果回到当前会话。
 - “继续刚才的会话”“停掉那个审查” → 同一会话第二轮、停止。
+- “我在信箱里是谁” → 本会话的身份、宿主、会话标题和项目（`bridge_sessions` 的 `whoami`）。
+- “刚才那条消息怎么样了”“等它回复” → 按消息编号查状态，或一直等到它被确认、回复、失败或过期
+  （`bridge_wake_status` / `bridge_wait` 带 `messageId`，等待时不替谁确认消息）。
+- 长正文或带 `$`、反引号、引号的正文 → 先写进文件，再用 `bodyFile` 发，内容逐字节不变（绝对路径、自己的普通文件、
+  不超过 256 KiB、UTF-8）。
+- “检查一下 agent-relay 状态” → `native_collaboration_runtime.py doctor`：只读检查运行时、信箱、宿主接入、Codex
+  审批模式和已绑定唤醒的会话（会话卡在等待输入时会提示），每项给出下一步；有 fail 时退出码为 1。
 
 ## 授权与安全
 

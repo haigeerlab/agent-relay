@@ -1,5 +1,5 @@
 import { type DeliveryState, assertBelowPendingCap, expireDue, sendTimeoutMs } from "./delivery.js";
-import { WakeQueue } from "./wake-queue.js";
+import { type WakeJob, WakeQueue } from "./wake-queue.js";
 import { assertMayReply, conflictError, contentDifferences, ReplyLinkError, replyThread } from "./idempotency.js";
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
@@ -198,6 +198,21 @@ export interface OutboxEntry {
   /** agent-relay idempotency: the message this one replies to, and the ids of the replies it received. */
   replyTo: number | null;
   replies: number[];
+}
+
+/** agent-relay ops-commands (D45): where one message stands. */
+export type MessageOutcome = "pending" | "acknowledged" | "replied" | "failed" | "expired";
+
+export interface MessageStatus {
+  message: { id: number; fromAgent: string; toAgent: string; threadId: string | null; createdAt: string;
+    preview: string; bodyLength: number; replyTo: number | null };
+  deliveryState: DeliveryState | null;
+  expiresAt: string | null;
+  acknowledgedAt: string | null;
+  replies: number[];
+  wake: WakeJob | null;
+  /** replied, else acknowledged, else failed or expired, else pending (`unknown` may still resolve by evidence). */
+  outcome: MessageOutcome;
 }
 
 export interface RetireInput {
@@ -476,6 +491,34 @@ export class BridgeStore {
     const message = this.messageById(Number(result.lastInsertRowid)) as BridgeMessage;
     if (input.wake !== false) this.wakes.enqueue(message);
     return { message, duplicate: false };
+  }
+
+  /** agent-relay ops-commands (D45): the status of one message, or undefined when it does not exist. */
+  messageStatus(id: number): MessageStatus | undefined {
+    expireDue(this.db);
+    const message = this.messageById(id);
+    if (!message) return undefined;
+    const ack = this.db.prepare("SELECT acked_at FROM acknowledgements WHERE message_id = ? AND agent = ?")
+      .get(id, message.toAgent) as { acked_at: string } | undefined;
+    const replies = (this.db.prepare("SELECT id FROM messages WHERE reply_to = ? ORDER BY id").all(id) as Array<{ id: number | bigint }>)
+      .map((row) => Number(row.id));
+    const acknowledgedAt = ack?.acked_at ?? null;
+    const outcome: MessageOutcome = replies.length ? "replied"
+      : acknowledgedAt ? "acknowledged"
+      : message.deliveryState === "failed" ? "failed"
+      : message.deliveryState === "expired" ? "expired"
+      : "pending";
+    return {
+      message: { id, fromAgent: message.fromAgent, toAgent: message.toAgent, threadId: message.threadId,
+        createdAt: message.createdAt, preview: message.body.slice(0, 200), bodyLength: message.body.length,
+        replyTo: message.replyTo },
+      deliveryState: message.deliveryState,
+      expiresAt: message.expiresAt,
+      acknowledgedAt,
+      replies,
+      wake: this.wakes.forMessage(id),
+      outcome,
+    };
   }
 
   messageById(id: number): BridgeMessage | undefined {

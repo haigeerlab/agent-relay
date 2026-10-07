@@ -21,11 +21,11 @@ hardening module and are skipped in round 1. "Same as current" means the hardeni
 
 | Id | Host pair | Steps | Current | Target |
 |---|---|---|---|---|
-| A1 | — | Run `preflight.sh`; record Claude Code and Codex versions, agent-relay source and commit on each host | Versions and source recorded; agent-relay installed from the local marketplace path | Same, plus `doctor` passes — `ops-commands` 【加固】 |
+| A1 | — | Run `preflight.sh`; record Claude Code and Codex versions, agent-relay source and commit on each host | Versions and source recorded; agent-relay installed from the local marketplace path | Same, plus `native_collaboration_runtime.py doctor` has no `fail` (warnings read with their next step) — `ops-commands` 【加固】 |
 | A2 | Codex | Read Codex `approvals_reviewer` and the App approval selector | Recorded by hand; `guardian_subagent` counts as auto-approval (finding 1), so set the selector to 请求批准 for the run and restore it in E; under 请求批准 every mailbox call of a woken Codex turn waits for the operator to approve (finding 7) | Bind refused under `guardian_subagent` or `approval_policy = "never"` (unreadable config fails closed), and pings to an already bound Codex session held with a notice to the sender — `identity-check` 【加固】; the approval cost is documented in the README — `packaging` |
 | A3 | — | List the sessions the user must open (project × host) for this run, wait until the user confirms they are open | List written in the record before any message is sent | Same as current |
 | A4 | Claude | Start background Claude test sessions with the command `preflight.sh` prints (`--permission-mode dontAsk`, the mailbox tool allow list, never `--tools ""`) | Sessions start and can call `ListAgents`, `SendMessage` and the ten mailbox tools without a prompt (finding 6) | Same; a session that would block on a prompt is reported instead of hanging — `ops-commands` 【加固】 |
-| A5 | Claude, Codex | Register one wake-bound identity per test session (Claude `wake: "auto"`, Codex `{app, sessionId}`) | `bridge_agents` lists each identity with its wake target (baseline item 1) | Same, plus `whoami` shows host, session name, project — `ops-commands` 【加固】 |
+| A5 | Claude, Codex | Register one wake-bound identity per test session (Claude `wake: "auto"`, Codex `{app, sessionId}`) | `bridge_agents` lists each identity with its wake target (baseline item 1) | Same, plus `bridge_sessions.whoami` shows host, session name, project — `ops-commands` 【加固】 |
 
 ## B. Messaging
 
@@ -53,14 +53,14 @@ Run once with a Claude origin and a Codex target, once with a Codex origin and a
 | C5 | both ways | Stop with `cancel` | `cancelled` | Same as current |
 | C6 | both ways | Create two sessions with the same name; query and cancel each by short id | `session-name-ambiguous` with short ids, each queryable with `--disambiguator` | Same as current |
 | C7 | both ways | Create while a prerequisite is missing, then create again with the same name | A held create leaves a named envelope that makes the name ambiguous and cancels as `unknown` (finding 3) | The second create is found by name without a disambiguator; the held one cancels as `cancelled` (by short id) — `delegation-fixes` |
-| C8 | any | Pass an ISO date to `--expires-at` | Exits 2; only integer epoch seconds work (finding 2) | Accepted or rejected with a clear message — `ops-commands` 【加固】 |
+| C8 | any | Pass an ISO date to `--expires-at` | Exits 2; only integer epoch seconds work (finding 2) | ISO 8601 with an offset accepted (documented in the session-delegation skill); a time without an offset exits 2 naming the format — `ops-commands` 【加固】 |
 
 ## D. Integration (brief phase 4)
 
 | Id | Scope | Steps | Current | Target |
 |---|---|---|---|---|
 | D1 | 4.1 design project, agent-relay only | Install agent-relay alone; open Claude Code and Codex sessions | Plugin loads on both hosts; no Spec Guard hook, skill, or convention block is present | Same, plus `doctor` passes 【加固】 |
-| D2 | 4.1 | Check identity in each session | Host, session name, and project are correct | Same, through `whoami` 【加固】 |
+| D2 | 4.1 | Check identity in each session | Host, session name, and project are correct | Same, through `bridge_sessions.whoami` 【加固】 |
 | D3 | 4.1 | Claude Code ↔ Codex in the same project, both directions | Messages and replies arrive (B4, B5) | Same as B4/B5 targets |
 | D4 | 4.2 spec-guard-plugin, split Spec Guard + agent-relay (project scope) | Run Spec Guard's workflows (phase injection, verify-artifacts, add-module, Proposal, ledger) | Same results as Spec Guard's baseline suites | Same as current |
 | D5 | 4.2 | Spec Guard collaboration calls | Only through `agent_relay_probe.py` and agent-relay skill names; Spec Guard's boundary check passes | Same as current |
@@ -74,7 +74,7 @@ Run once with a Claude origin and a Codex target, once with a Codex origin and a
 | D13 | 4.3 | Let a queued message pass its expiry | — | Marked `expired`, not returned by default, never delivered later (D2) — `delivery-state-machine` 【加固】 |
 | D14 | 4.3 | Send twice with the same retry key | — | One message, the retry reports `duplicate: true` and pings nobody; a different body with the same key is refused with a message naming the stored id and saying no resend is needed; the same reply (`replyTo`) sent twice is stored once on the original's thread — `idempotency` 【加固】 |
 | D15 | any | Two senders to one recipient while another recipient is offline | — | Each recipient's pings go out one at a time oldest first, the online recipient is not delayed by the offline one, and a send over `BRIDGE_MAX_PENDING_PER_RECIPIENT` is refused with a clear message (warning at 80 %) — `durable-ordering` 【加固】 |
-| D16 | any | Send a body from a file containing shell metacharacters | — | Body arrives byte-identical — `ops-commands` 【加固】 |
+| D16 | any | Send a body from a file containing shell metacharacters | — | Sent with `bridge_send.bodyFile`, the body arrives byte-identical — `ops-commands` 【加固】 |
 | D17 | any | Uninstall agent-relay from both hosts | — | Host settings backed up before change; uninstall complete; message history kept — `safe-uninstall` 【加固】 |
 
 ## E. Cleanup

@@ -15,6 +15,13 @@ enabled `agent-relay` entry in `codex plugin list --json`) and begin read-only:
 python3 -B "$ROOT/hooks/native_collaboration_runtime.py" status
 ```
 
+For a full health check run `doctor` (read only: it never writes host files, the mailbox or the runtime, and starts
+no session). Report each `warn`/`fail` with its `next` step; ask before acting on any of them.
+
+```bash
+python3 -B "$ROOT/hooks/native_collaboration_runtime.py" doctor
+```
+
 - `absent`: explain that explicit installation creates private data under
   `~/.agent-relay/runtime/` (or `$AGENT_RELAY_HOME/runtime/` when the user set `AGENT_RELAY_HOME`); run `install`
   only after the user asks to enable it.
