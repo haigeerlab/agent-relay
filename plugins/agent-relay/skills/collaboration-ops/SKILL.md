@@ -16,7 +16,8 @@ python3 -B "$ROOT/hooks/native_collaboration_runtime.py" status
 ```
 
 For a full health check run `doctor` (read only: it never writes host files, the mailbox or the runtime, and starts
-no session). Report each `warn`/`fail` with its `next` step; ask before acting on any of them.
+no session). Report each `warn`/`fail` with its `next` step; ask before acting on any of them. Its probe uses the node
+the host entries pin (then PATH) and names it; `node-too-old` means that node is below 22.5.0.
 
 ```bash
 python3 -B "$ROOT/hooks/native_collaboration_runtime.py" doctor
@@ -64,13 +65,18 @@ entry. Never modify project or global settings merely because the runtime is rea
 
 For removal, `uninstall-claude --confirm-uninstall` and
 `uninstall-codex --confirm-uninstall` remove only the managed native entry: Codex's table together with the
-approval subtables Codex writes when the user picks 始终允许, Claude's MCP entry and its seven deny rules. Any
+approval subtables Codex writes when the user picks 始终允许, Claude's MCP entry and its seven deny rules. While
+any Claude Code session is open (or a bridge of this runtime runs) `uninstall-claude` removes the entry but keeps the
+seven deny rules: an open session re-filters its cached tools against the new settings and would offer the upstream
+worker tools. You are an open session yourself, so in Claude never try to remove the rules: give the user the
+command `uninstall-claude` prints and ask them to run it in a terminal after closing every Claude Code session. Any
 other difference is refused with the differing line numbers and keys; leave those lines for the user. Every
 install and uninstall first copies the host files to `backups/<UTC>/host-config/` and prints the path; tell the
 user the copy may contain credentials and is theirs to delete. Never print the files' contents.
 
 A complete uninstall, each step only after the user agrees: close every mailbox session → `doctor` →
-`uninstall-codex` and `uninstall-claude` → `native_collaboration_runtime.py uninstall --confirm` (removes the build,
+`uninstall-codex` and `uninstall-claude` (the deny-rule step is the user's, in a terminal, with every Claude Code
+session closed) → `native_collaboration_runtime.py uninstall --confirm` (removes the build,
 keeps `mailbox/` and `data/`) → remove the plugin from each host → `doctor`. Deleting the history is the user's own
 step.
 

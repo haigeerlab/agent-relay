@@ -24,7 +24,7 @@ from typing import Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from native_collaboration_runtime import (  # noqa: E402
-    StateHomeError, state_home, status as runtime_status)
+    StateHomeError, open_mailbox_read_only, state_home, status as runtime_status)
 from session_delegation import DATABASE_FILENAME, DelegationError, DelegationStore  # noqa: E402
 
 # Migration source: the names Spec Guard used before the split (D1).
@@ -75,7 +75,7 @@ def _paths(home: Path, target: Path | None = None) -> dict[str, Path]:
 
 
 def _read_only(path: Path) -> sqlite3.Connection:
-    return sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    return open_mailbox_read_only(path)
 
 
 def _snapshot(database: Path, workdir: Path) -> Path:

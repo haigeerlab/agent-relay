@@ -17,9 +17,9 @@ import sqlite3
 import stat
 import subprocess
 from typing import Any, Sequence
-from urllib.parse import quote
 
-from native_collaboration_runtime import MAILBOX_BUSY_TIMEOUT, MAILBOX_SCHEMA_VERSIONS, StateHomeError, default_root, status
+from native_collaboration_runtime import (MAILBOX_SCHEMA_VERSIONS, StateHomeError, default_root, open_mailbox_read_only,
+                                          status)
 
 
 class RetireError(ValueError):
@@ -31,8 +31,7 @@ def _open_read_only(database: Path) -> sqlite3.Connection:
     if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid()
             or stat.S_IMODE(metadata.st_mode) != 0o600):
         raise ValueError("native mailbox must be an owner-owned 0600 regular file")
-    return sqlite3.connect(
-        "file:%s?mode=ro" % quote(str(database.absolute())), uri=True, timeout=MAILBOX_BUSY_TIMEOUT)
+    return open_mailbox_read_only(database)
 
 
 def identity_state(database: Path, name: str) -> dict[str, Any]:

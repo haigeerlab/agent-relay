@@ -14,12 +14,12 @@ import sqlite3
 import subprocess
 import tempfile
 from typing import Any, Callable, Iterable
-from urllib.parse import quote
 
 from native_collaboration_adapters import CLAUDE_SERVER_NAME, CODEX_SERVER_NAME
+from node_select import NodeSelectError, select_node, toml_table
 from state_migration import _snapshot
-from native_collaboration_runtime import (DENIED_TOOLS, MAILBOX_BUSY_TIMEOUT, MAILBOX_SCHEMA_VERSIONS, MAILBOX_TOOLS,
-                                          probe_runtime, status)
+from native_collaboration_runtime import (DENIED_TOOLS, MAILBOX_SCHEMA_VERSIONS, MAILBOX_TOOLS, live_claude_sessions,
+                                          open_mailbox_read_only, pid_alive, probe_runtime, status)
 
 DEFAULT_MAX_PENDING = 100
 OLD_BRIDGE = "/.spec-guard/native-collaboration/dist/server.js"
@@ -69,12 +69,23 @@ def _runtime(root: Path) -> tuple[dict[str, str], bool]:
     return _check("runtime", "ok", "runtime ready; bridge matches this plugin"), True
 
 
-def _probe(root: Path, probe: Callable[[Path], dict[str, Any]]) -> dict[str, str]:
+def _probe(root: Path, probe: Callable[[Path], dict[str, Any]], used: str = "") -> dict[str, str]:
     result = probe(root)
     if result.get("state") != "ready":
-        return _check("probe", "fail", "the bridge did not start cleanly: " + str(result.get("diagnostic", result)),
+        return _check("probe", "fail", "the bridge did not start cleanly" + used + ": "
+                      + str(result.get("diagnostic", result)),
                       "check Node and the runtime build; reinstall or upgrade after the user agrees")
-    return _check("probe", "ok", f"the bridge starts and lists {result.get('toolCount')} tools")
+    return _check("probe", "ok", f"the bridge starts{used} and lists {result.get('toolCount')} tools")
+
+
+def _probe_with_selected_node(root: Path, node: str | None, claude_json: Path, codex_config: Path) -> dict[str, str]:
+    """Probe with the node the host entries pin, as the controller does (round2-fixes D50, round 2 R2-1)."""
+    try:
+        selected = select_node(node, claude_json=claude_json, codex_config=codex_config)
+    except NodeSelectError as error:
+        return _check("probe", "fail", error.detail, "install Node 22.5.0 or newer, or pass --node <path>")
+    return _probe(root, lambda r: _probe_outside(r, str(selected.path)),
+                  f" with node {selected.path} ({selected.version}, from {selected.source})")
 
 
 def _mailbox(database: Path, original: Path | None = None) -> dict[str, str]:
@@ -83,8 +94,7 @@ def _mailbox(database: Path, original: Path | None = None) -> dict[str, str]:
     if not original.exists():
         return _check("mailbox", "ok", "no mailbox yet; the bridge creates it on first use")
     try:
-        with closing(sqlite3.connect("file:%s?mode=ro" % quote(str(database)), uri=True,
-                                     timeout=MAILBOX_BUSY_TIMEOUT)) as connection:
+        with closing(open_mailbox_read_only(database)) as connection:
             version = connection.execute("PRAGMA user_version").fetchone()[0]
             if version not in MAILBOX_SCHEMA_VERSIONS:
                 return _check("mailbox", "fail", f"mailbox schema {version} is not one this plugin reads "
@@ -120,27 +130,6 @@ def _mailbox(database: Path, original: Path | None = None) -> dict[str, str]:
     return _check("mailbox", "ok", f"schema {version}, quick_check ok, {size} bytes, {measured}")
 
 
-def _toml_table(text: str, header: str) -> dict[str, Any] | None:
-    """Key/value lines of one table written by ``codex_fragment`` (values are JSON-compatible)."""
-    lines = text.splitlines()
-    try:
-        start = next(i for i, line in enumerate(lines) if line.strip() == header)
-    except StopIteration:
-        return None
-    values: dict[str, Any] = {}
-    for line in lines[start + 1:]:
-        if line.strip().startswith("["):
-            break
-        if "=" not in line or line.strip().startswith("#"):
-            continue
-        key, value = line.split("=", 1)
-        try:
-            values[key.strip()] = json.loads(value.strip())
-        except ValueError:
-            values[key.strip()] = value.strip()
-    return values
-
-
 def _hosts(root: Path, codex_config: Path, claude_json: Path, claude_settings: Path) -> dict[str, str]:
     server = str(root / "dist" / "server.js")
     database = str(root / "mailbox" / "bridge.sqlite")
@@ -152,8 +141,8 @@ def _hosts(root: Path, codex_config: Path, claude_json: Path, claude_settings: P
         codex_text = None
         problems.append(f"{codex_config} cannot be read")
     if codex_text:
-        table = _toml_table(codex_text, f"[mcp_servers.{CODEX_SERVER_NAME}]")
-        env = _toml_table(codex_text, f"[mcp_servers.{CODEX_SERVER_NAME}.env]") or {}
+        table = toml_table(codex_text, f"[mcp_servers.{CODEX_SERVER_NAME}]")
+        env = toml_table(codex_text, f"[mcp_servers.{CODEX_SERVER_NAME}.env]") or {}
         if table is not None:
             attached.append("Codex")
             if table.get("args") != [server] or env.get("BRIDGE_DB_PATH") != database:
@@ -193,37 +182,17 @@ def _codex_approval(codex_config: Path) -> dict[str, str]:
     return _check("codex-approval", "ok", reason)
 
 
-def _sessions(directory: Path, alive: Callable[[int], bool]) -> dict[str, dict[str, Any]]:
-    found: dict[str, dict[str, Any]] = {}
-    try:
-        entries = list(directory.glob("*.json"))
-    except OSError:
-        return found
-    for path in entries:
-        try:
-            value = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, ValueError):
-            continue
-        if (isinstance(value, dict) and isinstance(value.get("pid"), int) and isinstance(value.get("sessionId"), str)
-                and path.name == f"{value['pid']}.json" and alive(value["pid"])):
-            for key in ("sessionId", "bridgeSessionId"):
-                if isinstance(value.get(key), str):
-                    found[value[key]] = value
-    return found
-
-
 def _wake_bindings(database: Path, sessions_dir: Path, alive: Callable[[int], bool]) -> dict[str, str]:
     if not database.exists():
         return _check("wake-bindings", "ok", "no mailbox yet")
     try:
-        with closing(sqlite3.connect("file:%s?mode=ro" % quote(str(database)), uri=True,
-                                     timeout=MAILBOX_BUSY_TIMEOUT)) as connection:
+        with closing(open_mailbox_read_only(database)) as connection:
             rows = connection.execute(
                 "SELECT w.agent, w.target FROM wake_targets w JOIN agents a ON a.name = w.agent "
                 "WHERE a.retired_at IS NULL ORDER BY w.agent").fetchall()
     except sqlite3.Error as error:
         return _check("wake-bindings", "fail", f"cannot read wake bindings: {error}", "run status, then check the file")
-    sessions = _sessions(sessions_dir, alive)
+    sessions = live_claude_sessions(sessions_dir, alive)
     notes: list[str] = []
     problems: list[str] = []
     for agent, raw in rows:
@@ -265,25 +234,15 @@ def _ps() -> list[str]:
         return []
 
 
-def _alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
-
-
 def _probe_outside(root: Path, node: str) -> dict[str, Any]:
     with tempfile.TemporaryDirectory(prefix="agent-relay-doctor-") as scratch:
         return probe_runtime(root, node=node, scratch=Path(scratch))
 
 
-def doctor(root: Path, *, home: Path | None = None, node: str = "node", codex_config: Path | None = None,
+def doctor(root: Path, *, home: Path | None = None, node: str | None = None, codex_config: Path | None = None,
            claude_json: Path | None = None, claude_settings: Path | None = None,
            claude_sessions: Path | None = None, probe: Callable[[Path], dict[str, Any]] | None = None,
-           processes: Callable[[], Iterable[str]] = _ps, alive: Callable[[int], bool] = _alive) -> dict[str, Any]:
+           processes: Callable[[], Iterable[str]] = _ps, alive: Callable[[int], bool] = pid_alive) -> dict[str, Any]:
     home = Path(home) if home else Path.home()
     codex_home = os.environ.get("CODEX_HOME", "").strip()
     codex_config = Path(codex_config) if codex_config else (Path(codex_home) if codex_home else home / ".codex") / "config.toml"
@@ -299,7 +258,9 @@ def doctor(root: Path, *, home: Path | None = None, node: str = "node", codex_co
     with tempfile.TemporaryDirectory(prefix="agent-relay-doctor-mailbox-") as scratch:
         copy = _snapshot(database, Path(scratch)) if database.exists() else database
         if ready:
-            checks += [_probe(root, probe or (lambda r: _probe_outside(r, node))), _mailbox(copy, database)]
+            probed = (_probe(root, probe) if probe else
+                      _probe_with_selected_node(root, node, claude_json, codex_config))
+            checks += [probed, _mailbox(copy, database)]
         checks += [_hosts(root, codex_config, claude_json, claude_settings), _codex_approval(codex_config)]
         if ready:
             checks.append(_wake_bindings(copy, claude_sessions, alive))

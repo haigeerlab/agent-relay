@@ -15,7 +15,7 @@ import shutil
 import stat
 import subprocess
 import tempfile
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
 
 # Mailbox schemas the Python readers understand: 2 (upstream 8f12c88) and 3 (delivery-state-machine adds
@@ -326,13 +326,57 @@ def _servers_running(root: Path) -> int:
     return sum(1 for line in listing.splitlines() if server in line)
 
 
-def _mailbox_counts(database: Path) -> dict[str, int]:
+def pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def live_claude_sessions(directory: Path, alive: Callable[[int], bool] | None = None) -> dict[str, dict[str, Any]]:
+    """Claude Code sessions whose `<pid>.json` names a live process, keyed by session id (and bridge session id)."""
+    alive = alive or pid_alive
+    found: dict[str, dict[str, Any]] = {}
+    try:
+        entries = list(directory.glob("*.json"))
+    except OSError:
+        return found
+    for path in entries:
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, ValueError):
+            continue
+        if (isinstance(value, dict) and isinstance(value.get("pid"), int) and isinstance(value.get("sessionId"), str)
+                and path.name == f"{value['pid']}.json" and alive(value["pid"])):
+            for key in ("sessionId", "bridgeSessionId"):
+                if isinstance(value.get(key), str):
+                    found[value[key]] = value
+    return found
+
+
+def open_mailbox_read_only(database: Path, *, timeout: float = MAILBOX_BUSY_TIMEOUT) -> "sqlite3.Connection":
+    """Open a mailbox (live or a private copy) read-only, on every supported Python's SQLite."""
     import sqlite3
     from urllib.parse import quote
 
+    uri = "file:%s?mode=ro" % quote(str(Path(database).absolute()))
+    if not any(Path(str(database) + suffix).exists() for suffix in ("-wal", "-shm")):
+        # No connection has the file open, so every committed row is in the file itself. Read it immutable: SQLite 3.43
+        # (macOS /usr/bin/python3 3.9) cannot open such a WAL-mode file with mode=ro alone, and newer versions would
+        # create -wal/-shm beside it (round2-fixes D51). A bridge starting meanwhile writes to its new -wal, not here.
+        uri += "&immutable=1"
+    return sqlite3.connect(uri, uri=True, timeout=timeout)
+
+
+def _mailbox_counts(database: Path) -> dict[str, int]:
+    from contextlib import closing
+
     if not database.is_file():
         return {}
-    with sqlite3.connect("file:%s?mode=ro" % quote(str(database)), uri=True) as connection:
+    with closing(open_mailbox_read_only(database)) as connection:
         tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         return {table: connection.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
                 for table in ("agents", "messages", "acknowledgements", "wake_jobs") if table in tables}
@@ -466,7 +510,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("command", choices=("status", "install", "probe", "upgrade", "doctor", "uninstall"))
     parser.add_argument("--confirm", action="store_true", help="required for upgrade and uninstall")
     parser.add_argument("--root", type=Path)
-    parser.add_argument("--node", default="node")
+    parser.add_argument("--node", help="default: doctor uses the node the host entries pin (then PATH); "
+                                       "the other commands use PATH's node")
     parser.add_argument("--npm", default="npm")
     for option in ("--codex-config", "--claude-json", "--claude-settings", "--claude-sessions"):
         parser.add_argument(option, type=Path, help="doctor: read this file or directory instead of the default")
@@ -481,6 +526,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "uninstall" and not args.confirm:
         parser.exit(2, f"{parser.prog}: error: uninstall removes the runtime build (history is kept); rerun with "
                        "--confirm after the user agrees and every session using the mailbox is closed\n")
+    if args.command != "doctor":
+        args.node = args.node or "node"
     if args.command == "doctor":
         from native_collaboration_doctor import doctor
         report = doctor(args.root, node=args.node, codex_config=args.codex_config, claude_json=args.claude_json,

@@ -48,7 +48,7 @@ Run once with a Claude origin and a Codex target, once with a Codex origin and a
 |---|---|---|---|---|
 | C1 | both ways | Check prerequisites with `permissions`; create a session with a safe intent | Missing project allow rules give `held` with the prerequisite named (baseline item 8); after the user adds them, create gives `created`/`completed` | Same as current |
 | C2 | both ways | Exact result return to the origin | The result arrives in the origin's mailbox, `resultDelivery=enqueued`, and wakes the origin (baseline items 7, 9) | Same as current |
-| C3 | both ways | Same-session second round with `continue` | Claude → Codex passes; Codex → Claude may report `target-busy` while idle (finding 4); on Claude Code 2.1.291 a Claude target in a git worktree is created `unknown` and round two refuses (round 1 finding 7) | Second round passes both ways, with the Claude target once in a plain repository and once in a git worktree — `delegation-fixes` |
+| C3 | both ways | Same-session second round with `continue` | Claude → Codex passes; Codex → Claude may report `target-busy` while idle (finding 4); on Claude Code 2.1.291 a Claude target in a git worktree is created `unknown` and round two refuses (round 1 finding 7) | Second round passes both ways, with the Claude target once in a plain repository and once in a git worktree — `delegation-fixes`; every Claude-target result returns through the mailbox (round 2 R2-6: three runs each, plain repository and worktree, quick task) — `round2-fixes` |
 | C4 | both ways | Read-only intent asked to write | Refused, tree clean (baseline item 7; not run Codex → Claude before) | Same as current |
 | C5 | both ways | Stop with `cancel` | `cancelled` | Same as current |
 | C6 | both ways | Create two sessions with the same name; query and cancel each by short id | `session-name-ambiguous` with short ids, each queryable with `--disambiguator` | Same as current |
@@ -65,7 +65,7 @@ Run once with a Claude origin and a Codex target, once with a Codex origin and a
 | D4 | 4.2 spec-guard-plugin, split Spec Guard + agent-relay (project scope) | Run Spec Guard's workflows (phase injection, verify-artifacts, add-module, Proposal, ledger) | Same results as Spec Guard's baseline suites | Same as current |
 | D5 | 4.2 | Spec Guard collaboration calls | Only through `agent_relay_probe.py` and agent-relay skill names; Spec Guard's boundary check passes | Same as current |
 | D6 | 4.2 | `/spec-guard:collaboration` with agent-relay installed, then temporarily uninstalled | Hands off to agent-relay; without it, prints the not-installed message and the workflow continues | Same as current |
-| D7 | 4.2 | Legacy Spec Guard collaboration state present | Migration guidance; backup made first; no data lost | Same as current |
+| D7 | 4.2 | Legacy Spec Guard collaboration state present | Migration guidance; backup made first; no data lost | Same as current, also with macOS `/usr/bin/python3` 3.9 (round 2 R2-9) — `round2-fixes` |
 | D8 | 4.3 cross-project, four host pairs | Say "去 <宿主> 里找设计项目的会话，跟它联调" | The target session is found; same-name sessions are disambiguated | Same as current |
 | D9 | 4.3 | Two-way message, then a design artifact handed over by path | Reply returns to the sender; the artifact is passed by reference, not content, and the receiver confirms it read it | Same as current |
 | D10 | 4.3 | Idle wake and repeated wake; delegation create, second round, stop | As B5 and C1–C5 | As B5 and C3 targets |
@@ -75,7 +75,7 @@ Run once with a Claude origin and a Codex target, once with a Codex origin and a
 | D14 | 4.3 | Send twice with the same retry key | — | One message, the retry reports `duplicate: true` and pings nobody; a different body with the same key is refused with a message naming the stored id and saying no resend is needed; the same reply (`replyTo`) sent twice is stored once on the original's thread — `idempotency` 【加固】 |
 | D15 | any | Two senders to one recipient while another recipient is offline | — | Each recipient's pings go out one at a time oldest first, the online recipient is not delayed by the offline one, and a send over `BRIDGE_MAX_PENDING_PER_RECIPIENT` is refused with a clear message (warning at 80 %) — `durable-ordering` 【加固】 |
 | D16 | any | Send a body from a file containing shell metacharacters | — | Sent with `bridge_send.bodyFile`, the body arrives byte-identical — `ops-commands` 【加固】 |
-| D17 | any | Uninstall agent-relay from both hosts | — | Host settings backed up before change (`backups/<UTC>/host-config/`, owner-only); Codex table removed even with 始终允许 approval subtables (round 1 report finding 6); Claude entry and deny rules removed; runtime build removed with `uninstall --confirm`; `mailbox/` history kept; `doctor` shows not attached and uninstalled — `safe-uninstall` 【加固】 |
+| D17 | any | Uninstall agent-relay from both hosts | — | Host settings backed up before change (`backups/<UTC>/host-config/`, owner-only); Codex table removed even with 始终允许 approval subtables (round 1 report finding 6); Claude entry removed, deny rules removed only from a terminal with every Claude Code session closed (kept, with the command printed, otherwise: round 2 R2-10); runtime build removed with `uninstall --confirm`; `mailbox/` history kept; `doctor` shows not attached and uninstalled — `safe-uninstall` 【加固】 |
 
 ## E. Cleanup
 
