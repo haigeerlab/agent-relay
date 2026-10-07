@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { pendingWarning } from "./delivery.js";
 import { randomUUID } from "node:crypto";
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -192,6 +193,10 @@ function main(): void {
         expiresInSeconds,
       });
       store.touch(from);
+      if (to !== "*") {
+        const capWarning = pendingWarning(store.database, to);
+        if (capWarning) warnings.push(capWarning);
+      }
       await dispatcher.flush();
       return jsonResult({
         ...message,

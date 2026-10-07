@@ -115,3 +115,52 @@ function expireDueStep(db: DatabaseSync, now: number): number[] {
   for (const id of expired) cancel.run(id);
   return expired;
 }
+
+/** Default per-recipient cap on undelivered messages (agent-relay durable-ordering, D30). */
+export const DEFAULT_MAX_PENDING = 100;
+
+/** The cap: `BRIDGE_MAX_PENDING_PER_RECIPIENT` between 10 and 10 000, otherwise the default. */
+export function maxPendingPerRecipient(env: Record<string, string | undefined> = process.env): number {
+  const raw = env.BRIDGE_MAX_PENDING_PER_RECIPIENT;
+  if (!raw || !/^\d+$/.test(raw)) return DEFAULT_MAX_PENDING;
+  const value = Number(raw);
+  return value >= 10 && value <= 10_000 ? value : DEFAULT_MAX_PENDING;
+}
+
+/**
+ * Undelivered direct messages to `agent`: still queued, sending or unknown, and not acknowledged (older rows
+ * without a state read as queued, so an acknowledgement must also release them).
+ */
+export function pendingCount(db: DatabaseSync, agent: string): number {
+  const row = db.prepare(
+    `SELECT COUNT(*) AS n FROM messages m
+     WHERE m.to_agent = ? AND COALESCE(m.delivery_state, 'queued') IN ('queued', 'sending', 'unknown')
+       AND NOT EXISTS (SELECT 1 FROM acknowledgements a WHERE a.message_id = m.id AND a.agent = m.to_agent)`,
+  ).get(agent) as { n: number | bigint };
+  return Number(row.n);
+}
+
+export class PendingCapError extends Error {}
+
+/** Refuse a new direct message once the recipient holds the cap (D31). Call inside the send transaction. */
+export function assertBelowPendingCap(db: DatabaseSync, agent: string): void {
+  expireDue(db);
+  const cap = maxPendingPerRecipient();
+  const pending = pendingCount(db, agent);
+  if (pending >= cap) {
+    throw new PendingCapError(
+      `Recipient ${JSON.stringify(agent)} already has ${pending} undelivered messages, the limit ` +
+      `(BRIDGE_MAX_PENDING_PER_RECIPIENT=${cap}). It is not reading its mailbox; wait, ask the user to open that ` +
+      "session, or send the work to another agent.",
+    );
+  }
+}
+
+/** A warning once the recipient reaches 80 % of the cap (D31), or null. */
+export function pendingWarning(db: DatabaseSync, agent: string): string | null {
+  const cap = maxPendingPerRecipient();
+  const pending = pendingCount(db, agent);
+  return pending >= Math.ceil(cap * 0.8)
+    ? `Recipient ${JSON.stringify(agent)} now has ${pending} of ${cap} undelivered messages allowed (BRIDGE_MAX_PENDING_PER_RECIPIENT); further sends will be refused at the limit.`
+    : null;
+}
