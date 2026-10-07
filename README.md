@@ -25,21 +25,21 @@ agent-relay 原来是 [Spec Guard](https://github.com/haigeerlab/spec-guard-plug
 
 ## 安装
 
-目前从本地路径安装（发布后改为 GitHub 地址）。
-
 Claude Code：
 
 ```bash
-claude plugin marketplace add /path/to/agent-relay
+claude plugin marketplace add haigeerlab/agent-relay
 claude plugin install agent-relay@agent-relay-marketplace
 ```
 
-Codex：
+Codex（固定到发布的版本）：
 
 ```bash
-codex plugin marketplace add /path/to/agent-relay
+codex plugin marketplace add haigeerlab/agent-relay --ref v0.1.0
 codex plugin add agent-relay@agent-relay-marketplace
 ```
+
+开发时也可以把上面的 `haigeerlab/agent-relay` 换成本地克隆的路径。
 
 装上插件只会加载 skill 和命令，**不会**自动创建运行时，也不会改宿主配置。第一次用时，agent 会先只读检查，
 告诉你需要做哪几步，每一步都等你同意：
@@ -116,6 +116,7 @@ python3 -B plugins/agent-relay/hooks/state_migration.py migrate --confirm
 
 - [接口文档](docs/collaboration-interface.md)：工具、消息、状态、投递语义、身份、授权、委派与加固目标。
 - [验收清单](docs/acceptance/checklist.md)：真实宿主验收步骤。
+- [变更记录](CHANGELOG.md)：版本变化与已知问题。
 - [运行时说明](plugins/agent-relay/references/collaboration-runtime.md)、
   [协作协议](plugins/agent-relay/references/collaboration-protocol.md)。
 
