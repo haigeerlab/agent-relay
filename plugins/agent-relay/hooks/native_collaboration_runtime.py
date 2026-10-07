@@ -288,7 +288,7 @@ def probe_runtime(root: Path, *, node: str = "node") -> dict[str, Any]:
 UPGRADE_ROLLBACK = (
     "To go back to the previous runtime, stop every session using the mailbox, move runtime/mailbox and "
     "runtime/data into the previous directory, and rename it back to runtime. Its bridge opens the upgraded "
-    "(schema 3) mailbox in compatible mode, but an older agent-relay plugin's hooks read only schema 2: roll "
+    "(schema 4) mailbox in compatible mode, but an older agent-relay plugin's hooks read only schema 2 (or 3): roll "
     "the plugin back too, or restore the mailbox from the backup (messages sent since are lost).")
 
 
