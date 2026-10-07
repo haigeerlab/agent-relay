@@ -11,14 +11,17 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import stat
 import subprocess
 import tempfile
 from typing import Any, Sequence
 
 
-BRIDGE_REPOSITORY = "https://github.com/WebisityStudio/claude-codex-mcp-bridge.git"
+# Upstream commit the vendored bridge descends from (plugins/agent-relay/bridge/UPSTREAM.md).
 BRIDGE_COMMIT = "8f12c880cfdba73812b6ab7bc0f373fc467e0343"
+# SHA-256 of UPSTREAM.sha256 for the unmodified 8f12c88 tree: what a legacy git-installed runtime holds (D26).
+UPSTREAM_TREE = "0573d6fcebe9b9ee57e430cbcca600d45d4d0eeba8c613266c201dd7c1f345a8"
 MIN_NODE_VERSION = (22, 5, 0)
 
 
@@ -32,6 +35,13 @@ BRIDGE_SOURCE = Path(__file__).resolve().parent.parent / "bridge"
 BRIDGE_MANIFEST = "UPSTREAM.sha256"
 _PROVENANCE_FILES = frozenset((BRIDGE_MANIFEST, "UPSTREAM.md"))
 _BUILD_OUTPUTS = frozenset(("node_modules", "dist", "dist.next", "dist.old"))
+
+
+def bridge_tree(directory: Path) -> str:
+    """The version mark of a bridge copy: the SHA-256 of its UPSTREAM.sha256 (D26)."""
+    import hashlib
+
+    return hashlib.sha256((Path(directory) / BRIDGE_MANIFEST).read_bytes()).hexdigest()
 
 
 def verify_bridge_copy(directory: Path) -> None:
@@ -131,7 +141,16 @@ def status(root: Path) -> dict[str, Any]:
         manifest = root / "manifest.json"
         _regular_file(manifest, "native runtime manifest")
         value = json.loads(manifest.read_text(encoding="utf-8"))
-        if value != {"commit": BRIDGE_COMMIT}:
+        if value == {"commit": BRIDGE_COMMIT}:
+            # Installed by git from upstream before bridge-vendoring: the unmodified 8f12c88 tree.
+            bridge = {"source": "upstream-git", "tree": None,
+                      "current": bridge_tree(BRIDGE_SOURCE) == UPSTREAM_TREE}
+        elif (isinstance(value, dict) and set(value) == {"commit", "source", "tree"}
+                and value["commit"] == BRIDGE_COMMIT and value["source"] == "vendored"
+                and isinstance(value["tree"], str) and re.fullmatch(r"[0-9a-f]{64}", value["tree"])):
+            bridge = {"source": "vendored", "tree": value["tree"],
+                      "current": value["tree"] == bridge_tree(BRIDGE_SOURCE)}
+        else:
             raise NativeRuntimeError("native runtime revision does not match the audited commit")
         _owned_directory(root / "dist", "native bridge build directory")
         _regular_file(root / "dist" / "server.js", "native bridge server")
@@ -152,7 +171,7 @@ def status(root: Path) -> dict[str, Any]:
                 raise NativeRuntimeError("native mailbox mode must be 0600")
     except (NativeRuntimeError, OSError, UnicodeError, json.JSONDecodeError) as error:
         return {"state": "invalid", "diagnostic": str(error)}
-    return {"state": "ready", "commit": BRIDGE_COMMIT,
+    return {"state": "ready", "commit": BRIDGE_COMMIT, "bridge": bridge,
             "server": str(root / "dist" / "server.js"),
             "database": str(root / "mailbox" / "bridge.sqlite")}
 
@@ -166,8 +185,9 @@ def _run(command: list[str], *, cwd: Path | None = None) -> str:
     return result.stdout.strip()
 
 
-def install_runtime(root: Path, *, node: str = "node", npm: str = "npm") -> dict[str, Any]:
-    """Install one immutable upstream checkout; never run its broad setup command."""
+def install_runtime(root: Path, *, node: str = "node", npm: str = "npm",
+                    source: Path = BRIDGE_SOURCE) -> dict[str, Any]:
+    """Build the runtime from the verified vendored bridge; never run its broad setup command."""
     root = Path(root)
     if not root.is_absolute():
         raise NativeRuntimeError("native runtime path must be absolute")
@@ -182,11 +202,12 @@ def install_runtime(root: Path, *, node: str = "node", npm: str = "npm") -> dict
     _owned_directory(root.parent, "native runtime parent")
     with tempfile.TemporaryDirectory(prefix=".native-stage-", dir=root.parent) as temporary:
         stage = Path(temporary)
-        _run(["git", "init", "-q"], cwd=stage)
-        _run(["git", "fetch", "--depth", "1", BRIDGE_REPOSITORY, BRIDGE_COMMIT], cwd=stage)
-        _run(["git", "checkout", "--detach", "FETCH_HEAD"], cwd=stage)
-        if _run(["git", "rev-parse", "HEAD"], cwd=stage) != BRIDGE_COMMIT:
-            raise NativeRuntimeError("fetched bridge revision does not match the audited commit")
+        # bridge-vendoring D24: copy the plugin's bridge and check the copy itself, so what is
+        # built is exactly what UPSTREAM.sha256 records; no git and no upstream fetch.
+        shutil.copytree(source, stage, dirs_exist_ok=True,
+                        ignore=shutil.ignore_patterns(*_BUILD_OUTPUTS))
+        stage.chmod(0o700)  # copytree copied the plugin directory's mode onto the private stage
+        verify_bridge_copy(stage)
         _run([npm, "ci", "--ignore-scripts", "--no-audit", "--no-fund"], cwd=stage)
         _run([npm, "run", "build"], cwd=stage)
         _regular_file(stage / "dist" / "server.js", "native bridge server")
@@ -194,7 +215,8 @@ def install_runtime(root: Path, *, node: str = "node", npm: str = "npm") -> dict
         (stage / "mailbox" / "backups").mkdir(mode=0o700)
         (stage / "data").mkdir(mode=0o700)
         manifest = stage / "manifest.json"
-        manifest.write_text(json.dumps({"commit": BRIDGE_COMMIT}) + "\n", encoding="utf-8")
+        manifest.write_text(json.dumps({"commit": BRIDGE_COMMIT, "source": "vendored",
+                                        "tree": bridge_tree(stage)}) + "\n", encoding="utf-8")
         manifest.chmod(0o600)
         if root.exists() or root.is_symlink():
             raise NativeRuntimeError("native runtime appeared during install; refusing to overwrite it")

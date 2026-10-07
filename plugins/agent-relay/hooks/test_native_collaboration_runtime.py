@@ -8,7 +8,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from native_collaboration_runtime import (BRIDGE_COMMIT, NativeRuntimeError, default_root,
+from native_collaboration_runtime import (BRIDGE_COMMIT, BRIDGE_SOURCE, NativeRuntimeError,
+                                          UPSTREAM_TREE, bridge_tree, default_root,
                                           install_runtime, probe_runtime, status)
 
 
@@ -46,8 +47,6 @@ class NativeCollaborationRuntimeTests(unittest.TestCase):
         def fake_run(command, **kwargs):
             if command[:2] == ["node", "--version"]:
                 return subprocess.CompletedProcess(command, 0, "v22.5.0\n", "")
-            if command[-2:] == ["rev-parse", "HEAD"]:
-                return subprocess.CompletedProcess(command, 0, BRIDGE_COMMIT + "\n", "")
             if command[:3] == ["npm", "run", "build"]:
                 (Path(kwargs["cwd"]) / "dist").mkdir()
                 (Path(kwargs["cwd"]) / "dist" / "server.js").write_text("server\n")
@@ -72,8 +71,6 @@ class NativeCollaborationRuntimeTests(unittest.TestCase):
             commands.append(command)
             if command[:2] == ["node", "--version"]:
                 return subprocess.CompletedProcess(command, 0, "v22.5.0\n", "")
-            if command[-2:] == ["rev-parse", "HEAD"]:
-                return subprocess.CompletedProcess(command, 0, BRIDGE_COMMIT + "\n", "")
             if command[:3] == ["npm", "run", "build"]:
                 (Path(kwargs["cwd"]) / "dist").mkdir()
                 (Path(kwargs["cwd"]) / "dist" / "server.js").write_text("server\n")
@@ -86,11 +83,18 @@ class NativeCollaborationRuntimeTests(unittest.TestCase):
         self.assertEqual(stat.S_IMODE(self.root.stat().st_mode), 0o700)
         self.assertEqual(stat.S_IMODE((self.root / "data").stat().st_mode), 0o700)
         self.assertEqual(stat.S_IMODE((self.root / "mailbox" / "backups").stat().st_mode), 0o700)
-        self.assertTrue(any(command[:2] == ["git", "fetch"] and command[-1] == BRIDGE_COMMIT
-                            for command in commands))
+        # bridge-vendoring D24: built from the plugin's verified copy, never fetched with git.
+        self.assertFalse(any(command[0] == "git" for command in commands))
+        self.assertTrue((self.root / "src" / "server.ts").is_file())
         self.assertTrue(any(command[:2] == ["npm", "ci"] and "--ignore-scripts" in command
                             for command in commands))
         self.assertFalse(any("setup" in command for command in commands))
+        # D26: the manifest marks a vendored install and its tree.
+        manifest = json.loads((self.root / "manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest, {"commit": BRIDGE_COMMIT, "source": "vendored",
+                                    "tree": bridge_tree(BRIDGE_SOURCE)})
+        self.assertEqual(status(self.root)["bridge"],
+                         {"source": "vendored", "tree": bridge_tree(BRIDGE_SOURCE), "current": True})
 
     def test_status_rejects_world_readable_or_symlinked_runtime(self):
         self.root.mkdir(mode=0o700)
@@ -145,18 +149,6 @@ class NativeCollaborationRuntimeTests(unittest.TestCase):
         with patch("native_collaboration_runtime.subprocess.run", return_value=
                    subprocess.CompletedProcess(["node", "--version"], 0, "v20.0.0\n", "")):
             with self.assertRaisesRegex(NativeRuntimeError, "22.5"):
-                install_runtime(self.root)
-        self.assertFalse(self.root.exists())
-
-    def test_wrong_fetched_commit_never_activates_runtime(self):
-        def fake_run(command, **_kwargs):
-            output = "v22.5.0\n" if command[:2] == ["node", "--version"] else ""
-            if command[-2:] == ["rev-parse", "HEAD"]:
-                output = "0" * 40 + "\n"
-            return subprocess.CompletedProcess(command, 0, output, "")
-
-        with patch("native_collaboration_runtime.subprocess.run", side_effect=fake_run):
-            with self.assertRaisesRegex(NativeRuntimeError, "does not match"):
                 install_runtime(self.root)
         self.assertFalse(self.root.exists())
 
@@ -229,6 +221,53 @@ class NativeCollaborationRuntimeTests(unittest.TestCase):
     def catalog(names):
         return json.dumps({"jsonrpc": "2.0", "id": 2,
                            "result": {"tools": [{"name": name} for name in names]}}) + "\n"
+
+
+    def ready_fixture(self, manifest):
+        self.root.mkdir(mode=0o700)
+        for sub in ("mailbox", "mailbox/backups", "data"):
+            (self.root / sub).mkdir(mode=0o700)
+        (self.root / "dist").mkdir()
+        (self.root / "dist" / "server.js").write_text("server\n")
+        (self.root / "manifest.json").write_text(json.dumps(manifest))
+
+    def test_status_tells_a_legacy_git_install_from_a_vendored_one(self):
+        self.ready_fixture({"commit": BRIDGE_COMMIT})
+        legacy = status(self.root)
+        self.assertEqual(legacy["state"], "ready")
+        self.assertEqual(legacy["bridge"], {"source": "upstream-git", "tree": None,
+                                            "current": bridge_tree(BRIDGE_SOURCE) == UPSTREAM_TREE})
+        (self.root / "manifest.json").write_text(json.dumps(
+            {"commit": BRIDGE_COMMIT, "source": "vendored", "tree": "0" * 64}))
+        stale = status(self.root)
+        self.assertEqual(stale["state"], "ready")
+        self.assertEqual(stale["bridge"], {"source": "vendored", "tree": "0" * 64, "current": False})
+        for manifest in ({"commit": "f" * 40}, {"commit": BRIDGE_COMMIT, "source": "other"},
+                         {"commit": BRIDGE_COMMIT, "source": "vendored", "tree": "short"}):
+            (self.root / "manifest.json").write_text(json.dumps(manifest))
+            self.assertEqual(status(self.root)["state"], "invalid", manifest)
+
+    def test_the_unmodified_upstream_tree_is_recorded(self):
+        # Until a module changes the bridge, the plugin copy is the 8f12c88 tree itself.
+        self.assertEqual(bridge_tree(BRIDGE_SOURCE), UPSTREAM_TREE)
+
+    def test_install_refuses_a_tampered_copy_before_running_npm(self):
+        import shutil
+        copy = Path(self.tmp.name) / "bridge"
+        shutil.copytree(BRIDGE_SOURCE, copy)
+        with (copy / "src" / "server.ts").open("a", encoding="utf-8") as handle:
+            handle.write("\n")
+        commands = []
+
+        def fake_run(command, **_kwargs):
+            commands.append(command)
+            return subprocess.CompletedProcess(command, 0, "v22.5.0\n", "")
+
+        with patch("native_collaboration_runtime.subprocess.run", side_effect=fake_run), \
+                self.assertRaisesRegex(NativeRuntimeError, "differs from UPSTREAM.sha256"):
+            install_runtime(self.root, source=copy)
+        self.assertFalse(self.root.exists())
+        self.assertFalse(any(command[0] == "npm" for command in commands))
 
 
 if __name__ == "__main__":
