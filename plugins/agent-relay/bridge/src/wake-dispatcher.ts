@@ -1,6 +1,7 @@
 import type { BridgeStore } from "./bridge-store.js";
 import { channelNotification, type ChannelNotification } from "./claude-channel.js";
 import { ClaudeWake } from "./claude-wake.js";
+import { codexApproval, codexAutoApprovalText } from "./codex-approval.js";
 import { wakeCodex } from "./codex-wake.js";
 import type { WakeJob, WakeResult } from "./wake-queue.js";
 
@@ -13,6 +14,8 @@ export interface ChannelDelivery {
 export interface DispatcherOptions {
   deliver?: (job: WakeJob) => Promise<WakeResult>;
   channel?: ChannelDelivery | null;
+  /** Environment for the Codex approval check (agent-relay identity-check D38); defaults to this process's. */
+  env?: NodeJS.ProcessEnv;
 }
 
 export class WakeDispatcher {
@@ -22,11 +25,13 @@ export class WakeDispatcher {
   private claude: ClaudeWake;
   private deliver?: (job: WakeJob) => Promise<WakeResult>;
   private channel: ChannelDelivery | null;
+  private env: NodeJS.ProcessEnv;
 
   constructor(private store: BridgeStore, options: DispatcherOptions | ((job: WakeJob) => Promise<WakeResult>) = {}) {
     const resolved = typeof options === "function" ? { deliver: options } : options;
     this.deliver = resolved.deliver;
     this.channel = resolved.channel ?? null;
+    this.env = resolved.env ?? process.env;
     this.claude = new ClaudeWake((job, result) => store.wakes.finish(job, result));
   }
 
@@ -74,7 +79,13 @@ export class WakeDispatcher {
       // Claude Code sends no receipt for channel events; an inbox read marks it read.
       return { state: "unknown", detail: "Pushed to this Claude Code session's channel; Claude Code returns no receipt. No automatic replay." };
     }
-    return job.target.app === "codex" ? wakeCodex(job) : this.claude.wake(job);
+    if (job.target.app === "codex") {
+      // agent-relay identity-check (D38): an auto-approved Codex session is not pinged; the binding is kept.
+      const approval = codexApproval(this.env);
+      if (approval.autoApproved) return { state: "held", detail: codexAutoApprovalText(approval) };
+      return wakeCodex(job);
+    }
+    return this.claude.wake(job);
   }
 
   async close(): Promise<void> {

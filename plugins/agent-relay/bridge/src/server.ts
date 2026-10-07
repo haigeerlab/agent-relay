@@ -2,6 +2,7 @@
 import { pendingWarning } from "./delivery.js";
 import { duplicateWarning } from "./idempotency.js";
 import { CallerIdentity } from "./identity.js";
+import { codexApproval, codexAutoApprovalText } from "./codex-approval.js";
 import { randomUUID } from "node:crypto";
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -142,6 +143,10 @@ function main(): void {
       // its verified session, else a Codex session's claimed thread; another session's name or binding needs takeover.
       if (caller.host && target && (target.app !== caller.host.app || target.sessionId !== caller.host.sessionId)) {
         throw new Error(`This session can bind wake only to this session (${caller.host.app}); it cannot bind another session.`);
+      }
+      if (target?.app === "codex") {
+        const approval = codexApproval();
+        if (approval.autoApproved) throw new Error(codexAutoApprovalText(approval));
       }
       const host = caller.host ?? (target?.app === "codex" ? target : null);
       const existing = store.getAgent(agent);

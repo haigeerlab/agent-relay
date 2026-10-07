@@ -46,7 +46,9 @@ export function deliveryFailureNotice(job: WakeJob): string {
   }
   const outcome =
     job.state === "held"
-      ? "is being held for approval in the recipient's Claude session"
+      ? job.target.app === "codex"
+        ? "was held by the bridge because the recipient's Codex runs with auto-approval"
+        : "is being held for approval in the recipient's Claude session"
       : `ended "${job.state}"`;
   return [
     `Delivery problem: your message #${job.messageId} to ${target} was saved, but its background ping ${outcome}.`,
