@@ -238,11 +238,13 @@ function main(): void {
         fromAgent: z.string().min(1).optional().describe("Only messages from this sender."),
         threadId: z.string().min(1).optional().describe("Only messages on this thread."),
         afterId: z.number().int().min(0).optional().describe("Only messages with a larger id (paging cursor)."),
+        includeExpired: z.boolean().optional().describe(
+          "Also list messages that expired before delivery. They are history: never act on them."),
         ...pagingInput,
       },
     },
-    async ({ agent, includeAcknowledged, fromAgent, threadId, afterId, limit, maxChars, maxBodyChars }) => {
-      const page = store.inboxPage(agent, { includeAcknowledged, fromAgent, threadId, afterId, limit, maxChars, maxBodyChars });
+    async ({ agent, includeAcknowledged, fromAgent, threadId, afterId, includeExpired, limit, maxChars, maxBodyChars }) => {
+      const page = store.inboxPage(agent, { includeAcknowledged, fromAgent, threadId, afterId, includeExpired, limit, maxChars, maxBodyChars });
       store.wakes.recordRead(agent, page.messages.map((message) => message.id));
       store.touch(agent);
       return jsonResult({ agent, ...page });

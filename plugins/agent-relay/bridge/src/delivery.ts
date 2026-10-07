@@ -73,3 +73,24 @@ export function transition(db: DatabaseSync, messageId: number, to: DeliveryStat
   }
   return true;
 }
+
+/**
+ * Expire every direct message still `queued` past its `expires_at` and cancel its pending ping, so it is never
+ * delivered later (D27). Runs before any claim or inbox read, so no reader sees a message that just lapsed.
+ * Rows from older bridges carry no `expires_at` and never expire.
+ */
+export function expireDue(db: DatabaseSync, now = Date.now()): number[] {
+  const expired = db.prepare(
+    `UPDATE messages SET delivery_state = 'expired', delivery_changed_at = ?
+     WHERE to_agent != '*' AND COALESCE(delivery_state, 'queued') = 'queued'
+       AND expires_at IS NOT NULL AND expires_at <= ?
+     RETURNING id`,
+  ).all(now, now).map((row) => Number(row.id));
+  const cancel = db.prepare(
+    // `expired` (not `cancelled`) so the sender gets the usual failure notice and learns it was never sent.
+    `UPDATE wake_jobs SET state = 'expired', detail = 'Message expired before delivery; it will not be sent'
+     WHERE message_id = ? AND state IN ('pending', 'held')`,
+  );
+  for (const id of expired) cancel.run(id);
+  return expired;
+}

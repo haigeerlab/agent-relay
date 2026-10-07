@@ -1,4 +1,4 @@
-import { type DeliveryState, sendTimeoutMs } from "./delivery.js";
+import { type DeliveryState, expireDue, sendTimeoutMs } from "./delivery.js";
 import { WakeQueue } from "./wake-queue.js";
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
@@ -138,6 +138,8 @@ export interface SendInput {
 
 export interface InboxOptions {
   includeAcknowledged?: boolean;
+  /** agent-relay delivery-state-machine: also return messages that expired before delivery (history). */
+  includeExpired?: boolean;
   fromAgent?: string;
   threadId?: string;
   afterId?: number;
@@ -272,6 +274,7 @@ const DELIVERED_TO = (agentColumn: string) => `
 
 const UNREAD_FOR = (agentColumn: string) => `
   ${DELIVERED_TO(agentColumn)}
+  AND COALESCE(m.delivery_state, '') != 'expired'
   AND NOT EXISTS (
     SELECT 1 FROM acknowledgements a WHERE a.message_id = m.id AND a.agent = ${agentColumn}
   )`;
@@ -423,8 +426,10 @@ export class BridgeStore {
    * in the sender's own inbox.
    */
   inbox(agent: string, options: InboxOptions = {}): BridgeMessage[] {
+    expireDue(this.db);
     const clauses = [DELIVERED_TO("?")];
     const params: Param[] = deliveredParams(agent);
+    if (!options.includeExpired) clauses.push("COALESCE(m.delivery_state, '') != 'expired'");
     if (!options.includeAcknowledged) {
       clauses.push(
         "NOT EXISTS (SELECT 1 FROM acknowledgements a WHERE a.message_id = m.id AND a.agent = ?)",
@@ -453,6 +458,7 @@ export class BridgeStore {
   }
 
   countUnread(agent: string): number {
+    expireDue(this.db);
     const row = this.db
       .prepare(`SELECT COUNT(*) AS n FROM messages m WHERE ${UNREAD_FOR("?")}`)
       .get(...unreadParams(agent)) as { n: number | bigint };

@@ -53,7 +53,7 @@ Confirmed by the user on 2026-10-07: evidence (late receipt, recipient fetch) ma
      fetching it moves it to `accepted` — because that is observation, not a new delivery. Otherwise only an
      explicit user action changes it.
    - `expired` when a message is still `queued` at `expires_at`. Its wake job is cancelled, it is never pinged
-     again, and `bridge_inbox` / `bridge_wait` hide it unless asked with `includeExpired`. It stays in history
+     again, and `bridge_inbox` / `bridge_wait` hide it (only `bridge_inbox` can list it, with `includeExpired`). It stays in history
      (`bridge_thread`, `bridge_outbox`).
    - No transition out of `failed` or `expired` except an explicit user action (re-send is a new message).
 4. **Finding 5:** `bridge_ack` moves the message's wake job to a new final state `acknowledged`.
@@ -82,7 +82,7 @@ D27 (24 h default), D28 and D29 accepted on 2026-10-07.
 - **D28 one transition function.** Every state change goes through one store method that checks the allowed
   transition table and records `delivery_changed_at`; adapters and sweeps call it instead of writing SQL.
 - **D29 surfaced state.** `bridge_send` returns `deliveryState`; `bridge_outbox` and `bridge_wake_status` show it;
-  `bridge_inbox` / `bridge_wait` accept `includeExpired`. Tool descriptions and the README say exactly-once is not
+  `bridge_inbox` accepts `includeExpired` (history); `bridge_wait` never returns an expired message, because it hands messages to a session to act on and acknowledges them (narrowed at Task 5). Tool descriptions and the README say exactly-once is not
   promised (interface row 114).
 
 ## Requirements

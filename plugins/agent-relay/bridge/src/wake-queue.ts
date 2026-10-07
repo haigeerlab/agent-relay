@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import type { BridgeMessage } from "./bridge-store.js";
-import { DeliveryTransitionError, type DeliveryState, transition } from "./delivery.js";
+import { DeliveryTransitionError, type DeliveryState, expireDue, transition } from "./delivery.js";
 
 /**
  * agent-relay delivery-state-machine: what a wake job's state says about its message. A wake-window `expired`
@@ -141,6 +141,8 @@ export class WakeQueue {
   }
 
   claim(now = Date.now(), selfPid = process.pid): WakeJob | null {
+    // A message past its queue timeout is never pinged (agent-relay delivery-state-machine, D27).
+    expireDue(this.db, now);
     // A dead sender may have delivered before crashing. Never automatically replay it.
     const lapsed = this.db.prepare(`UPDATE wake_jobs SET state = 'unknown', detail = 'Sender stopped before confirming delivery'
       WHERE state = 'sending' AND retry_at < ? RETURNING message_id`).all(now);
