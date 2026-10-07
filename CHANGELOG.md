@@ -56,8 +56,15 @@
 1. 关闭所有使用信箱的会话，退出 Codex。
 2. `python3 -B <插件目录>/hooks/native_collaboration_runtime.py upgrade --confirm`：先把信箱备份到
    `~/.agent-relay/backups/<时间>/`，再换上新版运行时，信箱从 schema 2 升到 5。0.1.0 插件不认 schema 5：要回滚就连插件一起回滚，或用备份恢复信箱（之后的消息会丢失）。
-3. 两个宿主都更新插件：Claude Code `claude plugin update agent-relay@agent-relay-marketplace`（或重新安装）；Codex
-   `codex plugin add agent-relay@agent-relay-marketplace`。可用 `scripts/acceptance/preflight.sh` 确认各副本都是 `current`。
+3. 两个宿主都更新插件：
+   - Claude Code（从 GitHub 装的）：先 `claude plugin marketplace update agent-relay-marketplace` 拉到新目录，再
+     `claude plugin update agent-relay@agent-relay-marketplace`。
+   - Codex：0.1.0 的安装方式把 marketplace 钉在 `--ref v0.1.0`，直接 `codex plugin add` 拿到的仍是 0.1.0，而
+     `codex plugin marketplace add --ref` 遇到同名 marketplace 会拒绝。所以先把 `~/.codex/config.toml` 里
+     `[marketplaces.agent-relay-marketplace]` 的 `ref` 改成 `"v0.2.0"`（自己改，改前留一份副本），再
+     `codex plugin marketplace upgrade`，最后 `codex plugin add agent-relay@agent-relay-marketplace`。
+   - 从本地克隆装的：把克隆更新到 v0.2.0 后，Claude 无需其他操作（直接读源目录），Codex 再执行一次 `codex plugin add`。
+   - 可用 `scripts/acceptance/preflight.sh` 确认各副本都是 `current`。
 4. `python3 -B <插件目录>/hooks/native_collaboration_runtime.py doctor`，看到 `ok` 即可。
 5. 之后每个会话重新注册一次身份（`bridge_register`），以记录它所在的宿主会话。
 6. Codex 设为 AI 自动审批（`approvals_reviewer = "guardian_subagent"`）时，唤醒绑定会被拒、ping 会暂存；需要唤醒
