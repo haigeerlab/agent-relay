@@ -13,7 +13,7 @@ import { spawn } from "node:child_process";
 
 import { BridgeStore } from "../src/bridge-store.js";
 import { transition } from "../src/delivery.js";
-import { IdempotencyConflictError } from "../src/idempotency.js";
+import { IdempotencyConflictError, ReplyLinkError } from "../src/idempotency.js";
 
 function fresh(): BridgeStore {
   const s = new BridgeStore(":memory:");
@@ -158,14 +158,18 @@ test("the reply link is part of a retry's content", () => {
 
 test("inbox, thread and outbox show the link; the outbox lists each message's replies", () => {
   const s = fresh();
-  const original = s.send({ fromAgent: "s", toAgent: "x", body: "question", threadId: "t1" });
+  // identity-check: only recipients reply, so two repliers answer a broadcast.
+  const original = s.send({ fromAgent: "s", toAgent: "*", body: "question", threadId: "t1" });
+  const direct = s.send({ fromAgent: "s", toAgent: "x", body: "direct" });
   const first = s.send({ fromAgent: "x", toAgent: "s", body: "answer 1", replyTo: original.id });
   const second = s.send({ fromAgent: "y", toAgent: "s", body: "answer 2", replyTo: original.id });
   assert.deepEqual(s.inbox("s").map((m) => m.replyTo), [original.id, original.id]);
   assert.deepEqual(s.thread("t1").map((m) => m.replyTo), [null, original.id, original.id]);
-  const sent = s.outbox("s").entries.find((entry) => entry.id === original.id);
+  const answeredDirect = s.send({ fromAgent: "x", toAgent: "s", body: "re direct", replyTo: direct.id });
+  assert.deepEqual(s.outbox("s").entries.find((entry) => entry.id === direct.id)?.replies, [answeredDirect.id]);
+  assert.deepEqual(s.thread("t1").filter((m) => m.replyTo === original.id).map((m) => m.id), [first.id, second.id]);
+  const sent = s.outbox("s").entries.find((entry) => entry.id === direct.id);
   assert.equal(sent?.replyTo, null);
-  assert.deepEqual(sent?.replies, [first.id, second.id]);
   const answered = s.outbox("x").entries.find((entry) => entry.id === first.id);
   assert.equal(answered?.replyTo, original.id);
   assert.deepEqual(answered?.replies, []);
@@ -183,8 +187,11 @@ test("the same reply to the same message is stored once; a different body or rec
   assert.equal(again.message.id, first.message.id);
   assert.equal(jobs(s), 1, "no second ping");
   assert.equal(s.deliver({ fromAgent: "x", toAgent: "s", body: "answer, amended", replyTo: original.id }).duplicate, false);
-  assert.equal(s.deliver({ fromAgent: "y", toAgent: "s", body: "answer", replyTo: original.id }).duplicate, false);
   assert.equal(s.deliver({ fromAgent: "x", toAgent: "y", body: "answer", replyTo: original.id }).duplicate, false);
+  const broadcast = s.send({ fromAgent: "s", toAgent: "*", body: "anyone?" });
+  s.send({ fromAgent: "x", toAgent: "s", body: "answer", replyTo: broadcast.id });
+  assert.equal(s.deliver({ fromAgent: "y", toAgent: "s", body: "answer", replyTo: broadcast.id }).duplicate, false,
+    "a different sender is a new reply");
   s.close();
 });
 
@@ -231,4 +238,19 @@ test("processes racing the same reply on one mailbox store it once", async () =>
   const check = new BridgeStore(path);
   assert.equal(Number((check.database.prepare("SELECT COUNT(*) AS n FROM messages WHERE reply_to = ?").get(original.id) as { n: number }).n), 1);
   check.close();
+});
+
+// agent-relay identity-check: only the recipient replies (assumption 5).
+test("only a message's recipient may reply; a broadcast takes replies from anyone but its sender; notices take none", () => {
+  const s = fresh();
+  const direct = s.send({ fromAgent: "s", toAgent: "x", body: "for x" });
+  assert.throws(() => s.send({ fromAgent: "y", toAgent: "s", body: "me too", replyTo: direct.id }),
+    /Only "x", the recipient of message #\d+, may reply to it/);
+  assert.throws(() => s.send({ fromAgent: "s", toAgent: "x", body: "follow-up", replyTo: direct.id }), ReplyLinkError);
+  const broadcast = s.send({ fromAgent: "s", toAgent: "*", body: "anyone?" });
+  assert.ok(s.send({ fromAgent: "y", toAgent: "s", body: "me", replyTo: broadcast.id }));
+  assert.throws(() => s.send({ fromAgent: "s", toAgent: "x", body: "self", replyTo: broadcast.id }), /its own broadcast/);
+  const notice = s.send({ fromAgent: "bridge", toAgent: "x", body: "automated" });
+  assert.throws(() => s.send({ fromAgent: "x", toAgent: "bridge", body: "thanks", replyTo: notice.id }), /automated notice/);
+  s.close();
 });

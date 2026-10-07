@@ -1,6 +1,6 @@
 import { type DeliveryState, assertBelowPendingCap, expireDue, sendTimeoutMs } from "./delivery.js";
 import { WakeQueue } from "./wake-queue.js";
-import { conflictError, contentDifferences, ReplyLinkError, replyThread } from "./idempotency.js";
+import { assertMayReply, conflictError, contentDifferences, ReplyLinkError, replyThread } from "./idempotency.js";
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -421,10 +421,11 @@ export class BridgeStore {
     const replyTo = input.replyTo ?? null;
     let threadId = input.threadId ?? null;
     if (replyTo !== null) {
-      const original = this.db.prepare("SELECT thread_id FROM messages WHERE id = ?").get(replyTo) as
-        | { thread_id: string | null }
+      const original = this.db.prepare("SELECT thread_id, from_agent, to_agent FROM messages WHERE id = ?").get(replyTo) as
+        | { thread_id: string | null; from_agent: string; to_agent: string }
         | undefined;
       if (!original) throw new ReplyLinkError(`No message #${replyTo} to reply to.`);
+      assertMayReply(replyTo, original.from_agent, original.to_agent, input.fromAgent);
       threadId = replyThread(replyTo, original.thread_id, input.threadId);
     }
     const idempotencyKey = input.idempotencyKey ?? null;

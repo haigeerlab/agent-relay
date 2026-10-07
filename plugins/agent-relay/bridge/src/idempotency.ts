@@ -13,6 +13,28 @@ export class IdempotencyConflictError extends Error {}
 /** A reply that names no stored message, or a thread other than its original's (D36). */
 export class ReplyLinkError extends Error {}
 
+/**
+ * agent-relay identity-check (assumption 5): only a message's recipient may reply to it; a broadcast takes replies
+ * from anyone but its sender; the bridge's automated notices take none.
+ */
+export function assertMayReply(originalId: number, originalFrom: string, originalTo: string, sender: string): void {
+  if (originalFrom === "bridge") {
+    throw new ReplyLinkError(`Message #${originalId} is an automated notice from "bridge"; do not reply to it.`);
+  }
+  if (originalTo === "*") {
+    if (sender === originalFrom) {
+      throw new ReplyLinkError(`"${sender}" cannot reply to its own broadcast #${originalId}; send a new message instead.`);
+    }
+    return;
+  }
+  if (sender !== originalTo) {
+    throw new ReplyLinkError(
+      `Only "${originalTo}", the recipient of message #${originalId}, may reply to it; "${sender}" may send a new ` +
+        "message on the same thread instead.",
+    );
+  }
+}
+
 /** The thread a reply goes on: the original's, which an explicit threadId must match (D36). */
 export function replyThread(originalId: number, originalThread: string | null, requested: string | null | undefined): string | null {
   if (requested == null || requested === originalThread) return originalThread;
