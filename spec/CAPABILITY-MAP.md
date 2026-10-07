@@ -26,8 +26,9 @@ agent-relay 是从 Spec Guard 拆出的独立插件，让同一台 Mac 上的 Cl
 | delegation-fixes | 修复基线发现 3、4 与第一轮联调发现 7：等待前置条件的 create 不再让之后的同名会话产生歧义，从未启动的记录能干净取消；git worktree 里的 Claude 目标创建后能找到，列表对不上时下一次调用补绑而不是一直停在 unknown；空闲 Claude 目标第二轮不再误报 target-busy。在平移版本通过第一轮联调后、加固模块之前构建。 | cross-host-delegation, state-migration |
 | test-isolation | 用一个环境变量把整个 agent-relay 状态根（信箱运行时、委派库、迁移备份）整体迁到别处，控制器、迁移与验收脚本都遵守；所有测试在临时状态根里运行，不读写真实的 ~/.agent-relay。加固模块中最先做，后续加固的测试都依赖它。 | mailbox-core, cross-host-delegation, state-migration |
 | bridge-vendoring | 把固定提交 8f12c88 的上游 bridge（TS 源码）收进 agent-relay 仓库，保留 MIT 署名与来源说明；运行时改为从仓内副本安装，不再 git clone 上游。只改来源和安装路径，行为与 8f12c88 完全一致；之后修改 bridge 的加固模块都依赖它。 | mailbox-core, test-isolation |
+| delivery-state-machine | 给信箱消息补上投递状态机（queued → sending → accepted、failed 或 unknown；queued → expired）：有歧义的提交标为 unknown 且绝不自动重放；排队超时后标为 expired、默认不再读出也不再送达，超时可配置并给出默认值建议；ack 让对应唤醒任务结束（发现 5）。同时实现 bridge-vendoring D26 规定的已装运行时升级命令。 | mailbox-core, bridge-vendoring |
 
-Build order: acceptance-kit → mailbox-core → session-routing → cross-host-delegation → packaging → state-migration → delegation-fixes → test-isolation → bridge-vendoring
+Build order: acceptance-kit → mailbox-core → session-routing → cross-host-delegation → packaging → state-migration → delegation-fixes → test-isolation → bridge-vendoring → delivery-state-machine
 
 <!-- Spec Guard 按严格串行推进。为兼容上游格式，逗号分组会按左到右顺序展开为单模块步骤，不代表并行授权。 -->
 <!-- 加固模块（test-isolation、delivery-state-machine、durable-ordering、idempotency、identity-check、ops-commands、
