@@ -62,7 +62,7 @@ def claude_config(root: Path, node: Path) -> dict[str, Any]:
             "command": executable, "args": [server],
             "env": {"BRIDGE_DB_PATH": database, "XDG_DATA_HOME": data_home},
         }},
-        "denyRules": [f"mcp__{CLAUDE_SERVER_NAME}__{tool}" for tool in DENIED_TOOLS],
+        "denyRules": claude_deny_rules(),
     }
 
 
@@ -137,6 +137,37 @@ def install_claude_config(root: Path, node: Path, settings: Path, claude_bin: st
                          + str(error)) from error
 
 
+def remove_claude_deny_rules(settings: Path) -> int:
+    """Remove exactly agent-relay's deny rules (safe-uninstall D46); return how many were removed.
+
+    install-claude writes them again before the server, so keeping them after an uninstall protects nothing.
+    Everything else in the file is kept; nothing is written when there is nothing to remove.
+    """
+    settings = Path(settings)
+    current, mode = _existing_regular(settings)
+    if not current:
+        return 0
+    try:
+        value = json.loads(current)
+    except json.JSONDecodeError as error:
+        raise ValueError("Claude settings must be valid JSON") from error
+    permissions = value.get("permissions") if isinstance(value, dict) else None
+    deny = permissions.get("deny") if isinstance(permissions, dict) else None
+    if not isinstance(deny, list):
+        return 0
+    ours = set(claude_deny_rules())
+    kept = [rule for rule in deny if rule not in ours]
+    if len(kept) == len(deny):
+        return 0
+    permissions["deny"] = kept
+    _atomic_write(settings, json.dumps(value, ensure_ascii=False, indent=2) + "\n", mode)
+    return len(deny) - len(kept)
+
+
+def claude_deny_rules() -> list[str]:
+    return [f"mcp__{CLAUDE_SERVER_NAME}__{tool}" for tool in DENIED_TOOLS]
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("host", choices=("codex", "claude", "install-codex", "install-claude",
@@ -170,12 +201,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         except HostBackupError as error:
             parser.error("nothing was changed: " + str(error))
     if args.host == "uninstall-claude":
-        # Claude 的拒绝规则保留：它们只拒绝本服务的工具，服务移除后无害，重新安装时仍然生效。
+        # 先移除服务再移除拒绝规则，服务存在期间规则始终在（safe-uninstall D46）。
         try:
             state = remove_claude_server(args.claude_bin, CLAUDE_SERVER_NAME)
+            removed = remove_claude_deny_rules(args.claude_settings)
         except ValueError as error:
             parser.error(str(error))
-        print("Native Claude MCP entry %s; deny rules kept; restart Claude to apply." % state)
+        rules = "%d deny rules removed" % removed if removed else "no deny rules to remove"
+        print("Native Claude MCP entry %s; %s; restart Claude to apply." % (state, rules))
         return 0
     if args.node is None:
         parser.error("Node executable is unavailable")

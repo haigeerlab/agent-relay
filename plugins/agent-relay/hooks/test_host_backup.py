@@ -142,5 +142,26 @@ class AdapterBackupTests(unittest.TestCase):
         self.assertNotIn(codex_fragment(self.root, self.node), self.codex.read_text())
 
 
+    def test_uninstall_claude_removes_exactly_the_agent_relay_deny_rules(self):
+        self.assertEqual(self.run_main("install-claude")[0], 0)
+        settings = json.loads(self.settings.read_text())
+        settings["permissions"]["allow"] = ["Read"]
+        settings["theme"] = "dark"
+        self.settings.write_text(json.dumps(settings))
+        self.settings.chmod(0o640)
+        code, output = self.run_main("uninstall-claude")
+        self.assertEqual(code, 0, output)
+        after = json.loads(self.settings.read_text())
+        self.assertEqual(after["permissions"]["deny"], ["Bash(rm:*)"])
+        self.assertEqual(after["permissions"]["allow"], ["Read"])
+        self.assertEqual(after["theme"], "dark")
+        self.assertEqual(stat.S_IMODE(self.settings.stat().st_mode), 0o640)
+        self.assertIn("7 deny rules removed", output)
+        before = self.settings.read_bytes()
+        code, output = self.run_main("uninstall-claude")
+        self.assertIn("no deny rules to remove", output)
+        self.assertEqual(self.settings.read_bytes(), before, "nothing to remove, nothing written")
+
+
 if __name__ == "__main__":
     unittest.main()
