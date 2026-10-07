@@ -45,6 +45,8 @@ README, `bridge_send` description, interface rows 45, 75, 79, 103, 118 and gap f
 
 ### Task 6: Live D14 (temporary `AGENT_RELAY_HOME`, coordinator told first)
 Runtime from this branch; send twice with one key (one message, `duplicate: true`), then a different body with that
-key (refused); a reply with `replyTo` sent twice (one message, thread inherited). No host config change.
+key (refused); a reply with `replyTo` sent twice (one message, thread inherited). Start from a v2 mailbox and a runtime
+installed from main: `upgrade --confirm` to this branch, then the first open migrates v2 → v4 with its backup and
+row counts intact (the unit tests cover each half; this joins them on a real build). No host config change.
 
 ### Checkpoint (gate): module review

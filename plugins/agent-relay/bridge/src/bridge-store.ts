@@ -22,6 +22,8 @@ export interface BridgeMessage {
   deliveryState: DeliveryState | null;
   /** ISO time after which a still-queued direct message expires; null for broadcasts and older rows. */
   expiresAt: string | null;
+  /** agent-relay idempotency: id of the message this one replies to; null when it is not a reply. */
+  replyTo: number | null;
 }
 
 /** A registered agent and its advertised capabilities. */
@@ -218,6 +220,7 @@ interface MessageRow {
   created_at: string;
   delivery_state?: string | null;
   expires_at?: number | null;
+  reply_to?: number | bigint | null;
 }
 
 interface AgentRow {
@@ -364,6 +367,7 @@ export class BridgeStore {
       createdAt: row.created_at,
       deliveryState: row.to_agent === "*" ? null : ((row.delivery_state ?? "queued") as DeliveryState),
       expiresAt: row.expires_at == null ? null : new Date(Number(row.expires_at)).toISOString(),
+      replyTo: row.reply_to == null ? null : Number(row.reply_to),
     };
   }
 
