@@ -83,3 +83,21 @@ test("fetching an expired message does not revive it", () => {
   assert.equal(deliveryState(s.database, message.id), "expired");
   s.close();
 });
+
+test("an acknowledgement closes the wake job and counts as delivery (finding 5)", () => {
+  const s = bound();
+  const read = s.send({ fromAgent: "a", toAgent: "b", body: "read then acked" });
+  const job = s.wakes.claim(Date.now() + 1);
+  assert.ok(job);
+  s.wakes.finish(job, { state: "accepted", detail: "turn started" });
+  s.wakes.recordRead("b", [read.id]);
+  s.ack("b", [read.id]);
+  assert.equal(s.wakes.forMessage(read.id)?.state, "acknowledged");
+
+  const early = s.send({ fromAgent: "a", toAgent: "b", body: "acked before any ping" });
+  s.ack("b", [early.id]);
+  assert.equal(s.wakes.forMessage(early.id)?.state, "acknowledged");
+  assert.equal(deliveryState(s.database, early.id), "accepted");
+  assert.equal(s.wakes.claim(Date.now() + 120_000), null);
+  s.close();
+});

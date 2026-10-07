@@ -9,7 +9,7 @@ import { DeliveryTransitionError, type DeliveryState, expireDue, transition } fr
  * queue timeout), so they are absent.
  */
 const MESSAGE_STATE_FOR_WAKE: Partial<Record<WakeState, DeliveryState>> = {
-  pending: "queued", held: "queued", sending: "sending", accepted: "accepted", read: "accepted",
+  pending: "queued", held: "queued", sending: "sending", accepted: "accepted", read: "accepted", acknowledged: "accepted",
   refused: "failed", unknown: "unknown",
 };
 
@@ -17,7 +17,9 @@ export interface WakeTarget {
   app: "codex" | "claude";
   sessionId: string;
 }
-export type WakeState = "pending" | "sending" | "accepted" | "read" | "held" | "refused" | "unknown" | "cancelled" | "expired";
+export type WakeState = "pending" | "sending" | "accepted" | "read" | "held" | "refused" | "unknown" | "cancelled" | "expired"
+  // agent-relay delivery-state-machine (finding 5): the recipient acknowledged the message; final.
+  | "acknowledged";
 /** Why a ping is still pending: the recipient is mid-turn, or unreachable. */
 export type PendingReason = "busy" | "offline";
 export interface WakeResult {
@@ -124,6 +126,19 @@ export class WakeQueue {
       transition(this.db, messageId, to);
     } catch (error) {
       if (!(error instanceof DeliveryTransitionError)) throw error;
+    }
+  }
+
+  /**
+   * The recipient acknowledged `messageId`: close its wake job (finding 5) and count it as delivered. A job whose
+   * outcome is already final for another reason (refused, expired, cancelled) keeps that outcome.
+   */
+  acknowledge(agent: string, messageId: number): void {
+    this.db.prepare(`UPDATE wake_jobs SET state = 'acknowledged', detail = 'Recipient acknowledged the message'
+      WHERE agent = ? AND message_id = ? AND state IN ('pending', 'sending', 'accepted', 'read', 'held', 'unknown')`)
+      .run(agent, messageId);
+    if (this.db.prepare("SELECT 1 FROM messages WHERE id = ? AND to_agent = ?").get(messageId, agent)) {
+      this.follow(messageId, "acknowledged");
     }
   }
 

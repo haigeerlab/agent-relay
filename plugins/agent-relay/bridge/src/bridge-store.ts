@@ -500,6 +500,7 @@ export class BridgeStore {
     for (const id of messageIds) {
       const result = stmt.run(agent, ackedAt, note, id, ...deliveredParams(agent));
       acknowledged += Number(result.changes);
+      if (Number(result.changes) === 1) this.wakes.acknowledge(agent, id);
     }
     return acknowledged;
   }
