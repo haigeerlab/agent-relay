@@ -19,7 +19,7 @@ import subprocess
 from typing import Any, Sequence
 from urllib.parse import quote
 
-from native_collaboration_runtime import StateHomeError, default_root, status
+from native_collaboration_runtime import MAILBOX_SCHEMA_VERSIONS, StateHomeError, default_root, status
 
 
 class RetireError(ValueError):
@@ -40,7 +40,7 @@ def identity_state(database: Path, name: str) -> dict[str, Any]:
     try:
         with closing(_open_read_only(Path(database))) as connection:
             connection.execute("BEGIN")
-            if connection.execute("PRAGMA user_version").fetchone()[0] != 2:
+            if connection.execute("PRAGMA user_version").fetchone()[0] not in MAILBOX_SCHEMA_VERSIONS:
                 raise ValueError("unsupported native mailbox schema")
             row = connection.execute(
                 "SELECT registered_at, retired_at FROM agents WHERE name=?", (name,)).fetchone()

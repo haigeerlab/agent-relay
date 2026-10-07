@@ -247,9 +247,9 @@ class NativeCollaborationRuntimeTests(unittest.TestCase):
             (self.root / "manifest.json").write_text(json.dumps(manifest))
             self.assertEqual(status(self.root)["state"], "invalid", manifest)
 
-    def test_the_unmodified_upstream_tree_is_recorded(self):
-        # Until a module changes the bridge, the plugin copy is the 8f12c88 tree itself.
-        self.assertEqual(bridge_tree(BRIDGE_SOURCE), UPSTREAM_TREE)
+    def test_the_plugin_copy_has_moved_past_the_upstream_tree(self):
+        # delivery-state-machine changed the bridge, so a git-installed 8f12c88 runtime is no longer current.
+        self.assertNotEqual(bridge_tree(BRIDGE_SOURCE), UPSTREAM_TREE)
 
     def test_install_refuses_a_tampered_copy_before_running_npm(self):
         import shutil

@@ -1,3 +1,4 @@
+import { type DeliveryState, expireDue, sendTimeoutMs } from "./delivery.js";
 import { WakeQueue } from "./wake-queue.js";
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
@@ -16,6 +17,10 @@ export interface BridgeMessage {
   threadId: string | null;
   idempotencyKey: string | null;
   createdAt: string;
+  /** agent-relay delivery-state-machine: null for broadcasts. */
+  deliveryState: DeliveryState | null;
+  /** ISO time after which a still-queued direct message expires; null for broadcasts and older rows. */
+  expiresAt: string | null;
 }
 
 /** A registered agent and its advertised capabilities. */
@@ -122,6 +127,8 @@ export interface RunEvent {
 
 export interface SendInput {
   wake?: boolean;
+  /** Per-send queue timeout (D27), 60 … 604800 seconds; default from BRIDGE_QUEUE_TIMEOUT_MS or 24 h. */
+  expiresInSeconds?: number;
   fromAgent: string;
   toAgent: string;
   body: string;
@@ -131,6 +138,8 @@ export interface SendInput {
 
 export interface InboxOptions {
   includeAcknowledged?: boolean;
+  /** agent-relay delivery-state-machine: also return messages that expired before delivery (history). */
+  includeExpired?: boolean;
   fromAgent?: string;
   threadId?: string;
   afterId?: number;
@@ -170,6 +179,9 @@ export interface OutboxEntry {
   acknowledgedAt: string | null;
   wake: { state: string; detail: string } | null;
   recipient: "active" | "retired" | "unknown";
+  /** agent-relay delivery-state-machine (D29). */
+  deliveryState: DeliveryState;
+  expiresAt: string | null;
 }
 
 export interface RetireInput {
@@ -203,6 +215,8 @@ interface MessageRow {
   thread_id: string | null;
   idempotency_key: string | null;
   created_at: string;
+  delivery_state?: string | null;
+  expires_at?: number | null;
 }
 
 interface AgentRow {
@@ -263,6 +277,7 @@ const DELIVERED_TO = (agentColumn: string) => `
 
 const UNREAD_FOR = (agentColumn: string) => `
   ${DELIVERED_TO(agentColumn)}
+  AND COALESCE(m.delivery_state, '') != 'expired'
   AND NOT EXISTS (
     SELECT 1 FROM acknowledgements a WHERE a.message_id = m.id AND a.agent = ${agentColumn}
   )`;
@@ -346,7 +361,14 @@ export class BridgeStore {
       threadId: row.thread_id,
       idempotencyKey: row.idempotency_key,
       createdAt: row.created_at,
+      deliveryState: row.to_agent === "*" ? null : ((row.delivery_state ?? "queued") as DeliveryState),
+      expiresAt: row.expires_at == null ? null : new Date(Number(row.expires_at)).toISOString(),
     };
+  }
+
+  /** The underlying connection, for the delivery module and tests. */
+  get database(): DatabaseSync {
+    return this.db;
   }
 
   /**
@@ -377,12 +399,17 @@ export class BridgeStore {
       if (existing) return this.toMessage(existing);
     }
 
+    const direct = input.toAgent !== "*";
+    const sentAt = Date.now();
+    const expiresAt = direct ? sentAt + sendTimeoutMs(input.expiresInSeconds) : null;
     const result = this.db
       .prepare(
-        `INSERT INTO messages (from_agent, to_agent, body, thread_id, idempotency_key, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO messages (from_agent, to_agent, body, thread_id, idempotency_key, created_at,
+                               delivery_state, delivery_changed_at, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(input.fromAgent, input.toAgent, input.body, threadId, idempotencyKey, this.now());
+      .run(input.fromAgent, input.toAgent, input.body, threadId, idempotencyKey,
+        new Date(sentAt).toISOString(), direct ? "queued" : null, direct ? sentAt : null, expiresAt);
 
     const message = this.messageById(Number(result.lastInsertRowid)) as BridgeMessage;
     if (input.wake !== false) this.wakes.enqueue(message);
@@ -402,8 +429,10 @@ export class BridgeStore {
    * in the sender's own inbox.
    */
   inbox(agent: string, options: InboxOptions = {}): BridgeMessage[] {
+    expireDue(this.db);
     const clauses = [DELIVERED_TO("?")];
     const params: Param[] = deliveredParams(agent);
+    if (!options.includeExpired) clauses.push("COALESCE(m.delivery_state, '') != 'expired'");
     if (!options.includeAcknowledged) {
       clauses.push(
         "NOT EXISTS (SELECT 1 FROM acknowledgements a WHERE a.message_id = m.id AND a.agent = ?)",
@@ -432,6 +461,7 @@ export class BridgeStore {
   }
 
   countUnread(agent: string): number {
+    expireDue(this.db);
     const row = this.db
       .prepare(`SELECT COUNT(*) AS n FROM messages m WHERE ${UNREAD_FOR("?")}`)
       .get(...unreadParams(agent)) as { n: number | bigint };
@@ -473,6 +503,7 @@ export class BridgeStore {
     for (const id of messageIds) {
       const result = stmt.run(agent, ackedAt, note, id, ...deliveredParams(agent));
       acknowledged += Number(result.changes);
+      if (Number(result.changes) === 1) this.wakes.acknowledge(agent, id);
     }
     return acknowledged;
   }
@@ -535,11 +566,13 @@ export class BridgeStore {
   ): { totalUnacknowledged: number; hasMore: boolean; entries: OutboxEntry[] } {
     const limit = clampLimit(options.limit, 30);
     const ackFilter = options.includeAcknowledged ? "" : "AND a.acked_at IS NULL";
+    expireDue(this.db);
     const rows = this.db
       .prepare(
         `SELECT m.id, m.to_agent, m.thread_id, m.created_at, substr(m.body, 1, 200) AS preview,
                 length(m.body) AS body_length, a.acked_at, w.state AS wake_state,
-                w.detail AS wake_detail, r.name AS recipient_name, r.retired_at AS recipient_retired
+                w.detail AS wake_detail, r.name AS recipient_name, r.retired_at AS recipient_retired,
+                m.delivery_state, m.expires_at
          FROM messages m
          LEFT JOIN acknowledgements a ON a.message_id = m.id AND a.agent = m.to_agent
          LEFT JOIN wake_jobs w ON w.message_id = m.id AND w.agent = m.to_agent
@@ -573,6 +606,8 @@ export class BridgeStore {
             : { state: row.wake_state as string, detail: row.wake_detail as string },
         recipient:
           row.recipient_name === null ? "unknown" : row.recipient_retired ? "retired" : "active",
+        deliveryState: ((row.delivery_state as string | null) ?? "queued") as DeliveryState,
+        expiresAt: row.expires_at == null ? null : new Date(Number(row.expires_at)).toISOString(),
       })),
     };
   }

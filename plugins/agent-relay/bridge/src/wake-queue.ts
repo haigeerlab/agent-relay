@@ -1,12 +1,25 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import type { BridgeMessage } from "./bridge-store.js";
+import { DeliveryTransitionError, type DeliveryState, expireDue, transition } from "./delivery.js";
+
+/**
+ * agent-relay delivery-state-machine: what a wake job's state says about its message. A wake-window `expired`
+ * or an unbind `cancelled` says nothing about delivery (the message stays queued and readable until its own
+ * queue timeout), so they are absent.
+ */
+const MESSAGE_STATE_FOR_WAKE: Partial<Record<WakeState, DeliveryState>> = {
+  pending: "queued", held: "queued", sending: "sending", accepted: "accepted", read: "accepted", acknowledged: "accepted",
+  refused: "failed", unknown: "unknown",
+};
 
 export interface WakeTarget {
   app: "codex" | "claude";
   sessionId: string;
 }
-export type WakeState = "pending" | "sending" | "accepted" | "read" | "held" | "refused" | "unknown" | "cancelled" | "expired";
+export type WakeState = "pending" | "sending" | "accepted" | "read" | "held" | "refused" | "unknown" | "cancelled" | "expired"
+  // agent-relay delivery-state-machine (finding 5): the recipient acknowledged the message; final.
+  | "acknowledged";
 /** Why a ping is still pending: the recipient is mid-turn, or unreachable. */
 export type PendingReason = "busy" | "offline";
 export interface WakeResult {
@@ -31,6 +44,8 @@ export interface WakeJob {
   createdAt: number;
   detail: string;
   pendingReason?: PendingReason | null;
+  /** agent-relay delivery-state-machine (D29): the message's own delivery state. */
+  deliveryState?: DeliveryState | null;
 }
 
 /** An unreachable recipient keeps its ping for an hour. */
@@ -75,7 +90,7 @@ export class WakeQueue {
   }
 
   private row(value: Record<string, unknown>): WakeJob {
-    const message = this.db.prepare("SELECT from_agent, thread_id, substr(body, 1, 280) AS preview FROM messages WHERE id = ?").get(Number(value.message_id));
+    const message = this.db.prepare("SELECT from_agent, to_agent, thread_id, substr(body, 1, 280) AS preview, delivery_state FROM messages WHERE id = ?").get(Number(value.message_id));
     const ack = this.db.prepare("SELECT acked_at FROM acknowledgements WHERE message_id = ? AND agent = ?").get(Number(value.message_id), value.agent as string);
     return {
       fromAgent: message?.from_agent as string | undefined,
@@ -87,6 +102,8 @@ export class WakeQueue {
       attemptId: value.attempt_id as string | null, attempts: Number(value.attempts),
       retryAt: Number(value.retry_at), createdAt: Number(value.created_at), detail: value.detail as string,
       pendingReason: (value.pending_reason as PendingReason | null | undefined) ?? null,
+      deliveryState: !message || message.to_agent === "*" ? null
+        : ((message.delivery_state as string | null) ?? "queued") as DeliveryState,
     };
   }
 
@@ -102,16 +119,53 @@ export class WakeQueue {
     return row ? this.row(row) : null;
   }
 
+  /**
+   * Move a message along with what its wake (or its recipient) just showed. A move the table forbids — a late
+   * receipt for a message that already expired or failed — is evidence that no longer applies, so it is dropped.
+   */
+  private follow(messageId: number, wake: WakeState): void {
+    const to = MESSAGE_STATE_FOR_WAKE[wake];
+    if (!to) return;
+    try {
+      transition(this.db, messageId, to);
+    } catch (error) {
+      if (!(error instanceof DeliveryTransitionError)) throw error;
+    }
+  }
+
+  /**
+   * The recipient acknowledged `messageId`: close its wake job (finding 5) and count it as delivered. A job whose
+   * outcome is already final for another reason (refused, expired, cancelled) keeps that outcome.
+   */
+  acknowledge(agent: string, messageId: number): void {
+    this.db.prepare(`UPDATE wake_jobs SET state = 'acknowledged', detail = 'Recipient acknowledged the message'
+      WHERE agent = ? AND message_id = ? AND state IN ('pending', 'sending', 'accepted', 'read', 'held', 'unknown')`)
+      .run(agent, messageId);
+    if (this.db.prepare("SELECT 1 FROM messages WHERE id = ? AND to_agent = ?").get(messageId, agent)) {
+      this.follow(messageId, "acknowledged");
+    }
+  }
+
   recordRead(agent: string, ids: number[]): void {
     const stmt = this.db.prepare(`UPDATE wake_jobs SET state = 'read', detail = 'Recipient fetched the mailbox message; work is not yet acknowledged'
       WHERE agent = ? AND message_id = ? AND state IN ('sending', 'unknown', 'held', 'accepted')`);
-    for (const id of ids) stmt.run(agent, id);
+    // The recipient holding the message is delivery, wake or no wake (unbound recipients poll their inbox).
+    const fetched = this.db.prepare(`UPDATE messages SET read_at = COALESCE(read_at, ?)
+      WHERE id = ? AND to_agent = ? RETURNING id`);
+    const now = Date.now();
+    for (const id of ids) {
+      stmt.run(agent, id);
+      if (fetched.get(now, id, agent)) this.follow(id, "read");
+    }
   }
 
   claim(now = Date.now(), selfPid = process.pid): WakeJob | null {
+    // A message past its queue timeout is never pinged (agent-relay delivery-state-machine, D27).
+    expireDue(this.db, now);
     // A dead sender may have delivered before crashing. Never automatically replay it.
-    this.db.prepare(`UPDATE wake_jobs SET state = 'unknown', detail = 'Sender stopped before confirming delivery'
-      WHERE state = 'sending' AND retry_at < ?`).run(now);
+    const lapsed = this.db.prepare(`UPDATE wake_jobs SET state = 'unknown', detail = 'Sender stopped before confirming delivery'
+      WHERE state = 'sending' AND retry_at < ? RETURNING message_id`).all(now);
+    for (const row of lapsed) this.follow(Number(row.message_id), "unknown");
     this.db.prepare(`UPDATE wake_jobs SET state = 'cancelled', detail = 'Message already acknowledged'
       WHERE state = 'pending' AND EXISTS (
         SELECT 1 FROM acknowledgements a WHERE a.message_id = wake_jobs.message_id AND a.agent = wake_jobs.agent
@@ -135,15 +189,17 @@ export class WakeQueue {
           )
         ORDER BY id LIMIT 1
       ) AND state = 'pending' RETURNING *`).get(randomUUID(), now + 30_000, now, now - CHANNEL_HOST_TTL_MS, selfPid);
+    if (row) this.follow(Number(row.message_id), "sending");
     return row ? this.row(row) : null;
   }
 
   finish(job: WakeJob, result: WakeResult): void {
-    this.db.prepare(`UPDATE wake_jobs SET state = ?, detail = ?, retry_at = ?,
+    const updated = this.db.prepare(`UPDATE wake_jobs SET state = ?, detail = ?, retry_at = ?,
         pending_reason = CASE WHEN ? = 'pending' THEN ? ELSE pending_reason END
       WHERE id = ? AND attempt_id = ? AND state IN ('sending', 'unknown', 'held')`)
       .run(result.state, result.detail, Date.now() + Math.min(60_000, 2_000 * 2 ** Math.min(job.attempts, 5)),
         result.state, result.reason ?? "offline", job.id, job.attemptId);
+    if (Number(updated.changes) === 1) this.follow(job.messageId, result.state);
   }
 
   /** Most recent ping outcomes for one recipient, newest first. */

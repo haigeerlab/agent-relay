@@ -161,7 +161,7 @@ function main(): void {
     {
       title: "Send a message",
       description:
-        "Save a message, then ping its bound recipient in the background. The recipient must be registered (use allowUnregistered only when it will register later). The result carries warnings when the recipient is unlikely to pick the message up. Broadcasts and wake:false sends do not ping anyone.",
+        "Save a message, then ping its bound recipient in the background. The recipient must be registered (use allowUnregistered only when it will register later). The result carries warnings when the recipient is unlikely to pick the message up. Broadcasts and wake:false sends do not ping anyone. A direct message reports deliveryState: queued, sending, accepted, failed, unknown or expired. Exactly-once is not promised: an unconfirmed ping is reported unknown and never re-sent, and a message still queued after its timeout (default 24 h) expires and is never delivered.",
       inputSchema: {
         wake: z.boolean().optional().describe("Ping a bound direct recipient. Defaults true. False saves silently."),
         from: z.string().min(1).describe("Sender agent name."),
@@ -170,9 +170,11 @@ function main(): void {
         threadId: z.string().optional().describe("Optional conversation thread identifier."),
         idempotencyKey: z.string().optional().describe("Optional key to prevent duplicate delivery on retry."),
         allowUnregistered: z.boolean().optional().describe("Deliver even if the recipient is unknown or retired."),
+        expiresInSeconds: z.number().int().min(60).max(604800).optional().describe(
+          "Queue timeout for a direct message: if still undelivered after this many seconds it expires and is never delivered. Default 24 h (BRIDGE_QUEUE_TIMEOUT_MS)."),
       },
     },
-    async ({ from, to, body, threadId, idempotencyKey, wake, allowUnregistered }) => {
+    async ({ from, to, body, threadId, idempotencyKey, wake, allowUnregistered, expiresInSeconds }) => {
       if (from === BRIDGE_AGENT) throw new Error(`"${BRIDGE_AGENT}" is reserved for automated notices.`);
       const check = await checkRecipient(store, to, { allowUnregistered, isClaudeSessionLive });
       if (!check.ok) throw new Error(check.error);
@@ -187,6 +189,7 @@ function main(): void {
         body,
         threadId: threadId ?? null,
         idempotencyKey: idempotencyKey ?? null,
+        expiresInSeconds,
       });
       store.touch(from);
       await dispatcher.flush();
@@ -235,11 +238,13 @@ function main(): void {
         fromAgent: z.string().min(1).optional().describe("Only messages from this sender."),
         threadId: z.string().min(1).optional().describe("Only messages on this thread."),
         afterId: z.number().int().min(0).optional().describe("Only messages with a larger id (paging cursor)."),
+        includeExpired: z.boolean().optional().describe(
+          "Also list messages that expired before delivery. They are history: never act on them."),
         ...pagingInput,
       },
     },
-    async ({ agent, includeAcknowledged, fromAgent, threadId, afterId, limit, maxChars, maxBodyChars }) => {
-      const page = store.inboxPage(agent, { includeAcknowledged, fromAgent, threadId, afterId, limit, maxChars, maxBodyChars });
+    async ({ agent, includeAcknowledged, fromAgent, threadId, afterId, includeExpired, limit, maxChars, maxBodyChars }) => {
+      const page = store.inboxPage(agent, { includeAcknowledged, fromAgent, threadId, afterId, includeExpired, limit, maxChars, maxBodyChars });
       store.wakes.recordRead(agent, page.messages.map((message) => message.id));
       store.touch(agent);
       return jsonResult({ agent, ...page });
@@ -349,7 +354,7 @@ function main(): void {
     "bridge_outbox",
     {
       title: "Check sent messages",
-      description: "List direct messages an agent sent that the recipient has not acknowledged yet (newest first), with ping outcome and whether the recipient is active, retired or unknown.",
+      description: "List direct messages an agent sent that the recipient has not acknowledged yet (newest first), with ping outcome, delivery state (queued, sending, accepted, failed, unknown, expired) and whether the recipient is active, retired or unknown.",
       inputSchema: {
         agent: z.string().min(1).describe("Sender whose outbox to read."),
         includeAcknowledged: z.boolean().optional().describe("Include messages the recipient already acknowledged."),

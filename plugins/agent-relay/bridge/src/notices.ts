@@ -35,6 +35,15 @@ export function explainFailure(job: WakeJob): string {
 
 export function deliveryFailureNotice(job: WakeJob): string {
   const target = `${JSON.stringify(job.agent)}${job.threadId ? ` (thread ${JSON.stringify(job.threadId)})` : ""}`;
+  // agent-relay delivery-state-machine (D27): the message itself expired, so unlike a lapsed ping it is no
+  // longer waiting in the inbox and will never be acted on.
+  if (job.deliveryState === "expired") {
+    return [
+      `Delivery problem: your message #${job.messageId} to ${target} expired before it was delivered: its queue timeout passed while it was still waiting.`,
+      `It will not be delivered, pinged or shown in ${JSON.stringify(job.agent)}'s inbox. If the work is still wanted, send it again as a new message, or give it to another agent.`,
+      "This is an automated bridge notice. Do not reply to it.",
+    ].join("\n\n");
+  }
   const outcome =
     job.state === "held"
       ? "is being held for approval in the recipient's Claude session"

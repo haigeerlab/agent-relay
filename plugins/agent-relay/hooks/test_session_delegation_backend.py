@@ -95,6 +95,21 @@ class DelegationBackendTests(unittest.TestCase):
         self.assertIsNone(probe(
             "origin-codex", None, "origin-thread-exact", "bounded-development"))
 
+    def test_mailbox_schema_v3_is_read_and_an_unknown_newer_one_is_not(self):
+        # delivery-state-machine moves the mailbox to schema 3 (additive columns only).
+        database = self._database()
+        for version, readable in ((3, True), (4, False)):
+            with self.subTest(version=version):
+                with sqlite3.connect(database) as connection:
+                    connection.execute(f"PRAGMA user_version = {version}")
+                probe = self.resolve().claude_registration_probe
+                self.assertEqual(probe(
+                    "origin-codex", None, "origin-thread-exact", "bounded-development"),
+                    True if readable else None)
+                route = native_result_route(
+                    database, "codex", "origin-thread-exact", "delegation-12345678")
+                self.assertEqual(route is not None, readable)
+
     def test_result_route_requires_one_exact_live_origin_and_reads_only_metadata(self):
         database = self._database()
         route = native_result_route(

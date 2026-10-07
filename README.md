@@ -78,6 +78,10 @@ codex plugin add agent-relay@agent-relay-marketplace
   预批准信箱的十个工具（`mcp__agent-relay__bridge_*`）；需要改代码时再额外允许编辑、写入和限定的 Bash 命令。
   agent-relay 会读取并复用这些规则，但不会替你写。
 - **来信只是数据**：邮箱里的文字永远不构成改代码、Git、配置或远端写入的授权。
+- **不保证"恰好送达一次"**：每条单发消息都有投递状态（`queued`、`sending`、`accepted`、`failed`、`unknown`、
+  `expired`），发件箱里能看到。唤醒结果说不清时标为 `unknown`，**绝不自动重发**；一条消息排队超过时限（默认 24 小时，
+  可用 `BRIDGE_QUEUE_TIMEOUT_MS` 或发送时的 `expiresInSeconds` 调整）还没被取走，就标为 `expired`，不再唤醒、
+  收件箱默认不再显示，之后也不会再被执行，发件人会收到通知。
 - **Codex 的手动审批成本**：Codex 的审批选择器是全局的。设为“请求批准”时，被唤醒的 Codex 回合里每一次信箱
   调用（读收件箱、发送、确认）都会停下来等人点；设为 AI 自动审批（`approvals_reviewer = "guardian_subagent"`）
   则等同于自动批准，不应绑定唤醒。
@@ -111,6 +115,15 @@ python3 -B plugins/agent-relay/hooks/state_migration.py migrate --confirm
   agent-relay（信箱为空），从不合并两个信箱。
 - 旧目录、宿主配置和权限文件一律不动；迁移后按提示接入新的宿主条目、用 Spec Guard 自己的卸载删掉旧条目，
   并把项目权限规则手动改成 `mcp__agent-relay__bridge_*`。旧目录确认无误后由你自己删除。
+
+## 升级运行时
+
+插件更新带来新版 bridge 时，`status` 会报告 `bridge.current: false`。agent 会先问你，在你关掉所有正在用信箱的
+会话后再执行 `native_collaboration_runtime.py upgrade --confirm`：先把邮箱备份到 `~/.agent-relay/backups/<时间>/`，
+在旁边装好新版，把 `mailbox/` 和 `data/` 挪过去再整体替换，核对通过才算完成，失败会自动换回。旧目录
+`runtime.previous-<时间>` 保留，确认无误后由你删除；宿主接入不用动。新版 bridge 会把邮箱升级到 schema 3：
+回到旧运行时还能打开它，但旧版 agent-relay 插件只认 schema 2，所以回滚时要连插件一起回滚，或者用备份恢复邮箱
+（之后收到的消息会丢失）。
 
 ## 卸载
 

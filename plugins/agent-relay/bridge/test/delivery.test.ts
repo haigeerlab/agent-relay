@@ -17,7 +17,9 @@ test("a busy Codex recipient keeps its ping for a day; an unreachable one for an
   const store = new BridgeStore(":memory:");
   store.wakes.bind("busy", { app: "codex", sessionId: "busy-task" });
   store.wakes.bind("offline", { app: "codex", sessionId: "gone-task" });
-  const busy = store.send({ fromAgent: "a", toAgent: "busy", body: "long turn" });
+  // agent-relay delivery-state-machine: the default 24 h queue timeout equals the busy wake window, so give
+  // this message the longest timeout to keep testing the wake window itself.
+  const busy = store.send({ fromAgent: "a", toAgent: "busy", body: "long turn", expiresInSeconds: 7 * 86_400 });
   const offline = store.send({ fromAgent: "a", toAgent: "offline", body: "closed app" });
   const now = Date.now();
   for (const reason of ["busy", "offline"] as const) {

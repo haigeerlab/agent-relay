@@ -26,6 +26,16 @@ After explicit approval, install the runtime with the command below. It builds f
 the plugin (`bridge/`, checked against `bridge/UPSTREAM.sha256`; no `git`), and `npm ci` still needs network.
 `status` reports `bridge.source` (`upstream-git` for a runtime installed before this, `vendored` after) and
 `bridge.current` (whether it equals the plugin's copy); do not reinstall over an existing runtime to change it.
+When `bridge.current` is false, offer the upgrade and run it only after the user agrees and has closed every
+session that uses the mailbox (the command refuses while a bridge server of this runtime runs):
+
+```bash
+python3 -B "$ROOT/hooks/native_collaboration_runtime.py" upgrade --confirm
+```
+
+It backs the mailbox up to `backups/<UTC time>/runtime-mailbox/`, builds the new runtime beside the old one, moves
+`mailbox/` and `data/` across, swaps, and checks the result (rolling back on failure). Show the user the reported
+`previous` directory, `backup` and `rollback` text; host entries need no change because the paths stay the same.
 
 ```bash
 python3 -B "$ROOT/hooks/native_collaboration_runtime.py" install

@@ -86,7 +86,8 @@ test("offline retry, held permission and recipient acknowledgement have distinct
     const next = s.send({ fromAgent: "a", toAgent: "b", body: "already read" });
     s.ack("b", [next.id]);
     assert.equal(s.wakes.claim(), null);
-    assert.equal(s.wakes.forMessage(next.id)?.state, "cancelled");
+    // agent-relay delivery-state-machine (finding 5): an acknowledgement closes the job itself.
+    assert.equal(s.wakes.forMessage(next.id)?.state, "acknowledged");
     const expired = s.send({ fromAgent: "a", toAgent: "b", body: "offline for an hour" });
     assert.equal(s.wakes.claim(Date.now() + 3_600_001), null);
     assert.equal(s.wakes.forMessage(expired.id)?.state, "expired");
