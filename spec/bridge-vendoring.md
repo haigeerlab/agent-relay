@@ -42,8 +42,8 @@ Confirmed by the user on 2026-10-07, including the left-out list and the locatio
    broken rather than being edited.
 3. **npm dependencies still come from the registry** through the unchanged `package-lock.json`; vendoring
    `node_modules` is out of scope. Install still needs network for `npm ci`, but no longer for `git`.
-4. **Manifest and status stay the same** (`{"commit": "8f12c88…"}`), so runtimes installed from GitHub stay `ready`
-   and nothing needs migrating.
+4. **Existing runtimes stay `ready`.** A runtime installed from GitHub keeps its manifest `{"commit": "8f12c88…"}`
+   and is still accepted; only new installs get the version mark of D26. Nothing needs migrating in this module.
 5. **No spec-guard change:** `interface.json`, the probe and the status output are unchanged.
 
 ## Decisions
@@ -59,17 +59,37 @@ D23–D25 accepted with the spec on 2026-10-07.
   the bridge later updates `UPSTREAM.sha256` and `UPSTREAM.md` in the same commit.
 - **D25 identity proof (one-off, this module).** (a) every vendored file's git blob hash equals the blob at
   `8f12c88` in the local runtime's object store; (b) `dist/` built by the new installer is byte-identical to the
-  current runtime's `dist/`; (c) upstream's own `npm test` passes in a built copy; (d) `probe` is ready with the same
-  17 tools.
+  current runtime's `dist/`, and the resolved npm dependency tree (`npm ls --all --json`) equals the current
+  runtime's; (c) upstream's own `npm test` passes in a built copy, with the test count recorded; (d) `probe` is ready
+  with the same 17 tools.
+
+- **D26 version mark now, upgrade command later (user, 2026-10-07).** New installs write the manifest
+  `{"commit": "8f12c88…", "source": "vendored", "tree": "<SHA-256 of UPSTREAM.sha256>"}`. `status` accepts that and
+  the legacy `{"commit": "8f12c88…"}` and adds `"bridge": {"source": "upstream-git" | "vendored", "tree": … | null,
+  "current": true | false}`, where `current` says whether the installed bridge equals the plugin's vendored copy
+  (a legacy install counts as the unmodified `8f12c88` tree, recorded as a constant). Everything else in the status
+  output and `relay_status.py` is unchanged, so spec-guard's probe is unaffected.
+  **Upgrade path, specified here and implemented by the first module that changes the bridge
+  (`delivery-state-machine`):** `native_collaboration_runtime.py upgrade --confirm`, run only after the user agrees
+  (the collaboration-ops skill asks first). It refuses while any bridge server of this runtime is running; copies
+  `runtime/mailbox/` to `$AGENT_RELAY_HOME/backups/<UTC time>/runtime-mailbox/` first; builds the new runtime from
+  the verified vendored copy in a stage beside `runtime/`; moves `mailbox/` and `data/` into the stage; renames
+  `runtime/` to `runtime.previous-<time>` and the stage to `runtime/`; checks `status` is `ready` and `current`, and
+  that the mailbox row counts equal the backup's. Paths stay the same, so host entries need no change. The previous
+  directory is kept until the user removes it; on any failure before the swap nothing changes, after it the
+  previous directory is renamed back.
 
 ## Requirements
 
 1. `plugins/agent-relay/bridge/` holds the vendored files of assumption 2 plus `UPSTREAM.md` and `UPSTREAM.sha256`.
-2. `install_runtime` no longer runs `git`; it installs from the vendored copy and refuses a copy that does not match
+2. New installs carry the D26 manifest; `status` reports `bridge.source`, `tree` and `current` for both kinds
+   (tested with a legacy and a vendored fixture).
+2b. `install_runtime` no longer runs `git`; it installs from the vendored copy and refuses a copy that does not match
    `UPSTREAM.sha256` (tested: changed, extra and missing file each refused, nothing installed).
 3. A unit test checks the vendored tree against `UPSTREAM.sha256`, so an unrecorded edit fails `validate.sh`.
 4. D25 (a)–(d) recorded in the todo.
-5. README credit and install text, `collaboration-ops` skill (no `git` needed), interface §13 / brief note updated;
+5. The vendored `LICENSE` is upstream's text unchanged; `UPSTREAM.md` names the repository, the commit and the
+   change rule; README's licence/credit section points to `plugins/agent-relay/bridge/UPSTREAM.md`. README credit and install text, `collaboration-ops` skill (no `git` needed), interface §13 / brief note updated;
    the interface's `B:path:line` citations now resolve inside the repository.
 
 ## Commands

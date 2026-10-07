@@ -32,7 +32,8 @@ test red. **Files:** `plugins/agent-relay/bridge/**`, new `hooks/test_bridge_ven
 ### Task 2: Install from the vendored copy (D24)
 
 **Description:** `install_runtime` copies `bridge/` into the stage, verifies it against `UPSTREAM.sha256`, then runs
-the same `npm ci` and build; no `git`. Tests with a fixture bridge and stubbed `npm`: success, manifest unchanged,
+the same `npm ci` and build; no `git`. New installs write the D26 manifest; `status` accepts legacy and vendored
+manifests and reports `bridge` {source, tree, current}. Tests with a fixture bridge and stubbed `npm`: success, manifest unchanged,
 no `git` call; changed / extra / missing file each refused with nothing installed.
 
 **Acceptance:** spec requirement 2. **Verify:** `validate.sh`; mutation: skip the check → tamper tests red.
@@ -52,7 +53,7 @@ in-repo, §13 note).
 
 **Description:** Temporary `AGENT_RELAY_HOME`: `install` from the copy; compare its `dist/` with
 `~/.agent-relay/runtime/dist` byte for byte; run upstream `npm test` in a built copy under the scratchpad; `probe`
-ready with 17 tools; remove everything; real root and host config unchanged.
+ready with 17 tools; `npm ls --all --json` equal to the current runtime's; record the upstream test count; remove everything; real root and host config unchanged.
 
 **Acceptance:** spec success criterion 2. **Files:** `tasks/bridge-vendoring/todo.md`.
 
