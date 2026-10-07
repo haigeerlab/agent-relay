@@ -353,6 +353,34 @@ class RecoveryTests(unittest.TestCase):
             self.store.list_delegations()[0].envelope_id), 1)
         self.assertEqual(len(adapter.calls), 2)
 
+    def test_new_create_after_held_one_resolves_the_launched_session_by_name(self):
+        controller, adapter = self.controller(["held", "created", "created"])
+        held = self.create(controller)
+        self.assertEqual(held.state, "held")
+        launched = self.create(
+            controller,
+            request=self.request("controller-request-2"),
+            launch="controller-launch-2",
+        )
+        self.assertEqual(launched.state, "created")
+
+        status = controller.status_named("复审")
+
+        self.assertEqual(status.state, "created")
+        [bound] = [claim for claim in self.store.list_delegations()
+                   if claim.host_ref is not None]
+        self.assertEqual(adapter.calls[-1][1], bound.delegation_id)
+        self.assertEqual(len(controller.list()), 2)
+
+    def test_lone_never_launched_session_still_resolves_by_name(self):
+        controller, adapter = self.controller(["held", "held"])
+        self.create(controller)
+
+        status = controller.status_named("复审")
+
+        self.assertEqual(status.state, "held")
+        self.assertEqual(adapter.calls[-1][1], self.store.list_delegations()[0].delegation_id)
+
     def test_expired_authorization_blocks_follow_up_before_host_adapter(self):
         controller, _adapter = self.controller(["created"])
         self.create(controller)

@@ -15,10 +15,9 @@ then finding 4 from that evidence, then docs, then one live run of C3 and C7.
 
 ## Architecture Decisions
 
-- D15 lives in the controller (`authorize_and_create`), not in each adapter: one place handles `held` with no host
-  reference for both hosts, using the existing `creating → cancelled` transition and `host-cancelled` evidence.
-- `_resolve` filters "cancelled and never bound to a host" (`host_ref is None`) before matching names; launched
-  rows, including cancelled ones, are matched exactly as today (C6 unchanged).
+- D15 (revised at Task 1) lives in the controller's `_resolve` only: when any name match has a `host_ref`, drop
+  the matches without one; otherwise match as today. Held rows are not changed, so the same-key retry stays.
+  Launched rows, including cancelled ones, are matched exactly as today (C6 unchanged).
 - D16 lives in each adapter's `cancel` (both already branch on `host_ref is None`).
 - D17: one module-level predicate in `session_delegation_claude.py` over `(state, status)`, used by
   `_reconcile_lifecycle` and `continue_turn`; unknown pairs are busy.
@@ -32,15 +31,14 @@ then finding 4 from that evidence, then docs, then one live run of C3 and C7.
 ### Task 1: Held create leaves no blocking record (D15)
 
 **Description:** Prove-It test: a create whose adapter answers `held` without a host reference, then a create with
-the same name — today the second lookup is `session-name-ambiguous`. Fix in the controller; answer stays `held`
-with the prerequisite. Tests for both hosts' adapters (fakes).
+the same name — today the second lookup is `session-name-ambiguous`. Fix in `_resolve`; answer stays `held` with
+the prerequisite, and the same-key retry test stays green. A lone never-launched match still resolves by name.
 
 **Acceptance:** spec requirements 1–2; C6 regression test (two launched same-name sessions still ambiguous) green.
 
 **Verify:** `scripts/validate.sh`; mutation: remove the `_resolve` filter → the same-name test goes red.
 
-**Files:** `hooks/session_delegation_control.py`, `hooks/test_session_delegation.py` (or the controller test file
-that already covers `_resolve`)
+**Files:** `hooks/session_delegation_control.py`, `hooks/test_session_delegation_recovery.py`
 
 ### Task 2: Cancel of a never-launched row (D16)
 

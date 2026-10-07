@@ -401,6 +401,10 @@ class SessionDelegationController:
                 disambiguator.casefold())]
             if not matches:
                 raise ControlError("session-disambiguator-not-found")
+        elif any(claim.host_ref is not None for claim in matches):
+            # A create held on a prerequisite never reached a host; a later create under the
+            # same name must not become ambiguous with it (D15).
+            matches = [claim for claim in matches if claim.host_ref is not None]
         if len(matches) > 1:
             candidates = tuple(
                 "[%s] %s · %s" % (

@@ -66,13 +66,16 @@ store already allows the repair: `bind_host` accepts `unknown → created` when 
 
 D15–D17 taken as recommended by the user on 2026-10-07; D18 added by the project owner after round 1.
 
-- **D15 held create.** When the adapter answers `held` and no host reference was bound, the controller moves the
-  row `creating → cancelled` (existing transition and evidence `host-cancelled`) and cancels its authorization,
-  in the same call. The public answer stays `state=held` with the prerequisite named, as today. Name resolution
-  (`_resolve`) skips rows that are `cancelled` and never got a host reference, so a later create with the same
-  name is unambiguous. The row is kept for audit, not deleted.
-  *Alternative rejected:* reusing the held row on the next create — the next create has a new launch key, prompt
-  and possibly authority, so reuse would mix two authorizations.
+- **D15 held create (revised by the project owner at Task 1).** Name lookup prefers launched rows: when a friendly
+  name matches at least one row that reached a host (`host_ref` set), rows that never did are left out; when every
+  match is never-launched, they are matched as today. The held row itself is not changed, so the designed retry —
+  the same idempotency and launch keys reach the same `creating` claim (`test_held_prerequisite_can_retry_the_same_
+  claim_without_consuming_capacity`) — keeps working. `list` still shows every row; a leftover never-launched row
+  is reachable with `--disambiguator` and cancels cleanly (D16).
+  *Why revised:* the first D15 (move a held row to `cancelled` at once) would also cancel its authorization and so
+  break that retry. Finding 3 arises because the skill makes a fresh create, after the user fixes the
+  prerequisite, with new keys (keys are reused only after a lost response); the new rule removes the ambiguity that
+  this creates without changing either path.
 - **D16 cancelling a never-launched row.** `cancel` on a row with no host reference (legacy rows such as
   `27f0de`, or any row left `creating` by a crash) moves it to `cancelled` and answers `cancelled`, because no host
   exists to confirm. This narrows the skill's rule "only show cancelled after the host confirms" to rows that
@@ -90,8 +93,8 @@ D15–D17 taken as recommended by the user on 2026-10-07; D18 added by the proje
 
 ## Requirements
 
-1. A create held on a prerequisite leaves its row `cancelled`, its authorization `cancelled`, and its public
-   answer `held` with the prerequisite.
+1. A create held on a prerequisite answers `held` with the prerequisite, as today, and can still be retried with
+   the same keys.
 2. After a held create named N, a create named N succeeds without `session-name-ambiguous`; `status`, `continue`
    and `cancel` on N reach the new session without `--disambiguator`.
 3. `cancel` on a never-launched row answers `cancelled` and moves the row to `cancelled`; on a launched row it
