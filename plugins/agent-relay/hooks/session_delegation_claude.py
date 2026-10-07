@@ -44,6 +44,13 @@ _STOPPED = re.compile(r"^stopped ([0-9a-f]{8})$", re.MULTILINE)
 # (round 1 finding 7), so create keeps looking with backoff up to this many seconds.
 ENTRY_WAIT_SECONDS = 10.0
 _ENTRY_DELAYS = (0.2, 0.5, 1.0, 2.0)
+# Host states in which an `idle` background session can take a new turn (D17).
+_IDLE_STATES = frozenset(("blocked", "done", "running", "active"))
+
+
+def _host_idle(session: "ClaudeSession") -> bool:
+    """The one rule for "this Claude target is idle", shared by status and continue."""
+    return session.status == "idle" and session.state in _IDLE_STATES
 _ANSI = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\)|[78])")
 
 
@@ -587,9 +594,10 @@ class ClaudeAdapter:
                 current.delegation_id, "registered", "host-registered")
             current = self.store.advance(
                 current.delegation_id, "running", "host-running")
-        if (current.state == "running"
-                and session.status in ("idle", "done", "stopped", "exited")
-                and session.state not in ("working", "active")):
+        if current.state == "running" and (
+                _host_idle(session)
+                or (session.status in ("idle", "done", "stopped", "exited")
+                    and session.state not in ("working", "active"))):
             current = self.store.advance(
                 current.delegation_id, "completed", "host-completed")
         return ClaudeRunResult(
@@ -636,8 +644,7 @@ class ClaudeAdapter:
                 host_status=session.status, prerequisite="target-busy",
             )
         turn_ref = "claude-turn-" + uuid4().hex
-        if session.status == "idle" and session.state in (
-                "blocked", "done", "running", "active"):
+        if _host_idle(session):
             if self.native_wake is not None:
                 self.store.begin_follow_up(delegation_id, turn_ref)
                 try:

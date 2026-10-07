@@ -420,6 +420,41 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(result.state, "running")
         self.assertEqual(woken, [self.late_entry()["sessionId"]])
 
+    def test_second_round_to_an_idle_active_target_is_woken_not_reported_busy(self):
+        # Baseline finding 4: `continue` answered held/target-busy while hostStatus=idle.
+        # The reconcile rule kept (active, idle) running while continue_turn itself treats
+        # it as idle enough to wake (D17).
+        self.adapter(self.runner_for_create()).create(self.claim.delegation_id, "Review")
+        woken = []
+        adapter = self.adapter(
+            RepeatingRunner([completed(json.dumps([
+                self.entry(state="active", status="idle")]))]),
+            wake=lambda session_ref, prompt: woken.append(session_ref) or "turn-2",
+            registration_probe=lambda *_args: True,
+        )
+
+        result = adapter.continue_turn(self.claim.delegation_id, "Again")
+
+        self.assertEqual(result.state, "running")
+        self.assertEqual(woken, ["ce5b9501-0817-479d-886e-772bafbbee6f"])
+
+    def test_working_target_is_still_busy_and_an_unrecognised_idle_state_is_named(self):
+        self.adapter(self.runner_for_create()).create(self.claim.delegation_id, "Review")
+        for state, status, prerequisite in (("working", "busy", "target-busy"),
+                                            ("paused", "idle", "target-status-unknown")):
+            with self.subTest(state=state):
+                adapter = self.adapter(
+                    RepeatingRunner([completed(json.dumps([
+                        self.entry(state=state, status=status)]))]),
+                    wake=lambda *_args: self.fail("must not wake"),
+                    registration_probe=lambda *_args: True,
+                )
+
+                result = adapter.continue_turn(self.claim.delegation_id, "Again")
+
+                self.assertEqual(result.state, "held")
+                self.assertEqual(result.prerequisite, prerequisite)
+
     def test_round_one_unknown_row_without_session_ref_is_bound_by_status(self):
         # Shape of round 1's row: host_ref 244e528e, no host_session_ref, state unknown.
         _envelope, claim = self.make_claim(key="claude-round1-sample")
