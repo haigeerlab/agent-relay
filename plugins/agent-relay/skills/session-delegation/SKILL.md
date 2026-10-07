@@ -51,6 +51,7 @@ Agent 自己建议新开会话（例如主动建议再找一个 Codex 复审）�
 - `held/project-trust`：用户尚未在 Claude Code 中信任该项目。
 - `held/mcp-project-approval`：该项目尚未接受这次明确的临时 MCP。
 - `held/host-permission-prompt`：宿主仍要求人工权限决定。
+- `held/identity-retired`：Codex 委派的信箱身份已被退役，追问会因重新注册被拒而无法回传结果，所以没有发出；要继续就新建委派，或由用户决定是否恢复该名字。
 
 出现 held 时只展示最小建议：`.claude/settings.json` / `.claude/settings.local.json` 的最小 allow 和一个下一步；
 不得自动修改项目或全局设置，不得代用户接受 trust/MCP，也不得改用 bypass。用户可以提前把通信 allow 配在

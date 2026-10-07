@@ -511,6 +511,41 @@ class AdapterTests(unittest.TestCase):
         with self.assertRaisesRegex(CodexAdapterError, "not-ready-for-follow-up"):
             adapter.continue_turn(self.claim.delegation_id, "Do not duplicate")
 
+    def test_follow_up_to_a_retired_identity_is_held_without_any_host_request(self):
+        # cleanup-gaps D63: registering a retired name is refused, so the turn could never report back.
+        self.adapter([self.successful_client()]).create(self.claim.delegation_id, "Review")
+        asked = []
+        pending = deque([ScriptedClient([])])
+        adapter = CodexAdapter(
+            self.store, self.installation, (str(self.installation.binary), "app-server"),
+            {"PATH": "/bin"}, lambda: pending.popleft(),
+            retired_probe=lambda name: asked.append(name) or True,
+        )
+
+        result = adapter.continue_turn(self.claim.delegation_id, "Follow up")
+
+        self.assertEqual((result.state, result.prerequisite), ("held", "identity-retired"))
+        self.assertEqual(asked, [self.claim.friendly_name[:110] + "-thread-1"])
+        self.assertEqual(len(pending), 1, "no app-server was opened")
+        self.assertEqual(self.store.get_delegation(self.claim.delegation_id).state, "completed")
+
+    def test_follow_up_runs_when_the_identity_is_active_or_the_mailbox_unreadable(self):
+        for answer in (False, None):
+            with self.subTest(answer=answer):
+                self.setUp()
+                self.adapter([self.successful_client()]).create(self.claim.delegation_id, "Review")
+                resumed = ScriptedClient([
+                    ("thread/resume", self.thread_result()),
+                    ("mcpServerStatus/list", self.catalog()),
+                    ("turn/start", {"turn": {"id": "turn-2", "status": "inProgress"}}),
+                ], TurnOutcome("completed", False, "follow-up done"))
+                pending = deque([resumed])
+                adapter = CodexAdapter(
+                    self.store, self.installation, (str(self.installation.binary), "app-server"),
+                    {"PATH": "/bin"}, lambda: pending.popleft(), retired_probe=lambda name: answer,
+                )
+                self.assertEqual(adapter.continue_turn(self.claim.delegation_id, "Follow up").state, "completed")
+
     def test_follow_up_rejected_by_host_is_held_without_changing_the_claim(self):
         self.adapter([self.successful_client()]).create(self.claim.delegation_id, "Review")
         resumed = ScriptedClient([
