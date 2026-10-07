@@ -16,4 +16,4 @@
   - Takeover: A binding wake to B's session refused ("can bind wake only to this session"); B `takeover: true` moved `lead` (note returned); A then refused, B sends as `lead`.
   - Run note: the first inbox check came 2.5 s after the held ping, before the 5 s sweep; re-checked from a new process after 6 s.
   - Worktree and temporary root removed; no process left; real `~/.codex/config.toml` unchanged (mtime still 16:37:10) and `~/.agent-relay` not touched
-- [ ] Checkpoint (gate): module review
+- [x] Checkpoint (gate): module review — accepted by the user 2026-10-07; push and PR approved
