@@ -17,6 +17,10 @@ extra key, changed value, subtable with two keys, interleaved foreign table, nod
 `backup_host_files(paths) -> Path` copies existing files (0600) into `$AGENT_RELAY_HOME/backups/<UTC>/host-config/`
 (0700), records missing ones in a `missing.txt`; a failure raises before any write. Called by `install-codex`,
 `install-claude` (settings + `~/.claude.json`), `uninstall-codex`, `uninstall-claude`; each prints the backup path.
+Security (coordinator, 2026-10-07): these files can hold MCP API keys and tokens, so the directories are created 0700
+and the copies 0600 regardless of umask (written with explicit modes, not `shutil.copy`), a test asserts the modes
+under a permissive umask, the printed message says the backup may contain credentials, and file contents are never
+logged or printed.
 **Files:** `hooks/native_collaboration_adapters.py` (or new `hooks/host_backup.py`), tests.
 
 ### Checkpoint (report): Codex removal and backups green

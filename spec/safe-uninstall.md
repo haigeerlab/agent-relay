@@ -43,6 +43,8 @@ Confirmed by the user on 2026-10-07.
 3. **Backups:** before any host write the touched files are copied to `$AGENT_RELAY_HOME/backups/<UTC time>/host-config/`
    (directory 0700, files 0600, original names), and the command prints that path. Claude's CLI writes `~/.claude.json`,
    so that file is copied before calling it. A failed copy stops the write. Backups are never deleted automatically.
+   The copies may hold credentials (MCP API keys, tokens): modes are set explicitly whatever the umask, the output
+   says so, and contents are never logged.
 4. **History stays:** nothing here deletes `mailbox/` or its backups.
 5. `relay_status.py` output unchanged; `interface.json` 1.0; no bridge change.
 
