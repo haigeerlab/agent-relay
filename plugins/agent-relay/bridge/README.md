@@ -201,7 +201,7 @@ claude-codex-mcp-bridge rollback        # switch back to the previous runtime
 claude-codex-mcp-bridge uninstall       # keeps mailbox data unless --purge
 ```
 
-Retiring never deletes messages. Closed messages keep their history and a note saying why, recently active senders get one notice listing what was closed, and registering the name again reactivates it.
+Retiring never deletes messages. Closed messages keep their history and a note saying why, recently active senders get one notice listing what was closed. The name stays retired: `bridge_register` refuses it unless the call passes `reactivate: true` (agent-relay change).
 
 ## Storage
 

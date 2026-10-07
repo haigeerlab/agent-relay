@@ -176,3 +176,37 @@ test("bridge_sessions.whoami lists this session's host, project and identities",
     await Promise.all([a.close(), b.close(), codex.close()]);
   }
 });
+
+// agent-relay cleanup-gaps D61: a retired name comes back only with reactivate: true.
+test("a retired name is refused, even with takeover, until reactivate: true; the result says it was reactivated", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "agent-relay-identity-reactivate-"));
+  const a = await session(dir, "claude-session-a");
+  const b = await session(dir, "claude-session-b");
+  try {
+    assert.ok((await a.call("bridge_register", { agent: "alice" })).ok);
+    const retired = await a.call("bridge_retire", { agent: "alice", note: "done" });
+    assert.ok(retired.ok, retired.text);
+    const retiredAt = retired.json().agent.retiredAt;
+
+    for (const [who, args] of [[a, {}], [b, { takeover: true }], [a, { wake: null }]] as const) {
+      const refused = await who.call("bridge_register", { agent: "alice", ...args });
+      assert.equal(refused.ok, false, JSON.stringify(args));
+      assert.match(refused.text, /"alice" was retired at /);
+      assert.match(refused.text, /reactivate: true/);
+    }
+    const agents = (await a.call("bridge_agents", { includeRetired: true })).json().agents;
+    assert.equal(agents.find((x: any) => x.name === "alice").retiredAt, retiredAt, "a refusal changes nothing");
+
+    const back = await a.call("bridge_register", { agent: "alice", reactivate: true });
+    assert.ok(back.ok, back.text);
+    assert.equal(back.json().reactivated, true);
+    assert.equal(back.json().retiredAt, null);
+    assert.ok(back.json().notes.some((note: string) => note.includes(retiredAt)), back.text);
+
+    const again = await a.call("bridge_register", { agent: "alice", reactivate: true });
+    assert.ok(again.ok, again.text);
+    assert.equal(again.json().reactivated, undefined, "an active name is a normal registration");
+  } finally {
+    await Promise.all([a.close(), b.close()]);
+  }
+});
