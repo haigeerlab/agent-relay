@@ -9,6 +9,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from native_collaboration_runtime import BRIDGE_COMMIT, BRIDGE_SOURCE, bridge_tree
+
 REPO = Path(__file__).resolve().parents[3]
 PREFLIGHT = REPO / "scripts" / "acceptance" / "preflight.sh"
 CLEANUP = REPO / "scripts" / "acceptance" / "cleanup.sh"
@@ -72,6 +74,36 @@ class PreflightTests(PreflightFixture):
         self.assertIn("agent-relay (Codex)   unknown", out)
         self.assertIn("codex approvals       no config.toml", out)
 
+
+
+class RuntimeBridgeTests(PreflightFixture):
+    """cleanup-gaps: preflight says whether the runtime's bridge is this checkout's, so a plugin-only update shows."""
+
+    def runtime(self, tree):
+        root = self.tmp / "relay" / "runtime"
+        for sub in ("", "mailbox", "mailbox/backups", "data", "dist"):
+            (root / sub).mkdir(mode=0o700, parents=True, exist_ok=True)
+            (root / sub).chmod(0o700)
+        (root / "dist" / "server.js").write_text("server\n", encoding="utf-8")
+        (root / "manifest.json").write_text(json.dumps(
+            {"commit": BRIDGE_COMMIT, "source": "vendored", "tree": tree}), encoding="utf-8")
+
+    def bridge_line(self):
+        env = dict(os.environ, CLAUDE_CONFIG_DIR=str(self.claude_home), CODEX_HOME=str(self.codex_home),
+                   HOME=str(self.tmp), AGENT_RELAY_HOME=str(self.tmp / "relay"),
+                   PATH=f"{self.bin}{os.pathsep}/usr/bin{os.pathsep}/bin")
+        done = subprocess.run(["/bin/bash", str(PREFLIGHT)], capture_output=True, text=True, env=env, timeout=60)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return next(line for line in done.stdout.splitlines() if line.startswith("runtime bridge"))
+
+    def test_absent_current_and_older_runtimes(self):
+        self.assertEqual(self.bridge_line(), "runtime bridge        absent")
+        self.runtime(bridge_tree(BRIDGE_SOURCE))
+        self.assertEqual(self.bridge_line(), "runtime bridge        current")
+        self.runtime("0" * 64)
+        line = self.bridge_line()
+        self.assertIn("OLDER than this checkout's", line)
+        self.assertIn("upgrade --confirm", line)
 
 class AllowListTests(PreflightFixture):
     """acceptance-kit-round2 D55, D56 (round 2 R2-8, R2-3)."""

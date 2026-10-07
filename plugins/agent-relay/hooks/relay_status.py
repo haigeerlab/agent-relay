@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Tell a caller such as Spec Guard's probe whether the agent-relay mailbox runtime is ready.
 
-Declared as the `status` command in `interface.json` (interface 1.0, decision D4). Prints one JSON object,
+Declared as the `status` command in `interface.json` (interface 1.x, decision D4; 1.1 since cleanup-gaps D62). Prints one JSON object,
 `{"ready": true|false, "setup": "<how to set it up>"}`, from the read-only runtime status; it never creates,
 installs, or repairs anything.
 """

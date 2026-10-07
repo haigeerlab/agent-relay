@@ -33,7 +33,7 @@ class ManifestTests(unittest.TestCase):
 
     def test_interface_marker_declares_version_one_and_a_status_command_in_the_plugin(self):
         marker = load(PLUGIN / "interface.json")
-        self.assertEqual(marker["interface"], "1.0")
+        self.assertEqual(marker["interface"], "1.1")  # cleanup-gaps D62
         self.assertEqual(marker["status"][:2], ["python3", "-B"])
         self.assertTrue((PLUGIN / marker["status"][2]).is_file())
 
