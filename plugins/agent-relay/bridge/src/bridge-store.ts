@@ -35,6 +35,14 @@ export interface BridgeAgent {
   retiredAt: string | null;
   retiredBy: string | null;
   retireNote: string | null;
+  /** agent-relay identity-check: the host session this name was registered from; null when unknown. */
+  host: AgentHost | null;
+}
+
+/** A host session: Claude's id is verified from the bridge's environment, Codex's is claimed by the session. */
+export interface AgentHost {
+  app: "claude" | "codex";
+  sessionId: string;
 }
 
 export interface AgentSummary extends BridgeAgent {
@@ -236,6 +244,8 @@ interface AgentRow {
   retired_at: string | null;
   retired_by: string | null;
   retire_note: string | null;
+  host_app?: string | null;
+  host_session?: string | null;
 }
 
 interface RunRow {
@@ -671,20 +681,23 @@ export class BridgeStore {
    * Register or refresh an agent's presence. Omitted capabilities keep the
    * existing list. Registering again reactivates a retired agent.
    */
-  register(name: string, capabilities?: string[]): BridgeAgent {
+  register(name: string, capabilities?: string[], host?: AgentHost | null): BridgeAgent {
     const now = this.now();
     const existing = this.getAgent(name);
     const serialized = JSON.stringify(capabilities ?? existing?.capabilities ?? []);
+    // agent-relay identity-check: a known host is recorded; a registration without one keeps the recorded host.
     this.db
       .prepare(
-        `INSERT INTO agents (name, capabilities, registered_at, last_seen)
-         VALUES (?, ?, ?, ?)
+        `INSERT INTO agents (name, capabilities, registered_at, last_seen, host_app, host_session)
+         VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT(name) DO UPDATE SET
            capabilities = excluded.capabilities,
            last_seen = excluded.last_seen,
+           host_app = COALESCE(excluded.host_app, agents.host_app),
+           host_session = COALESCE(excluded.host_session, agents.host_session),
            retired_at = NULL, retired_by = NULL, retire_note = NULL`,
       )
-      .run(name, serialized, now, now);
+      .run(name, serialized, now, now, host?.app ?? null, host?.sessionId ?? null);
     return this.getAgent(name) as BridgeAgent;
   }
 
@@ -723,6 +736,9 @@ export class BridgeStore {
       retiredAt: row.retired_at ?? null,
       retiredBy: row.retired_by ?? null,
       retireNote: row.retire_note ?? null,
+      host: row.host_app && row.host_session
+        ? { app: row.host_app as AgentHost["app"], sessionId: row.host_session }
+        : null,
     };
   }
 

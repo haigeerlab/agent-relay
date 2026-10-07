@@ -7,7 +7,7 @@ import type { DatabaseSync } from "node:sqlite";
  * with defaults. Older bridge processes that are still running against the
  * same database must keep working after a newer process migrates it.
  */
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 function columns(db: DatabaseSync, table: string): Set<string> {
   const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
@@ -150,6 +150,13 @@ const MIGRATIONS: Array<(db: DatabaseSync) => void> = [
   (db) => {
     addColumn(db, "messages", "reply_to", "INTEGER");
     db.exec("CREATE INDEX IF NOT EXISTS idx_messages_reply ON messages (reply_to) WHERE reply_to IS NOT NULL");
+  },
+
+  // v5 (agent-relay identity-check): the host session an agent was registered from. Claude's is verified from the
+  // bridge's environment, Codex's is what the session claimed. Nullable: older rows and processes have no owner.
+  (db) => {
+    addColumn(db, "agents", "host_app", "TEXT");
+    addColumn(db, "agents", "host_session", "TEXT");
   },
 ];
 

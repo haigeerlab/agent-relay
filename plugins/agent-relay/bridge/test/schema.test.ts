@@ -212,6 +212,9 @@ test("an older process can still insert a message into a v3 mailbox", () => {
   raw.close();
 });
 
+// agent-relay identity-check: v5 records the host session an agent was registered from.
+const HOST_COLUMNS = ["host_app", "host_session"];
+
 // agent-relay idempotency: v4 adds the reply link. Real runtimes still hold v2 mailboxes, so the v2 → v4 path is
 // tested on its own: one open migrates both steps after one pre-migration backup.
 function v2Mailbox(path: string): void {
@@ -226,22 +229,23 @@ function v2Mailbox(path: string): void {
   raw.exec("DROP INDEX idx_messages_delivery");
   raw.exec("DROP INDEX idx_messages_reply");
   for (const column of [...DELIVERY_COLUMNS, "reply_to"]) raw.exec(`ALTER TABLE messages DROP COLUMN ${column}`);
+  for (const column of HOST_COLUMNS) raw.exec(`ALTER TABLE agents DROP COLUMN ${column}`);
   raw.exec("PRAGMA user_version = 2");
   raw.close();
 }
 
-test("a v2 mailbox migrates straight to v4 in one open, after one backup, with its rows", () => {
-  assert.equal(SCHEMA_VERSION, 4);
+test("a v2 mailbox migrates straight to the current schema in one open, after one backup, with its rows", () => {
+  assert.equal(SCHEMA_VERSION, 5);
   const dir = mkdtempSync(join(tmpdir(), "bridge-v2-v4-"));
   const path = join(dir, "bridge.sqlite");
   const backupDir = join(dir, "backups");
   v2Mailbox(path);
 
   const store = new BridgeStore(path, { backupDir });
-  assert.deepEqual(store.migration, { from: 2, to: 4, newer: false });
+  assert.deepEqual(store.migration, { from: 2, to: 5, newer: false });
   const backups = readdirSync(backupDir);
   assert.equal(backups.length, 1);
-  assert.match(backups[0] ?? "", /^bridge-pre-v4-from-v2-/);
+  assert.match(backups[0] ?? "", /^bridge-pre-v5-from-v2-/);
   const copy = new DatabaseSync(join(backupDir, backups[0] as string), { readOnly: true });
   assert.equal((copy.prepare("PRAGMA user_version").get() as { user_version: number }).user_version, 2);
   assert.equal((copy.prepare("SELECT COUNT(*) AS n FROM messages").get() as { n: number }).n, 2);
@@ -257,6 +261,8 @@ test("a v2 mailbox migrates straight to v4 in one open, after one backup, with i
   for (const column of [...DELIVERY_COLUMNS, "reply_to"]) {
     assert.equal(names.find((row) => row.name === column)?.notnull, 0, column);
   }
+  const agentColumns = check.prepare("PRAGMA table_info(agents)").all() as Array<{ name: string; notnull: number }>;
+  for (const column of HOST_COLUMNS) assert.equal(agentColumns.find((row) => row.name === column)?.notnull, 0, column);
   check.close();
 });
 
@@ -271,5 +277,27 @@ test("an older process can still insert a message into a v4 mailbox; its reply l
   raw.close();
   const store = new BridgeStore(path);
   assert.equal(store.inbox("b")[0]?.replyTo, null);
+  store.close();
+});
+
+test("an older process can still register an agent in a v5 mailbox; it has no recorded host", () => {
+  const dir = mkdtempSync(join(tmpdir(), "bridge-v5-old-"));
+  const path = join(dir, "bridge.sqlite");
+  new BridgeStore(path).close();
+  const raw = new DatabaseSync(path);
+  const now = new Date().toISOString();
+  raw.prepare("INSERT INTO agents (name, capabilities, registered_at, last_seen) VALUES (?, ?, ?, ?)").run("old", "[]", now, now);
+  raw.close();
+  const store = new BridgeStore(path);
+  assert.equal(store.getAgent("old")?.host, null);
+  store.close();
+});
+
+test("registration records the host it came from; a registration without one keeps it", () => {
+  const store = new BridgeStore(":memory:");
+  assert.equal(store.register("a").host, null);
+  assert.deepEqual(store.register("a", undefined, { app: "claude", sessionId: "s-1" }).host, { app: "claude", sessionId: "s-1" });
+  assert.deepEqual(store.register("a", ["review"]).host, { app: "claude", sessionId: "s-1" });
+  assert.deepEqual(store.register("a", undefined, { app: "codex", sessionId: "t-1" }).host, { app: "codex", sessionId: "t-1" });
   store.close();
 });
