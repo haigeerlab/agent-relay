@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import type { BridgeMessage } from "./bridge-store.js";
-import { DeliveryTransitionError, type DeliveryState, expireDue, transition } from "./delivery.js";
+import { DeliveryTransitionError, type DeliveryState, atomically, expireDue, transition } from "./delivery.js";
 
 /**
  * agent-relay delivery-state-machine: what a wake job's state says about its message. A wake-window `expired`
@@ -138,6 +138,10 @@ export class WakeQueue {
    * outcome is already final for another reason (refused, expired, cancelled) keeps that outcome.
    */
   acknowledge(agent: string, messageId: number): void {
+    atomically(this.db, () => this.acknowledgeStep(agent, messageId));
+  }
+
+  private acknowledgeStep(agent: string, messageId: number): void {
     this.db.prepare(`UPDATE wake_jobs SET state = 'acknowledged', detail = 'Recipient acknowledged the message'
       WHERE agent = ? AND message_id = ? AND state IN ('pending', 'sending', 'accepted', 'read', 'held', 'unknown')`)
       .run(agent, messageId);
@@ -147,6 +151,10 @@ export class WakeQueue {
   }
 
   recordRead(agent: string, ids: number[]): void {
+    atomically(this.db, () => this.recordReadStep(agent, ids));
+  }
+
+  private recordReadStep(agent: string, ids: number[]): void {
     const stmt = this.db.prepare(`UPDATE wake_jobs SET state = 'read', detail = 'Recipient fetched the mailbox message; work is not yet acknowledged'
       WHERE agent = ? AND message_id = ? AND state IN ('sending', 'unknown', 'held', 'accepted')`);
     // The recipient holding the message is delivery, wake or no wake (unbound recipients poll their inbox).
@@ -160,6 +168,11 @@ export class WakeQueue {
   }
 
   claim(now = Date.now(), selfPid = process.pid): WakeJob | null {
+    // One transaction: taking a ping and moving its message must not be split by a crash (durable-ordering).
+    return atomically(this.db, () => this.claimStep(now, selfPid));
+  }
+
+  private claimStep(now: number, selfPid: number): WakeJob | null {
     // A message past its queue timeout is never pinged (agent-relay delivery-state-machine, D27).
     expireDue(this.db, now);
     // A dead sender may have delivered before crashing. Never automatically replay it.
@@ -194,6 +207,10 @@ export class WakeQueue {
   }
 
   finish(job: WakeJob, result: WakeResult): void {
+    atomically(this.db, () => this.finishStep(job, result));
+  }
+
+  private finishStep(job: WakeJob, result: WakeResult): void {
     const updated = this.db.prepare(`UPDATE wake_jobs SET state = ?, detail = ?, retry_at = ?,
         pending_reason = CASE WHEN ? = 'pending' THEN ? ELSE pending_reason END
       WHERE id = ? AND attempt_id = ? AND state IN ('sending', 'unknown', 'held')`)

@@ -26,6 +26,23 @@ export const MAX_QUEUE_TIMEOUT_MS = 7 * 24 * 3_600_000;
 
 export class DeliveryTransitionError extends Error {}
 
+/**
+ * Run a step that writes a wake job and its message as one transaction (agent-relay durable-ordering), so a crash
+ * between the two writes cannot leave them contradicting each other. Joins a transaction already open.
+ */
+export function atomically<T>(db: DatabaseSync, step: () => T): T {
+  if (db.isTransaction) return step();
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const result = step();
+    db.exec("COMMIT");
+    return result;
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
 /** The bridge-wide queue timeout: `BRIDGE_QUEUE_TIMEOUT_MS` when sane, otherwise the default. */
 export function queueTimeoutMs(env: Record<string, string | undefined> = process.env): number {
   const raw = env.BRIDGE_QUEUE_TIMEOUT_MS;
@@ -80,6 +97,10 @@ export function transition(db: DatabaseSync, messageId: number, to: DeliveryStat
  * Rows from older bridges carry no `expires_at` and never expire.
  */
 export function expireDue(db: DatabaseSync, now = Date.now()): number[] {
+  return atomically(db, () => expireDueStep(db, now));
+}
+
+function expireDueStep(db: DatabaseSync, now: number): number[] {
   const expired = db.prepare(
     `UPDATE messages SET delivery_state = 'expired', delivery_changed_at = ?
      WHERE to_agent != '*' AND COALESCE(delivery_state, 'queued') = 'queued'
