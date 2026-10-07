@@ -13,6 +13,7 @@ from typing import Any, Callable
 from urllib.parse import quote
 
 from native_collaboration_adapters import CLAUDE_SERVER_NAME, claude_config
+from native_collaboration_runtime import MAILBOX_SCHEMA_VERSIONS
 from session_delegation import RESULT_KEY_PREFIX
 from session_delegation_codex import CommunicationServer
 from session_routing import BRIDGE_TRANSPORT
@@ -76,7 +77,7 @@ def native_result_route(database: Path, origin_host: str, origin_session: str,
     """Resolve one live native recipient by exact host session, without messages."""
     try:
         with closing(_mailbox_connection(database)) as connection:
-            if connection.execute("PRAGMA user_version").fetchone()[0] != 2:
+            if connection.execute("PRAGMA user_version").fetchone()[0] not in MAILBOX_SCHEMA_VERSIONS:
                 return None
             rows = connection.execute(
                 "SELECT a.name, w.target FROM agents a JOIN wake_targets w "
@@ -128,7 +129,7 @@ def native_registration_probe(database: Path) -> Callable[
                 return None
             uri = "file:%s?mode=ro" % quote(str(database.absolute()))
             with closing(sqlite3.connect(uri, uri=True)) as connection:
-                if connection.execute("PRAGMA user_version").fetchone()[0] != 2:
+                if connection.execute("PRAGMA user_version").fetchone()[0] not in MAILBOX_SCHEMA_VERSIONS:
                     return None
                 agent = connection.execute(
                     "SELECT name FROM agents WHERE name=? AND retired_at IS NULL",

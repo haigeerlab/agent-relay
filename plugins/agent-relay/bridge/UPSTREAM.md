@@ -18,5 +18,9 @@ README's logo link therefore points at a file that is not here.
 
 ## agent-relay changes
 
-None: every vendored file is byte-identical to the upstream commit. A module that changes the bridge records the
-change here and updates `UPSTREAM.sha256` in the same commit.
+A module that changes the bridge records the change here and rewrites `UPSTREAM.sha256` in the same commit
+(`python3 -B scripts/bridge-manifest.py`). Files not listed below are byte-identical to the upstream commit.
+
+| Module | Files | Change |
+|---|---|---|
+| `delivery-state-machine` | `src/schema.ts`, `test/schema.test.ts` | Schema v3: nullable `messages.delivery_state`, `delivery_changed_at`, `read_at`, `expires_at` and an index; tests for the v2 → v3 migration and older-process inserts |

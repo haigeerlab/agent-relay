@@ -73,6 +73,17 @@ class NativeRetireTests(unittest.TestCase):
         self.assertEqual(identity_state(self.database, "old")["state"], "retired")
         self.assertEqual(identity_state(self.database, "nobody"), {"state": "absent"})
 
+    def test_mailbox_schema_v3_is_read_and_an_unknown_newer_one_is_refused(self):
+        for version, readable in ((3, True), (4, False)):
+            with self.subTest(version=version):
+                with sqlite3.connect(self.database) as connection:
+                    connection.execute(f"PRAGMA user_version = {version}")
+                if readable:
+                    self.assertEqual(identity_state(self.database, "busy")["unacknowledged"], 1)
+                else:
+                    with self.assertRaisesRegex(Exception, "mailbox is unavailable"):
+                        identity_state(self.database, "busy")
+
     def test_retires_a_clear_identity_with_the_backlog_kept(self):
         self.assertEqual(retire_identity(self.root, str(self.node), "done", note="session ended"),
                          {"state": "retired", "name": "done"})

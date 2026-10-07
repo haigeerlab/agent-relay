@@ -167,3 +167,47 @@ test("two connections opening the same legacy file migrate it once", () => {
   first.close();
   second.close();
 });
+
+// agent-relay delivery-state-machine: schema v3 adds the message delivery state, additively.
+const DELIVERY_COLUMNS = ["delivery_state", "delivery_changed_at", "read_at", "expires_at"];
+
+test("v3 adds nullable delivery columns and migrates a v2 mailbox with its rows", () => {
+  assert.equal(SCHEMA_VERSION, 3);
+  const dir = mkdtempSync(join(tmpdir(), "bridge-v3-"));
+  const path = join(dir, "bridge.sqlite");
+  const fresh = new BridgeStore(path);
+  fresh.send({ fromAgent: "a", toAgent: "b", body: "before" });
+  fresh.close();
+  // Turn the file back into a v2 mailbox: drop the v3 columns, set the version.
+  const raw = new DatabaseSync(path);
+  raw.exec("DROP INDEX idx_messages_delivery");
+  for (const column of DELIVERY_COLUMNS) raw.exec(`ALTER TABLE messages DROP COLUMN ${column}`);
+  raw.exec("PRAGMA user_version = 2");
+  raw.close();
+
+  const store = new BridgeStore(path);
+  assert.deepEqual(store.migration, { from: 2, to: 3, newer: false });
+  assert.equal(store.inbox("b").length, 1);
+  store.close();
+  const check = new DatabaseSync(path, { readOnly: true });
+  const names = (check.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string; notnull: number }>);
+  for (const column of DELIVERY_COLUMNS) {
+    const found = names.find((row) => row.name === column);
+    assert.ok(found, column);
+    assert.equal(found.notnull, 0, column);
+  }
+  check.close();
+});
+
+test("an older process can still insert a message into a v3 mailbox", () => {
+  const dir = mkdtempSync(join(tmpdir(), "bridge-v3-old-"));
+  const path = join(dir, "bridge.sqlite");
+  new BridgeStore(path).close();
+  const raw = new DatabaseSync(path);
+  raw.prepare(
+    "INSERT INTO messages (from_agent, to_agent, body, thread_id, idempotency_key, created_at) VALUES (?, ?, ?, NULL, NULL, ?)",
+  ).run("old", "b", "from an older bridge", new Date().toISOString());
+  const row = raw.prepare("SELECT delivery_state FROM messages WHERE from_agent = 'old'").get() as { delivery_state: unknown };
+  assert.equal(row.delivery_state, null);
+  raw.close();
+});
