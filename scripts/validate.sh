@@ -32,6 +32,25 @@ for test in $TESTS_GLOB; do
   fi
 done
 
+# The vendored bridge's TypeScript suite (typecheck, build, node tests), inside the same seal. It needs the
+# bridge's dev dependencies: `npm ci` in plugins/agent-relay/bridge; without them it is reported as skipped.
+BRIDGE="plugins/agent-relay/bridge"
+if [ -d "$BRIDGE/node_modules" ]; then
+  OUT="$(cd "$BRIDGE" && npm run --silent check 2>&1)"
+  RC=$?
+  RAN="$(printf '%s\n' "$OUT" | sed -n 's/^ℹ tests \([0-9][0-9]*\)$/\1/p' | tail -1)"
+  TOTAL=$((TOTAL + ${RAN:-0}))
+  if [ "$RC" -eq 0 ]; then
+    printf '  ok    %-52s %s\n' "bridge: npm run check" "${RAN:-?}"
+  else
+    printf '  FAIL  %-52s %s\n' "bridge: npm run check" "${RAN:-?}"
+    printf '%s\n' "$OUT" | tail -40 | sed 's/^/        /'
+    F=1
+  fi
+else
+  printf '  skip  %-52s %s\n' "bridge: npm run check" "(run npm ci in $BRIDGE)"
+fi
+
 if [ "$FILES" -eq 0 ]; then
   echo "no test files matched ${TESTS_GLOB}"
   exit 1
