@@ -197,10 +197,10 @@ def status(root: Path) -> dict[str, Any]:
             "database": str(root / "mailbox" / "bridge.sqlite")}
 
 
-def _run(command: list[str], *, cwd: Path | None = None) -> str:
+def _run(command: list[str], *, cwd: Path | None = None, env: dict[str, str] | None = None) -> str:
     try:
         result = subprocess.run(command, cwd=cwd, check=True, capture_output=True,
-                                text=True, timeout=300)
+                                text=True, timeout=300, env=env)
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
         raise NativeRuntimeError(f"native bridge install failed at {command[0]}") from error
     return result.stdout.strip()
@@ -231,8 +231,13 @@ def install_runtime(root: Path, *, node: str = "node", npm: str = "npm",
                         ignore=shutil.ignore_patterns(*_BUILD_OUTPUTS))
         stage.chmod(0o700)  # copytree copied the plugin directory's mode onto the private stage
         verify_bridge_copy(stage)
-        _run([npm, "ci", "--ignore-scripts", "--no-audit", "--no-fund"], cwd=stage)
-        _run([npm, "run", "build"], cwd=stage)
+        # npm starts through `#!/usr/bin/env node`: put the chosen node first so npm runs on it, not on
+        # whatever PATH resolves first (acceptance-kit-round2 D57, round 2 R2-12).
+        npm_env = None
+        if os.sep in str(node):
+            npm_env = dict(os.environ, PATH=str(Path(node).parent) + os.pathsep + os.environ.get("PATH", ""))
+        _run([npm, "ci", "--ignore-scripts", "--no-audit", "--no-fund"], cwd=stage, env=npm_env)
+        _run([npm, "run", "build"], cwd=stage, env=npm_env)
         _regular_file(stage / "dist" / "server.js", "native bridge server")
         (stage / "mailbox").mkdir(mode=0o700)
         (stage / "mailbox" / "backups").mkdir(mode=0o700)
@@ -512,7 +517,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--root", type=Path)
     parser.add_argument("--node", help="default: doctor uses the node the host entries pin (then PATH); "
                                        "the other commands use PATH's node")
-    parser.add_argument("--npm", default="npm")
+    parser.add_argument("--npm", help="default: the npm beside the chosen node, else PATH's")
     for option in ("--codex-config", "--claude-json", "--claude-settings", "--claude-sessions"):
         parser.add_argument(option, type=Path, help="doctor: read this file or directory instead of the default")
     args = parser.parse_args(argv)
@@ -526,7 +531,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "uninstall" and not args.confirm:
         parser.exit(2, f"{parser.prog}: error: uninstall removes the runtime build (history is kept); rerun with "
                        "--confirm after the user agrees and every session using the mailbox is closed\n")
-    if args.command != "doctor":
+    if args.command in ("install", "upgrade"):
+        # The node the host entries pin, checked before anything is built (acceptance-kit-round2 D57).
+        from node_select import NodeSelectError, select_node
+
+        try:
+            chosen = select_node(args.node).path
+        except NodeSelectError as error:
+            parser.exit(2, f"{parser.prog}: error: {error.reason}: {error.detail}\n")
+        args.node = str(chosen)
+        beside = chosen.parent / "npm"
+        args.npm = args.npm or (str(beside) if beside.is_file() and os.access(beside, os.X_OK) else "npm")
+    elif args.command != "doctor":
         args.node = args.node or "node"
     if args.command == "doctor":
         from native_collaboration_doctor import doctor

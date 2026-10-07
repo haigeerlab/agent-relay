@@ -14,7 +14,7 @@ PREFLIGHT = REPO / "scripts" / "acceptance" / "preflight.sh"
 CLEANUP = REPO / "scripts" / "acceptance" / "cleanup.sh"
 
 
-class PreflightTests(unittest.TestCase):
+class PreflightFixture(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix="ar-preflight-")
         self.addCleanup(tmp.cleanup)
@@ -38,6 +38,8 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         return done.stdout
 
+
+class PreflightTests(PreflightFixture):
     def test_reports_versions_installs_reviewer_and_launch_command(self):
         self.fake("claude", 'echo "9.9.9 (Claude Code)"')
         listing = {"installed": [{"pluginId": "agent-relay@relay", "name": "agent-relay", "version": "0.1.0",
@@ -59,8 +61,9 @@ class PreflightTests(unittest.TestCase):
         launch = next(line for line in out.splitlines() if line.startswith("claude test session"))
         self.assertIn("--permission-mode dontAsk", launch)
         self.assertNotIn('--tools ""', launch)
+        base = next(line for line in out.splitlines() if line.startswith("allow (base)"))
         for tool in ("ListAgents", "SendMessage", "__bridge_register", "__bridge_wait"):
-            self.assertIn(tool, launch)
+            self.assertIn(f'"{tool}"' if "__" not in tool else tool, base)
 
     def test_missing_hosts_and_plugin_are_reported_not_fatal(self):
         out = self.run_preflight()
@@ -68,6 +71,105 @@ class PreflightTests(unittest.TestCase):
         self.assertIn("agent-relay (Claude)  not installed", out)
         self.assertIn("agent-relay (Codex)   unknown", out)
         self.assertIn("codex approvals       no config.toml", out)
+
+
+class AllowListTests(PreflightFixture):
+    """acceptance-kit-round2 D55, D56 (round 2 R2-8, R2-3)."""
+
+    def lines(self, *args):
+        env = dict(os.environ, CLAUDE_CONFIG_DIR=str(self.claude_home), CODEX_HOME=str(self.codex_home),
+                   HOME=str(self.tmp), PATH=f"{self.bin}{os.pathsep}/usr/bin{os.pathsep}/bin")
+        done = subprocess.run(["/bin/bash", str(PREFLIGHT), *args], capture_output=True, text=True, env=env,
+                              timeout=60)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return done.stdout.splitlines()
+
+    def test_launch_line_puts_the_prompt_first_and_quotes_each_rule(self):
+        lines = self.lines()
+        launch = next(line for line in lines if line.startswith("claude test session"))
+        self.assertIn('claude "<prompt>" --bg --permission-mode dontAsk --allowedTools <base or routing list>', launch)
+        self.assertTrue(any("the prompt must come first" in line for line in lines))
+        base = next(line for line in lines if line.startswith("allow (base)"))
+        self.assertIn('"ListAgents" "SendMessage" "mcp__agent-relay__bridge_register"', base)
+        self.assertNotIn(",", base, "one quoted argument per rule (cli-reference --allowedTools)")
+
+    def test_routing_list_adds_the_selector_and_the_design_read_rule(self):
+        design = self.tmp / "design project"
+        design.mkdir()
+        lines = self.lines("--design", str(design))
+        routing = next(line for line in lines if line.startswith("allow (routing)"))
+        base = next(line for line in lines if line.startswith("allow (base)"))
+        self.assertTrue(routing.split(None, 2)[2].startswith(base.split(None, 2)[2]))
+        selector = f'"Bash(python3 -B {REPO / "plugins" / "agent-relay" / "hooks" / "session_routing.py"} select *)"'
+        self.assertIn(selector, routing)
+        self.assertIn(f'"Read(/{design.resolve()}/**)"', routing)
+        without = self.lines()
+        self.assertNotIn("Read(", next(line for line in without if line.startswith("allow (routing)")))
+        self.assertTrue(any("--design" in line and "D9" in line for line in without))
+
+
+def load_preflight():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("preflight", REPO / "scripts" / "acceptance" / "preflight.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class StaleCopyTests(PreflightFixture):
+    """acceptance-kit-round2 D54 (round 2 R2-5, R2-11): every copy a host runs is compared with this checkout."""
+
+    def copy_source(self, target):
+        shutil.copytree(REPO / "plugins" / "agent-relay", target,
+                        ignore=shutil.ignore_patterns("node_modules", "__pycache__", ".DS_Store"))
+        return target
+
+    def test_tree_hash_sees_content_and_ignores_host_and_build_entries(self):
+        preflight = load_preflight()
+        a = self.copy_source(self.tmp / "a")
+        b = self.copy_source(self.tmp / "b")
+        self.assertEqual(preflight.tree_hash(a), preflight.tree_hash(b))
+        for ignored in ("node_modules/x.js", "migrated-command-skills/s.md", "hooks/__pycache__/x.pyc", ".git/HEAD"):
+            (b / ignored).parent.mkdir(parents=True, exist_ok=True)
+            (b / ignored).write_text("host or build output", encoding="utf-8")
+        self.assertEqual(preflight.tree_hash(a), preflight.tree_hash(b))
+        (b / "skills" / "collab" / "SKILL.md").write_text("changed", encoding="utf-8")
+        self.assertNotEqual(preflight.tree_hash(a), preflight.tree_hash(b))
+        self.assertIsNone(preflight.tree_hash(self.tmp / "missing"))
+
+    def test_marks_the_copy_each_host_runs_current_or_stale(self):
+        market = self.tmp / "market"
+        self.copy_source(market / "plugins" / "agent-relay")
+        (market / ".claude-plugin").mkdir(parents=True)
+        (market / ".claude-plugin" / "marketplace.json").write_text(json.dumps(
+            {"name": "relay", "plugins": [{"name": "agent-relay", "source": "./plugins/agent-relay"}]}), encoding="utf-8")
+        (self.claude_home / "plugins" / "known_marketplaces.json").write_text(json.dumps(
+            {"relay": {"source": {"source": "directory", "path": str(market)}, "installLocation": str(market)}}),
+            encoding="utf-8")
+        cache = self.claude_home / "plugins" / "cache" / "relay" / "agent-relay" / "0.1.0"
+        cache.mkdir(parents=True)
+        (self.claude_home / "plugins" / "installed_plugins.json").write_text(json.dumps(
+            {"version": 2, "plugins": {"agent-relay@relay": [{"installPath": str(cache), "version": "0.1.0",
+                                                                "gitCommitSha": "old"}]}}), encoding="utf-8")
+        codex_cache = self.copy_source(self.codex_home / "plugins" / "cache" / "relay" / "agent-relay" / "0.1.0")
+        (codex_cache / "migrated-command-skills").mkdir()
+        (codex_cache / "hooks" / "session_routing.py").write_text("# round-1 era copy\n", encoding="utf-8")
+        listing = {"installed": [{"pluginId": "agent-relay@relay", "name": "agent-relay", "version": "0.1.0",
+                                  "enabled": True, "source": {"path": str(market / "plugins" / "agent-relay")}}]}
+        (self.tmp / "codex.json").write_text(json.dumps(listing), encoding="utf-8")
+        self.fake("codex", f'case "$1" in --version) echo "codex-cli 9.0";; *) cat "{self.tmp}/codex.json";; esac')
+        before = sorted((p, p.stat().st_mtime_ns) for p in self.tmp.rglob("*"))
+        out = self.run_preflight()
+        self.assertEqual(before, sorted((p, p.stat().st_mtime_ns) for p in self.tmp.rglob("*")), "read only")
+        lines = out.splitlines()
+        loaded = next(line for line in lines if str(market / "plugins" / "agent-relay") in line and "Claude" in line)
+        self.assertIn("current", loaded)
+        record = next(line for line in lines if str(cache) in line)
+        self.assertIn("not loaded", record)
+        self.assertNotIn("STALE", record)
+        stale = next(line for line in lines if str(codex_cache) in line)
+        self.assertIn("STALE", stale)
+        self.assertIn("codex plugin add agent-relay@relay", stale)
 
 
 class CleanupTests(unittest.TestCase):
@@ -82,10 +184,14 @@ class CleanupTests(unittest.TestCase):
         (self.tmp / "repo" / "scripts" / "acceptance").mkdir(parents=True)
         shutil.copy(CLEANUP, self.tmp / "repo" / "scripts" / "acceptance" / "cleanup.sh")
         self.log = self.tmp / "retired.log"
+        import inspect
+        import native_collaboration_runtime as real
+
         (hooks / "native_collaboration_runtime.py").write_text(
             "from pathlib import Path\nclass StateHomeError(ValueError):\n    pass\n"
-            f"def default_root():\n    return Path({str(self.tmp / 'root')!r})\n",
-            encoding="utf-8")
+            f"def default_root():\n    return Path({str(self.tmp / 'root')!r})\n"
+            f"MAILBOX_BUSY_TIMEOUT = {real.MAILBOX_BUSY_TIMEOUT!r}\n"
+            + inspect.getsource(real.open_mailbox_read_only), encoding="utf-8")
         (hooks / "native_collaboration_retire.py").write_text(
             "import sys\n"
             f"open({str(self.log)!r}, 'a').write(' '.join(sys.argv[1:]) + '\\n')\n"
@@ -105,6 +211,23 @@ class CleanupTests(unittest.TestCase):
     def run_cleanup(self, *args):
         return subprocess.run(["/bin/bash", str(self.tmp / "repo" / "scripts" / "acceptance" / "cleanup.sh"),
                                *args], capture_output=True, text=True, timeout=60)
+
+    def test_preview_reads_a_closed_wal_mailbox_under_system_python(self):
+        # acceptance-kit-round2 D57 (round 2 R2-12): the same read as R2-9, under macOS /usr/bin/python3.
+        with sqlite3.connect(self.database) as connection:
+            connection.execute("PRAGMA journal_mode=WAL")
+            connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        connection.close()
+        for suffix in ("-wal", "-shm"):
+            Path(str(self.database) + suffix).unlink(missing_ok=True)
+        python = self.tmp / "py"
+        python.mkdir()
+        (python / "python3").symlink_to("/usr/bin/python3")
+        done = subprocess.run(["/bin/bash", str(self.tmp / "repo" / "scripts" / "acceptance" / "cleanup.sh"),
+                               "r1"], capture_output=True, text=True, timeout=60,
+                              env=dict(os.environ, PATH=f"{python}{os.pathsep}{os.environ['PATH']}"))
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("live identities with prefix ar-acc-r1-: 2", done.stdout)
 
     def test_preview_lists_only_live_identities_of_this_run_and_retires_nothing(self):
         before = self.database.read_bytes()

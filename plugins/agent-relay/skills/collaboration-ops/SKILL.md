@@ -8,8 +8,28 @@ description: Inspect, explicitly initialize, or start agent-relay's local Claude
 This is the explicit setup, diagnosis, host-attachment, and cleanup surface for the same-Mac native
 collaboration runtime. Daily join, inbox, directory, and send operations use `collab`.
 
-Resolve the installed agent-relay root as `$ROOT` (Claude: `CLAUDE_PLUGIN_ROOT`; Codex: `source.path` of the
-enabled `agent-relay` entry in `codex plugin list --json`) and begin read-only:
+Resolve the agent-relay root with this block, run as it stands in the same shell as the commands below (Claude fills
+in the path of the copy this session loaded; Codex falls back to its enabled entry's `source.path`). Never look for
+the root in install records or cache directories; if the block refuses, report its message.
+
+<!-- agent-relay-root -->
+```bash
+ROOT="${CLAUDE_PLUGIN_ROOT}"
+if [ ! -f "$ROOT/hooks/native_collaboration_runtime.py" ]; then
+  ROOT="$(codex plugin list --json 2>/dev/null </dev/null | python3 -c '
+import json, sys
+try:
+    plugins = json.load(sys.stdin).get("installed", [])
+except (AttributeError, ValueError):
+    plugins = []
+print(next((p["source"]["path"] for p in plugins if isinstance(p, dict) and p.get("name") == "agent-relay"
+            and p.get("enabled") and isinstance(p.get("source"), dict) and p["source"].get("path")), ""))')"
+fi
+[ -f "$ROOT/hooks/native_collaboration_runtime.py" ] || { echo "cannot locate the agent-relay plugin root: Claude did not fill in CLAUDE_PLUGIN_ROOT and codex plugin list names no enabled agent-relay" >&2; exit 2; }
+```
+<!-- /agent-relay-root -->
+
+Then begin read-only:
 
 ```bash
 python3 -B "$ROOT/hooks/native_collaboration_runtime.py" status

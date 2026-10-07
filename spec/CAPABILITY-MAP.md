@@ -33,8 +33,9 @@ agent-relay 是从 Spec Guard 拆出的独立插件，让同一台 Mac 上的 Cl
 | ops-commands | 运维命令：doctor（运行时、宿主接入、信箱与会话健康检查，含后台会话可能卡在权限提示的情况，基线发现 6）、whoami（本会话的身份、宿主、会话与项目）、按消息 id 查询状态与等待；消息正文可从文件读入并原样送达；委派的 --expires-at 接受并写明一种时间格式（基线发现 2）。 | identity-check |
 | safe-uninstall | 卸载更稳妥：uninstall-codex 识别 Codex 在用户选“始终允许”时写入的工具审批子表并一并移除，其他差异逐行指出（第一轮联调发现 6）；任何宿主配置写入（安装与卸载）前先备份；提供并写明完整卸载流程，消息历史默认保留。 | ops-commands |
 | round2-fixes | 修复第二轮联调发现的发布阻断问题：被委托的 Claude 目标等信箱工具就绪后再作答，结果必定回传（R2-6）；委托控制器与 doctor 使用宿主条目固定的 node，或在动宿主前以 Node 版本过旧拒绝（R2-7、R2-1）；state_migration 与卸载后重装在 macOS 自带 Python 3.9 下可用，写明支持的 Python 版本并在 3.9、3.10、3.14 上验证全绿（R2-9）；卸载 Claude 时不让仍开着的会话看到被禁的上游 worker 工具（R2-10）。 | safe-uninstall |
+| acceptance-kit-round2 | 补上第二轮联调暴露的验收与安装路径缺口：preflight 打印的后台会话启动命令把提示词放在选项之前，不再被 --allowedTools 吞掉（R2-3）；preflight 比对各宿主实际加载的插件与登记的安装路径、缓存和源码，旧副本直接报出，skill 解析插件根目录时不会选中旧缓存（R2-5、R2-11）；A4 测试会话的允许清单覆盖被测 skill 所需的会话路由选择器命令与 D9 跨项目读取规则，或由清单写明需额外添加的规则（R2-8）；在 PATH 首个 node 过旧、python3 为系统 3.9 的 shell 里，在保留历史上重装运行时（npm 用选中的 node 启动）、身份退役与验收清理脚本都能完成，沿用 D50 的 node 选择与 D51 的只读打开（R2-12）。 | acceptance-kit, round2-fixes |
 
-Build order: acceptance-kit → mailbox-core → session-routing → cross-host-delegation → packaging → state-migration → delegation-fixes → test-isolation → bridge-vendoring → delivery-state-machine → durable-ordering → idempotency → identity-check → ops-commands → safe-uninstall → round2-fixes
+Build order: acceptance-kit → mailbox-core → session-routing → cross-host-delegation → packaging → state-migration → delegation-fixes → test-isolation → bridge-vendoring → delivery-state-machine → durable-ordering → idempotency → identity-check → ops-commands → safe-uninstall → round2-fixes → acceptance-kit-round2
 
 <!-- Spec Guard 按严格串行推进。为兼容上游格式，逗号分组会按左到右顺序展开为单模块步骤，不代表并行授权。 -->
 <!-- 加固模块（test-isolation、delivery-state-machine、durable-ordering、idempotency、identity-check、ops-commands、

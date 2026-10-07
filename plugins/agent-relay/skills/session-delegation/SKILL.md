@@ -88,8 +88,27 @@ Codex 使用 app-managed current 受支持二进制和 app-server；Claude Code 
 
 ## 内部控制入口
 
-解析已安装插件根目录为 `$ROOT`，通过
-`python3 -B "$ROOT/hooks/session_delegation_control.py"` 执行 `permissions`、`list`、`create`、`continue`、`status` 或
+用下面这段解析插件根目录 `$ROOT`，与后续命令在同一个 shell 里原样执行（Claude 会填入本会话实际加载的那份路径；
+Codex 回退到已启用条目的 `source.path`）。不要去安装记录或缓存目录里找；这段拒绝时如实报告它的消息。
+
+<!-- agent-relay-root -->
+```bash
+ROOT="${CLAUDE_PLUGIN_ROOT}"
+if [ ! -f "$ROOT/hooks/native_collaboration_runtime.py" ]; then
+  ROOT="$(codex plugin list --json 2>/dev/null </dev/null | python3 -c '
+import json, sys
+try:
+    plugins = json.load(sys.stdin).get("installed", [])
+except (AttributeError, ValueError):
+    plugins = []
+print(next((p["source"]["path"] for p in plugins if isinstance(p, dict) and p.get("name") == "agent-relay"
+            and p.get("enabled") and isinstance(p.get("source"), dict) and p["source"].get("path")), ""))')"
+fi
+[ -f "$ROOT/hooks/native_collaboration_runtime.py" ] || { echo "cannot locate the agent-relay plugin root: Claude did not fill in CLAUDE_PLUGIN_ROOT and codex plugin list names no enabled agent-relay" >&2; exit 2; }
+```
+<!-- /agent-relay-root -->
+
+再通过 `python3 -B "$ROOT/hooks/session_delegation_control.py"` 执行 `permissions`、`list`、`create`、`continue`、`status` 或
 `cancel`。运行参数放在子命令之前；用 `--help` 读取精确参数名。创建前从当前 Git checkout 取得规范项目根、
 repository identity、精确 baseline 和 dirty 状态，并在当前调用中生成一次 idempotency key 与 launch key；
 响应丢失后的重试必须复用这两个 key，不能换 key 重建。origin session 只由控制器从当前宿主可信环境读取，绝不让

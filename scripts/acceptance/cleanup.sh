@@ -10,6 +10,7 @@ set -uo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 exec python3 -B - "$REPO" "$@" <<'PY'
 import argparse
+from contextlib import closing
 import re
 import sqlite3
 import subprocess
@@ -19,7 +20,7 @@ from pathlib import Path
 repo = Path(sys.argv[1])
 hooks = repo / "plugins" / "agent-relay" / "hooks"
 sys.path.insert(0, str(hooks))
-from native_collaboration_runtime import StateHomeError, default_root  # noqa: E402
+from native_collaboration_runtime import StateHomeError, default_root, open_mailbox_read_only  # noqa: E402
 
 parser = argparse.ArgumentParser(prog="cleanup.sh")
 parser.add_argument("run")
@@ -35,7 +36,7 @@ if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", args.run):
 prefix = f"ar-acc-{args.run}-"
 database = args.root / "mailbox" / "bridge.sqlite"
 try:
-    with sqlite3.connect(f"file:{database}?mode=ro", uri=True) as connection:
+    with closing(open_mailbox_read_only(database)) as connection:  # D51's read (acceptance-kit-round2 D57)
         names = [row[0] for row in connection.execute(
             "SELECT name FROM agents WHERE retired_at IS NULL ORDER BY name")
             if row[0].startswith(prefix)]

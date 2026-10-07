@@ -15,11 +15,32 @@ description: 按会话名称在本机 Claude Code／Codex 会话间发现、发�
 
 ## 先做唯一选路
 
-解析已安装插件根目录为 `$ROOT`，把可信路由事实通过 JSON stdin 传给：
+把可信路由事实通过 JSON stdin 传给 selector。Claude Code 里直接用下面这条（路径已由 Claude 填好，与验收清单的
+放行规则逐字一致；JSON 用 heredoc 或管道从 stdin 传入，不要在同一条命令里接别的命令）：
 
 ```text
-python3 -B "$ROOT/hooks/session_routing.py" select
+python3 -B ${CLAUDE_PLUGIN_ROOT}/hooks/session_routing.py select
 ```
+
+Codex 里先用下面这段解析插件根目录 `$ROOT`（不要去安装记录或缓存目录里找；这段拒绝时如实报告它的消息），再执行
+`python3 -B "$ROOT/hooks/session_routing.py" select`：
+
+<!-- agent-relay-root -->
+```bash
+ROOT="${CLAUDE_PLUGIN_ROOT}"
+if [ ! -f "$ROOT/hooks/native_collaboration_runtime.py" ]; then
+  ROOT="$(codex plugin list --json 2>/dev/null </dev/null | python3 -c '
+import json, sys
+try:
+    plugins = json.load(sys.stdin).get("installed", [])
+except (AttributeError, ValueError):
+    plugins = []
+print(next((p["source"]["path"] for p in plugins if isinstance(p, dict) and p.get("name") == "agent-relay"
+            and p.get("enabled") and isinstance(p.get("source"), dict) and p["source"].get("path")), ""))')"
+fi
+[ -f "$ROOT/hooks/native_collaboration_runtime.py" ] || { echo "cannot locate the agent-relay plugin root: Claude did not fill in CLAUDE_PLUGIN_ROOT and codex plugin list names no enabled agent-relay" >&2; exit 2; }
+```
+<!-- /agent-relay-root -->
 
 JSON 只包含 `originHost`、`targetHost`、`authorizationState`、`targetResolution`、
 `nativeCapability`、`nativeDispatch`、`bridgeState`、`originJoined` 和 `targetJoined`。消息正文不得进入
