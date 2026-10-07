@@ -189,11 +189,24 @@ export class WakeQueue {
       WHERE state = 'pending' AND (
         (created_at < ? AND COALESCE(pending_reason, 'offline') != 'busy') OR created_at < ?
       )`).run(now - OFFLINE_WAKE_WINDOW_MS, now - BUSY_WAKE_WINDOW_MS);
+    // agent-relay durable-ordering: the recipient already fetched this message, so a ping would only wake it for
+    // nothing it has not seen. Close the job instead (it stays visible as `read` to the sender).
+    this.db.prepare(`UPDATE wake_jobs SET state = 'read', detail = 'Recipient fetched the message before its ping; no ping sent'
+      WHERE state = 'pending' AND EXISTS (
+        SELECT 1 FROM messages m WHERE m.id = wake_jobs.message_id AND m.read_at IS NOT NULL
+      )`).run();
     // Jobs for a Claude session hosted by another live channel process are
-    // delivered by that process.
+    // delivered by that process. agent-relay durable-ordering: at most one ping in flight per recipient, oldest
+    // first — a job waits while an older job for the same recipient is pending or sending (in any process);
+    // an `unknown`, `held` or final older job does not hold it.
     const row = this.db.prepare(`UPDATE wake_jobs SET state = 'sending', attempt_id = ?,
       attempts = attempts + 1, retry_at = ? WHERE id = (
         SELECT id FROM wake_jobs WHERE state = 'pending' AND retry_at <= ?
+          AND NOT EXISTS (
+            SELECT 1 FROM wake_jobs older
+            WHERE older.agent = wake_jobs.agent AND older.id < wake_jobs.id
+              AND older.state IN ('pending', 'sending')
+          )
           AND NOT EXISTS (
             SELECT 1 FROM channel_hosts h
             WHERE json_extract(wake_jobs.target, '$.app') = 'claude'
