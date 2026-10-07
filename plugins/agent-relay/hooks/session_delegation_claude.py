@@ -99,6 +99,7 @@ class ClaudeRunResult:
     host_status: str | None = None
     prerequisite: str | None = None
     output: str = ""
+    diagnostic: str = ""
 
 
 def sanitized_environment(environment: Mapping[str, str] | None = None) -> dict[str, str]:
@@ -297,6 +298,19 @@ def build_create_command(
         "--",
         prompt,
     )
+
+
+_PATH = re.compile(r"(?:~|/)[^\s'\"]*")
+
+
+def _launch_diagnostic(version: str, outcome: str, stdout: str, stderr: str) -> str:
+    """What `claude --bg` printed when no id could be parsed, without paths or prompt."""
+    def lines(text: str) -> str:
+        kept = [_PATH.sub("<path>", line.strip())[:160]
+                for line in (text or "").splitlines() if line.strip()][:3]
+        return " | ".join(kept) or "(empty)"
+    return "claude %s; %s; stdout: %s; stderr: %s" % (
+        version, outcome, lines(stdout), lines(stderr))
 
 
 def _parse_background_ref(output: str) -> str | None:
@@ -554,8 +568,8 @@ class ClaudeAdapter:
         except ClaudeCommandUncertain as error:
             host_ref = _parse_background_ref(error.observed_stdout)
             if host_ref is None:
-                self.store.record_host_unknown(delegation_id)
-                return ClaudeRunResult("unknown")
+                return self._unparsed_launch(
+                    delegation_id, "timeout", error.observed_stdout, "")
             return self._bind_observed(
                 delegation_id, envelope.project_root, host_ref, permission)
         host_ref = _parse_background_ref(output)
@@ -566,13 +580,22 @@ class ClaudeAdapter:
             prerequisite = _prerequisite(completed.stderr or "")
             if prerequisite is not None:
                 return ClaudeRunResult("held", prerequisite=prerequisite)
-            self.store.record_host_unknown(delegation_id)
-            return ClaudeRunResult("unknown")
         if host_ref is None:
-            self.store.record_host_unknown(delegation_id)
-            return ClaudeRunResult("unknown")
+            return self._unparsed_launch(
+                delegation_id, "rc=%d" % completed.returncode,
+                output, completed.stderr or "")
         return self._bind_observed(
             delegation_id, envelope.project_root, host_ref, permission)
+
+    def _unparsed_launch(self, delegation_id: str, outcome: str,
+                         stdout: str, stderr: str) -> ClaudeRunResult:
+        """A launch was attempted but printed no parsable id: a session may run (D16)."""
+        self.store.record_host_unknown(delegation_id)
+        return ClaudeRunResult(
+            "unknown", host_status="unknown", prerequisite="host-ref-missing",
+            diagnostic=_launch_diagnostic(
+                self.installation.version, outcome, stdout, stderr),
+        )
 
     def _reconcile_lifecycle(self, claim: object, session: ClaudeSession
                              ) -> ClaudeRunResult:

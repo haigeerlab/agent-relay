@@ -751,6 +751,31 @@ class AdapterTests(unittest.TestCase):
             self.assertEqual(result.prerequisite, "host-ref-missing")
         self.assertEqual(runner.calls, [])
 
+    def test_create_without_a_parsable_line_names_it_and_reports_a_redacted_diagnostic(self):
+        # Live C7b: create answered unknown with no prerequisite and no trace of what
+        # `claude --bg` printed, so the cause could not be read back.
+        cases = (
+            (completed("Starting background service at /Users/someone/.claude/x\nqueued\n",
+                       "warn: /private/tmp/secret/path\n"), "rc=0"),
+            (ClaudeCommandUncertain("claude-background", "Starting background service…\n"),
+             "timeout"),
+        )
+        for outcome, marker in cases:
+            with self.subTest(marker=marker):
+                _envelope, claim = self.make_claim(key="claude-diag-" + marker.replace("=", ""))
+                runner = ScriptedRunner([outcome])
+
+                result = self.adapter(runner).create(claim.delegation_id, "Review")
+
+                self.assertEqual(result.state, "unknown")
+                self.assertEqual(result.prerequisite, "host-ref-missing")
+                self.assertIn("claude 2.1.288", result.diagnostic)
+                self.assertIn(marker, result.diagnostic)
+                self.assertIn("Starting background service", result.diagnostic)
+                self.assertNotIn("/Users", result.diagnostic)
+                self.assertNotIn("/private", result.diagnostic)
+                self.assertEqual(len(runner.calls), 1)
+
     def test_create_parses_a_background_line_with_a_status_suffix(self):
         runner = ScriptedRunner([
             completed("backgrounded · ce5b9501 (idle — send a prompt to start)\n"),

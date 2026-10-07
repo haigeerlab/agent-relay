@@ -77,6 +77,7 @@ class PublicSession:
     receipt: str | None = None
     response: str | None = None
     route_reason: str | None = None
+    diagnostic: str | None = None
 
     def payload(self) -> dict[str, object]:
         value: dict[str, object] = {
@@ -106,6 +107,7 @@ class PublicSession:
             ("receipt", self.receipt),
             ("response", self.response),
             ("routeReason", self.route_reason),
+            ("diagnostic", self.diagnostic),
         ):
             if item is not None:
                 value[field] = item
@@ -145,6 +147,7 @@ class SessionDelegationController:
         result_delivery: str | None = None,
         host_operation: str | None = None,
         routing: dict[str, object] | None = None,
+        diagnostic: str | None = None,
     ) -> PublicSession:
         return PublicSession(
             host=self._host_label(claim.target_host),
@@ -165,6 +168,7 @@ class SessionDelegationController:
             receipt=None if routing is None else str(routing["receipt"]),
             response=None if routing is None else str(routing["response"]),
             route_reason=None if routing is None else str(routing["routeReason"]),
+            diagnostic=diagnostic,
         )
 
     @staticmethod
@@ -382,6 +386,7 @@ class SessionDelegationController:
             result_delivery=delivery,
             host_operation="create",
             routing=routing,
+            diagnostic=self._result_fact(result, "diagnostic"),
         )
 
     def _resolve(

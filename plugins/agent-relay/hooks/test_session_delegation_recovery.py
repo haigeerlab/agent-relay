@@ -395,6 +395,18 @@ class RecoveryTests(unittest.TestCase):
                        if claim.state == "unknown"]
         self.assertEqual(adapter.calls[-1][:2], ("status", attempted.delegation_id))
 
+    def test_create_diagnostic_reaches_the_public_answer(self):
+        queue = [SimpleNamespace(state="unknown", host_status="unknown",
+                                 prerequisite="host-ref-missing",
+                                 diagnostic="claude 2.1.291; rc=0; stdout: queued")]
+        adapter = FakeAdapter(self.store, queue)
+        controller = SessionDelegationController(self.store, lambda _h, _p: adapter)
+
+        payload = self.create(controller).payload()
+
+        self.assertEqual(payload["prerequisite"], "host-ref-missing")
+        self.assertEqual(payload["diagnostic"], "claude 2.1.291; rc=0; stdout: queued")
+
     def test_lone_never_launched_session_still_resolves_by_name(self):
         controller, adapter = self.controller(["held", "held"])
         self.create(controller)
