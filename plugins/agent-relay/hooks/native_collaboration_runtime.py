@@ -136,11 +136,27 @@ def _owned_directory(path: Path, label: str) -> None:
         raise NativeRuntimeError(f"{label} must be an owner-owned directory, not a symlink")
 
 
+KEPT_ON_UNINSTALL = ("mailbox", "data")
+
+
+def _uninstalled(root: Path) -> bool:
+    """A runtime whose build was removed by `uninstall`: only the kept history and data remain."""
+    try:
+        if root.is_symlink() or not root.is_dir():
+            return False
+        names = {entry.name for entry in root.iterdir()}
+    except OSError:
+        return False
+    return "mailbox" in names and names <= set(KEPT_ON_UNINSTALL)
+
+
 def status(root: Path) -> dict[str, Any]:
     """Inspect the optional runtime without creating it or opening the mailbox."""
     root = Path(root)
     if not root.exists() and not root.is_symlink():
         return {"state": "absent"}
+    if _uninstalled(root):
+        return {"state": "uninstalled", "history": str(root / "mailbox")}
     try:
         _private_directory(root)
         manifest = root / "manifest.json"
@@ -196,6 +212,8 @@ def install_runtime(root: Path, *, node: str = "node", npm: str = "npm",
     root = Path(root)
     if not root.is_absolute():
         raise NativeRuntimeError("native runtime path must be absolute")
+    if _uninstalled(root):
+        return _reinstall_around_history(root, node=node, npm=npm, source=source)
     if root.exists() or root.is_symlink():
         raise NativeRuntimeError("native runtime already exists; refusing to overwrite it")
     version = _run([node, "--version"])
@@ -387,10 +405,65 @@ def upgrade_runtime(root: Path, *, node: str = "node", npm: str = "npm", source:
             "previous": str(previous), "backup": str(backup), "rollback": UPGRADE_ROLLBACK}
 
 
+def uninstall_runtime(root: Path, *, running=_servers_running) -> dict[str, Any]:
+    """Remove the runtime build and keep `mailbox/` (history, backups) and `data/` (safe-uninstall D47)."""
+    root = Path(root)
+    current = status(root)
+    if current["state"] in ("absent", "uninstalled"):
+        return current
+    if current["state"] != "ready":
+        raise NativeRuntimeError("only a ready runtime can be uninstalled: " + str(current.get("diagnostic")))
+    if running(root):
+        raise NativeRuntimeError("a bridge server of this runtime is running; close every session using the "
+                                 "mailbox first")
+    for entry in root.iterdir():
+        if entry.name in KEPT_ON_UNINSTALL:
+            continue
+        if entry.is_dir() and not entry.is_symlink():
+            shutil.rmtree(entry)
+        else:
+            entry.unlink()
+    return status(root)
+
+
+def _reinstall_around_history(root: Path, *, node: str, npm: str, source: Path) -> dict[str, Any]:
+    """Build a fresh runtime beside an uninstalled one and move the kept mailbox and data into it."""
+    import time
+
+    counts = _mailbox_counts(root / "mailbox" / "bridge.sqlite")
+    stage = root.parent / f".runtime-reinstall-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}"
+    try:
+        install_runtime(stage, node=node, npm=npm, source=source)
+        for name in KEPT_ON_UNINSTALL:
+            shutil.rmtree(stage / name)
+    except BaseException:
+        shutil.rmtree(stage, ignore_errors=True)
+        raise
+    moved: list[str] = []
+    try:
+        for name in KEPT_ON_UNINSTALL:
+            if (root / name).exists():
+                (root / name).rename(stage / name)
+                moved.append(name)
+        for name in KEPT_ON_UNINSTALL:
+            if not (stage / name).exists():
+                (stage / name).mkdir(mode=0o700)
+        root.rmdir()
+    except BaseException:
+        for name in moved:
+            (stage / name).rename(root / name)
+        shutil.rmtree(stage, ignore_errors=True)
+        raise
+    stage.rename(root)
+    if _mailbox_counts(root / "mailbox" / "bridge.sqlite") != counts:
+        raise NativeRuntimeError("reinstall finished but the mailbox row counts changed; check the runtime")
+    return status(root)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("status", "install", "probe", "upgrade", "doctor"))
-    parser.add_argument("--confirm", action="store_true", help="required for upgrade")
+    parser.add_argument("command", choices=("status", "install", "probe", "upgrade", "doctor", "uninstall"))
+    parser.add_argument("--confirm", action="store_true", help="required for upgrade and uninstall")
     parser.add_argument("--root", type=Path)
     parser.add_argument("--node", default="node")
     parser.add_argument("--npm", default="npm")
@@ -404,6 +477,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "upgrade" and not args.confirm:
         parser.exit(2, f"{parser.prog}: error: upgrade replaces the runtime; rerun with --confirm after the "
                        "user agrees and every session using the mailbox is closed\n")
+    if args.command == "uninstall" and not args.confirm:
+        parser.exit(2, f"{parser.prog}: error: uninstall removes the runtime build (history is kept); rerun with "
+                       "--confirm after the user agrees and every session using the mailbox is closed\n")
     if args.command == "doctor":
         from native_collaboration_doctor import doctor
         report = doctor(args.root, node=args.node, codex_config=args.codex_config, claude_json=args.claude_json,
@@ -412,13 +488,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1 if report["state"] == "fail" else 0
     try:
         result = (upgrade_runtime(args.root, node=args.node, npm=args.npm) if args.command == "upgrade" else
+                  uninstall_runtime(args.root) if args.command == "uninstall" else
                   status(args.root) if args.command == "status" else
                   probe_runtime(args.root, node=args.node) if args.command == "probe" else
                   install_runtime(args.root, node=args.node, npm=args.npm))
     except NativeRuntimeError as error:
         result = {"state": "error", "diagnostic": str(error)}
     print(json.dumps(result, sort_keys=True))
-    return 0 if result["state"] in ("absent", "ready", "upgraded", "current") else 1
+    return 0 if result["state"] in ("absent", "ready", "upgraded", "current", "uninstalled") else 1
 
 
 if __name__ == "__main__":

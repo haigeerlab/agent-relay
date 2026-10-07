@@ -56,6 +56,9 @@ def codex_auto_approval(path: Path) -> tuple[bool, str]:
 
 def _runtime(root: Path) -> tuple[dict[str, str], bool]:
     current = status(root)
+    if current["state"] == "uninstalled":
+        return _check("runtime", "warn", f"runtime build removed; message history kept at {current['history']}",
+                      "install it again to use agent-relay (the history is kept), or delete it yourself"), False
     if current["state"] != "ready":
         return _check("runtime", "fail", f"runtime at {root} is {current['state']}"
                       + (f": {current['diagnostic']}" if current.get("diagnostic") else ""),
