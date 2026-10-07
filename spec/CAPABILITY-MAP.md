@@ -31,8 +31,9 @@ agent-relay 是从 Spec Guard 拆出的独立插件，让同一台 Mac 上的 Cl
 | idempotency | 同一发送方的重试 key 只对应一份内容：内容相同返回原消息，内容不同拒绝；回复带上被回复消息的 id，对同一条消息的相同回复去重。 | durable-ordering |
 | identity-check | 发送方 from 必须与调用方宿主会话绑定的身份一致，不一致拒绝；只有原消息的收件人能回复它；名字不能被另一个宿主会话改绑；身份缺失时返回明确指引；自动批准的会话（含 Codex guardian_subagent）不能绑定唤醒（发现 1）；并修正 bridge 打开信箱时 busy_timeout 设置晚于 journal_mode 的问题。 | idempotency |
 | ops-commands | 运维命令：doctor（运行时、宿主接入、信箱与会话健康检查，含后台会话可能卡在权限提示的情况，基线发现 6）、whoami（本会话的身份、宿主、会话与项目）、按消息 id 查询状态与等待；消息正文可从文件读入并原样送达；委派的 --expires-at 接受并写明一种时间格式（基线发现 2）。 | identity-check |
+| safe-uninstall | 卸载更稳妥：uninstall-codex 识别 Codex 在用户选“始终允许”时写入的工具审批子表并一并移除，其他差异逐行指出（第一轮联调发现 6）；任何宿主配置写入（安装与卸载）前先备份；提供并写明完整卸载流程，消息历史默认保留。 | ops-commands |
 
-Build order: acceptance-kit → mailbox-core → session-routing → cross-host-delegation → packaging → state-migration → delegation-fixes → test-isolation → bridge-vendoring → delivery-state-machine → durable-ordering → idempotency → identity-check → ops-commands
+Build order: acceptance-kit → mailbox-core → session-routing → cross-host-delegation → packaging → state-migration → delegation-fixes → test-isolation → bridge-vendoring → delivery-state-machine → durable-ordering → idempotency → identity-check → ops-commands → safe-uninstall
 
 <!-- Spec Guard 按严格串行推进。为兼容上游格式，逗号分组会按左到右顺序展开为单模块步骤，不代表并行授权。 -->
 <!-- 加固模块（test-isolation、delivery-state-machine、durable-ordering、idempotency、identity-check、ops-commands、
