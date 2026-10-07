@@ -285,9 +285,107 @@ def probe_runtime(root: Path, *, node: str = "node") -> dict[str, Any]:
     return {"state": "ready", "toolCount": len(names)}
 
 
+UPGRADE_ROLLBACK = (
+    "To go back to the previous runtime, stop every session using the mailbox, move runtime/mailbox and "
+    "runtime/data into the previous directory, and rename it back to runtime. Its bridge opens the upgraded "
+    "(schema 3) mailbox in compatible mode, but an older agent-relay plugin's hooks read only schema 2: roll "
+    "the plugin back too, or restore the mailbox from the backup (messages sent since are lost).")
+
+
+def _servers_running(root: Path) -> int:
+    """Bridge server processes started from this runtime (the upgrade must not swap under them)."""
+    try:
+        listing = subprocess.run(["ps", "-axo", "command"], check=True, capture_output=True,
+                                 text=True, timeout=30).stdout
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+        raise NativeRuntimeError("cannot list processes to check for running bridge servers") from error
+    server = str(Path(root) / "dist" / "server.js")
+    return sum(1 for line in listing.splitlines() if server in line)
+
+
+def _mailbox_counts(database: Path) -> dict[str, int]:
+    import sqlite3
+    from urllib.parse import quote
+
+    if not database.is_file():
+        return {}
+    with sqlite3.connect("file:%s?mode=ro" % quote(str(database)), uri=True) as connection:
+        tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        return {table: connection.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
+                for table in ("agents", "messages", "acknowledgements", "wake_jobs") if table in tables}
+
+
+def upgrade_runtime(root: Path, *, node: str = "node", npm: str = "npm", source: Path = BRIDGE_SOURCE,
+                    backups: Path | None = None, running=_servers_running) -> dict[str, Any]:
+    """Replace an installed runtime with one built from the plugin's bridge, keeping mailbox and data (D26).
+
+    Refuses while a bridge server of this runtime runs. Backs the mailbox up first, builds the new runtime
+    beside the old one, moves mailbox/ and data/ across, swaps the directories and verifies the result;
+    any failure before the swap changes nothing, a failed verification swaps back. The previous directory is
+    kept for the user to remove.
+    """
+    import time
+
+    root = Path(root)
+    before = status(root)
+    if before["state"] != "ready":
+        raise NativeRuntimeError("only a ready runtime can be upgraded: " + str(before.get("diagnostic", before["state"])))
+    if before["bridge"]["current"]:
+        return {"state": "current", "bridge": before["bridge"]}
+    if running(root):
+        raise NativeRuntimeError("a bridge server of this runtime is running; close every session using the "
+                                 "mailbox first")
+    stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    backups = Path(backups) if backups is not None else root.parent / "backups"
+    backup = backups / stamp
+    stage = root.parent / f".runtime-upgrade-{stamp}"
+    previous = root.parent / f"runtime.previous-{stamp}"
+    if stage.exists() or previous.exists() or backup.exists():
+        raise NativeRuntimeError("an upgrade with this timestamp already exists; retry in a second")
+    counts = _mailbox_counts(root / "mailbox" / "bridge.sqlite")
+
+    if not backups.exists():
+        backups.mkdir(mode=0o700)
+    backup.mkdir(mode=0o700)
+    shutil.copytree(root / "mailbox", backup / "runtime-mailbox")
+    try:
+        install_runtime(stage, node=node, npm=npm, source=source)
+        for name in ("mailbox", "data"):
+            shutil.rmtree(stage / name)
+    except BaseException:
+        shutil.rmtree(stage, ignore_errors=True)
+        raise
+
+    moved: list[str] = []
+    try:
+        for name in ("mailbox", "data"):
+            (root / name).rename(stage / name)
+            moved.append(name)
+        root.rename(previous)
+    except BaseException:
+        for name in moved:
+            (stage / name).rename(root / name)
+        shutil.rmtree(stage, ignore_errors=True)
+        raise
+    stage.rename(root)
+
+    after = status(root)
+    after_counts = _mailbox_counts(root / "mailbox" / "bridge.sqlite")
+    if after["state"] != "ready" or not after["bridge"]["current"] or after_counts != counts:
+        failed = root.parent / f".runtime-upgrade-failed-{stamp}"
+        root.rename(failed)
+        for name in ("mailbox", "data"):
+            (failed / name).rename(previous / name)
+        previous.rename(root)
+        raise NativeRuntimeError(f"upgrade verification failed and was rolled back (new build kept at {failed})")
+    return {"state": "upgraded", "bridge": after["bridge"], "counts": counts,
+            "previous": str(previous), "backup": str(backup), "rollback": UPGRADE_ROLLBACK}
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("status", "install", "probe"))
+    parser.add_argument("command", choices=("status", "install", "probe", "upgrade"))
+    parser.add_argument("--confirm", action="store_true", help="required for upgrade")
     parser.add_argument("--root", type=Path)
     parser.add_argument("--node", default="node")
     parser.add_argument("--npm", default="npm")
@@ -296,14 +394,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.root = args.root or default_root()
     except StateHomeError as error:
         parser.exit(2, f"{parser.prog}: error: {error}\n")
+    if args.command == "upgrade" and not args.confirm:
+        parser.exit(2, f"{parser.prog}: error: upgrade replaces the runtime; rerun with --confirm after the "
+                       "user agrees and every session using the mailbox is closed\n")
     try:
-        result = (status(args.root) if args.command == "status" else
+        result = (upgrade_runtime(args.root, node=args.node, npm=args.npm) if args.command == "upgrade" else
+                  status(args.root) if args.command == "status" else
                   probe_runtime(args.root, node=args.node) if args.command == "probe" else
                   install_runtime(args.root, node=args.node, npm=args.npm))
     except NativeRuntimeError as error:
         result = {"state": "error", "diagnostic": str(error)}
     print(json.dumps(result, sort_keys=True))
-    return 0 if result["state"] in ("absent", "ready") else 1
+    return 0 if result["state"] in ("absent", "ready", "upgraded", "current") else 1
 
 
 if __name__ == "__main__":
