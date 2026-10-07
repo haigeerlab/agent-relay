@@ -3,6 +3,7 @@ import { pendingWarning } from "./delivery.js";
 import { duplicateWarning } from "./idempotency.js";
 import { readBodyFile } from "./body-file.js";
 import { CallerIdentity } from "./identity.js";
+import type { MessageStatus } from "./bridge-store.js";
 import { codexApproval, codexAutoApprovalText } from "./codex-approval.js";
 import { randomUUID } from "node:crypto";
 
@@ -70,6 +71,17 @@ function main(): void {
   const localAgents: string[] = [];
   // agent-relay identity-check: names this session may act as (D37).
   const caller = new CallerIdentity(detectSession());
+  // agent-relay ops-commands (D45): one message's status, for its sender or recipient only.
+  const statusFor = (id: number, as?: string): MessageStatus => {
+    const status = store.messageStatus(id);
+    if (!status) throw new Error(`No message #${id}.`);
+    const { fromAgent, toAgent } = status.message;
+    const party = (name: string) => (as === undefined ? caller.owns(name, store.getAgent(name)) : as === name);
+    if (!(party(fromAgent) || toAgent === "*" || party(toAgent))) {
+      throw new Error(`Message #${id} can be checked only by its sender or recipient ("${fromAgent}", "${toAgent}") from their own session.`);
+    }
+    return status;
+  };
   const defaultAgent = () => localAgents.at(-1) ?? "claude-main";
   const projectFallback = () => {
     const project = process.env.CLAUDE_PROJECT_DIR?.trim();
@@ -255,8 +267,13 @@ function main(): void {
   server.registerTool("bridge_wake_status", {
     title: "Inspect background ping delivery",
     description: "Read up to 100 recent wake receipts with a per-state summary. Accepted means the app accepted a ping, not that the work is complete. Held/refused respect app permission checks; unknown outcomes are never replayed automatically.",
-    inputSchema: { agent: z.string().min(1).optional() },
-  }, async ({ agent }) => {
+    inputSchema: {
+      agent: z.string().min(1).optional(),
+      messageId: z.number().int().positive().optional().describe(
+        "Status of one message you sent or received: delivery state, ping, acknowledgement, replies and outcome (pending, acknowledged, replied, failed, expired)."),
+    },
+  }, async ({ agent, messageId }) => {
+    if (messageId !== undefined) return jsonResult(statusFor(messageId));
     const jobs = store.wakes.list(agent);
     const summary: Record<string, number> = {};
     for (const job of jobs) summary[job.state] = (summary[job.state] ?? 0) + 1;
@@ -301,11 +318,23 @@ function main(): void {
         threadId: z.string().min(1).optional().describe("Optional coordination thread filter."),
         timeoutSeconds: z.number().int().min(1).max(290).optional().describe("How long to keep the MCP call open. Defaults to 285 seconds so common five-minute host limits do not cut it off."),
         acknowledge: z.boolean().optional().describe("Mark returned messages handled before returning. Defaults true; history is preserved."),
+        messageId: z.number().int().positive().optional().describe(
+          "Instead of new inbox messages, wait for this message's outcome (acknowledged, replied, failed or expired). agent must be its sender or recipient; nothing is acknowledged."),
         limit: pagingInput.limit,
         maxChars: pagingInput.maxChars,
       },
     },
-    async ({ agent, fromAgent, threadId, timeoutSeconds, acknowledge, limit, maxChars }) => {
+    async ({ agent, fromAgent, threadId, timeoutSeconds, acknowledge, limit, maxChars, messageId }) => {
+      if (messageId !== undefined) {
+        caller.require(agent, store.getAgent(agent), "wait as");
+        const deadline = Date.now() + (timeoutSeconds ?? 285) * 1000;
+        let status = statusFor(messageId, agent);
+        while (status.outcome === "pending" && Date.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, Math.min(250, Math.max(0, deadline - Date.now()))));
+          status = statusFor(messageId, agent);
+        }
+        return jsonResult({ timedOut: status.outcome === "pending", ...status });
+      }
       if (acknowledge ?? true) caller.require(agent, store.getAgent(agent), "acknowledge messages for");
       const max = clampLimit(limit);
       store.touch(agent);
