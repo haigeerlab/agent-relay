@@ -88,6 +88,15 @@ If it does not, update the spec before Task 5.
 
 **Files:** `hooks/fixtures/` (or the test file's inline fixtures, matching the existing style), `tasks/delegation-fixes/todo.md`
 
+### Task 4b (added after Task 4): List without the host's cwd filter (D19)
+
+**Description:** The capture showed `agents --cwd <worktree>` never lists a session started in a git worktree.
+`_sessions` drops `--cwd`; exact checks in `_exact_session` stay. Prove-It with a fake host that answers `[]` when
+`--cwd` is passed.
+
+**Acceptance:** spec requirement 5. **Verify:** `scripts/validate.sh`. **Files:** `hooks/session_delegation_claude.py`,
+`hooks/test_session_delegation_claude.py`
+
 ### Task 5: One Claude idle predicate (D17)
 
 **Description:** Prove-It test: `continue` against the captured idle entry answers `target-busy` today. Add the

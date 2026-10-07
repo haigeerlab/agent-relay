@@ -389,9 +389,11 @@ class ClaudeAdapter:
         return claim, envelope, readiness
 
     def _sessions(self, project: Path) -> tuple[dict[str, object], ...]:
+        # No `--cwd`: Claude Code 2.1.291 files a session started in a git worktree under
+        # the main checkout, so `--cwd <worktree>` never lists it (round 1 finding 7, D19).
+        # `_exact_session` matches the exact id, session id and cwd instead.
         completed = self._run((
             str(self.installation.binary), "agents", "--json", "--all",
-            "--cwd", str(project),
         ), project)
         if completed.returncode != 0:
             raise ClaudeAdapterError("background-list-unavailable")

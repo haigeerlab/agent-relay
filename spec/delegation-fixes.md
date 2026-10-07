@@ -10,7 +10,8 @@ Fix the delegation defects that the baseline recorded and the translation kept, 
   `hostStatus=idle`.
 - **Round 1 finding 7.** Creating a Claude target on Claude Code 2.1.291 answers `state=unknown` although the
   session starts and returns its result; every later `continue` then refuses with
-  `delegation-is-not-ready-for-follow-up`. On 2.1.291 this hides finding 4, so it is fixed first.
+  `delegation-is-not-ready-for-follow-up`. On 2.1.291 this hides finding 4, so it is fixed first. The Task 4
+  capture showed the cause is not timing but the host's `--cwd` filter (below, D19).
 
 Done means checklist C3 and C7 meet their target column: the second round passes both ways, and a held create
 leaves nothing that blocks or confuses a later create with the same name.
@@ -39,7 +40,14 @@ output (`target-busy` with `hostStatus=idle`). A few lines later the same method
 `state` in `blocked`, `done`, `running`, `active` as idle enough to wake natively (`claude.py:592-593`). The two
 rules disagree about `idle` + `active`.
 
-**Finding 7.** `create` parses the background id from the host's stdout and calls `_bind_observed`
+**Finding 7, as measured in Task 4 (Claude Code 2.1.291, 2026-10-07).** A background session started in a
+plain repository is listed on the first poll after `--bg` returns, with or without `--cwd`. One started in a
+**git worktree** is listed at once without a filter, with `cwd` = the worktree path, but `claude agents --json
+--all --cwd <worktree>` never lists it (60 s); `--cwd <main checkout>` does. Round 1's Claude target was a
+spec-guard worktree. The adapter always passes `--cwd <project>` (`claude.py` `_sessions`), so in a worktree it
+never sees its own session, however long it waits.
+
+**Finding 7, as first read from the code.** `create` parses the background id from the host's stdout and calls `_bind_observed`
 (`claude.py:441-457`), which looks the entry up through `_settled_session` three times within 0.7 s. On 2.1.291
 the entry appears later, so the row gets `host_ref` but no `host_session_ref` and goes `unknown`
 (`record_host_unknown`). Nothing looks again: `status()` compares the entry's session id with the stored `None`
@@ -49,7 +57,10 @@ store already allows the repair: `bind_host` accepts `unknown → created` when 
 
 ## Assumptions
 
-1. **Finding 4's cause is the rule mismatch above,** most likely `claude agents --json --all` reporting an idle
+1. **Finding 4's cause is the rule mismatch above.** Task 4 saw only `(done, idle)` after a turn (process still
+   alive) and `(working, busy)` during one, which the current reconcile handles; `active`/`blocked` with `idle`
+   was not seen for a one-shot session and is expected for a delegated session that stays registered. Originally
+   assumed: most likely `claude agents --json --all` reporting an idle
    background session after its first turn as `state=active` (or `working`) with `status=idle` on Claude 2.1.288+.
    This is inferred from code and the recorded output, not yet seen in raw host JSON. The capture task records the raw
    entry before any change; if it shows something else, the fix follows the evidence and this spec is updated
@@ -99,6 +110,12 @@ D15–D17 taken as recommended by the user on 2026-10-07; D18 added by the proje
   Such a row is cancelled with the normal stop path, because `host_ref` is known.
   *Regression sample:* round 1's row (`host_ref` 244e528e, no session ref, `unknown`) — its shape, not its prompt.
 
+- **D19 list without the host's cwd filter (project owner, after Task 4).** `_sessions` runs
+  `claude agents --json --all` without `--cwd` and keeps relying on `_exact_session`'s exact checks (id, session id
+  prefixed by the id, cwd equal to the resolved project, kind background), which already reject any other
+  session. This is the fix for finding 7; D18 stays as a bounded safety net and as the repair for rows already
+  stuck (round 1's row), not as the cause's remedy.
+
 ## Requirements
 
 1. A create held on a prerequisite answers `held` with the prerequisite, as today, and can still be retried with
@@ -109,14 +126,16 @@ D15–D17 taken as recommended by the user on 2026-10-07; D18 added by the proje
    behaves as today.
 4. `continue` to a Claude target whose raw entry matches the captured idle entry proceeds (native wake or resume)
    instead of `target-busy`. A target that is genuinely working still answers `target-busy`.
-5. A Claude create whose entry appears within the bound answers `created` at once. One whose entry appears only
+5. A Claude target in a git worktree is found at create (`created`), and by `status`, although
+   `agents --cwd <worktree>` would not list it.
+6. A Claude create whose entry appears within the bound answers `created` at once. One whose entry appears only
    after the create call returns answers `unknown`/`host-entry-pending`; the next `status` answers `created` (or
    later states) with the session bound, and `continue` works from there. A row whose entry never appears stays
    `unknown`/`host-entry-pending`; one with a different session prefix, cwd or kind stays `unknown`/
    `host-entry-invalid` with nothing bound.
-6. Interface §10 rows "Held create" and "Claude round two" (and a row for finding 7) move to "done in `delegation-fixes`"; checklist C3 and
+7. Interface §10 rows "Held create" and "Claude round two" (and a row for finding 7) move to "done in `delegation-fixes`"; checklist C3 and
    C7 current columns updated; the `session-delegation` skill states D16.
-7. No change to records already on disk is required; migrated legacy rows are handled by D16 at cancel time.
+8. No change to records already on disk is required; migrated legacy rows are handled by D16 at cancel time.
 
 ## Commands
 
@@ -157,8 +176,8 @@ The raw host capture is stored as a test fixture, with ids replaced.
 1. The two Prove-It tests fail before and pass after; regression and mutation checks hold.
 2. Live C3 in both directions (user premise 4, 2026-10-07), judged by the interface's hardening-target column:
    Codex → Claude create answers `created` or reaches it on the next `status`, and round two passes both ways; live C7 leaves no ambiguity and no `unknown` cancel.
-3. Interface, checklist and skill updated as in requirement 5.
+3. Interface, checklist and skill updated as in requirement 7.
 
 ## Open questions
 
-None; D15–D18 are decided.
+None; D15–D19 are decided.

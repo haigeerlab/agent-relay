@@ -355,6 +355,28 @@ class AdapterTests(unittest.TestCase):
         self.assertGreater(sum(delays), 0.7)
         self.assertLessEqual(sum(delays), 10)
 
+    def test_session_started_in_a_git_worktree_is_found_without_the_hosts_cwd_filter(self):
+        # Task 4 capture, Claude Code 2.1.291: a background session started in a git worktree
+        # reports cwd = the worktree, yet `agents --cwd <worktree>` never lists it.
+        def host(command, **_kwargs):
+            if "--background" in command:
+                return completed("backgrounded · ce5b9501\n")
+            if "--cwd" in command:
+                return completed("[]")
+            return completed(json.dumps([
+                self.entry(short_id="0f00ba44", state="done", status="idle") | {
+                    "sessionId": "0f00ba44-0817-479d-886e-772bafbbee6f",
+                    "cwd": str(self.root.resolve()),
+                },
+                self.late_entry(),
+            ]))
+        host.calls = []
+
+        result = self.adapter(host).create(self.claim.delegation_id, "Review")
+
+        self.assertEqual(result.state, "created")
+        self.assertEqual(result.host_session_ref, self.late_entry()["sessionId"])
+
     def test_create_past_the_bound_is_pending_and_the_next_status_binds_it(self):
         delays = []
         creating = RepeatingRunner([
