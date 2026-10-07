@@ -184,10 +184,14 @@ class CleanupTests(unittest.TestCase):
         (self.tmp / "repo" / "scripts" / "acceptance").mkdir(parents=True)
         shutil.copy(CLEANUP, self.tmp / "repo" / "scripts" / "acceptance" / "cleanup.sh")
         self.log = self.tmp / "retired.log"
+        import inspect
+        import native_collaboration_runtime as real
+
         (hooks / "native_collaboration_runtime.py").write_text(
             "from pathlib import Path\nclass StateHomeError(ValueError):\n    pass\n"
-            f"def default_root():\n    return Path({str(self.tmp / 'root')!r})\n",
-            encoding="utf-8")
+            f"def default_root():\n    return Path({str(self.tmp / 'root')!r})\n"
+            f"MAILBOX_BUSY_TIMEOUT = {real.MAILBOX_BUSY_TIMEOUT!r}\n"
+            + inspect.getsource(real.open_mailbox_read_only), encoding="utf-8")
         (hooks / "native_collaboration_retire.py").write_text(
             "import sys\n"
             f"open({str(self.log)!r}, 'a').write(' '.join(sys.argv[1:]) + '\\n')\n"
@@ -207,6 +211,23 @@ class CleanupTests(unittest.TestCase):
     def run_cleanup(self, *args):
         return subprocess.run(["/bin/bash", str(self.tmp / "repo" / "scripts" / "acceptance" / "cleanup.sh"),
                                *args], capture_output=True, text=True, timeout=60)
+
+    def test_preview_reads_a_closed_wal_mailbox_under_system_python(self):
+        # acceptance-kit-round2 D57 (round 2 R2-12): the same read as R2-9, under macOS /usr/bin/python3.
+        with sqlite3.connect(self.database) as connection:
+            connection.execute("PRAGMA journal_mode=WAL")
+            connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        connection.close()
+        for suffix in ("-wal", "-shm"):
+            Path(str(self.database) + suffix).unlink(missing_ok=True)
+        python = self.tmp / "py"
+        python.mkdir()
+        (python / "python3").symlink_to("/usr/bin/python3")
+        done = subprocess.run(["/bin/bash", str(self.tmp / "repo" / "scripts" / "acceptance" / "cleanup.sh"),
+                               "r1"], capture_output=True, text=True, timeout=60,
+                              env=dict(os.environ, PATH=f"{python}{os.pathsep}{os.environ['PATH']}"))
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("live identities with prefix ar-acc-r1-: 2", done.stdout)
 
     def test_preview_lists_only_live_identities_of_this_run_and_retires_nothing(self):
         before = self.database.read_bytes()

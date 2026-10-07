@@ -12,7 +12,6 @@ from contextlib import closing
 import json
 import os
 from pathlib import Path
-import shutil
 import sqlite3
 import stat
 import subprocess
@@ -90,7 +89,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--name", required=True, help="exact native identity name")
     parser.add_argument("--note")
     parser.add_argument("--root", type=Path)
-    parser.add_argument("--node", default=shutil.which("node"))
+    parser.add_argument("--node", help="default: the node the host entries pin, else PATH's (refused below 22.5.0)")
     parser.add_argument("--confirm-retire", action="store_true", required=True,
                         help="operator confirms this identity's session has ended")
     args = parser.parse_args(argv)
@@ -98,10 +97,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.root = args.root or default_root()
     except StateHomeError as error:
         parser.exit(2, f"{parser.prog}: error: {error}\n")
-    if not args.node:
-        parser.error("Node executable is unavailable")
+    from node_select import NodeSelectError, select_node
+
     try:
-        result = retire_identity(args.root, args.node, args.name, args.note)
+        node = str(select_node(args.node).path)  # acceptance-kit-round2 D57 (round 2 R2-12)
+        result = retire_identity(args.root, node, args.name, args.note)
+    except NodeSelectError as error:
+        result = {"state": "refused", "diagnostic": f"{error.reason}: {error.detail}"}
     except RetireError as error:
         result = {"state": "refused", "diagnostic": str(error)}
     print(json.dumps(result, sort_keys=True))
