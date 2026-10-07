@@ -5,7 +5,9 @@
 Close the gaps integration round 2 found in the acceptance kit and in how agent-relay's skills find their own code
 ([record](../docs/acceptance/2026-10-07-round2.md)): the printed background-session launch line keeps its prompt
 (R2-3); preflight shows when a host runs a stale copy of the plugin (R2-5) and the skills never pick a stale copy
-when they resolve the plugin root (R2-11); the A4 allow list covers the skills the checklist exercises (R2-8).
+when they resolve the plugin root (R2-11); the A4 allow list covers the skills the checklist exercises (R2-8); and
+reinstall, retire and the acceptance cleanup work in a shell whose first node is too old and whose `python3` is the
+system 3.9 (R2-12, found in the coordinator's fc7ee7e re-run, added to this module by the user on 2026-10-08).
 
 Readers: the user; the integration coordinator ("第二轮联调"), who runs the third round with this kit.
 
@@ -32,6 +34,12 @@ Readers: the user; the integration coordinator ("第二轮联调"), who runs the
   the design project; neither is allowed, so Claude-origin D8 and S4's D9 read stopped. Rule syntax per
   code.claude.com/docs/en/permissions.md: absolute paths are `Read(//abs/path/**)`; Bash prefixes are
   `Bash(<prefix> *)`.
+
+- **R2-12.** (1) `native_collaboration_runtime.py install`/`upgrade` run `npm ci` and `npm run build` with `--npm`
+  (default `npm`) and `--node` (default `node`); npm starts through `#!/usr/bin/env node`, so with nvm v12 first in
+  PATH the build fails even with `--npm <v24 npm>` (nothing replaced). (2) `native_collaboration_retire.py --node`
+  defaults to `shutil.which("node")`. (3) `scripts/acceptance/cleanup.sh` opens the mailbox with `mode=ro` directly,
+  which fails under `/usr/bin/python3` 3.9 exactly as R2-9 did.
 
 ## Assumptions
 
@@ -69,13 +77,22 @@ D53–D56 accepted on 2026-10-07 (including D53's Task 1 fallback and the `--des
 - **D56 launch line (R2-3).** `claude "<prompt>" --bg --permission-mode dontAsk --allowedTools "<list>"`, with a note
   that the prompt must come first; checklist A4 matches.
 
+- **D57 the same node and the same read everywhere (R2-12).** `install`, `upgrade` (and the reinstall around kept
+  history) and `retire` choose their node with D50's `select_node` (explicit `--node` → Claude entry → Codex entry →
+  PATH; below 22.5.0 refuse before anything is built or retired). npm runs with the chosen node's directory first in
+  its `PATH`, and `--npm` defaults to the `npm` beside that node when present (else PATH's). `cleanup.sh` reads the
+  mailbox with D51's `open_mailbox_read_only`. Acceptance: in a shell with nvm v12 first in PATH and `python3` =
+  `/usr/bin/python3` 3.9.6, reinstall around kept history, retire and `cleanup.sh` all succeed.
+
 ## Requirements
 
 1. D53: the shared block in three skills, tested; Task 1 probe recorded.
 2. D54: tree hash function tested on fixtures (equal, changed file, ignored entries); preflight output shows
    `current`/`STALE` per copy.
 3. D55, D56: preflight output tested for exact strings; checklist rows updated.
-4. Round 2 record cross-references (R2-3, R2-5, R2-8, R2-11).
+4. D57: npm environment and node choice tested with fake node/npm scripts; retire's default tested; cleanup.sh on a
+   closed WAL mailbox under 3.9.
+5. Round 2 record cross-references (R2-3, R2-5, R2-8, R2-11, R2-12).
 
 ## Testing strategy
 
