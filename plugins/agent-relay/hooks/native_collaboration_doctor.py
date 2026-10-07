@@ -18,8 +18,8 @@ from typing import Any, Callable, Iterable
 from native_collaboration_adapters import CLAUDE_SERVER_NAME, CODEX_SERVER_NAME
 from node_select import NodeSelectError, select_node, toml_table
 from state_migration import _snapshot
-from native_collaboration_runtime import (DENIED_TOOLS, MAILBOX_SCHEMA_VERSIONS, MAILBOX_TOOLS, open_mailbox_read_only,
-                                          probe_runtime, status)
+from native_collaboration_runtime import (DENIED_TOOLS, MAILBOX_SCHEMA_VERSIONS, MAILBOX_TOOLS, live_claude_sessions,
+                                          open_mailbox_read_only, pid_alive, probe_runtime, status)
 
 DEFAULT_MAX_PENDING = 100
 OLD_BRIDGE = "/.spec-guard/native-collaboration/dist/server.js"
@@ -182,25 +182,6 @@ def _codex_approval(codex_config: Path) -> dict[str, str]:
     return _check("codex-approval", "ok", reason)
 
 
-def _sessions(directory: Path, alive: Callable[[int], bool]) -> dict[str, dict[str, Any]]:
-    found: dict[str, dict[str, Any]] = {}
-    try:
-        entries = list(directory.glob("*.json"))
-    except OSError:
-        return found
-    for path in entries:
-        try:
-            value = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, ValueError):
-            continue
-        if (isinstance(value, dict) and isinstance(value.get("pid"), int) and isinstance(value.get("sessionId"), str)
-                and path.name == f"{value['pid']}.json" and alive(value["pid"])):
-            for key in ("sessionId", "bridgeSessionId"):
-                if isinstance(value.get(key), str):
-                    found[value[key]] = value
-    return found
-
-
 def _wake_bindings(database: Path, sessions_dir: Path, alive: Callable[[int], bool]) -> dict[str, str]:
     if not database.exists():
         return _check("wake-bindings", "ok", "no mailbox yet")
@@ -211,7 +192,7 @@ def _wake_bindings(database: Path, sessions_dir: Path, alive: Callable[[int], bo
                 "WHERE a.retired_at IS NULL ORDER BY w.agent").fetchall()
     except sqlite3.Error as error:
         return _check("wake-bindings", "fail", f"cannot read wake bindings: {error}", "run status, then check the file")
-    sessions = _sessions(sessions_dir, alive)
+    sessions = live_claude_sessions(sessions_dir, alive)
     notes: list[str] = []
     problems: list[str] = []
     for agent, raw in rows:
@@ -253,16 +234,6 @@ def _ps() -> list[str]:
         return []
 
 
-def _alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
-
-
 def _probe_outside(root: Path, node: str) -> dict[str, Any]:
     with tempfile.TemporaryDirectory(prefix="agent-relay-doctor-") as scratch:
         return probe_runtime(root, node=node, scratch=Path(scratch))
@@ -271,7 +242,7 @@ def _probe_outside(root: Path, node: str) -> dict[str, Any]:
 def doctor(root: Path, *, home: Path | None = None, node: str | None = None, codex_config: Path | None = None,
            claude_json: Path | None = None, claude_settings: Path | None = None,
            claude_sessions: Path | None = None, probe: Callable[[Path], dict[str, Any]] | None = None,
-           processes: Callable[[], Iterable[str]] = _ps, alive: Callable[[int], bool] = _alive) -> dict[str, Any]:
+           processes: Callable[[], Iterable[str]] = _ps, alive: Callable[[int], bool] = pid_alive) -> dict[str, Any]:
     home = Path(home) if home else Path.home()
     codex_home = os.environ.get("CODEX_HOME", "").strip()
     codex_config = Path(codex_config) if codex_config else (Path(codex_home) if codex_home else home / ".codex") / "config.toml"

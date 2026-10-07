@@ -96,12 +96,14 @@ class AdapterBackupTests(unittest.TestCase):
         self.claude = self.base / "claude"
         self.claude.write_text("#!/bin/sh\nexit 0\n")
         self.claude.chmod(0o755)
+        self.sessions = self.base / "claude-sessions"
+        self.sessions.mkdir()
 
     def run_main(self, command, *, relay=None):
         out = io.StringIO()
         argv = [command, "--root", str(self.root), "--node", str(self.node), "--codex-config", str(self.codex),
                 "--claude-settings", str(self.settings), "--claude-json", str(self.claude_json),
-                "--claude-bin", str(self.claude), "--confirm-uninstall"]
+                "--claude-bin", str(self.claude), "--claude-sessions", str(self.sessions), "--confirm-uninstall"]
         with patch.dict(os.environ, {"AGENT_RELAY_HOME": str(relay or self.relay)}), contextlib.redirect_stdout(out):
             try:
                 code = main(argv)
@@ -161,6 +163,39 @@ class AdapterBackupTests(unittest.TestCase):
         code, output = self.run_main("uninstall-claude")
         self.assertIn("no deny rules to remove", output)
         self.assertEqual(self.settings.read_bytes(), before, "nothing to remove, nothing written")
+
+    def test_uninstall_claude_keeps_the_deny_rules_while_a_claude_session_is_open(self):
+        # round2-fixes D52 (round 2 R2-10): with every bridge stopped, an open session still re-filtered its cached
+        # tool list against the new settings and offered the upstream worker tools once the rules were gone.
+        self.assertEqual(self.run_main("install-claude")[0], 0)
+        (self.sessions / f"{os.getpid()}.json").write_text(json.dumps({"pid": os.getpid(), "sessionId": "s-open"}))
+        with patch("native_collaboration_adapters._servers_running", return_value=0):
+            code, output = self.run_main("uninstall-claude")
+        self.assertEqual(code, 0, output)
+        deny = json.loads(self.settings.read_text())["permissions"]["deny"]
+        self.assertEqual(len([rule for rule in deny if rule.startswith("mcp__agent-relay__")]), 7)
+        self.assertIn("deny rules kept", output)
+        self.assertIn("1 Claude Code session", output)
+        self.assertIn("close every Claude Code session", output)
+        self.assertIn("uninstall-claude --confirm-uninstall", output)
+        self.assertIn(f"--claude-settings {self.settings}", output)
+        (self.sessions / f"{os.getpid()}.json").unlink()
+        with patch("native_collaboration_adapters._servers_running", return_value=0):
+            code, output = self.run_main("uninstall-claude")
+        self.assertIn("7 deny rules removed", output)
+
+    def test_uninstall_claude_keeps_the_deny_rules_while_a_bridge_runs_or_cannot_be_checked(self):
+        from native_collaboration_runtime import NativeRuntimeError
+
+        self.assertEqual(self.run_main("install-claude")[0], 0)
+        for counter in ({"return_value": 2}, {"side_effect": NativeRuntimeError("cannot list processes")}):
+            with self.subTest(counter=counter), patch("native_collaboration_adapters._servers_running", **counter):
+                code, output = self.run_main("uninstall-claude")
+                self.assertEqual(code, 0, output)
+                self.assertIn("deny rules kept", output)
+        deny = json.loads(self.settings.read_text())["permissions"]["deny"]
+        self.assertEqual(len([rule for rule in deny if rule.startswith("mcp__agent-relay__")]), 7)
+        self.assertIn("Native Claude MCP entry", output)
 
 
 if __name__ == "__main__":

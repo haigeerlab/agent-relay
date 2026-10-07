@@ -15,7 +15,7 @@ import shutil
 import stat
 import subprocess
 import tempfile
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
 
 # Mailbox schemas the Python readers understand: 2 (upstream 8f12c88) and 3 (delivery-state-machine adds
@@ -324,6 +324,37 @@ def _servers_running(root: Path) -> int:
         raise NativeRuntimeError("cannot list processes to check for running bridge servers") from error
     server = str(Path(root) / "dist" / "server.js")
     return sum(1 for line in listing.splitlines() if server in line)
+
+
+def pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def live_claude_sessions(directory: Path, alive: Callable[[int], bool] | None = None) -> dict[str, dict[str, Any]]:
+    """Claude Code sessions whose `<pid>.json` names a live process, keyed by session id (and bridge session id)."""
+    alive = alive or pid_alive
+    found: dict[str, dict[str, Any]] = {}
+    try:
+        entries = list(directory.glob("*.json"))
+    except OSError:
+        return found
+    for path in entries:
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, ValueError):
+            continue
+        if (isinstance(value, dict) and isinstance(value.get("pid"), int) and isinstance(value.get("sessionId"), str)
+                and path.name == f"{value['pid']}.json" and alive(value["pid"])):
+            for key in ("sessionId", "bridgeSessionId"):
+                if isinstance(value.get(key), str):
+                    found[value[key]] = value
+    return found
 
 
 def open_mailbox_read_only(database: Path, *, timeout: float = MAILBOX_BUSY_TIMEOUT) -> "sqlite3.Connection":

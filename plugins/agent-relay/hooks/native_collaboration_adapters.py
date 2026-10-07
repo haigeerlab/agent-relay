@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import stat
 import tempfile
@@ -18,8 +19,8 @@ from typing import Any, Sequence
 
 from host_backup import HostBackupError, backup_host_files, backup_message
 from host_config_removal import add_claude_server, remove_claude_server, remove_codex_table
-from native_collaboration_runtime import (DENIED_TOOLS, MAILBOX_TOOLS, StateHomeError,
-                                          default_root, status)
+from native_collaboration_runtime import (DENIED_TOOLS, MAILBOX_TOOLS, NativeRuntimeError, StateHomeError,
+                                          _servers_running, default_root, live_claude_sessions, status)
 
 
 CLAUDE_SERVER_NAME = "agent-relay"
@@ -164,6 +165,34 @@ def remove_claude_deny_rules(settings: Path) -> int:
     return len(deny) - len(kept)
 
 
+def _open_claude_users(root: Path, sessions: Path) -> str:
+    """Why the deny rules must stay (round2-fixes D52), or "" when no Claude session or bridge is running.
+
+    Open sessions count even with every bridge stopped: the host re-filters a session's cached tool list against
+    the new settings. The caller counts too; it is itself an open session when an agent runs this."""
+    reasons = []
+    count = len({value["pid"] for value in live_claude_sessions(sessions).values()})
+    if count:
+        reasons.append("%d Claude Code session(s) still open" % count)
+    try:
+        bridges = _servers_running(root)
+    except NativeRuntimeError:
+        reasons.append("running bridge servers cannot be checked")
+    else:
+        if bridges:
+            reasons.append("%d agent-relay bridge server(s) still running" % bridges)
+    return "; ".join(reasons)
+
+
+def _uninstall_claude_command(args: argparse.Namespace) -> str:
+    command = ["python3", "-B", str(Path(__file__).resolve()), "uninstall-claude", "--confirm-uninstall",
+               "--root", str(args.root), "--claude-settings", str(args.claude_settings),
+               "--claude-json", str(args.claude_json)]
+    if args.claude_bin != "claude":
+        command += ["--claude-bin", str(args.claude_bin)]
+    return " ".join(shlex.quote(part) for part in command)
+
+
 def claude_deny_rules() -> list[str]:
     return [f"mcp__{CLAUDE_SERVER_NAME}__{tool}" for tool in DENIED_TOOLS]
 
@@ -181,6 +210,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                         default=Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home()) / ".claude.json",
                         help="the file the Claude CLI writes user-scoped MCP servers to (backed up first)")
     parser.add_argument("--claude-bin", default="claude")
+    parser.add_argument("--claude-sessions", type=Path, default=Path.home() / ".claude" / "sessions",
+                        help="uninstall-claude: where Claude Code records its open sessions")
     parser.add_argument("--confirm-uninstall", action="store_true",
                         help="allow an uninstall command to remove host configuration")
     args = parser.parse_args(argv)
@@ -204,9 +235,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         # 先移除服务再移除拒绝规则，服务存在期间规则始终在（safe-uninstall D46）。
         try:
             state = remove_claude_server(args.claude_bin, CLAUDE_SERVER_NAME)
-            removed = remove_claude_deny_rules(args.claude_settings)
+            still_open = _open_claude_users(args.root, args.claude_sessions)
+            removed = 0 if still_open else remove_claude_deny_rules(args.claude_settings)
         except ValueError as error:
             parser.error(str(error))
+        if still_open:
+            print("Native Claude MCP entry %s; deny rules kept: %s. An open session would offer the upstream worker "
+                  "tools as soon as the rules go (round 2 R2-10), so close every Claude Code session first, then "
+                  "run this in a terminal:\n  %s" % (state, still_open, _uninstall_claude_command(args)))
+            return 0
         rules = "%d deny rules removed" % removed if removed else "no deny rules to remove"
         print("Native Claude MCP entry %s; %s; restart Claude to apply." % (state, rules))
         return 0
