@@ -2,6 +2,7 @@
 
 - [ ] Task 1: Key check (D33, D34, assumptions 1, 2, 5)
 - [ ] Task 2: Schema v4 and Python readers (assumption 3)
+- [ ] Task 2b: Delegation result route (coordinator, 2026-10-07)
 - [ ] Checkpoint (report): key check and schema green
 - [ ] Task 3: Reply link (assumption 3, D36)
 - [ ] Task 4: Reply de-duplication (D35)

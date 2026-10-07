@@ -51,7 +51,9 @@ Confirmed by the user on 2026-10-07, including schema v4.
 D33–D36 accepted on 2026-10-07.
 
 - **D33 refuse a reused key with different content** with an error naming the key, the stored message id and which
-  fields differ; nothing is stored or pinged. Alternative: keep returning the old message but add a warning.
+  fields differ; nothing is stored or pinged. The text also says the earlier message with this key is already stored and in
+  delivery (its id and delivery state) and that no resend is needed, because the sender may be a delegated LLM session
+  that would otherwise treat the refusal as a failed result and retry (round 1 coordinator, 2026-10-07). Alternative: keep returning the old message but add a warning.
 - **D34 a duplicate is visible:** when a send returns an already stored message (same key, or a de-duplicated reply),
   the result carries `duplicate: true` and a warning "already stored as message N; not sent again", and no new ping
   is queued.
@@ -65,7 +67,12 @@ D33–D36 accepted on 2026-10-07.
 
 1. Key check per D33 and D34, with tests: identical retry → same id, `duplicate: true`, no second wake job;
    different body, recipient, thread or `replyTo` each refused; delivery options ignored; bridge notices still folded.
-2. Schema v4 (`reply_to`), old-process INSERTs still work; Python readers accept 2–4 with tests.
+2. Schema v4 (`reply_to`), old-process INSERTs still work; Python readers accept 2–4 with tests. A v2 mailbox (what
+   real runtimes hold today) migrates straight to v4 in one open with the pre-migration backup, tested from a v2
+   fixture, and `upgrade --confirm` from a v2 runtime ends at v4 with row counts intact.
+2b. The result-route instruction in the bounded delegation prompt says that a "same key, different content" refusal
+   means the result is already delivered; a controller-side test shows a reworded retry leaves exactly one result
+   message and the delegation's result delivery unchanged.
 3. `replyTo` per assumption 3 and D36: unknown id refused; thread inherited or mismatch refused; shown in inbox,
    thread, outbox and the send result; outbox lists reply ids.
 4. Reply de-duplication per D35 with tests, including re-send after the earlier reply `expired` and `failed`, and two
