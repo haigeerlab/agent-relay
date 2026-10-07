@@ -43,6 +43,16 @@ class ScriptedRunner:
         return result
 
 
+class RepeatingRunner(ScriptedRunner):
+    """Like ScriptedRunner, but the last result answers every later call."""
+
+    def __call__(self, command, **kwargs):
+        if len(self.results) == 1:
+            self.calls.append((list(command), kwargs))
+            return self.results[0]
+        return super().__call__(command, **kwargs)
+
+
 def completed(stdout="", stderr="", returncode=0):
     return CompletedProcess([], returncode, stdout, stderr)
 
@@ -177,7 +187,7 @@ class InstallationAndPermissionTests(unittest.TestCase):
             "CODEX_SESSION_ID": "codex-session",
             "CLAUDE_CODE_SESSION_ID": "claude",
         })
-        self.assertEqual(environment, {"PATH": "/bin"})
+        self.assertEqual(environment, {"PATH": "/bin", "NO_COLOR": "1"})
 
 
 class AdapterTests(unittest.TestCase):
@@ -308,10 +318,8 @@ class AdapterTests(unittest.TestCase):
     def test_persistently_incomplete_exact_entry_preserves_host_ref_as_unknown(self):
         pending = self.entry(state="working", status="busy")
         pending.pop("state")
-        runner = ScriptedRunner([
+        runner = RepeatingRunner([
             completed("backgrounded · ce5b9501 · test\n"),
-            completed(json.dumps([pending])),
-            completed(json.dumps([pending])),
             completed(json.dumps([pending])),
         ])
 
@@ -319,9 +327,165 @@ class AdapterTests(unittest.TestCase):
 
         self.assertEqual(result.state, "unknown")
         self.assertEqual(result.host_ref, "ce5b9501")
+        self.assertEqual(result.prerequisite, "host-entry-invalid")
         stored = self.store.get_delegation(self.claim.delegation_id)
         self.assertEqual(stored.state, "unknown")
         self.assertEqual(stored.host_ref, "ce5b9501")
+
+    def late_entry(self, short_id="ce5b9501"):
+        entry = self.entry(short_id=short_id, state="done", status="idle")
+        entry["sessionId"] = short_id + "-0817-479d-886e-772bafbbee6f"
+        return entry
+
+    def test_create_waits_for_a_background_entry_that_appears_late(self):
+        # Claude Code 2.1.291 lists the background session seconds after `--background`
+        # returns (round 1 finding 7); 0.7 s of retries made such a create `unknown`.
+        delays = []
+        runner = ScriptedRunner([
+            completed("backgrounded · ce5b9501 · test\n"),
+            *[completed("[]") for _ in range(5)],
+            completed(json.dumps([self.late_entry()])),
+        ])
+
+        result = self.adapter(runner, sleep=delays.append).create(
+            self.claim.delegation_id, "Review")
+
+        self.assertEqual(result.state, "created")
+        self.assertEqual(result.host_session_ref, self.late_entry()["sessionId"])
+        self.assertGreater(sum(delays), 0.7)
+        self.assertLessEqual(sum(delays), 10)
+
+    def test_session_started_in_a_git_worktree_is_found_without_the_hosts_cwd_filter(self):
+        # Task 4 capture, Claude Code 2.1.291: a background session started in a git worktree
+        # reports cwd = the worktree, yet `agents --cwd <worktree>` never lists it.
+        def host(command, **_kwargs):
+            if "--background" in command:
+                return completed("backgrounded · ce5b9501\n")
+            if "--cwd" in command:
+                return completed("[]")
+            return completed(json.dumps([
+                self.entry(short_id="0f00ba44", state="done", status="idle") | {
+                    "sessionId": "0f00ba44-0817-479d-886e-772bafbbee6f",
+                    "cwd": str(self.root.resolve()),
+                },
+                self.late_entry(),
+            ]))
+        host.calls = []
+
+        result = self.adapter(host).create(self.claim.delegation_id, "Review")
+
+        self.assertEqual(result.state, "created")
+        self.assertEqual(result.host_session_ref, self.late_entry()["sessionId"])
+
+    def test_create_past_the_bound_is_pending_and_the_next_status_binds_it(self):
+        delays = []
+        creating = RepeatingRunner([
+            completed("backgrounded · ce5b9501 · test\n"),
+            completed("[]"),
+        ])
+
+        created = self.adapter(creating, sleep=delays.append).create(
+            self.claim.delegation_id, "Review")
+
+        self.assertEqual(created.state, "unknown")
+        self.assertEqual(created.prerequisite, "host-entry-pending")
+        self.assertAlmostEqual(sum(delays), 10)
+        stored = self.store.get_delegation(self.claim.delegation_id)
+        self.assertEqual((stored.host_ref, stored.host_session_ref), ("ce5b9501", None))
+
+        status = self.adapter(ScriptedRunner([
+            completed(json.dumps([self.late_entry()])),
+        ])).status(self.claim.delegation_id)
+
+        self.assertEqual(status.state, "created")
+        stored = self.store.get_delegation(self.claim.delegation_id)
+        self.assertEqual(stored.state, "created")
+        self.assertEqual(stored.host_session_ref, self.late_entry()["sessionId"])
+
+    def test_continue_binds_a_late_entry_instead_of_refusing_the_follow_up(self):
+        self.adapter(RepeatingRunner([
+            completed("backgrounded · ce5b9501 · test\n"),
+            completed("[]"),
+        ])).create(self.claim.delegation_id, "Review")
+        woken = []
+        entry = json.dumps([self.late_entry()])
+        adapter = self.adapter(
+            RepeatingRunner([completed(entry)]),
+            wake=lambda session_ref, prompt: woken.append(session_ref) or "turn-2",
+            registration_probe=lambda *_args: True,
+        )
+
+        result = adapter.continue_turn(self.claim.delegation_id, "Again")
+
+        self.assertEqual(result.state, "running")
+        self.assertEqual(woken, [self.late_entry()["sessionId"]])
+
+    def test_second_round_to_an_idle_active_target_is_woken_not_reported_busy(self):
+        # Baseline finding 4: `continue` answered held/target-busy while hostStatus=idle.
+        # The reconcile rule kept (active, idle) running while continue_turn itself treats
+        # it as idle enough to wake (D17).
+        self.adapter(self.runner_for_create()).create(self.claim.delegation_id, "Review")
+        woken = []
+        adapter = self.adapter(
+            RepeatingRunner([completed(json.dumps([
+                self.entry(state="active", status="idle")]))]),
+            wake=lambda session_ref, prompt: woken.append(session_ref) or "turn-2",
+            registration_probe=lambda *_args: True,
+        )
+
+        result = adapter.continue_turn(self.claim.delegation_id, "Again")
+
+        self.assertEqual(result.state, "running")
+        self.assertEqual(woken, ["ce5b9501-0817-479d-886e-772bafbbee6f"])
+
+    def test_working_target_is_still_busy_and_an_unrecognised_idle_state_is_named(self):
+        self.adapter(self.runner_for_create()).create(self.claim.delegation_id, "Review")
+        for state, status, prerequisite in (("working", "busy", "target-busy"),
+                                            ("paused", "idle", "target-status-unknown")):
+            with self.subTest(state=state):
+                adapter = self.adapter(
+                    RepeatingRunner([completed(json.dumps([
+                        self.entry(state=state, status=status)]))]),
+                    wake=lambda *_args: self.fail("must not wake"),
+                    registration_probe=lambda *_args: True,
+                )
+
+                result = adapter.continue_turn(self.claim.delegation_id, "Again")
+
+                self.assertEqual(result.state, "held")
+                self.assertEqual(result.prerequisite, prerequisite)
+
+    def test_round_one_unknown_row_without_session_ref_is_bound_by_status(self):
+        # Shape of round 1's row: host_ref 244e528e, no host_session_ref, state unknown.
+        _envelope, claim = self.make_claim(key="claude-round1-sample")
+        self.store.record_host_unknown(claim.delegation_id, "244e528e")
+
+        result = self.adapter(ScriptedRunner([
+            completed(json.dumps([self.late_entry("244e528e")])),
+        ])).status(claim.delegation_id)
+
+        self.assertEqual(result.state, "created")
+        self.assertEqual(self.store.get_delegation(claim.delegation_id).host_session_ref,
+                         self.late_entry("244e528e")["sessionId"])
+
+    def test_late_entry_still_absent_or_invalid_stays_unknown_and_unbound(self):
+        foreign = self.late_entry()
+        foreign["cwd"] = str(self.root.resolve())
+        for listing, prerequisite in (("[]", "host-entry-pending"),
+                                      (json.dumps([foreign]), "host-entry-invalid")):
+            with self.subTest(prerequisite=prerequisite):
+                _envelope, claim = self.make_claim(key="claude-late-" + prerequisite)
+                self.store.record_host_unknown(claim.delegation_id, "ce5b9501")
+
+                result = self.adapter(ScriptedRunner([
+                    completed(listing),
+                ])).status(claim.delegation_id)
+
+                self.assertEqual(result.state, "unknown")
+                self.assertEqual(result.prerequisite, prerequisite)
+                stored = self.store.get_delegation(claim.delegation_id)
+                self.assertEqual(stored.state, "unknown")
+                self.assertIsNone(stored.host_session_ref)
 
     def test_status_requires_exact_registration_before_completing_initial_turn(self):
         self.adapter(self.runner_for_create()).create(
@@ -537,6 +701,116 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(self.store.get_delegation(self.claim.delegation_id).state,
                          "cancelled")
         self.assertFalse(managed.exists())
+
+    def test_cancel_never_launched_claim_is_cancelled_without_host_stop(self):
+        for state in ("creating",):
+            with self.subTest(state=state):
+                _envelope, claim = self.make_claim(key="claude-never-" + state)
+                managed = self.store.root / (
+                    "claude-" + claim.delegation_id + ".mcp.json")
+                managed.write_text('{"mcpServers":{}}\n', encoding="utf-8")
+                managed.chmod(0o600)
+                runner = ScriptedRunner([])
+
+                result = self.adapter(runner).cancel(claim.delegation_id)
+
+                self.assertEqual(result.state, "cancelled")
+                self.assertEqual(runner.calls, [])
+                self.assertEqual(self.store.get_delegation(claim.delegation_id).state,
+                                 "cancelled")
+                self.assertEqual(self.store.get_authorization(claim.envelope_id).state,
+                                 "cancelled")
+                self.assertFalse(managed.exists())
+
+    def test_cancel_unknown_claim_without_host_ref_is_never_reported_cancelled(self):
+        # Live C7: the create answered unknown without a host_ref while its session ran;
+        # D16 then said cancelled without stopping it. Without an id nothing is stopped
+        # or looked up by name, so the answer stays unknown (D16 narrowed).
+        _envelope, claim = self.make_claim(key="claude-unparsed-cancel")
+        self.store.record_host_unknown(claim.delegation_id)
+        runner = ScriptedRunner([])
+
+        result = self.adapter(runner).cancel(claim.delegation_id)
+
+        self.assertEqual(result.state, "unknown")
+        self.assertEqual(result.prerequisite, "host-ref-missing")
+        self.assertEqual(runner.calls, [])
+        self.assertEqual(self.store.get_delegation(claim.delegation_id).state, "unknown")
+        self.assertEqual(self.store.get_authorization(claim.envelope_id).state, "cancelled")
+
+    def test_status_and_continue_of_an_unknown_claim_without_host_ref_name_it(self):
+        _envelope, claim = self.make_claim(key="claude-unparsed-status")
+        self.store.record_host_unknown(claim.delegation_id)
+        runner = ScriptedRunner([])
+
+        status = self.adapter(runner).status(claim.delegation_id)
+        follow_up = self.adapter(runner).continue_turn(claim.delegation_id, "Again")
+
+        for result in (status, follow_up):
+            self.assertEqual(result.state, "unknown")
+            self.assertEqual(result.prerequisite, "host-ref-missing")
+        self.assertEqual(runner.calls, [])
+
+    def test_create_without_a_parsable_line_names_it_and_reports_a_redacted_diagnostic(self):
+        # Live C7b: create answered unknown with no prerequisite and no trace of what
+        # `claude --bg` printed, so the cause could not be read back.
+        cases = (
+            (completed("Starting background service at /Users/someone/.claude/x\nqueued\n",
+                       "warn: /private/tmp/secret/path\n"), "rc=0"),
+            (ClaudeCommandUncertain("claude-background", "Starting background service…\n"),
+             "timeout"),
+        )
+        for outcome, marker in cases:
+            with self.subTest(marker=marker):
+                _envelope, claim = self.make_claim(key="claude-diag-" + marker.replace("=", ""))
+                runner = ScriptedRunner([outcome])
+
+                result = self.adapter(runner).create(claim.delegation_id, "Review")
+
+                self.assertEqual(result.state, "unknown")
+                self.assertEqual(result.prerequisite, "host-ref-missing")
+                self.assertIn("claude 2.1.288", result.diagnostic)
+                self.assertIn(marker, result.diagnostic)
+                self.assertIn("Starting background service", result.diagnostic)
+                self.assertNotIn("/Users", result.diagnostic)
+                self.assertNotIn("/private", result.diagnostic)
+                self.assertEqual(len(runner.calls), 1)
+
+    def test_create_and_cancel_parse_colored_output_from_a_background_origin(self):
+        # Live diagnostic (590b2c5): launched from a background Claude session, `--bg`
+        # colors the id, and the plain regex missed it (round 1 finding 7, C7).
+        colored = ("backgrounded · \x1b[36mce5b9501\x1b[39m · ar-acc-r1fix-diag-fe81b5ea\n"
+                   "\x1b[2m  claude agents             list sessions\x1b[22m\n"
+                   "\x1b[2m  claude attach ce5b9501    open in this terminal\x1b[22m\n")
+        runner = ScriptedRunner([
+            completed(colored),
+            completed(json.dumps([self.entry()])),
+            completed("\x1b[32mstopped\x1b[39m \x1b[36mce5b9501\x1b[39m\n"),
+        ])
+        adapter = self.adapter(runner)
+
+        created = adapter.create(self.claim.delegation_id, "Review")
+        cancelled = adapter.cancel(self.claim.delegation_id)
+
+        self.assertEqual(created.state, "created")
+        self.assertEqual(created.host_ref, "ce5b9501")
+        self.assertEqual(cancelled.state, "cancelled")
+
+    def test_host_commands_run_without_color(self):
+        environment = sanitized_environment({"PATH": "/bin", "FORCE_COLOR": "1"})
+        self.assertEqual(environment["NO_COLOR"], "1")
+        self.assertNotIn("FORCE_COLOR", environment)
+
+    def test_create_parses_a_background_line_with_a_status_suffix(self):
+        runner = ScriptedRunner([
+            completed("backgrounded · ce5b9501 (idle — send a prompt to start)\n"),
+            completed(json.dumps([self.entry()])),
+        ])
+
+        result = self.adapter(runner).create(self.claim.delegation_id, "Review")
+
+        self.assertEqual(result.state, "created")
+        self.assertEqual(result.host_ref, "ce5b9501")
 
     def test_status_accepts_post_stop_done_entry_without_status_or_pid(self):
         self.complete_claim()

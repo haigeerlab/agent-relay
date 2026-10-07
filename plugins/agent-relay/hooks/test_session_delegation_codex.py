@@ -558,6 +558,38 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(self.store.get_delegation(self.claim.delegation_id).state, "cancelled")
         self.assertEqual(self.store.get_authorization(self.envelope.envelope_id).state, "cancelled")
 
+    def test_cancel_never_launched_claim_is_cancelled_without_opening_the_host(self):
+        for state in ("creating",):
+            with self.subTest(state=state):
+                envelope = self.store.authorize(AuthorizationRequest(
+                    authority="direct-user", horizon="task", origin_host="claude",
+                    origin_session="origin-session", project_root=self.project,
+                    repo_identity="git:example/project", baseline="a" * 40, dirty=False,
+                    target_hosts=("codex",), permission_intent="safe-review",
+                    host_permission=None, max_sessions=1, expires_at=NOW + 600, depth=0,
+                    idempotency_key="codex-never-" + state, summary="Review current diff",
+                ))
+                claim = self.store.claim_launch(
+                    envelope.envelope_id, "codex-never-launch-" + state, "codex",
+                    self.project, "a" * 40, "safe-review",
+                )
+                result = self.adapter([]).cancel(claim.delegation_id)
+
+                self.assertEqual(result.state, "cancelled")
+                self.assertEqual(self.store.get_delegation(claim.delegation_id).state,
+                                 "cancelled")
+                self.assertEqual(self.store.get_authorization(envelope.envelope_id).state,
+                                 "cancelled")
+
+    def test_cancel_unknown_claim_without_host_ref_is_not_reported_cancelled(self):
+        # A launch was attempted; without a thread id nothing proves it stopped (D16).
+        self.store.record_host_unknown(self.claim.delegation_id)
+
+        result = self.adapter([]).cancel(self.claim.delegation_id)
+
+        self.assertEqual(result.state, "unknown")
+        self.assertEqual(self.store.get_delegation(self.claim.delegation_id).state, "unknown")
+
     def test_cancel_running_turn_waits_for_interrupted_then_archives(self):
         self.adapter([self.successful_client()]).create(self.claim.delegation_id, "Review")
         self.store.begin_follow_up(self.claim.delegation_id, "turn-active")

@@ -38,8 +38,27 @@ def communication_rules(server_name: str, tools: tuple[str, ...] = COMMUNICATION
 
 CLAUDE_COMMUNICATION_RULES = communication_rules(CLAUDE_SERVER_NAME)
 _VERSION = re.compile(r"^([0-9]+)\.([0-9]+)\.([0-9]+) \(Claude Code\)$")
-_BACKGROUND = re.compile(r"^backgrounded · ([0-9a-f]{8})(?: · .*)?$", re.MULTILINE)
+# Any text may follow the id: `· <name>`, or `(idle — send a prompt to start)`.
+_BACKGROUND = re.compile(r"^backgrounded · ([0-9a-f]{8})\b.*$", re.MULTILINE)
 _STOPPED = re.compile(r"^stopped ([0-9a-f]{8})$", re.MULTILINE)
+# CSI and OSC escape sequences: a Claude CLI started from a background Claude session
+# colors its output (`backgrounded · \x1b[36m<id>\x1b[39m`), which hid the id (C7).
+_ANSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
+
+
+def _plain(text: str) -> str:
+    return _ANSI.sub("", text or "")
+# Claude Code 2.1.291 lists a background session seconds after `--background` returns
+# (round 1 finding 7), so create keeps looking with backoff up to this many seconds.
+ENTRY_WAIT_SECONDS = 10.0
+_ENTRY_DELAYS = (0.2, 0.5, 1.0, 2.0)
+# Host states in which an `idle` background session can take a new turn (D17).
+_IDLE_STATES = frozenset(("blocked", "done", "running", "active"))
+
+
+def _host_idle(session: "ClaudeSession") -> bool:
+    """The one rule for "this Claude target is idle", shared by status and continue."""
+    return session.status == "idle" and session.state in _IDLE_STATES
 _ANSI = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\)|[78])")
 
 
@@ -87,6 +106,7 @@ class ClaudeRunResult:
     host_status: str | None = None
     prerequisite: str | None = None
     output: str = ""
+    diagnostic: str = ""
 
 
 def sanitized_environment(environment: Mapping[str, str] | None = None) -> dict[str, str]:
@@ -95,8 +115,11 @@ def sanitized_environment(environment: Mapping[str, str] | None = None) -> dict[
         "CODEX_THREAD_ID",
         "CODEX_SESSION_ID",
         "CLAUDE_CODE_SESSION_ID",
+        "FORCE_COLOR",
     ):
         result.pop(name, None)
+    # Parsed output must be plain; the parser strips color too, this is a second guard.
+    result["NO_COLOR"] = "1"
     return result
 
 
@@ -287,8 +310,21 @@ def build_create_command(
     )
 
 
+_PATH = re.compile(r"(?:~|/)[^\s'\"]*")
+
+
+def _launch_diagnostic(version: str, outcome: str, stdout: str, stderr: str) -> str:
+    """What `claude --bg` printed when no id could be parsed, without paths or prompt."""
+    def lines(text: str) -> str:
+        kept = [_PATH.sub("<path>", line.strip())[:160]
+                for line in (text or "").splitlines() if line.strip()][:3]
+        return " | ".join(kept) or "(empty)"
+    return "claude %s; %s; stdout: %s; stderr: %s" % (
+        version, outcome, lines(stdout), lines(stderr))
+
+
 def _parse_background_ref(output: str) -> str | None:
-    matches = set(_BACKGROUND.findall(output or ""))
+    matches = set(_BACKGROUND.findall(_plain(output)))
     if not matches:
         return None
     if len(matches) != 1:
@@ -331,6 +367,7 @@ class ClaudeAdapter:
         ] | None = None,
         now: Callable[[], int] | None = None,
         sleep: Callable[[float], None] = time.sleep,
+        entry_wait: float = ENTRY_WAIT_SECONDS,
     ):
         self.store = store
         self.installation = installation
@@ -344,6 +381,7 @@ class ClaudeAdapter:
         self.registration_probe = registration_probe
         self.now = now
         self.sleep = sleep
+        self.entry_wait = entry_wait
         self._configs: dict[str, Path] = {}
 
     def _run(self, command: Sequence[str], project: Path, *, timeout: float = 60
@@ -383,9 +421,11 @@ class ClaudeAdapter:
         return claim, envelope, readiness
 
     def _sessions(self, project: Path) -> tuple[dict[str, object], ...]:
+        # No `--cwd`: Claude Code 2.1.291 files a session started in a git worktree under
+        # the main checkout, so `--cwd <worktree>` never lists it (round 1 finding 7, D19).
+        # `_exact_session` matches the exact id, session id and cwd instead.
         completed = self._run((
             str(self.installation.binary), "agents", "--json", "--all",
-            "--cwd", str(project),
         ), project)
         if completed.returncode != 0:
             raise ClaudeAdapterError("background-list-unavailable")
@@ -427,26 +467,64 @@ class ClaudeAdapter:
             raise ClaudeAdapterError("background-entry-invalid")
         return ClaudeSession(host_ref, session_ref, state, status, pid)
 
-    def _settled_session(self, project: Path, host_ref: str) -> ClaudeSession | None:
-        for delay in (0.2, 0.5, None):
+    def _settled_session(self, project: Path, host_ref: str
+                         ) -> tuple[ClaudeSession | None, str | None]:
+        """Wait, bounded, for the exact entry; otherwise name why it is missing."""
+        waited = 0.0
+        attempt = 0
+        while True:
             try:
                 session = self._exact_session(project, host_ref)
+                problem = "host-entry-pending"
             except ClaudeAdapterError as error:
                 if str(error) != "background-entry-invalid":
                     raise
-                session = None
-            if session is not None or delay is None:
-                return session
+                session, problem = None, "host-entry-invalid"
+            if session is not None:
+                return session, None
+            if waited >= self.entry_wait:
+                return None, problem
+            delay = min(_ENTRY_DELAYS[min(attempt, len(_ENTRY_DELAYS) - 1)],
+                        self.entry_wait - waited)
             self.sleep(delay)
-        return None
+            waited += delay
+            attempt += 1
+
+    def _bind_late_entry(self, claim: object, project: Path
+                         ) -> tuple[object, ClaudeSession | None, str | None]:
+        """Bind an `unknown` claim whose entry was listed only after create returned (D18)."""
+        if claim.state != "unknown" or claim.host_session_ref is not None:
+            return claim, None, None
+        if claim.host_ref is None:
+            # The `--bg` line was not parsed. A session may run, but it is never looked up
+            # by name or project (no guessing); the user stops it by hand.
+            return claim, None, "host-ref-missing"
+        try:
+            session = self._exact_session(project, claim.host_ref)
+        except ClaudeAdapterError as error:
+            if str(error) != "background-entry-invalid":
+                raise
+            return claim, None, "host-entry-invalid"
+        if session is None:
+            return claim, None, "host-entry-pending"
+        envelope = self.store.get_authorization(claim.envelope_id)
+        mode, _tools, _builtins = _permission_shape(
+            claim.permission_intent, envelope.host_permission,
+            self.server_name, self.communication_tools)
+        bound = self.store.bind_host(
+            claim.delegation_id, session.host_ref, session.session_ref,
+            self.installation.version, mode + "/" + claim.permission_intent,
+        )
+        return bound, session, None
 
     def _bind_observed(self, delegation_id: str, project: Path,
                        host_ref: str, permission: PermissionReadiness
                        ) -> ClaudeRunResult:
-        session = self._settled_session(project, host_ref)
+        session, problem = self._settled_session(project, host_ref)
         if session is None:
             self.store.record_host_unknown(delegation_id, host_ref)
-            return ClaudeRunResult("unknown", host_ref)
+            return ClaudeRunResult(
+                "unknown", host_ref, host_status="unknown", prerequisite=problem)
         claim = self.store.bind_host(
             delegation_id, session.host_ref, session.session_ref,
             self.installation.version,
@@ -500,8 +578,8 @@ class ClaudeAdapter:
         except ClaudeCommandUncertain as error:
             host_ref = _parse_background_ref(error.observed_stdout)
             if host_ref is None:
-                self.store.record_host_unknown(delegation_id)
-                return ClaudeRunResult("unknown")
+                return self._unparsed_launch(
+                    delegation_id, "timeout", error.observed_stdout, "")
             return self._bind_observed(
                 delegation_id, envelope.project_root, host_ref, permission)
         host_ref = _parse_background_ref(output)
@@ -512,13 +590,22 @@ class ClaudeAdapter:
             prerequisite = _prerequisite(completed.stderr or "")
             if prerequisite is not None:
                 return ClaudeRunResult("held", prerequisite=prerequisite)
-            self.store.record_host_unknown(delegation_id)
-            return ClaudeRunResult("unknown")
         if host_ref is None:
-            self.store.record_host_unknown(delegation_id)
-            return ClaudeRunResult("unknown")
+            return self._unparsed_launch(
+                delegation_id, "rc=%d" % completed.returncode,
+                output, completed.stderr or "")
         return self._bind_observed(
             delegation_id, envelope.project_root, host_ref, permission)
+
+    def _unparsed_launch(self, delegation_id: str, outcome: str,
+                         stdout: str, stderr: str) -> ClaudeRunResult:
+        """A launch was attempted but printed no parsable id: a session may run (D16)."""
+        self.store.record_host_unknown(delegation_id)
+        return ClaudeRunResult(
+            "unknown", host_status="unknown", prerequisite="host-ref-missing",
+            diagnostic=_launch_diagnostic(
+                self.installation.version, outcome, stdout, stderr),
+        )
 
     def _reconcile_lifecycle(self, claim: object, session: ClaudeSession
                              ) -> ClaudeRunResult:
@@ -544,9 +631,10 @@ class ClaudeAdapter:
                 current.delegation_id, "registered", "host-registered")
             current = self.store.advance(
                 current.delegation_id, "running", "host-running")
-        if (current.state == "running"
-                and session.status in ("idle", "done", "stopped", "exited")
-                and session.state not in ("working", "active")):
+        if current.state == "running" and (
+                _host_idle(session)
+                or (session.status in ("idle", "done", "stopped", "exited")
+                    and session.state not in ("working", "active"))):
             current = self.store.advance(
                 current.delegation_id, "completed", "host-completed")
         return ClaudeRunResult(
@@ -558,6 +646,12 @@ class ClaudeAdapter:
                       isolated_worktree: bool = False) -> ClaudeRunResult:
         claim, envelope, permission = self._scope(
             delegation_id, isolated_worktree=isolated_worktree)
+        claim, _late, problem = self._bind_late_entry(claim, envelope.project_root)
+        if problem is not None:
+            return ClaudeRunResult(
+                claim.state, claim.host_ref, claim.host_session_ref,
+                host_status="unknown", prerequisite=problem,
+            )
         if claim.state in ("created", "running"):
             observed = self.status(delegation_id)
             claim = self.store.get_delegation(delegation_id)
@@ -587,8 +681,7 @@ class ClaudeAdapter:
                 host_status=session.status, prerequisite="target-busy",
             )
         turn_ref = "claude-turn-" + uuid4().hex
-        if session.status == "idle" and session.state in (
-                "blocked", "done", "running", "active"):
+        if _host_idle(session):
             if self.native_wake is not None:
                 self.store.begin_follow_up(delegation_id, turn_ref)
                 try:
@@ -620,7 +713,7 @@ class ClaudeAdapter:
                 return ClaudeRunResult(
                     "unknown", claim.host_ref, claim.host_session_ref, turn_ref)
             if (stopped.returncode != 0
-                    or set(_STOPPED.findall(stopped.stdout or "")) != {claim.host_ref}):
+                    or set(_STOPPED.findall(_plain(stopped.stdout))) != {claim.host_ref}):
                 self.store.advance(delegation_id, "unknown", "host-result-unknown")
                 return ClaudeRunResult(
                     "unknown", claim.host_ref, claim.host_session_ref, turn_ref)
@@ -653,7 +746,7 @@ class ClaudeAdapter:
                 self.store.advance(delegation_id, "unknown", "host-result-unknown")
                 return ClaudeRunResult(
                     "unknown", claim.host_ref, claim.host_session_ref, turn_ref)
-        confirmed = self._settled_session(envelope.project_root, claim.host_ref)
+        confirmed, _problem = self._settled_session(envelope.project_root, claim.host_ref)
         if confirmed is None or confirmed.session_ref != claim.host_session_ref:
             self.store.advance(delegation_id, "unknown", "host-result-unknown")
             return ClaudeRunResult(
@@ -665,10 +758,18 @@ class ClaudeAdapter:
 
     def status(self, delegation_id: str) -> ClaudeRunResult:
         claim = self.store.get_delegation(delegation_id)
-        if claim.target_host != "claude" or claim.host_ref is None:
+        if claim.target_host != "claude" or (
+                claim.host_ref is None and claim.state != "unknown"):
             raise ClaudeAdapterError("claude-host-reference-unavailable")
         envelope = self.store.get_authorization(claim.envelope_id)
-        session = self._exact_session(envelope.project_root, claim.host_ref)
+        claim, session, problem = self._bind_late_entry(claim, envelope.project_root)
+        if problem is not None:
+            return ClaudeRunResult(
+                claim.state, claim.host_ref, claim.host_session_ref,
+                host_status="unknown", prerequisite=problem,
+            )
+        if session is None:
+            session = self._exact_session(envelope.project_root, claim.host_ref)
         if session is None or session.session_ref != claim.host_session_ref:
             return ClaudeRunResult(
                 claim.state, claim.host_ref, claim.host_session_ref,
@@ -695,21 +796,29 @@ class ClaudeAdapter:
     def cancel(self, delegation_id: str) -> ClaudeRunResult:
         claim = self.store.get_delegation(delegation_id)
         self.store.cancel_authorization(claim.envelope_id)
-        if claim.target_host != "claude" or claim.host_ref is None:
+        if claim.target_host != "claude":
             return ClaudeRunResult("unknown")
-        envelope = self.store.get_authorization(claim.envelope_id)
-        try:
-            completed = self._run(
-                (str(self.installation.binary), "stop", claim.host_ref),
-                envelope.project_root,
-            )
-        except ClaudeCommandUncertain:
-            self.store.advance(delegation_id, "unknown", "host-result-unknown")
-            return ClaudeRunResult("unknown", claim.host_ref, claim.host_session_ref)
-        stopped = set(_STOPPED.findall(completed.stdout or ""))
-        if completed.returncode != 0 or stopped != {claim.host_ref}:
-            self.store.advance(delegation_id, "unknown", "host-result-unknown")
-            return ClaudeRunResult("unknown", claim.host_ref, claim.host_session_ref)
+        if claim.host_ref is None and claim.state not in ("creating", "cancelled"):
+            # A launch was attempted without a parsed id: nothing proves a session stopped,
+            # so never report cancelled (D16). Authority is frozen above.
+            return ClaudeRunResult(
+                claim.state, host_status="unknown", prerequisite="host-ref-missing")
+        if claim.host_ref is not None:
+            envelope = self.store.get_authorization(claim.envelope_id)
+            try:
+                completed = self._run(
+                    (str(self.installation.binary), "stop", claim.host_ref),
+                    envelope.project_root,
+                )
+            except ClaudeCommandUncertain:
+                self.store.advance(delegation_id, "unknown", "host-result-unknown")
+                return ClaudeRunResult("unknown", claim.host_ref, claim.host_session_ref)
+            stopped = set(_STOPPED.findall(_plain(completed.stdout)))
+            if completed.returncode != 0 or stopped != {claim.host_ref}:
+                self.store.advance(delegation_id, "unknown", "host-result-unknown")
+                return ClaudeRunResult("unknown", claim.host_ref, claim.host_session_ref)
+        # A claim still `creating` never reached a host: nothing to stop, so no host can
+        # confirm; frozen authority above is the whole cancellation (D16).
         current = self.store.get_delegation(delegation_id)
         if current.state != "cancelled":
             self.store.advance(delegation_id, "cancelled", "host-cancelled")

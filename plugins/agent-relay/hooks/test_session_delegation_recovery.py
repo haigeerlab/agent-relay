@@ -353,6 +353,69 @@ class RecoveryTests(unittest.TestCase):
             self.store.list_delegations()[0].envelope_id), 1)
         self.assertEqual(len(adapter.calls), 2)
 
+    def test_new_create_after_held_one_resolves_the_launched_session_by_name(self):
+        controller, adapter = self.controller(["held", "created", "created", "completed"])
+        held = self.create(controller)
+        self.assertEqual(held.state, "held")
+        launched = self.create(
+            controller,
+            request=self.request("controller-request-2"),
+            launch="controller-launch-2",
+        )
+        self.assertEqual(launched.state, "created")
+
+        status = controller.status_named("复审")
+
+        self.assertEqual(status.state, "created")
+        [bound] = [claim for claim in self.store.list_delegations()
+                   if claim.host_ref is not None]
+        self.assertEqual(adapter.calls[-1][1], bound.delegation_id)
+        self.assertEqual(len(controller.list()), 2)
+
+        self.store.advance(bound.delegation_id, "registered", "host-registered")
+        self.store.set_turn_ref(bound.delegation_id, "turn-1")
+        self.store.advance(bound.delegation_id, "running", "host-running")
+        self.store.advance(bound.delegation_id, "completed", "host-completed")
+        controller.continue_named("复审", "Again")
+        self.assertEqual(adapter.calls[-1][:2], ("continue", bound.delegation_id))
+
+    def test_unknown_launch_without_host_ref_counts_as_launched_for_name_lookup(self):
+        # Live C7: held 418202 then unknown 501157 (no host_ref) under one name.
+        controller, adapter = self.controller(["held", "unknown", "unknown"])
+        self.create(controller)
+        self.create(
+            controller,
+            request=self.request("controller-request-2"),
+            launch="controller-launch-2",
+        )
+
+        controller.status_named("复审")
+
+        [attempted] = [claim for claim in self.store.list_delegations()
+                       if claim.state == "unknown"]
+        self.assertEqual(adapter.calls[-1][:2], ("status", attempted.delegation_id))
+
+    def test_create_diagnostic_reaches_the_public_answer(self):
+        queue = [SimpleNamespace(state="unknown", host_status="unknown",
+                                 prerequisite="host-ref-missing",
+                                 diagnostic="claude 2.1.291; rc=0; stdout: queued")]
+        adapter = FakeAdapter(self.store, queue)
+        controller = SessionDelegationController(self.store, lambda _h, _p: adapter)
+
+        payload = self.create(controller).payload()
+
+        self.assertEqual(payload["prerequisite"], "host-ref-missing")
+        self.assertEqual(payload["diagnostic"], "claude 2.1.291; rc=0; stdout: queued")
+
+    def test_lone_never_launched_session_still_resolves_by_name(self):
+        controller, adapter = self.controller(["held", "held"])
+        self.create(controller)
+
+        status = controller.status_named("复审")
+
+        self.assertEqual(status.state, "held")
+        self.assertEqual(adapter.calls[-1][1], self.store.list_delegations()[0].delegation_id)
+
     def test_expired_authorization_blocks_follow_up_before_host_adapter(self):
         controller, _adapter = self.controller(["created"])
         self.create(controller)

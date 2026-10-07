@@ -48,11 +48,11 @@ Run once with a Claude origin and a Codex target, once with a Codex origin and a
 |---|---|---|---|---|
 | C1 | both ways | Check prerequisites with `permissions`; create a session with a safe intent | Missing project allow rules give `held` with the prerequisite named (baseline item 8); after the user adds them, create gives `created`/`completed` | Same as current |
 | C2 | both ways | Exact result return to the origin | The result arrives in the origin's mailbox, `resultDelivery=enqueued`, and wakes the origin (baseline items 7, 9) | Same as current |
-| C3 | both ways | Same-session second round with `continue` | Claude → Codex passes; Codex → Claude may report `target-busy` while idle (finding 4) | Second round passes both ways — `delegation-fixes` |
+| C3 | both ways | Same-session second round with `continue` | Claude → Codex passes; Codex → Claude may report `target-busy` while idle (finding 4); on Claude Code 2.1.291 a Claude target in a git worktree is created `unknown` and round two refuses (round 1 finding 7) | Second round passes both ways, with the Claude target once in a plain repository and once in a git worktree — `delegation-fixes` |
 | C4 | both ways | Read-only intent asked to write | Refused, tree clean (baseline item 7; not run Codex → Claude before) | Same as current |
 | C5 | both ways | Stop with `cancel` | `cancelled` | Same as current |
 | C6 | both ways | Create two sessions with the same name; query and cancel each by short id | `session-name-ambiguous` with short ids, each queryable with `--disambiguator` | Same as current |
-| C7 | both ways | Create while a prerequisite is missing, then create again with the same name | A held create leaves a named envelope that makes the name ambiguous and cancels as `unknown` (finding 3) | No launchable envelope, or one that cancels cleanly — `delegation-fixes` |
+| C7 | both ways | Create while a prerequisite is missing, then create again with the same name | A held create leaves a named envelope that makes the name ambiguous and cancels as `unknown` (finding 3) | The second create is found by name without a disambiguator; the held one cancels as `cancelled` (by short id) — `delegation-fixes` |
 | C8 | any | Pass an ISO date to `--expires-at` | Exits 2; only integer epoch seconds work (finding 2) | Accepted or rejected with a clear message — `ops-commands` 【加固】 |
 
 ## D. Integration (brief phase 4)

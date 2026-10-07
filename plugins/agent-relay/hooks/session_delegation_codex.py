@@ -828,6 +828,13 @@ class CodexAdapter:
         claim = self.store.get_delegation(delegation_id)
         self.store.cancel_authorization(claim.envelope_id)
         if claim.host_ref is None:
+            # Still `creating`: never reached a host, nothing to interrupt or archive (D16).
+            # An attempted launch without a thread id proves nothing stopped: stay unknown.
+            if claim.state == "creating":
+                self.store.advance(delegation_id, "cancelled", "host-cancelled")
+                return CodexRunResult("cancelled")
+            if claim.state == "cancelled":
+                return CodexRunResult("cancelled")
             return CodexRunResult("unknown")
         client = self._open(self.client_factory)
         try:
