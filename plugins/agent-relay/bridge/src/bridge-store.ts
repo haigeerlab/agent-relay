@@ -1,5 +1,6 @@
 import { type DeliveryState, assertBelowPendingCap, expireDue, sendTimeoutMs } from "./delivery.js";
 import { WakeQueue } from "./wake-queue.js";
+import { conflictError, contentDifferences } from "./idempotency.js";
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -377,18 +378,26 @@ export class BridgeStore {
    * is returned instead of creating a duplicate.
    */
   send(input: SendInput): BridgeMessage {
+    return this.deliver(input).message;
+  }
+
+  /**
+   * agent-relay idempotency (D33, D34): like `send`, and says whether the result is an already stored message.
+   * A reused key with different content is refused, except for the bridge's own notices, which fold by key.
+   */
+  deliver(input: SendInput): { message: BridgeMessage; duplicate: boolean } {
     this.db.exec("BEGIN IMMEDIATE");
     try {
-      const message = this.insertMessage(input);
+      const result = this.insertMessage(input);
       this.db.exec("COMMIT");
-      return message;
+      return result;
     } catch (error) {
       this.db.exec("ROLLBACK");
       throw error;
     }
   }
 
-  private insertMessage(input: SendInput): BridgeMessage {
+  private insertMessage(input: SendInput): { message: BridgeMessage; duplicate: boolean } {
     const threadId = input.threadId ?? null;
     const idempotencyKey = input.idempotencyKey ?? null;
 
@@ -396,7 +405,14 @@ export class BridgeStore {
       const existing = this.db
         .prepare("SELECT * FROM messages WHERE from_agent = ? AND idempotency_key = ?")
         .get(input.fromAgent, idempotencyKey) as unknown as MessageRow | undefined;
-      if (existing) return this.toMessage(existing);
+      if (existing) {
+        const stored = this.toMessage(existing);
+        const differs = contentDifferences(stored, { toAgent: input.toAgent, body: input.body, threadId });
+        if (differs.length && input.fromAgent !== "bridge") {
+          throw conflictError(idempotencyKey, input.fromAgent, stored.id, stored.deliveryState, differs);
+        }
+        return { message: stored, duplicate: true };
+      }
     }
 
     const direct = input.toAgent !== "*";
@@ -416,7 +432,7 @@ export class BridgeStore {
 
     const message = this.messageById(Number(result.lastInsertRowid)) as BridgeMessage;
     if (input.wake !== false) this.wakes.enqueue(message);
-    return message;
+    return { message, duplicate: false };
   }
 
   messageById(id: number): BridgeMessage | undefined {
