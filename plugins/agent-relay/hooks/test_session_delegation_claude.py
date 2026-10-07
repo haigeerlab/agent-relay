@@ -169,7 +169,7 @@ class InstallationAndPermissionTests(unittest.TestCase):
             "Implement", "12345678-1234-1234-1234-123456789abc", "dev",
             COMMUNICATION_TOOLS, "bounded-development",
         )
-        self.assertIn("Call bridge_register exactly once", prompt)
+        self.assertIn("call bridge_register exactly once", prompt)
         self.assertIn("wake null", prompt)
         with self.assertRaisesRegex(ClaudeAdapterError, "communication-tools-invalid"):
             communication_rules("unsafe", ("ask_codex",))
@@ -842,6 +842,78 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(retried.state, "cancelled")
         self.assertEqual(self.store.get_delegation(self.claim.delegation_id).state,
                          "cancelled")
+
+
+    # round2-fixes D49 (round 2 R2-6): a target that answered before its mailbox tools connected.
+    def unregistered_created_claim(self):
+        self.adapter(self.runner_for_create()).create(self.claim.delegation_id, "Review")
+        idle = completed(json.dumps([self.entry(state="working", status="idle")]))
+        return idle
+
+    def test_envelope_registers_first_and_waits_for_the_mailbox_tools(self):
+        prompt = _bounded_prompt("Review", self.claim.delegation_id, "review",
+                                 COMMUNICATION_TOOLS, "safe-review")
+        control = prompt[prompt.index("<agent-relay-control>"):]
+        self.assertIn("Before anything else", control)
+        self.assertIn("not listed yet", control)
+        self.assertIn("ToolSearch", control)
+        self.assertIn("Do not answer before", control)
+
+    def test_continue_resends_the_envelope_once_to_an_idle_unregistered_target(self):
+        idle = self.unregistered_created_claim()
+        runner = ScriptedRunner([
+            idle,  # status: exact entry
+            idle,  # continue: exact entry
+            completed("stopped ce5b9501\n"),
+            completed("backgrounded · ce5b9501 · test\n"),
+            completed(json.dumps([self.entry(state="running", status="working")])),
+        ])
+        adapter = self.adapter(runner, registration_probe=lambda *_args: False)
+
+        result = adapter.continue_turn(self.claim.delegation_id, "Again")
+
+        self.assertEqual((result.state, result.prerequisite), ("created", "registration-resent"))
+        resume = runner.calls[3][0]
+        self.assertEqual(resume[:4], [str(self.installation.binary), "--background", "--resume",
+                                      "ce5b9501-0817-479d-886e-772bafbbee6f"])
+        self.assertIn("call bridge_register", resume[-1])
+        self.assertIn("Again", resume[-1])
+        self.assertEqual(self.store.get_delegation(self.claim.delegation_id).state, "created")
+
+        again = ScriptedRunner([idle, idle])
+        second = self.adapter(again, registration_probe=lambda *_args: False).continue_turn(
+            self.claim.delegation_id, "Again")
+        self.assertEqual((second.state, second.prerequisite), ("held", "mailbox-registration-missing"))
+        self.assertFalse(any("stop" in command or "--resume" in command for command, _ in again.calls))
+
+    def test_a_resent_envelope_still_completes_once_the_target_registers(self):
+        idle = self.unregistered_created_claim()
+        self.adapter(ScriptedRunner([
+            idle, idle, completed("stopped ce5b9501\n"), completed("backgrounded · ce5b9501 · test\n"),
+            completed(json.dumps([self.entry(state="running", status="working")])),
+        ]), registration_probe=lambda *_args: False).continue_turn(self.claim.delegation_id, "Again")
+
+        result = self.adapter(ScriptedRunner([completed(json.dumps([self.entry()]))]),
+                              registration_probe=lambda *_args: True).status(self.claim.delegation_id)
+
+        self.assertEqual(result.state, "completed")
+
+    def test_a_registered_target_idle_with_state_working_takes_the_follow_up(self):
+        # C3 plain repository: round 1 registered and returned; the resumed round answered before its bridge
+        # reconnected and stopped as status=idle, state=working, which used to hold every later continue.
+        self.complete_claim()
+        self.store.begin_follow_up(self.claim.delegation_id, "claude-turn-round-2")
+        idle = completed(json.dumps([self.entry(state="working", status="idle")]))
+        runner = ScriptedRunner([
+            idle, idle, completed("stopped ce5b9501\n"), completed("backgrounded · ce5b9501 · test\n"),
+            completed(json.dumps([self.entry(state="running", status="working")])),
+        ])
+
+        result = self.adapter(runner, registration_probe=lambda *_args: True).continue_turn(
+            self.claim.delegation_id, "Round 3")
+
+        self.assertEqual(result.state, "running")
+        self.assertTrue(any("--resume" in command for command, _ in runner.calls))
 
 
 class NativeWakeDefectTests(AdapterTests):

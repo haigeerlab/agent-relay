@@ -53,7 +53,8 @@ def _plain(text: str) -> str:
 ENTRY_WAIT_SECONDS = 10.0
 _ENTRY_DELAYS = (0.2, 0.5, 1.0, 2.0)
 # Host states in which an `idle` background session can take a new turn (D17).
-_IDLE_STATES = frozenset(("blocked", "done", "running", "active"))
+# "working" with status idle: the turn ended without the agent marking its work done (round 2 R2-6, C3).
+_IDLE_STATES = frozenset(("blocked", "done", "running", "active", "working"))
 
 
 def _host_idle(session: "ClaudeSession") -> bool:
@@ -261,8 +262,10 @@ def _bounded_prompt(prompt: str, delegation_id: str, friendly_name: str,
     if "bridge_register" in communication_tools:
         wake = '"auto"' if intent == "safe-review" else "null"
         registration = (
-            "Call bridge_register exactly once with agent " + name
-            + " and wake " + wake + "."
+            "Before anything else, call bridge_register exactly once with agent " + name
+            + " and wake " + wake + ". If the agent-relay mailbox tools are not listed yet, they are still"
+            " connecting: wait for them (ToolSearch may load them by name) and register then. Do not answer"
+            " before you have registered, and never give the result only in this conversation."
         )
     else:
         raise ClaudeAdapterError("registration-tool-unavailable")
@@ -623,10 +626,11 @@ class ClaudeAdapter:
                     current.state, current.host_ref, current.host_session_ref,
                     host_status=session.status, prerequisite=prerequisite,
                 )
-            self.store.set_turn_ref(
-                current.delegation_id,
-                "claude-initial-" + current.host_session_ref,
-            )
+            if current.last_turn_ref is None:  # a re-sent envelope already bound its turn (D49)
+                self.store.set_turn_ref(
+                    current.delegation_id,
+                    "claude-initial-" + current.host_session_ref,
+                )
             current = self.store.advance(
                 current.delegation_id, "registered", "host-registered")
             current = self.store.advance(
@@ -655,6 +659,9 @@ class ClaudeAdapter:
         if claim.state in ("created", "running"):
             observed = self.status(delegation_id)
             claim = self.store.get_delegation(delegation_id)
+            if (claim.state == "created" and observed.prerequisite == "mailbox-registration-missing"
+                    and observed.host_status == "idle"):
+                return self._resend_registration(claim, envelope, permission, prompt)
             if claim.state != "completed":
                 return ClaudeRunResult(
                     "held", claim.host_ref, claim.host_session_ref,
@@ -680,10 +687,43 @@ class ClaudeAdapter:
                 "held", claim.host_ref, claim.host_session_ref,
                 host_status=session.status, prerequisite="target-busy",
             )
-        turn_ref = "claude-turn-" + uuid4().hex
+        return self._deliver(
+            claim, envelope, session, prompt, "claude-turn-" + uuid4().hex,
+            lambda turn_ref: self.store.begin_follow_up(delegation_id, turn_ref), "running")
+
+    def _resend_registration(self, claim: object, envelope: object, permission: object, prompt: str
+                             ) -> ClaudeRunResult:
+        """Give a target that answered before its mailbox tools connected one more turn (round2-fixes D49)."""
+        resent = "claude-reregister-" + claim.host_session_ref
+        if claim.last_turn_ref == resent or not permission.ready:
+            return ClaudeRunResult(
+                "held", claim.host_ref, claim.host_session_ref, host_status="idle",
+                prerequisite="mailbox-registration-missing" if permission.ready else permission.prerequisite,
+            )
+        session = self._exact_session(envelope.project_root, claim.host_ref)
+        if session is None or session.session_ref != claim.host_session_ref:
+            return ClaudeRunResult(
+                "held", claim.host_ref, claim.host_session_ref,
+                prerequisite="target-status-unknown",
+            )
+        if not _host_idle(session):
+            return ClaudeRunResult(
+                "held", claim.host_ref, claim.host_session_ref,
+                host_status=session.status, prerequisite="target-busy",
+            )
+        return self._deliver(
+            claim, envelope, session, prompt, resent,
+            lambda turn_ref: self.store.set_turn_ref(claim.delegation_id, turn_ref), "created",
+            prerequisite="registration-resent")
+
+    def _deliver(self, claim: object, envelope: object, session: ClaudeSession, prompt: str, turn_ref: str,
+                 begin: Callable[[str], object], state: str, *, prerequisite: str | None = None
+                 ) -> ClaudeRunResult:
+        """Send one turn to an idle or stopped target: wake it, or stop it and resume with the envelope."""
+        delegation_id = claim.delegation_id
         if _host_idle(session):
             if self.native_wake is not None:
-                self.store.begin_follow_up(delegation_id, turn_ref)
+                begin(turn_ref)
                 try:
                     observed_turn = self.native_wake(claim.host_session_ref, prompt)
                 except Exception as error:
@@ -701,8 +741,8 @@ class ClaudeAdapter:
                     return ClaudeRunResult(
                         "unknown", claim.host_ref, claim.host_session_ref, turn_ref)
                 return ClaudeRunResult(
-                    "running", claim.host_ref, claim.host_session_ref,
-                    host_status="working",
+                    state, claim.host_ref, claim.host_session_ref,
+                    host_status="working", prerequisite=prerequisite,
                 )
             try:
                 stopped = self._run((
@@ -724,7 +764,7 @@ class ClaudeAdapter:
                 "held", claim.host_ref, claim.host_session_ref,
                 host_status=session.status, prerequisite="target-status-unknown",
             )
-        self.store.begin_follow_up(delegation_id, turn_ref)
+        begin(turn_ref)
         command = (
             str(self.installation.binary), "--background", "--resume",
             claim.host_session_ref, _bounded_prompt(
@@ -752,8 +792,8 @@ class ClaudeAdapter:
             return ClaudeRunResult(
                 "unknown", claim.host_ref, claim.host_session_ref, turn_ref)
         return ClaudeRunResult(
-            "running", claim.host_ref, claim.host_session_ref,
-            host_status=confirmed.status,
+            state, claim.host_ref, claim.host_session_ref,
+            host_status=confirmed.status, prerequisite=prerequisite,
         )
 
     def status(self, delegation_id: str) -> ClaudeRunResult:
