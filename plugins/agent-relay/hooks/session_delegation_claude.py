@@ -41,6 +41,13 @@ _VERSION = re.compile(r"^([0-9]+)\.([0-9]+)\.([0-9]+) \(Claude Code\)$")
 # Any text may follow the id: `· <name>`, or `(idle — send a prompt to start)`.
 _BACKGROUND = re.compile(r"^backgrounded · ([0-9a-f]{8})\b.*$", re.MULTILINE)
 _STOPPED = re.compile(r"^stopped ([0-9a-f]{8})$", re.MULTILINE)
+# CSI and OSC escape sequences: a Claude CLI started from a background Claude session
+# colors its output (`backgrounded · \x1b[36m<id>\x1b[39m`), which hid the id (C7).
+_ANSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
+
+
+def _plain(text: str) -> str:
+    return _ANSI.sub("", text or "")
 # Claude Code 2.1.291 lists a background session seconds after `--background` returns
 # (round 1 finding 7), so create keeps looking with backoff up to this many seconds.
 ENTRY_WAIT_SECONDS = 10.0
@@ -108,8 +115,11 @@ def sanitized_environment(environment: Mapping[str, str] | None = None) -> dict[
         "CODEX_THREAD_ID",
         "CODEX_SESSION_ID",
         "CLAUDE_CODE_SESSION_ID",
+        "FORCE_COLOR",
     ):
         result.pop(name, None)
+    # Parsed output must be plain; the parser strips color too, this is a second guard.
+    result["NO_COLOR"] = "1"
     return result
 
 
@@ -314,7 +324,7 @@ def _launch_diagnostic(version: str, outcome: str, stdout: str, stderr: str) -> 
 
 
 def _parse_background_ref(output: str) -> str | None:
-    matches = set(_BACKGROUND.findall(output or ""))
+    matches = set(_BACKGROUND.findall(_plain(output)))
     if not matches:
         return None
     if len(matches) != 1:
@@ -703,7 +713,7 @@ class ClaudeAdapter:
                 return ClaudeRunResult(
                     "unknown", claim.host_ref, claim.host_session_ref, turn_ref)
             if (stopped.returncode != 0
-                    or set(_STOPPED.findall(stopped.stdout or "")) != {claim.host_ref}):
+                    or set(_STOPPED.findall(_plain(stopped.stdout))) != {claim.host_ref}):
                 self.store.advance(delegation_id, "unknown", "host-result-unknown")
                 return ClaudeRunResult(
                     "unknown", claim.host_ref, claim.host_session_ref, turn_ref)
@@ -803,7 +813,7 @@ class ClaudeAdapter:
             except ClaudeCommandUncertain:
                 self.store.advance(delegation_id, "unknown", "host-result-unknown")
                 return ClaudeRunResult("unknown", claim.host_ref, claim.host_session_ref)
-            stopped = set(_STOPPED.findall(completed.stdout or ""))
+            stopped = set(_STOPPED.findall(_plain(completed.stdout)))
             if completed.returncode != 0 or stopped != {claim.host_ref}:
                 self.store.advance(delegation_id, "unknown", "host-result-unknown")
                 return ClaudeRunResult("unknown", claim.host_ref, claim.host_session_ref)

@@ -129,6 +129,11 @@ D15–D17 taken as recommended by the user on 2026-10-07; D18 added by the proje
   - The `--bg` parser accepts any `backgrounded · <id8>` line, whatever follows the id; one such line was seen
     today (`backgrounded · <id> (idle — send a prompt to start)`) and the old regex rejected it. The exact line of
     the C7 run was not recorded, so this is the likely, not the proven, source of the missing `host_ref`.
+  - *Cause proven by the C7c diagnostic (590b2c5):* launched from a background Claude session, `claude --bg` colors
+    its output — `backgrounded · \x1b[36m<id>\x1b[39m · <name>` — so the id was never matched (rc 0, Claude 2.1.291,
+    no timeout). Fix: strip CSI/OSC escape sequences before parsing `--bg` and `stop` output, and run host commands
+    with `NO_COLOR=1` (and without `FORCE_COLOR`) as a second guard. This is the second half of round 1 finding 7
+    for a Claude origin (the first half, a Claude target in a git worktree, is D19).
   - *D15 restated:* "never launched" = no `host_ref` and state `creating` or `cancelled`; an `unknown` row counts as
     launched for name lookup.
 

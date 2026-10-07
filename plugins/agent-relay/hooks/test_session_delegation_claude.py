@@ -187,7 +187,7 @@ class InstallationAndPermissionTests(unittest.TestCase):
             "CODEX_SESSION_ID": "codex-session",
             "CLAUDE_CODE_SESSION_ID": "claude",
         })
-        self.assertEqual(environment, {"PATH": "/bin"})
+        self.assertEqual(environment, {"PATH": "/bin", "NO_COLOR": "1"})
 
 
 class AdapterTests(unittest.TestCase):
@@ -775,6 +775,31 @@ class AdapterTests(unittest.TestCase):
                 self.assertNotIn("/Users", result.diagnostic)
                 self.assertNotIn("/private", result.diagnostic)
                 self.assertEqual(len(runner.calls), 1)
+
+    def test_create_and_cancel_parse_colored_output_from_a_background_origin(self):
+        # Live diagnostic (590b2c5): launched from a background Claude session, `--bg`
+        # colors the id, and the plain regex missed it (round 1 finding 7, C7).
+        colored = ("backgrounded · \x1b[36mce5b9501\x1b[39m · ar-acc-r1fix-diag-fe81b5ea\n"
+                   "\x1b[2m  claude agents             list sessions\x1b[22m\n"
+                   "\x1b[2m  claude attach ce5b9501    open in this terminal\x1b[22m\n")
+        runner = ScriptedRunner([
+            completed(colored),
+            completed(json.dumps([self.entry()])),
+            completed("\x1b[32mstopped\x1b[39m \x1b[36mce5b9501\x1b[39m\n"),
+        ])
+        adapter = self.adapter(runner)
+
+        created = adapter.create(self.claim.delegation_id, "Review")
+        cancelled = adapter.cancel(self.claim.delegation_id)
+
+        self.assertEqual(created.state, "created")
+        self.assertEqual(created.host_ref, "ce5b9501")
+        self.assertEqual(cancelled.state, "cancelled")
+
+    def test_host_commands_run_without_color(self):
+        environment = sanitized_environment({"PATH": "/bin", "FORCE_COLOR": "1"})
+        self.assertEqual(environment["NO_COLOR"], "1")
+        self.assertNotIn("FORCE_COLOR", environment)
 
     def test_create_parses_a_background_line_with_a_status_suffix(self):
         runner = ScriptedRunner([
