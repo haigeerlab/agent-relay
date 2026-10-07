@@ -43,6 +43,16 @@ class ScriptedRunner:
         return result
 
 
+class RepeatingRunner(ScriptedRunner):
+    """Like ScriptedRunner, but the last result answers every later call."""
+
+    def __call__(self, command, **kwargs):
+        if len(self.results) == 1:
+            self.calls.append((list(command), kwargs))
+            return self.results[0]
+        return super().__call__(command, **kwargs)
+
+
 def completed(stdout="", stderr="", returncode=0):
     return CompletedProcess([], returncode, stdout, stderr)
 
@@ -308,10 +318,8 @@ class AdapterTests(unittest.TestCase):
     def test_persistently_incomplete_exact_entry_preserves_host_ref_as_unknown(self):
         pending = self.entry(state="working", status="busy")
         pending.pop("state")
-        runner = ScriptedRunner([
+        runner = RepeatingRunner([
             completed("backgrounded · ce5b9501 · test\n"),
-            completed(json.dumps([pending])),
-            completed(json.dumps([pending])),
             completed(json.dumps([pending])),
         ])
 
@@ -319,9 +327,108 @@ class AdapterTests(unittest.TestCase):
 
         self.assertEqual(result.state, "unknown")
         self.assertEqual(result.host_ref, "ce5b9501")
+        self.assertEqual(result.prerequisite, "host-entry-invalid")
         stored = self.store.get_delegation(self.claim.delegation_id)
         self.assertEqual(stored.state, "unknown")
         self.assertEqual(stored.host_ref, "ce5b9501")
+
+    def late_entry(self, short_id="ce5b9501"):
+        entry = self.entry(short_id=short_id, state="done", status="idle")
+        entry["sessionId"] = short_id + "-0817-479d-886e-772bafbbee6f"
+        return entry
+
+    def test_create_waits_for_a_background_entry_that_appears_late(self):
+        # Claude Code 2.1.291 lists the background session seconds after `--background`
+        # returns (round 1 finding 7); 0.7 s of retries made such a create `unknown`.
+        delays = []
+        runner = ScriptedRunner([
+            completed("backgrounded · ce5b9501 · test\n"),
+            *[completed("[]") for _ in range(5)],
+            completed(json.dumps([self.late_entry()])),
+        ])
+
+        result = self.adapter(runner, sleep=delays.append).create(
+            self.claim.delegation_id, "Review")
+
+        self.assertEqual(result.state, "created")
+        self.assertEqual(result.host_session_ref, self.late_entry()["sessionId"])
+        self.assertGreater(sum(delays), 0.7)
+        self.assertLessEqual(sum(delays), 10)
+
+    def test_create_past_the_bound_is_pending_and_the_next_status_binds_it(self):
+        delays = []
+        creating = RepeatingRunner([
+            completed("backgrounded · ce5b9501 · test\n"),
+            completed("[]"),
+        ])
+
+        created = self.adapter(creating, sleep=delays.append).create(
+            self.claim.delegation_id, "Review")
+
+        self.assertEqual(created.state, "unknown")
+        self.assertEqual(created.prerequisite, "host-entry-pending")
+        self.assertAlmostEqual(sum(delays), 10)
+        stored = self.store.get_delegation(self.claim.delegation_id)
+        self.assertEqual((stored.host_ref, stored.host_session_ref), ("ce5b9501", None))
+
+        status = self.adapter(ScriptedRunner([
+            completed(json.dumps([self.late_entry()])),
+        ])).status(self.claim.delegation_id)
+
+        self.assertEqual(status.state, "created")
+        stored = self.store.get_delegation(self.claim.delegation_id)
+        self.assertEqual(stored.state, "created")
+        self.assertEqual(stored.host_session_ref, self.late_entry()["sessionId"])
+
+    def test_continue_binds_a_late_entry_instead_of_refusing_the_follow_up(self):
+        self.adapter(RepeatingRunner([
+            completed("backgrounded · ce5b9501 · test\n"),
+            completed("[]"),
+        ])).create(self.claim.delegation_id, "Review")
+        woken = []
+        entry = json.dumps([self.late_entry()])
+        adapter = self.adapter(
+            RepeatingRunner([completed(entry)]),
+            wake=lambda session_ref, prompt: woken.append(session_ref) or "turn-2",
+            registration_probe=lambda *_args: True,
+        )
+
+        result = adapter.continue_turn(self.claim.delegation_id, "Again")
+
+        self.assertEqual(result.state, "running")
+        self.assertEqual(woken, [self.late_entry()["sessionId"]])
+
+    def test_round_one_unknown_row_without_session_ref_is_bound_by_status(self):
+        # Shape of round 1's row: host_ref 244e528e, no host_session_ref, state unknown.
+        _envelope, claim = self.make_claim(key="claude-round1-sample")
+        self.store.record_host_unknown(claim.delegation_id, "244e528e")
+
+        result = self.adapter(ScriptedRunner([
+            completed(json.dumps([self.late_entry("244e528e")])),
+        ])).status(claim.delegation_id)
+
+        self.assertEqual(result.state, "created")
+        self.assertEqual(self.store.get_delegation(claim.delegation_id).host_session_ref,
+                         self.late_entry("244e528e")["sessionId"])
+
+    def test_late_entry_still_absent_or_invalid_stays_unknown_and_unbound(self):
+        foreign = self.late_entry()
+        foreign["cwd"] = str(self.root.resolve())
+        for listing, prerequisite in (("[]", "host-entry-pending"),
+                                      (json.dumps([foreign]), "host-entry-invalid")):
+            with self.subTest(prerequisite=prerequisite):
+                _envelope, claim = self.make_claim(key="claude-late-" + prerequisite)
+                self.store.record_host_unknown(claim.delegation_id, "ce5b9501")
+
+                result = self.adapter(ScriptedRunner([
+                    completed(listing),
+                ])).status(claim.delegation_id)
+
+                self.assertEqual(result.state, "unknown")
+                self.assertEqual(result.prerequisite, prerequisite)
+                stored = self.store.get_delegation(claim.delegation_id)
+                self.assertEqual(stored.state, "unknown")
+                self.assertIsNone(stored.host_session_ref)
 
     def test_status_requires_exact_registration_before_completing_initial_turn(self):
         self.adapter(self.runner_for_create()).create(

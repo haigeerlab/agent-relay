@@ -40,6 +40,10 @@ CLAUDE_COMMUNICATION_RULES = communication_rules(CLAUDE_SERVER_NAME)
 _VERSION = re.compile(r"^([0-9]+)\.([0-9]+)\.([0-9]+) \(Claude Code\)$")
 _BACKGROUND = re.compile(r"^backgrounded · ([0-9a-f]{8})(?: · .*)?$", re.MULTILINE)
 _STOPPED = re.compile(r"^stopped ([0-9a-f]{8})$", re.MULTILINE)
+# Claude Code 2.1.291 lists a background session seconds after `--background` returns
+# (round 1 finding 7), so create keeps looking with backoff up to this many seconds.
+ENTRY_WAIT_SECONDS = 10.0
+_ENTRY_DELAYS = (0.2, 0.5, 1.0, 2.0)
 _ANSI = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\)|[78])")
 
 
@@ -331,6 +335,7 @@ class ClaudeAdapter:
         ] | None = None,
         now: Callable[[], int] | None = None,
         sleep: Callable[[float], None] = time.sleep,
+        entry_wait: float = ENTRY_WAIT_SECONDS,
     ):
         self.store = store
         self.installation = installation
@@ -344,6 +349,7 @@ class ClaudeAdapter:
         self.registration_probe = registration_probe
         self.now = now
         self.sleep = sleep
+        self.entry_wait = entry_wait
         self._configs: dict[str, Path] = {}
 
     def _run(self, command: Sequence[str], project: Path, *, timeout: float = 60
@@ -427,26 +433,61 @@ class ClaudeAdapter:
             raise ClaudeAdapterError("background-entry-invalid")
         return ClaudeSession(host_ref, session_ref, state, status, pid)
 
-    def _settled_session(self, project: Path, host_ref: str) -> ClaudeSession | None:
-        for delay in (0.2, 0.5, None):
+    def _settled_session(self, project: Path, host_ref: str
+                         ) -> tuple[ClaudeSession | None, str | None]:
+        """Wait, bounded, for the exact entry; otherwise name why it is missing."""
+        waited = 0.0
+        attempt = 0
+        while True:
             try:
                 session = self._exact_session(project, host_ref)
+                problem = "host-entry-pending"
             except ClaudeAdapterError as error:
                 if str(error) != "background-entry-invalid":
                     raise
-                session = None
-            if session is not None or delay is None:
-                return session
+                session, problem = None, "host-entry-invalid"
+            if session is not None:
+                return session, None
+            if waited >= self.entry_wait:
+                return None, problem
+            delay = min(_ENTRY_DELAYS[min(attempt, len(_ENTRY_DELAYS) - 1)],
+                        self.entry_wait - waited)
             self.sleep(delay)
-        return None
+            waited += delay
+            attempt += 1
+
+    def _bind_late_entry(self, claim: object, project: Path
+                         ) -> tuple[object, ClaudeSession | None, str | None]:
+        """Bind an `unknown` claim whose entry was listed only after create returned (D18)."""
+        if (claim.state != "unknown" or claim.host_ref is None
+                or claim.host_session_ref is not None):
+            return claim, None, None
+        try:
+            session = self._exact_session(project, claim.host_ref)
+        except ClaudeAdapterError as error:
+            if str(error) != "background-entry-invalid":
+                raise
+            return claim, None, "host-entry-invalid"
+        if session is None:
+            return claim, None, "host-entry-pending"
+        envelope = self.store.get_authorization(claim.envelope_id)
+        mode, _tools, _builtins = _permission_shape(
+            claim.permission_intent, envelope.host_permission,
+            self.server_name, self.communication_tools)
+        bound = self.store.bind_host(
+            claim.delegation_id, session.host_ref, session.session_ref,
+            self.installation.version, mode + "/" + claim.permission_intent,
+        )
+        return bound, session, None
 
     def _bind_observed(self, delegation_id: str, project: Path,
                        host_ref: str, permission: PermissionReadiness
                        ) -> ClaudeRunResult:
-        session = self._settled_session(project, host_ref)
+        session, problem = self._settled_session(project, host_ref)
         if session is None:
             self.store.record_host_unknown(delegation_id, host_ref)
-            return ClaudeRunResult("unknown", host_ref)
+            return ClaudeRunResult(
+                "unknown", host_ref, host_status="unknown", prerequisite=problem)
         claim = self.store.bind_host(
             delegation_id, session.host_ref, session.session_ref,
             self.installation.version,
@@ -558,6 +599,12 @@ class ClaudeAdapter:
                       isolated_worktree: bool = False) -> ClaudeRunResult:
         claim, envelope, permission = self._scope(
             delegation_id, isolated_worktree=isolated_worktree)
+        claim, _late, problem = self._bind_late_entry(claim, envelope.project_root)
+        if problem is not None:
+            return ClaudeRunResult(
+                claim.state, claim.host_ref, claim.host_session_ref,
+                host_status="unknown", prerequisite=problem,
+            )
         if claim.state in ("created", "running"):
             observed = self.status(delegation_id)
             claim = self.store.get_delegation(delegation_id)
@@ -653,7 +700,7 @@ class ClaudeAdapter:
                 self.store.advance(delegation_id, "unknown", "host-result-unknown")
                 return ClaudeRunResult(
                     "unknown", claim.host_ref, claim.host_session_ref, turn_ref)
-        confirmed = self._settled_session(envelope.project_root, claim.host_ref)
+        confirmed, _problem = self._settled_session(envelope.project_root, claim.host_ref)
         if confirmed is None or confirmed.session_ref != claim.host_session_ref:
             self.store.advance(delegation_id, "unknown", "host-result-unknown")
             return ClaudeRunResult(
@@ -668,7 +715,14 @@ class ClaudeAdapter:
         if claim.target_host != "claude" or claim.host_ref is None:
             raise ClaudeAdapterError("claude-host-reference-unavailable")
         envelope = self.store.get_authorization(claim.envelope_id)
-        session = self._exact_session(envelope.project_root, claim.host_ref)
+        claim, session, problem = self._bind_late_entry(claim, envelope.project_root)
+        if problem is not None:
+            return ClaudeRunResult(
+                claim.state, claim.host_ref, claim.host_session_ref,
+                host_status="unknown", prerequisite=problem,
+            )
+        if session is None:
+            session = self._exact_session(envelope.project_root, claim.host_ref)
         if session is None or session.session_ref != claim.host_session_ref:
             return ClaudeRunResult(
                 claim.state, claim.host_ref, claim.host_session_ref,
