@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { pendingWarning } from "./delivery.js";
 import { duplicateWarning } from "./idempotency.js";
+import { readBodyFile } from "./body-file.js";
 import { CallerIdentity } from "./identity.js";
 import { codexApproval, codexAutoApprovalText } from "./codex-approval.js";
 import { randomUUID } from "node:crypto";
@@ -191,7 +192,9 @@ function main(): void {
         wake: z.boolean().optional().describe("Ping a bound direct recipient. Defaults true. False saves silently."),
         from: z.string().min(1).describe("Sender agent name."),
         to: z.string().min(1).describe("Recipient agent name, or '*' to broadcast."),
-        body: z.string().min(1).describe("Message content."),
+        body: z.string().min(1).optional().describe("Message content. Give exactly one of body and bodyFile."),
+        bodyFile: z.string().min(1).optional().describe(
+          "Absolute path of a UTF-8 text file (regular file you own, at most 256 KiB) whose content is sent unchanged, so nothing passes through shell quoting. Give exactly one of body and bodyFile."),
         threadId: z.string().optional().describe("Optional conversation thread identifier."),
         idempotencyKey: z.string().optional().describe(
           "Optional retry key. A retry with the same key and content returns the stored message (duplicate: true) and pings nobody; the same key with a different recipient, body or thread is refused — the earlier message is already stored, so no resend is needed."),
@@ -202,7 +205,9 @@ function main(): void {
           "Queue timeout for a direct message: if still undelivered after this many seconds it expires and is never delivered. Default 24 h (BRIDGE_QUEUE_TIMEOUT_MS)."),
       },
     },
-    async ({ from, to, body, threadId, idempotencyKey, replyTo, wake, allowUnregistered, expiresInSeconds }) => {
+    async ({ from, to, body: text, bodyFile, threadId, idempotencyKey, replyTo, wake, allowUnregistered, expiresInSeconds }) => {
+      if ((text === undefined) === (bodyFile === undefined)) throw new Error("Give exactly one of body and bodyFile.");
+      const body = text ?? readBodyFile(bodyFile as string);
       if (from === BRIDGE_AGENT) throw new Error(`"${BRIDGE_AGENT}" is reserved for automated notices.`);
       caller.require(from, store.getAgent(from), "send as");
       const check = await checkRecipient(store, to, { allowUnregistered, isClaudeSessionLive });
