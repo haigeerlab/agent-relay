@@ -60,3 +60,22 @@ test("only queued messages expire: accepted, sending and unknown ones keep their
   for (const [state, id] of Object.entries(ids)) assert.equal(deliveryState(s.database, id), state);
   s.close();
 });
+
+test("the sender's notice for an expired message says it will never be delivered", async () => {
+  const { deliveryFailureNotice } = await import("../src/notices.js");
+  const s = new BridgeStore(":memory:");
+  s.register("a");
+  s.register("b");
+  s.wakes.bind("b", { app: "claude", sessionId: "00000000-0000-4000-8000-000000000000" });
+  const message = s.send({ fromAgent: "a", toAgent: "b", body: "too late" });
+  lapse(s, message.id);
+  s.wakes.claim(Date.now() + 1);
+  const job = s.wakes.claimFailure(Date.now());
+  assert.ok(job);
+  const notice = deliveryFailureNotice(job);
+  assert.match(notice, /expired before it was delivered/);
+  assert.match(notice, /will not be delivered/);
+  assert.doesNotMatch(notice, /still unread/);
+  assert.doesNotMatch(notice, /Bypass permissions/);
+  s.close();
+});
