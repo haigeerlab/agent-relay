@@ -59,6 +59,11 @@ bridge 会核对身份：发送、ack 和自动确认的 `bridge_wait` 只接受
 `bridge_send` 成功只证明入箱；`bridge_wake_status` 证明唤醒结果，`bridge_outbox.acknowledgedAt` 证明处理确认，
 匹配回复才证明 response。`unknown` 保持未知，不重复发送。
 
+查一条消息用 `bridge_wake_status` 带 `messageId`（发送方或收件人才能查）；要等它的结果用 `bridge_wait` 带
+`agent`（本会话的名字）和 `messageId`，返回 `outcome`（`acknowledged`、`replied`、`failed`、`expired`，超时为
+`pending`），不会确认任何消息。正文较长或含 `$`、反引号、引号等字符时，先写入文件再用 `bodyFile`（绝对路径）发送，
+不要拼进命令行。用户问“我是谁”时读 `bridge_sessions.whoami`，只报告名字、宿主、会话标题和项目，不展示完整内部 ID。
+
 读取用 `bridge_inbox`；处理后才调用 `bridge_ack`。主动等待使用 `bridge_wait` 且
 `acknowledge: false`，返回后仍需实际处理再确认。被唤醒后只处理当前权限允许的请求，有副作用的动作仍向用户取权。
 

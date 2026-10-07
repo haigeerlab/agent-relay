@@ -42,15 +42,15 @@ The MCP server exposes exactly these ten tools to hosts. Current server name `sp
 | Item | Current (baseline) | Hardening target |
 |---|---|---|
 | `bridge_register` | In: `agent` (unique readable name), `capabilities?` string[], `wake?` `"auto"` \| `{app: codex\|claude, sessionId}` \| `null` (omitted keeps the binding). Out: the agent row with wake binding. Registering again reactivates a retired agent. B:src/server.ts:104-158 | Reject a `wake` binding when the host session is auto-approved, including Codex `approvals_reviewer = "guardian_subagent"` (finding 1) — `identity-check` (done for Codex: `approvals_reviewer = "guardian_subagent"` or `approval_policy = "never"`, unreadable config fails closed; Claude's mode is not visible to the bridge; `takeover` added) |
-| `bridge_send` | In: `from`, `to` (name or `*`), `body`, `threadId?`, `idempotencyKey?`, `wake?` (default true), `allowUnregistered?`. Out: the stored message plus `warnings`. B:src/server.ts:159-200 | `from` verified against the host identity; body may come from a file path; returns a delivery state (section 5) — `identity-check`, `ops-commands`, `delivery-state-machine` (delivery state done in `delivery-state-machine`: `deliveryState`, `expiresAt`, `expiresInSeconds`; done in `idempotency`: `replyTo`, `duplicate`, a reused key with different content refused; done in `identity-check`: `from` must be an identity this session registered, else refused with guidance) |
+| `bridge_send` | In: `from`, `to` (name or `*`), `body`, `threadId?`, `idempotencyKey?`, `wake?` (default true), `allowUnregistered?`. Out: the stored message plus `warnings`. B:src/server.ts:159-200 | `from` verified against the host identity; body may come from a file path; returns a delivery state (section 5) — `identity-check`, `ops-commands` (done: `bodyFile`), `delivery-state-machine` (delivery state done in `delivery-state-machine`: `deliveryState`, `expiresAt`, `expiresInSeconds`; done in `idempotency`: `replyTo`, `duplicate`, a reused key with different content refused; done in `identity-check`: `from` must be an identity this session registered, else refused with guidance) |
 | `bridge_inbox` | In: `agent`, `includeAcknowledged?`, `fromAgent?`, `threadId?`, `afterId?`, `limit?` (1–200, default 25), `maxChars?`, `maxBodyChars?`. Out: oldest-first page, `hasMore`. B:src/server.ts:226-248 | Done in `delivery-state-machine`: expired messages hidden by default; `bridge_inbox` lists them with `includeExpired` (history); `bridge_wait` never returns them |
 | `bridge_ack` | In: `agent`, `ids` (≥1). Marks handled; history kept. B:src/server.ts:292-308 | Done in `delivery-state-machine`: acknowledgement moves the wake job to the final state `acknowledged` (finding 5) |
 | `bridge_outbox` | In: `agent`, `includeAcknowledged?`, `limit?` (1–200, default 30). Out: unacknowledged direct sends, newest first, with ping outcome and recipient status. B:src/server.ts:348-364 | Done in `delivery-state-machine`: each entry carries `deliveryState` and `expiresAt` |
 | `bridge_agents` | In: `includeRetired?`. Out: agents with unread count, last activity, wake binding, recent ping health. B:src/server.ts:326-347 | Unchanged |
 | `bridge_sessions` | In: none. Out: live Claude session ids and `thisSession` when the host exposes it; reads no content. B:src/server.ts:201-213 | Unchanged |
-| `bridge_wake_status` | In: `agent?`. Out: up to 100 recent wake jobs with a per-state summary. B:src/server.ts:214-225 | Status by message id — `ops-commands` |
+| `bridge_wake_status` | In: `agent?`. Out: up to 100 recent wake jobs with a per-state summary. B:src/server.ts:214-225 | Status by message id — `ops-commands` (done: `messageId`) |
 | `bridge_thread` | In: `threadId`, `beforeId?`, `afterId?`, `limit?` (default 30), `maxChars?`, `maxBodyChars?`. B:src/server.ts:309-325 | Unchanged |
-| `bridge_wait` | In: `agent`, `fromAgent?`, `threadId?`, `timeoutSeconds?` (1–290, default 285), `acknowledge?` (default true), `limit?`, `maxChars?`. Waits for a new inbox message; cannot wake an ended turn. B:src/server.ts:249-291 | Wait on a specific message id's outcome — `ops-commands` |
+| `bridge_wait` | In: `agent`, `fromAgent?`, `threadId?`, `timeoutSeconds?` (1–290, default 285), `acknowledge?` (default true), `limit?`, `maxChars?`. Waits for a new inbox message; cannot wake an ended turn. B:src/server.ts:249-291 | Wait on a specific message id's outcome — `ops-commands` (done: `messageId`; acknowledges nothing) |
 
 ### 2.2 Upstream tools that stay disabled
 
@@ -62,11 +62,11 @@ The MCP server exposes exactly these ten tools to hosts. Current server name `sp
 
 | Item | Current (baseline) | Hardening target |
 |---|---|---|
-| Runtime | `native_collaboration_runtime.py status \| probe \| install [--root --node --npm]`; status never creates the runtime; install refuses an existing root. S:plugins/spec-guard/hooks/native_collaboration_runtime.py:200-214 | `doctor` aggregates status, probe, host entries and identity — `ops-commands` |
+| Runtime | `native_collaboration_runtime.py status \| probe \| install [--root --node --npm]`; status never creates the runtime; install refuses an existing root. S:plugins/spec-guard/hooks/native_collaboration_runtime.py:200-214 | `doctor` aggregates status, probe, host entries and identity — `ops-commands` (done: `doctor`, read only; identity is `whoami` in the bridge, since only the bridge knows its caller) |
 | Host adapters | `native_collaboration_adapters.py claude \| codex` (print fragments), `install-claude \| install-codex`, `uninstall-claude \| uninstall-codex --confirm-uninstall`. [references/collaboration-runtime.md, S:plugins/spec-guard/references/collaboration-runtime.md:41-69] | Back up host settings before any write; complete uninstall that keeps history — `safe-uninstall` |
 | Identity retire | `native_collaboration_retire.py --name <exact> --confirm-retire`; refuses unacknowledged deliveries; keeps backlog. S:plugins/spec-guard/references/collaboration-runtime.md:84-94; 12 retirements [BL §Cleanup] | Unchanged |
 | Delegation controller | `session_delegation_control.py [--state-root --native-root --node --claude-bin --codex-package-root] list \| permissions \| create \| continue \| status \| cancel`. `python3 -B …/session_delegation_control.py --help` | Unchanged (fixes in section 10 targets) |
-| `whoami`, status/wait by message id, body from file | None (gaps h, i) [BL §Gap analysis, items h and i] | Provided — `ops-commands` |
+| `whoami`, status/wait by message id, body from file | None (gaps h, i) [BL §Gap analysis, items h and i] | Provided — `ops-commands` (done: `bridge_sessions.whoami`, `bridge_wake_status`/`bridge_wait` with `messageId`, `bridge_send.bodyFile`; no new MCP tool, so host entries stay valid) |
 
 ## 3. Message structure
 
@@ -88,7 +88,7 @@ The MCP server exposes exactly these ten tools to hosts. Current server name `sp
 | wake-bound | Row has a `wake_targets` entry (`claude` session id or `codex` thread id). [BL §Results item 1] | Binding refused for auto-approved sessions (finding 1) — `identity-check` (done for Codex) |
 | wake-held | Host accepted no ping because of permission, trust, or busy state; reported in `bridge_wake_status`. B:src/wake-queue.ts:9 | Unchanged |
 | retired | `retired_at` set; hidden from `bridge_agents` unless requested; history kept. [BL §Cleanup] | Unchanged |
-| live (Claude) | Seen in `bridge_sessions` / `ListAgents`; Claude background sessions can hang indefinitely on a permission prompt in `default` mode (finding 6). [BL §Findings 6] | `doctor` reports a session that is live but blocked — `ops-commands` |
+| live (Claude) | Seen in `bridge_sessions` / `ListAgents`; Claude background sessions can hang indefinitely on a permission prompt in `default` mode (finding 6). [BL §Findings 6] | `doctor` reports a session that is live but blocked — `ops-commands` (done: wake-bound Claude session in registry status `waiting`) |
 | live (Codex) | A Codex App thread; under manual approval a woken turn waits for a human at every mailbox call (finding 7). [BL §Findings 7] | Documented operating mode; no automatic approval — unchanged |
 
 ## 5. Delivery states
@@ -158,11 +158,11 @@ The MCP server exposes exactly these ten tools to hosts. Current server name `sp
 | Lifecycle | `create`, `continue`, `status`, `cancel` by friendly name with a short disambiguator; Claude uses background sessions, Codex the app-managed app-server. S:plugins/spec-guard/skills/session-delegation/SKILL.md | Unchanged |
 | Public JSON | `state`, `hostOperation`, `hostStatus`, `transport`, `dispatch`, `wake`, `receipt`, `response`, `resultDelivery` (`enqueued`, `pending`, `missing`, `unverified`, `recipient-unavailable`), `routeReason`, `prerequisite`, `disambiguator` [BL §Results items 7-9] | Unchanged, plus `diagnostic` on a Claude create that printed no parsable host id (`host-ref-missing`): Claude version, exit code or timeout, first stdout/stderr lines with paths removed — `delegation-fixes` |
 | Result return | Target sends the result to the origin's single wake-bound identity; origin is woken and acks. Passed both directions [BL §Results items 7, 9]. Thread key `spec-guard-result:<id>`, idempotency `spec-guard-result-send:…`, prompt tags `<spec-guard-result-route>`, `<spec-guard-control>`; Codex private server `spec_guard_delegation` | Same behavior; names `agent-relay-result:`, `agent-relay-result-send:`, `<agent-relay-result-route>`, `<agent-relay-control>`, `agent_relay_delegation` (D11); a pre-split key is refused (D12) |
-| Expiry argument | `--expires-at` takes integer epoch seconds; ISO strings exit 2; undocumented [BL §Findings 2] | Accepts and documents one format — `ops-commands` |
+| Expiry argument | `--expires-at` takes integer epoch seconds; ISO strings exit 2; undocumented [BL §Findings 2] | Accepts and documents one format — `ops-commands` (done: ISO 8601 with an offset documented; epoch seconds still accepted) |
 | Held create | A create held on a prerequisite still persists a named envelope, which later makes the name ambiguous and cancels as `unknown` [BL §Findings 3] | Done in `delegation-fixes`: name lookup leaves out never-launched rows when a launched one shares the name (D15); a row still `creating` cancels as `cancelled` without a host, while an attempted launch without a host id answers `unknown`/`host-ref-missing` and is never reported cancelled (D16, narrowed after live C7). The held row stays retryable with the same keys |
 | Claude round two | `continue` to an idle Claude target returned `held`/`target-busy` while `hostStatus=idle`, twice [BL §Findings 4]; passed on 2026-10-04 | Done in `delegation-fixes`: status and continue share one idle rule, so `(active, idle)` takes the round instead of `target-busy`; a working target stays busy, an unrecognised idle state is `target-status-unknown` (D17) |
 | Claude target lookup | The adapter lists `claude agents --json --all --cwd <project>`. On Claude Code 2.1.291 a background session started in a git worktree is filed under the main checkout, so `--cwd <worktree>` never lists it: the create answers `unknown` and every `continue` refuses (`delegation-is-not-ready-for-follow-up`) [round 1 finding 7; Task 4 capture in `tasks/delegation-fixes/todo.md`] | Done in `delegation-fixes`: list without `--cwd`, exact id, session and cwd checks (D19); `--bg` and `stop` output parsed after removing color codes, which a CLI started from a background Claude session adds, and host commands run with `NO_COLOR=1`; create waits up to 10 s, then answers `unknown` with `host-entry-pending` or `host-entry-invalid`, and the next status or continue binds a late entry (D18) |
-| Background prompts | A Claude background session in `default` mode hangs on any permission prompt; `dontAsk` avoids it [BL §Findings 6] | Controller launches only in a mode that cannot hang — `ops-commands` reports it |
+| Background prompts | A Claude background session in `default` mode hangs on any permission prompt; `dontAsk` avoids it [BL §Findings 6] | Controller launches only in a mode that cannot hang — `ops-commands` reports it (done: the controller already launches `dontAsk`/`plan`; `doctor` reports other wake-bound sessions that wait) |
 | Prerequisites | `held/project-allow-rules`, `held/project-trust`, `held/mcp-project-approval`, `held/host-permission-prompt`; read-only `permissions` preflight with `writesPerformed=false` [BL §Results items 8-9] | Unchanged |
 
 ## 11. Spec Guard's single entry
@@ -263,15 +263,15 @@ Gap items are from [BL §Gap analysis]; findings from [BL §Findings for the int
 | e. Ordering, independence, cap | §6 | `durable-ordering` (done) |
 | f. Retry key, reply de-duplication | §3, §6 | `idempotency` (done) |
 | g. Only recipient replies; sender identity | §3, §7 | `identity-check` (done) |
-| h. doctor, whoami, status/wait by id | §2.3 | `ops-commands` |
-| i. Body from file | §2.1, §2.3 | `ops-commands` |
+| h. doctor, whoami, status/wait by id | §2.3 | `ops-commands` (done) |
+| i. Body from file | §2.1, §2.3 | `ops-commands` (done) |
 | j. State root override | §13 | `test-isolation` (done) |
 | k. Backup before host writes; complete uninstall | §2.3, §13 | `safe-uninstall` |
 | Finding 1. Guardian auto-review not detected | §2.1, §8 | `identity-check` (done) |
-| Finding 2. `--expires-at` integer only | §10 | `ops-commands` |
+| Finding 2. `--expires-at` integer only | §10 | `ops-commands` (done) |
 | Finding 3. Held create leaves a named envelope | §10 | `delegation-fixes` (agent-relay; after translation, before hardening) |
 | Finding 4. Claude round two `target-busy` while idle | §10 | `delegation-fixes` (agent-relay; after translation, before hardening) |
 | Round 1 finding 7. Claude target in a git worktree not found after create | §10 | `delegation-fixes` |
 | Finding 5. Wake job stays `read` after acknowledgement | §5 | `delivery-state-machine` (done) |
-| Finding 6. Background sessions hang on prompts | §4, §10 | `ops-commands` |
+| Finding 6. Background sessions hang on prompts | §4, §10 | `ops-commands` (done) |
 | Finding 7. Codex manual approval prompts every call | §4, §8 | `packaging` (documented in the agent-relay README) |
