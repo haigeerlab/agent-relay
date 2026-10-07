@@ -28,8 +28,9 @@ agent-relay 是从 Spec Guard 拆出的独立插件，让同一台 Mac 上的 Cl
 | bridge-vendoring | 把固定提交 8f12c88 的上游 bridge（TS 源码）收进 agent-relay 仓库，保留 MIT 署名与来源说明；运行时改为从仓内副本安装，不再 git clone 上游。只改来源和安装路径，行为与 8f12c88 完全一致；之后修改 bridge 的加固模块都依赖它。 | mailbox-core, test-isolation |
 | delivery-state-machine | 给信箱消息补上投递状态机（queued → sending → accepted、failed 或 unknown；queued → expired）：有歧义的提交标为 unknown 且绝不自动重放；排队超时后标为 expired、默认不再读出也不再送达，超时可配置并给出默认值建议；ack 让对应唤醒任务结束（发现 5）。同时实现 bridge-vendoring D26 规定的已装运行时升级命令。 | mailbox-core, bridge-vendoring |
 | durable-ordering | 先持久化再提交（以崩溃注入测试证明）；按接收方保证投递顺序，一个接收方卡住不阻塞其他接收方；每个接收方的待投递数量有上限，上限可配置并给出默认值建议。 | delivery-state-machine |
+| idempotency | 同一发送方的重试 key 只对应一份内容：内容相同返回原消息，内容不同拒绝；回复带上被回复消息的 id，对同一条消息的相同回复去重。 | durable-ordering |
 
-Build order: acceptance-kit → mailbox-core → session-routing → cross-host-delegation → packaging → state-migration → delegation-fixes → test-isolation → bridge-vendoring → delivery-state-machine → durable-ordering
+Build order: acceptance-kit → mailbox-core → session-routing → cross-host-delegation → packaging → state-migration → delegation-fixes → test-isolation → bridge-vendoring → delivery-state-machine → durable-ordering → idempotency
 
 <!-- Spec Guard 按严格串行推进。为兼容上游格式，逗号分组会按左到右顺序展开为单模块步骤，不代表并行授权。 -->
 <!-- 加固模块（test-isolation、delivery-state-machine、durable-ordering、idempotency、identity-check、ops-commands、
