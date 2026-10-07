@@ -112,8 +112,9 @@ def _mailbox(database: Path, original: Path | None = None) -> dict[str, str]:
         return _check("mailbox", "warn", "undelivered backlog near the cap of %d: %s" % (
             cap, ", ".join(f"{agent}: {count}" for agent, count in full)),
             "ask those recipients to read their inbox, or retire identities nobody uses")
-    return _check("mailbox", "ok", f"schema {version}, quick_check ok, {size} bytes, largest backlog "
-                  + (f"{backlog[0][0]}: {backlog[0][1]}" if backlog else "none"))
+    measured = (f"largest backlog {backlog[0][0]}: {backlog[0][1]}" if backlog else "no undelivered backlog") \
+        if "delivery_state" in columns else "backlog not measured (schema 2 has no delivery state)"
+    return _check("mailbox", "ok", f"schema {version}, quick_check ok, {size} bytes, {measured}")
 
 
 def _toml_table(text: str, header: str) -> dict[str, Any] | None:

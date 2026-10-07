@@ -137,6 +137,13 @@ class DoctorTests(unittest.TestCase):
         self.assertEqual(self.find(report, "mailbox")["state"], "warn")
         self.assertIn("reviewer: 80", self.find(report, "mailbox")["detail"])
 
+    def test_a_schema_2_mailbox_says_the_backlog_is_not_measured(self):
+        with sqlite3.connect(self.database) as connection:
+            connection.executescript("ALTER TABLE messages DROP COLUMN delivery_state; PRAGMA user_version = 2;")
+        mailbox = self.find(self.run_doctor(), "mailbox")
+        self.assertEqual(mailbox["state"], "ok")
+        self.assertIn("backlog not measured", mailbox["detail"])
+
     def test_no_host_attached_warns(self):
         self.codex_config.write_text('approval_policy = "on-request"\n')
         self.claude_json.write_text("{}")
