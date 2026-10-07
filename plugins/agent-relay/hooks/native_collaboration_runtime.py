@@ -26,6 +26,46 @@ class NativeRuntimeError(ValueError):
     """The opt-in bridge runtime is absent, unsafe, or could not be installed."""
 
 
+# The bridge is vendored next to these hooks (module bridge-vendoring, D23); UPSTREAM.sha256 records every
+# file, and an install refuses a copy that differs from it (D24).
+BRIDGE_SOURCE = Path(__file__).resolve().parent.parent / "bridge"
+BRIDGE_MANIFEST = "UPSTREAM.sha256"
+_PROVENANCE_FILES = frozenset((BRIDGE_MANIFEST, "UPSTREAM.md"))
+_BUILD_OUTPUTS = frozenset(("node_modules", "dist", "dist.next", "dist.old"))
+
+
+def verify_bridge_copy(directory: Path) -> None:
+    """Refuse a bridge copy with any changed, missing or extra file against UPSTREAM.sha256."""
+    import hashlib
+
+    directory = Path(directory)
+    try:
+        lines = (directory / BRIDGE_MANIFEST).read_text(encoding="utf-8").splitlines()
+    except OSError as error:
+        raise NativeRuntimeError("bridge copy has no readable UPSTREAM.sha256") from error
+    expected: dict[str, str] = {}
+    for line in lines:
+        digest, separator, name = line.partition("  ")
+        if not separator or not re.fullmatch(r"[0-9a-f]{64}", digest) or not name:
+            raise NativeRuntimeError("bridge UPSTREAM.sha256 has a malformed line")
+        expected[name] = digest
+    actual: dict[str, str] = {}
+    for path in sorted(directory.rglob("*")):
+        relative = path.relative_to(directory)
+        if relative.parts[0] in _BUILD_OUTPUTS or relative.as_posix() in _PROVENANCE_FILES:
+            continue
+        if path.is_symlink() or (not path.is_file() and not path.is_dir()):
+            raise NativeRuntimeError("bridge copy has a symlink or special file: " + relative.as_posix())
+        if path.is_file():
+            actual[relative.as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+    if actual != expected:
+        changed = sorted(name for name in set(actual) & set(expected) if actual[name] != expected[name])
+        missing = sorted(set(expected) - set(actual))
+        extra = sorted(set(actual) - set(expected))
+        raise NativeRuntimeError("bridge copy differs from UPSTREAM.sha256: changed %s, missing %s, extra %s"
+                                 % (changed[:3], missing[:3], extra[:3]))
+
+
 STATE_HOME_VARIABLE = "AGENT_RELAY_HOME"
 
 
