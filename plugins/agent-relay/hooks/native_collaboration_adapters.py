@@ -16,6 +16,7 @@ import stat
 import tempfile
 from typing import Any, Sequence
 
+from host_backup import HostBackupError, backup_host_files, backup_message
 from host_config_removal import add_claude_server, remove_claude_server, remove_codex_table
 from native_collaboration_runtime import (DENIED_TOOLS, MAILBOX_TOOLS, StateHomeError,
                                           default_root, status)
@@ -145,6 +146,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--codex-config", type=Path, default=Path.home() / ".codex" / "config.toml")
     parser.add_argument("--claude-settings", type=Path,
                         default=Path.home() / ".claude" / "settings.json")
+    parser.add_argument("--claude-json", type=Path,
+                        default=Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home()) / ".claude.json",
+                        help="the file the Claude CLI writes user-scoped MCP servers to (backed up first)")
     parser.add_argument("--claude-bin", default="claude")
     parser.add_argument("--confirm-uninstall", action="store_true",
                         help="allow an uninstall command to remove host configuration")
@@ -156,6 +160,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.host.startswith("uninstall-") and not args.confirm_uninstall:
         print("uninstall-confirmation-required: rerun with --confirm-uninstall")
         return 1
+    # safe-uninstall (assumption 3): every host write keeps a private copy of the files it touches first.
+    touched = {"install-codex": [args.codex_config], "uninstall-codex": [args.codex_config],
+               "install-claude": [args.claude_settings, args.claude_json],
+               "uninstall-claude": [args.claude_json, args.claude_settings]}.get(args.host)
+    if touched is not None:
+        try:
+            print(backup_message(backup_host_files(touched)))
+        except HostBackupError as error:
+            parser.error("nothing was changed: " + str(error))
     if args.host == "uninstall-claude":
         # Claude 的拒绝规则保留：它们只拒绝本服务的工具，服务移除后无害，重新安装时仍然生效。
         try:
