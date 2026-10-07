@@ -48,6 +48,13 @@ codex plugin add agent-relay@agent-relay-marketplace
 2. 接入宿主：给 Claude Code 注册用户级 MCP 服务 `agent-relay`，或在 Codex 配置里追加 `[mcp_servers.agent_relay]`。
    已经打开的会话需要重启才能看到。
 
+### 换一个状态目录
+
+运行时、邮箱、委派记录和迁移备份默认都在 `~/.agent-relay/`。设置环境变量 `AGENT_RELAY_HOME`（必须是绝对路径，
+相对路径会直接报错）可以把它们整体换到别处，所有 agent-relay 命令都会改用这个目录；命令行里显式给出的 `--root`、
+`--state-root` 仍然优先。注意：接入宿主时写进宿主配置的是当时解析出的绝对路径，之后再改这个变量**不会**挪动
+已经接入的宿主，要在新目录下重新安装运行时并重新接入宿主才会生效。
+
 ## 怎么用
 
 直接用自然语言说，不需要记工具名或内部 ID：
