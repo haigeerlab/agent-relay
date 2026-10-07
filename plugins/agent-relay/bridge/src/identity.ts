@@ -22,7 +22,10 @@ export class CallerIdentity {
   }
 
   owns(name: string, agent: BridgeAgent | undefined): boolean {
-    return this.proven.has(name) || sameHost(this.host, agent?.host ?? null);
+    const recorded = agent?.host ?? null;
+    // For a verified caller the recorded host decides, so a name taken over by another session stops working here.
+    if (this.host && recorded) return sameHost(this.host, recorded);
+    return this.proven.has(name);
   }
 
   /** Refuse to act as `name` unless it is this session's (D37), with the guidance of D39. */

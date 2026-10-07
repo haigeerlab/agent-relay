@@ -685,7 +685,7 @@ export class BridgeStore {
     const now = this.now();
     const existing = this.getAgent(name);
     const serialized = JSON.stringify(capabilities ?? existing?.capabilities ?? []);
-    // agent-relay identity-check: a known host is recorded; a registration without one keeps the recorded host.
+    // agent-relay identity-check: a given host is recorded, `undefined` keeps the recorded one, `null` clears it.
     this.db
       .prepare(
         `INSERT INTO agents (name, capabilities, registered_at, last_seen, host_app, host_session)
@@ -693,11 +693,11 @@ export class BridgeStore {
          ON CONFLICT(name) DO UPDATE SET
            capabilities = excluded.capabilities,
            last_seen = excluded.last_seen,
-           host_app = COALESCE(excluded.host_app, agents.host_app),
-           host_session = COALESCE(excluded.host_session, agents.host_session),
+           host_app = CASE WHEN ? THEN excluded.host_app ELSE COALESCE(excluded.host_app, agents.host_app) END,
+           host_session = CASE WHEN ? THEN excluded.host_session ELSE COALESCE(excluded.host_session, agents.host_session) END,
            retired_at = NULL, retired_by = NULL, retire_note = NULL`,
       )
-      .run(name, serialized, now, now, host?.app ?? null, host?.sessionId ?? null);
+      .run(name, serialized, now, now, host?.app ?? null, host?.sessionId ?? null, host === null ? 1 : 0, host === null ? 1 : 0);
     return this.getAgent(name) as BridgeAgent;
   }
 
