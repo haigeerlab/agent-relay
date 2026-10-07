@@ -75,7 +75,7 @@ Run once with a Claude origin and a Codex target, once with a Codex origin and a
 | D14 | 4.3 | Send twice with the same retry key | — | One message, the retry reports `duplicate: true` and pings nobody; a different body with the same key is refused with a message naming the stored id and saying no resend is needed; the same reply (`replyTo`) sent twice is stored once on the original's thread — `idempotency` 【加固】 |
 | D15 | any | Two senders to one recipient while another recipient is offline | — | Each recipient's pings go out one at a time oldest first, the online recipient is not delayed by the offline one, and a send over `BRIDGE_MAX_PENDING_PER_RECIPIENT` is refused with a clear message (warning at 80 %) — `durable-ordering` 【加固】 |
 | D16 | any | Send a body from a file containing shell metacharacters | — | Sent with `bridge_send.bodyFile`, the body arrives byte-identical — `ops-commands` 【加固】 |
-| D17 | any | Uninstall agent-relay from both hosts | — | Host settings backed up before change; uninstall complete; message history kept — `safe-uninstall` 【加固】 |
+| D17 | any | Uninstall agent-relay from both hosts | — | Host settings backed up before change (`backups/<UTC>/host-config/`, owner-only); Codex table removed even with 始终允许 approval subtables (round 1 report finding 6); Claude entry and deny rules removed; runtime build removed with `uninstall --confirm`; `mailbox/` history kept; `doctor` shows not attached and uninstalled — `safe-uninstall` 【加固】 |
 
 ## E. Cleanup
 

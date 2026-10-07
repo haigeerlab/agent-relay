@@ -148,11 +148,25 @@ python3 -B plugins/agent-relay/hooks/state_migration.py migrate --confirm
 
 ## 卸载
 
-1. 先移除宿主配置（会话结束后、你同意时）：`collaboration-ops` skill 执行 `uninstall-claude --confirm-uninstall`
-   或 `uninstall-codex --confirm-uninstall`，只删除精确的受管条目，被你改过的条目留给你处理。
-2. 再卸载插件：`claude plugin uninstall agent-relay@agent-relay-marketplace`；
+完整卸载按下面的顺序做（`collaboration-ops` skill 会逐步先问你），消息历史默认保留：
+
+1. 关掉所有正在用信箱的会话。
+2. `native_collaboration_runtime.py doctor`：看清当前接入了哪些宿主。
+3. 移除宿主配置：`native_collaboration_adapters.py uninstall-codex --confirm-uninstall` 和
+   `uninstall-claude --confirm-uninstall`。
+   - 每次写宿主配置（安装和卸载都算）之前，都会先把要改的文件复制到
+     `~/.agent-relay/backups/<UTC 时间>/host-config/`，并打印路径。这些副本可能含 MCP 的 API key 等凭据，
+     目录和文件只有你自己能读（0700 / 0600），用完请自行删除。
+   - Codex：连同你选"始终允许"时 Codex 写入的工具审批子表（只有一行 `approval_mode`）一起移除；node 换了版本也能
+     识别。别的差异会逐行指出（只写行号和键名，不打印值），留给你处理。
+   - Claude：移除 MCP 条目和 agent-relay 的 7 条禁用规则，其他设置不动。
+4. 移除运行时：`native_collaboration_runtime.py uninstall --confirm`。只删构建产物，`mailbox/`（消息历史和备份）
+   和 `data/` 保留；以后再 `install` 会围绕它们重建。
+5. 卸载插件：`claude plugin uninstall agent-relay@agent-relay-marketplace`；
    `codex plugin remove agent-relay@agent-relay-marketplace`。
-3. 消息历史和运行时目录 `~/.agent-relay/` 默认保留，需要时你自己删除。
+6. 再跑一次 `doctor`（卸载插件前跑也可以）：宿主未接入、运行时已卸载并给出历史所在路径。
+
+不再需要消息历史时，删除 `~/.agent-relay/` 由你自己来做。
 
 ## 文档
 

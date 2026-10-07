@@ -63,8 +63,16 @@ the user explicitly authorizes that host change. Existing sessions must restart 
 entry. Never modify project or global settings merely because the runtime is ready.
 
 For removal, `uninstall-claude --confirm-uninstall` and
-`uninstall-codex --confirm-uninstall` remove only the exact managed native entry. Edited or ambiguous entries
-must be left for the user. Runtime history is not deleted by host detachment.
+`uninstall-codex --confirm-uninstall` remove only the managed native entry: Codex's table together with the
+approval subtables Codex writes when the user picks 始终允许, Claude's MCP entry and its seven deny rules. Any
+other difference is refused with the differing line numbers and keys; leave those lines for the user. Every
+install and uninstall first copies the host files to `backups/<UTC>/host-config/` and prints the path; tell the
+user the copy may contain credentials and is theirs to delete. Never print the files' contents.
+
+A complete uninstall, each step only after the user agrees: close every mailbox session → `doctor` →
+`uninstall-codex` and `uninstall-claude` → `native_collaboration_runtime.py uninstall --confirm` (removes the build,
+keeps `mailbox/` and `data/`) → remove the plugin from each host → `doctor`. Deleting the history is the user's own
+step.
 
 An ended native identity may be retired only when the user names it or approves a reviewed exact list:
 

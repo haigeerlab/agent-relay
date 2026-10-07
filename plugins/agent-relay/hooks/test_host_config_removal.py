@@ -44,7 +44,7 @@ class RemoveCodexTableTests(unittest.TestCase):
 
     def test_edited_extended_duplicated_or_quoted_tables_are_left_for_the_user(self):
         cases = {
-            "edited": BEFORE + "\n" + FRAGMENT.replace("/opt/node", "/usr/bin/node"),
+            "edited": BEFORE + "\n" + FRAGMENT.replace('A = "1"', 'A = "2"'),
             "extra key after the fragment": BEFORE + "\n" + FRAGMENT + 'B = "2"\n',
             "fragment twice": FRAGMENT + "\n" + FRAGMENT,
             "second quoted table": FRAGMENT + '\n[mcp_servers."agent_relay_x".extra]\nC = 1\n',
@@ -112,6 +112,78 @@ class AddClaudeServerTests(unittest.TestCase):
                    side_effect=subprocess.TimeoutExpired(["claude"], 30)):
             with self.assertRaisesRegex(ValueError, "unable to run"):
                 add_claude_server("claude", ["add", "x"], "x")
+
+
+
+# safe-uninstall (round 1 finding 6): Codex adds approval subtables when the user chooses 始终允许.
+MAIN = '[mcp_servers.agent_relay]\ncommand = "/opt/node"\nargs = ["/r/server.js"]\nenabled_tools = ["bridge_send"]\n'
+ENV = '[mcp_servers.agent_relay.env]\nBRIDGE_DB_PATH = "/r/bridge.sqlite"\n'
+REAL_FRAGMENT = MAIN + "\n" + ENV
+APPROVALS = "".join('\n[mcp_servers.agent_relay.tools.%s]\napproval_mode = "approve"\n' % tool
+                    for tool in ("bridge_register", "bridge_inbox", "bridge_agents", "bridge_wait", "bridge_ack"))
+
+
+class ApprovalSubtableTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="ar-approval-")
+        self.addCleanup(self.tmp.cleanup)
+        self.config = Path(self.tmp.name) / "config.toml"
+
+    def write(self, text):
+        self.config.write_text(text, encoding="utf-8")
+        self.config.chmod(0o600)
+
+    def remove(self):
+        return remove_codex_table(self.config, REAL_FRAGMENT, "agent_relay")
+
+    def test_this_macs_shape_is_removed_with_its_five_approval_subtables(self):
+        self.write(BEFORE + "\n" + REAL_FRAGMENT + APPROVALS + "\n" + AFTER)
+        self.assertEqual(self.remove(), "removed")
+        self.assertEqual(self.config.read_text(encoding="utf-8"), BEFORE + "\n" + AFTER)
+
+    def test_approval_subtables_anywhere_with_any_mode_and_comments_are_removed(self):
+        text = (REAL_FRAGMENT + "\n" + AFTER + '\n[mcp_servers."agent_relay".tools.bridge_send]\n# chosen in the app\n'
+                "approval_mode = 'prompt'\n\n" + BEFORE)
+        self.write(text)
+        self.assertEqual(self.remove(), "removed")
+        self.assertEqual(self.config.read_text(encoding="utf-8"), AFTER + "\n" + BEFORE)
+
+    def test_a_different_node_path_is_accepted_when_it_is_an_executable(self):
+        node = Path(self.tmp.name) / "node"
+        node.write_text("#!/bin/sh\n")
+        node.chmod(0o700)
+        self.write(REAL_FRAGMENT.replace("/opt/node", str(node)) + APPROVALS)
+        self.assertEqual(self.remove(), "removed")
+        self.assertEqual(self.config.read_text(encoding="utf-8"), "")
+        self.write(REAL_FRAGMENT.replace("/opt/node", str(Path(self.tmp.name) / "missing-node")))
+        with self.assertRaisesRegex(ValueError, r"line 2: command"):
+            self.remove()
+
+    def test_other_differences_refuse_and_name_each_line_without_values(self):
+        cases = {
+            "extra key in the main table": (MAIN + 'secret_hint = "tok-123"\n\n' + ENV + APPROVALS,
+                                            [r"line 5: unexpected key secret_hint"]),
+            "changed env value": (MAIN + "\n" + ENV.replace("/r/bridge.sqlite", "/elsewhere") + APPROVALS,
+                                  [r"line 7: BRIDGE_DB_PATH differs"]),
+            "approval subtable with a second key": (
+                REAL_FRAGMENT + '\n[mcp_servers.agent_relay.tools.bridge_send]\napproval_mode = "approve"\nnote = "x"\n',
+                [r"line 11: unexpected key note in \[mcp_servers.agent_relay.tools.bridge_send\]"]),
+            "unknown subtable": (REAL_FRAGMENT + '\n[mcp_servers.agent_relay.extra]\nC = 1\n',
+                                 [r"line 9: unexpected table \[mcp_servers.agent_relay.extra\]"]),
+            "missing env key": (MAIN + "\n[mcp_servers.agent_relay.env]\n", [r"missing BRIDGE_DB_PATH"]),
+            "main table twice": (REAL_FRAGMENT + "\n" + MAIN, [r"line 9: duplicate table"]),
+        }
+        for name, (text, patterns) in cases.items():
+            with self.subTest(name):
+                self.write(text)
+                with self.assertRaises(ValueError) as raised:
+                    self.remove()
+                message = str(raised.exception)
+                self.assertIn("remove it manually", message)
+                for pattern in patterns:
+                    self.assertRegex(message, pattern)
+                self.assertNotIn("tok-123", message, "values are never printed")
+                self.assertEqual(self.config.read_text(encoding="utf-8"), text)
 
 
 if __name__ == "__main__":
