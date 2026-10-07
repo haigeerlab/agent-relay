@@ -1,0 +1,22 @@
+node_modules/
+dist/
+coverage/
+.bridge-worktrees/
+.env
+.env.*
+!.env.example
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+*.log
+*.tgz
+.DS_Store
+Thumbs.db
+.local/
+runs/
+
+# Staging directories used by the atomic build, plus the retired 0.3 experiment build.
+dist.next/
+dist.old/
+dist-wake/

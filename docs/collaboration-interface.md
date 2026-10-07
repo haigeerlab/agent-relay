@@ -8,7 +8,9 @@ How to read it:
 
 - **Current (baseline)** is what ships today. Every fact cites its evidence: `[BL §…]` is a section of the
   [pre-split baseline](baselines/collaboration-pre-split.md); `S:path:line` is Spec Guard at `54d0426`;
-  `B:path:line` is the pinned upstream bridge `WebisityStudio/claude-codex-mcp-bridge@8f12c880` (MIT).
+  `B:path:line` is the pinned upstream bridge `WebisityStudio/claude-codex-mcp-bridge@8f12c880` (MIT), vendored
+  unchanged at [`plugins/agent-relay/bridge/`](../plugins/agent-relay/bridge/UPSTREAM.md) (`bridge-vendoring`), so a
+  `B:` citation resolves inside this repository until a module changes that file.
 - **Hardening target** is where agent-relay must end up. Targets carry no final parameter values; each
   names its owning hardening module, where the values are decided.
 - The agent-relay translation must reproduce the current column, apart from the two naming changes
@@ -246,6 +248,7 @@ Rules:
 | Backup before host config writes | None [BL §Gap analysis, item k] | Every host config write keeps a copy first — `safe-uninstall` |
 | Uninstall | Exact entry removal; mailbox history kept; runtime directory left [BL §Gap analysis, item k] | Documented complete uninstall; history kept by default — `safe-uninstall` |
 | State root override | Bridge honours `BRIDGE_DB_PATH`/`XDG_DATA_HOME`; Spec Guard has `--root` only [BL §Gap analysis, item j] | Done in `test-isolation`: `AGENT_RELAY_HOME` (absolute; relative exits 2) relocates runtime, mailbox, delegation and backups for every entry point; flags still win; host entries keep the absolute paths written at attach time, so moving the root needs a re-attach; `scripts/validate.sh` runs every test with home, state root and host config dirs in a throwaway directory |
+| Bridge source | The runtime installer fetches upstream `8f12c88` with `git` and checks `rev-parse` | Done in `bridge-vendoring`: built from the plugin's `bridge/` copy, refused unless it matches `bridge/UPSTREAM.sha256`, no `git`; manifest marks `source: vendored` and the tree hash, and `status` reports `bridge {source, tree, current}` for git-installed and vendored runtimes alike. Upgrading an installed runtime (`upgrade --confirm`: backup, stage, move `mailbox/` and `data/`, swap, verify, keep the previous directory) is specified in `spec/bridge-vendoring.md` D26 and built by `delivery-state-machine` |
 
 ## 14. Gap and findings index
 
