@@ -1,25 +1,43 @@
 # Changelog
 
-## [Unreleased]
+## [0.2.1] - 2026-10-08
 
-接口升到 **1.1**（`interface.json`）：`bridge_register` 的行为收紧，向后兼容；Spec Guard 的探测范围 `>=1.0,<2.0`
-不用改。补上清理 0.2.0 测试遗留时发现的三个缺口（模块 `cleanup-gaps`）。
+修复版本：接口升到 **1.1**（`interface.json`）——`bridge_register` 对已退役的名字默认拒绝，需要显式 `reactivate: true`，
+属于 1.x 内向后兼容的收紧；Spec Guard 的探测范围 `>=1.0,<2.0` 不用改。补上清理 0.2.0 测试遗留时发现的三个缺口
+（模块 `cleanup-gaps`，规格 [spec/cleanup-gaps.md](spec/cleanup-gaps.md)）。真实宿主上已验证 D59、D60。
 
-- **退役不再被过期消息挡住**：`native_collaboration_retire.py` 按 bridge 的未读规则计数，已过期的消息不算；仍挡住
+- **D59 退役不再被过期消息挡住**：`native_collaboration_retire.py` 按 bridge 的未读规则计数，已过期的消息不算；仍挡住
   退役的消息在拒绝信息里列出编号和投递状态（最多 10 个，不含正文）。
-- **宿主拒绝、从未发出过一轮的 Codex 委派可以取消**：线程拿到了 id、却在发出第一轮之前就启动失败，宿主又拒绝该线程时，
+- **D60 宿主拒绝、从未发出过一轮的 Codex 委派可以取消**：线程拿到了 id、却在发出第一轮之前就启动失败，宿主又拒绝该线程时，
   `cancel` 直接收尾为 `cancelled`，附 `host-thread-absent`；其他 `unknown` 照旧不自动收尾。
-- **已退役的名字不会被悄悄恢复**：`bridge_register`（含 `takeover`）遇到已退役的名字时拒绝，只有带
-  `reactivate: true`（需用户同意）才恢复，结果写明 `reactivated: true`。Codex 委派的身份已被退役时，追问返回
-  `held/identity-retired`，不再发出。
+- **D61 已退役的名字不会被悄悄恢复**：`bridge_register`（含 `takeover`）遇到已退役的名字时拒绝，只有带
+  `reactivate: true`（需用户同意）才恢复，结果写明 `reactivated: true`。改动在随插件附带的 bridge 里（记录见
+  `bridge/UPSTREAM.md`），**要升级运行时才生效**。
+- **D62 接口 1.1**：`interface.json` 从 1.0 升到 1.1。
+- **D63 Codex 委派的身份已被退役时，追问返回 `held/identity-retired`**，不再发出（否则重新注册会被拒、结果回不来）。
 - **preflight** 多一行 `runtime bridge`：已装运行时的 bridge 是否与本检出一致；只更新了插件、没有升级运行时会显示
   `OLDER`。
 
 ### 从 0.2.0 升级
 
-更新插件后，已装运行时的 bridge 比插件旧（`doctor` 的 `runtime` 为 warn，preflight 显示 `OLDER`）。关闭所有使用信箱的
-会话，再运行 `native_collaboration_runtime.py upgrade --confirm`；信箱历史保留，schema 不变（仍为 5）。不升级的话，
-退役名字的保护不会生效。
+1. 两个宿主都更新插件：
+   - Claude Code（从 GitHub 装的）：先 `claude plugin marketplace update agent-relay-marketplace`，再
+     `claude plugin update agent-relay@agent-relay-marketplace`。
+   - Codex：marketplace 钉在 `--ref v0.2.0`，直接 `codex plugin add` 拿到的仍是 0.2.0。先把 `~/.codex/config.toml` 里
+     `[marketplaces.agent-relay-marketplace]` 的 `ref` 改成 `"v0.2.1"`（自己改，改前留一份副本），再
+     `codex plugin marketplace upgrade`，最后 `codex plugin add agent-relay@agent-relay-marketplace`。
+   - 从本地克隆装的：把克隆更新到 v0.2.1 后，Claude 无需其他操作，Codex 再执行一次 `codex plugin add`。
+2. 到这一步插件已是 0.2.1，但运行时里的 bridge 还是旧的：`doctor` 的 `runtime` 为 warn（bridge is older），
+   `scripts/acceptance/preflight.sh` 显示 `runtime bridge OLDER`，D61 尚未生效。
+3. **关闭所有使用信箱的会话，退出 Codex**，再执行
+   `python3 -B <插件目录>/hooks/native_collaboration_runtime.py upgrade --confirm`（有 bridge 在运行时它会拒绝）。它先把信箱
+   备份到 `~/.agent-relay/backups/<时间>/`，再换上新 bridge；信箱历史保留，schema 不变（仍为 5）。
+4. `doctor` 的 `runtime` 为 ok，preflight 显示 `runtime bridge current`、各插件副本 `current`。
+5. 之后对已退役的名字 `bridge_register` 会被拒：换一个新名字，或经用户同意后带 `reactivate: true`。
+
+### 已知问题
+
+- 0.2.0 列出的已知问题仍然存在，见下方 0.2.0 的“已知问题”。
 
 ## [0.2.0] - 2026-10-08
 
