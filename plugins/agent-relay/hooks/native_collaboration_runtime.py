@@ -242,8 +242,11 @@ DENIED_TOOLS = (
 )
 
 
-def probe_runtime(root: Path, *, node: str = "node") -> dict[str, Any]:
-    """Start the pinned server against disposable private data, never the live mailbox."""
+def probe_runtime(root: Path, *, node: str = "node", scratch: Path | None = None) -> dict[str, Any]:
+    """Start the pinned server against disposable private data, never the live mailbox.
+
+    The disposable data lives under the runtime unless ``scratch`` names another directory (``doctor`` uses one, so
+    it writes nothing inside the runtime)."""
     if status(root)["state"] != "ready":
         return {"state": "invalid", "diagnostic": "native runtime is not ready; run status first"}
     requests = (
@@ -253,7 +256,7 @@ def probe_runtime(root: Path, *, node: str = "node") -> dict[str, Any]:
         {"jsonrpc": "2.0", "method": "notifications/initialized"},
         {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
     )
-    with tempfile.TemporaryDirectory(prefix="native-probe-", dir=root) as temporary:
+    with tempfile.TemporaryDirectory(prefix="native-probe-", dir=scratch or root) as temporary:
         probe = Path(temporary)
         (probe / "mailbox").mkdir(mode=0o700)
         (probe / "data").mkdir(mode=0o700)
@@ -386,11 +389,13 @@ def upgrade_runtime(root: Path, *, node: str = "node", npm: str = "npm", source:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("status", "install", "probe", "upgrade"))
+    parser.add_argument("command", choices=("status", "install", "probe", "upgrade", "doctor"))
     parser.add_argument("--confirm", action="store_true", help="required for upgrade")
     parser.add_argument("--root", type=Path)
     parser.add_argument("--node", default="node")
     parser.add_argument("--npm", default="npm")
+    for option in ("--codex-config", "--claude-json", "--claude-settings", "--claude-sessions"):
+        parser.add_argument(option, type=Path, help="doctor: read this file or directory instead of the default")
     args = parser.parse_args(argv)
     try:
         args.root = args.root or default_root()
@@ -399,6 +404,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "upgrade" and not args.confirm:
         parser.exit(2, f"{parser.prog}: error: upgrade replaces the runtime; rerun with --confirm after the "
                        "user agrees and every session using the mailbox is closed\n")
+    if args.command == "doctor":
+        from native_collaboration_doctor import doctor
+        report = doctor(args.root, node=args.node, codex_config=args.codex_config, claude_json=args.claude_json,
+                        claude_settings=args.claude_settings, claude_sessions=args.claude_sessions)
+        print(json.dumps(report, ensure_ascii=False, sort_keys=True))
+        return 1 if report["state"] == "fail" else 0
     try:
         result = (upgrade_runtime(args.root, node=args.node, npm=args.npm) if args.command == "upgrade" else
                   status(args.root) if args.command == "status" else
