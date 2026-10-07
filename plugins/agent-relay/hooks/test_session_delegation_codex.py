@@ -559,7 +559,7 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(self.store.get_authorization(self.envelope.envelope_id).state, "cancelled")
 
     def test_cancel_never_launched_claim_is_cancelled_without_opening_the_host(self):
-        for state in ("creating", "unknown"):
+        for state in ("creating",):
             with self.subTest(state=state):
                 envelope = self.store.authorize(AuthorizationRequest(
                     authority="direct-user", horizon="task", origin_host="claude",
@@ -573,9 +573,6 @@ class AdapterTests(unittest.TestCase):
                     envelope.envelope_id, "codex-never-launch-" + state, "codex",
                     self.project, "a" * 40, "safe-review",
                 )
-                if state == "unknown":
-                    self.store.record_host_unknown(claim.delegation_id)
-
                 result = self.adapter([]).cancel(claim.delegation_id)
 
                 self.assertEqual(result.state, "cancelled")
@@ -583,6 +580,15 @@ class AdapterTests(unittest.TestCase):
                                  "cancelled")
                 self.assertEqual(self.store.get_authorization(envelope.envelope_id).state,
                                  "cancelled")
+
+    def test_cancel_unknown_claim_without_host_ref_is_not_reported_cancelled(self):
+        # A launch was attempted; without a thread id nothing proves it stopped (D16).
+        self.store.record_host_unknown(self.claim.delegation_id)
+
+        result = self.adapter([]).cancel(self.claim.delegation_id)
+
+        self.assertEqual(result.state, "unknown")
+        self.assertEqual(self.store.get_delegation(self.claim.delegation_id).state, "unknown")
 
     def test_cancel_running_turn_waits_for_interrupted_then_archives(self):
         self.adapter([self.successful_client()]).create(self.claim.delegation_id, "Review")

@@ -108,8 +108,10 @@ repository identity、精确 baseline 和 dirty 状态，并在当前调用中�
 Claude 创建返回 `unknown` 且 `prerequisite=host-entry-pending` 时，会话可能已经启动、只是还没对上宿主列表：稍后用
 `status` 再查，下一次 `status` 或 `continue` 会补绑；`host-entry-invalid` 表示列表里的条目对不上，不要自动重建。
 
-取消先冻结该 envelope 的新启动与后续轮次，再请求精确宿主停止；只有宿主确认后才显示 cancelled。从未到达宿主的
-记录（例如因前置条件 held 的创建）没有可停止的宿主，冻结授权即完成取消，直接显示 cancelled。不得清理
+取消先冻结该 envelope 的新启动与后续轮次，再请求精确宿主停止；只有宿主确认后才显示 cancelled。仍处于 creating 的
+记录（例如因前置条件 held 的创建）从未尝试启动，冻结授权即完成取消，直接显示 cancelled。已尝试启动却没拿到宿主 id
+的记录返回 `unknown` + `host-ref-missing`：宿主会话可能仍在运行，绝不显示 cancelled，也不按名称或项目去找；请用户
+在 `claude agents` 里找到 `<友好名>-<短区分项开头的 8 位>` 并自行停止。不得清理
 同名的其他会话、用户项目、未读结果或未知归属的临时文件。
 
 ## 用户可见结果

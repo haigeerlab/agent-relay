@@ -401,10 +401,10 @@ class SessionDelegationController:
                 disambiguator.casefold())]
             if not matches:
                 raise ControlError("session-disambiguator-not-found")
-        elif any(claim.host_ref is not None for claim in matches):
+        elif any(_attempted(claim) for claim in matches):
             # A create held on a prerequisite never reached a host; a later create under the
             # same name must not become ambiguous with it (D15).
-            matches = [claim for claim in matches if claim.host_ref is not None]
+            matches = [claim for claim in matches if _attempted(claim)]
         if len(matches) > 1:
             candidates = tuple(
                 "[%s] %s · %s" % (
@@ -507,6 +507,12 @@ class SessionDelegationController:
             prerequisite=self._result_fact(result, "prerequisite"),
             host_operation="cancel",
         )
+
+
+def _attempted(claim: DelegationClaim) -> bool:
+    """A launch reached or may have reached a host; only `creating` rows (and those
+    cancelled from `creating`) never did. An `unknown` row may have a live session."""
+    return claim.host_ref is not None or claim.state not in ("creating", "cancelled")
 
 
 def default_state_root() -> Path:

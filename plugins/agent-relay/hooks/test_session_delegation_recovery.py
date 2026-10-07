@@ -379,6 +379,22 @@ class RecoveryTests(unittest.TestCase):
         controller.continue_named("复审", "Again")
         self.assertEqual(adapter.calls[-1][:2], ("continue", bound.delegation_id))
 
+    def test_unknown_launch_without_host_ref_counts_as_launched_for_name_lookup(self):
+        # Live C7: held 418202 then unknown 501157 (no host_ref) under one name.
+        controller, adapter = self.controller(["held", "unknown", "unknown"])
+        self.create(controller)
+        self.create(
+            controller,
+            request=self.request("controller-request-2"),
+            launch="controller-launch-2",
+        )
+
+        controller.status_named("复审")
+
+        [attempted] = [claim for claim in self.store.list_delegations()
+                       if claim.state == "unknown"]
+        self.assertEqual(adapter.calls[-1][:2], ("status", attempted.delegation_id))
+
     def test_lone_never_launched_session_still_resolves_by_name(self):
         controller, adapter = self.controller(["held", "held"])
         self.create(controller)

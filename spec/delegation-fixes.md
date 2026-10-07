@@ -116,14 +116,30 @@ D15–D17 taken as recommended by the user on 2026-10-07; D18 added by the proje
   session. This is the fix for finding 7; D18 stays as a bounded safety net and as the repair for rows already
   stuck (round 1's row), not as the cause's remedy.
 
+- **D16 narrowed (after the live C7 run, 2026-10-07; user decision).** Live C7 (controller 745ac90, Claude origin,
+  Claude target in design-test): the second create answered `unknown` with no `host_ref` while the host session
+  `ar-acc-r1fix-c7-501157b7` ran (`blocked`, `idle`), and D16 then answered `cancelled` without stopping it —
+  **unsafe**. Fix:
+  - Only a row still `creating` (no launch attempted, or the host refused before starting) cancels without a
+    host. An `unknown` row without `host_ref` answers `unknown` with `prerequisite=host-ref-missing` on `cancel`,
+    `status` and `continue`; its authority is frozen by cancel, nothing is stopped or looked up. The user stops the
+    host session by hand (`claude agents` shows it as `<friendly name>-<8 hex>`, starting with the short id).
+  - *Rejected (user):* finding the session by its internal name (`<friendly>-<id8>`, cwd, kind) and stopping it
+    — it would relax the rule that a session is never found by title, project or short id.
+  - The `--bg` parser accepts any `backgrounded · <id8>` line, whatever follows the id; one such line was seen
+    today (`backgrounded · <id> (idle — send a prompt to start)`) and the old regex rejected it. The exact line of
+    the C7 run was not recorded, so this is the likely, not the proven, source of the missing `host_ref`.
+  - *D15 restated:* "never launched" = no `host_ref` and state `creating` or `cancelled`; an `unknown` row counts as
+    launched for name lookup.
+
 ## Requirements
 
 1. A create held on a prerequisite answers `held` with the prerequisite, as today, and can still be retried with
    the same keys.
 2. After a held create named N, a create named N succeeds without `session-name-ambiguous`; `status`, `continue`
    and `cancel` on N reach the new session without `--disambiguator`.
-3. `cancel` on a never-launched row answers `cancelled` and moves the row to `cancelled`; on a launched row it
-   behaves as today.
+3. `cancel` on a row still `creating` answers `cancelled` without a host; an `unknown` row without `host_ref`
+   answers `unknown`/`host-ref-missing` and is never reported `cancelled`; launched rows behave as today.
 4. `continue` to a Claude target whose raw entry matches the captured idle entry proceeds (native wake or resume)
    instead of `target-busy`. A target that is genuinely working still answers `target-busy`.
 5. A Claude target in a git worktree is found at create (`created`), and by `status`, although
@@ -180,4 +196,4 @@ The raw host capture is stored as a test fixture, with ids replaced.
 
 ## Open questions
 
-None; D15–D19 are decided.
+None; D15–D19 are decided, D16 narrowed after live C7.

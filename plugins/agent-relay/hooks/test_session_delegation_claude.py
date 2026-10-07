@@ -703,11 +703,9 @@ class AdapterTests(unittest.TestCase):
         self.assertFalse(managed.exists())
 
     def test_cancel_never_launched_claim_is_cancelled_without_host_stop(self):
-        for state in ("creating", "unknown"):
+        for state in ("creating",):
             with self.subTest(state=state):
                 _envelope, claim = self.make_claim(key="claude-never-" + state)
-                if state == "unknown":
-                    self.store.record_host_unknown(claim.delegation_id)
                 managed = self.store.root / (
                     "claude-" + claim.delegation_id + ".mcp.json")
                 managed.write_text('{"mcpServers":{}}\n', encoding="utf-8")
@@ -723,6 +721,46 @@ class AdapterTests(unittest.TestCase):
                 self.assertEqual(self.store.get_authorization(claim.envelope_id).state,
                                  "cancelled")
                 self.assertFalse(managed.exists())
+
+    def test_cancel_unknown_claim_without_host_ref_is_never_reported_cancelled(self):
+        # Live C7: the create answered unknown without a host_ref while its session ran;
+        # D16 then said cancelled without stopping it. Without an id nothing is stopped
+        # or looked up by name, so the answer stays unknown (D16 narrowed).
+        _envelope, claim = self.make_claim(key="claude-unparsed-cancel")
+        self.store.record_host_unknown(claim.delegation_id)
+        runner = ScriptedRunner([])
+
+        result = self.adapter(runner).cancel(claim.delegation_id)
+
+        self.assertEqual(result.state, "unknown")
+        self.assertEqual(result.prerequisite, "host-ref-missing")
+        self.assertEqual(runner.calls, [])
+        self.assertEqual(self.store.get_delegation(claim.delegation_id).state, "unknown")
+        self.assertEqual(self.store.get_authorization(claim.envelope_id).state, "cancelled")
+
+    def test_status_and_continue_of_an_unknown_claim_without_host_ref_name_it(self):
+        _envelope, claim = self.make_claim(key="claude-unparsed-status")
+        self.store.record_host_unknown(claim.delegation_id)
+        runner = ScriptedRunner([])
+
+        status = self.adapter(runner).status(claim.delegation_id)
+        follow_up = self.adapter(runner).continue_turn(claim.delegation_id, "Again")
+
+        for result in (status, follow_up):
+            self.assertEqual(result.state, "unknown")
+            self.assertEqual(result.prerequisite, "host-ref-missing")
+        self.assertEqual(runner.calls, [])
+
+    def test_create_parses_a_background_line_with_a_status_suffix(self):
+        runner = ScriptedRunner([
+            completed("backgrounded · ce5b9501 (idle — send a prompt to start)\n"),
+            completed(json.dumps([self.entry()])),
+        ])
+
+        result = self.adapter(runner).create(self.claim.delegation_id, "Review")
+
+        self.assertEqual(result.state, "created")
+        self.assertEqual(result.host_ref, "ce5b9501")
 
     def test_status_accepts_post_stop_done_entry_without_status_or_pid(self):
         self.complete_claim()

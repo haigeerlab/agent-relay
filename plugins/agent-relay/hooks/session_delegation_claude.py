@@ -38,7 +38,8 @@ def communication_rules(server_name: str, tools: tuple[str, ...] = COMMUNICATION
 
 CLAUDE_COMMUNICATION_RULES = communication_rules(CLAUDE_SERVER_NAME)
 _VERSION = re.compile(r"^([0-9]+)\.([0-9]+)\.([0-9]+) \(Claude Code\)$")
-_BACKGROUND = re.compile(r"^backgrounded · ([0-9a-f]{8})(?: · .*)?$", re.MULTILINE)
+# Any text may follow the id: `· <name>`, or `(idle — send a prompt to start)`.
+_BACKGROUND = re.compile(r"^backgrounded · ([0-9a-f]{8})\b.*$", re.MULTILINE)
 _STOPPED = re.compile(r"^stopped ([0-9a-f]{8})$", re.MULTILINE)
 # Claude Code 2.1.291 lists a background session seconds after `--background` returns
 # (round 1 finding 7), so create keeps looking with backoff up to this many seconds.
@@ -468,9 +469,12 @@ class ClaudeAdapter:
     def _bind_late_entry(self, claim: object, project: Path
                          ) -> tuple[object, ClaudeSession | None, str | None]:
         """Bind an `unknown` claim whose entry was listed only after create returned (D18)."""
-        if (claim.state != "unknown" or claim.host_ref is None
-                or claim.host_session_ref is not None):
+        if claim.state != "unknown" or claim.host_session_ref is not None:
             return claim, None, None
+        if claim.host_ref is None:
+            # The `--bg` line was not parsed. A session may run, but it is never looked up
+            # by name or project (no guessing); the user stops it by hand.
+            return claim, None, "host-ref-missing"
         try:
             session = self._exact_session(project, claim.host_ref)
         except ClaudeAdapterError as error:
@@ -721,7 +725,8 @@ class ClaudeAdapter:
 
     def status(self, delegation_id: str) -> ClaudeRunResult:
         claim = self.store.get_delegation(delegation_id)
-        if claim.target_host != "claude" or claim.host_ref is None:
+        if claim.target_host != "claude" or (
+                claim.host_ref is None and claim.state != "unknown"):
             raise ClaudeAdapterError("claude-host-reference-unavailable")
         envelope = self.store.get_authorization(claim.envelope_id)
         claim, session, problem = self._bind_late_entry(claim, envelope.project_root)
@@ -760,6 +765,11 @@ class ClaudeAdapter:
         self.store.cancel_authorization(claim.envelope_id)
         if claim.target_host != "claude":
             return ClaudeRunResult("unknown")
+        if claim.host_ref is None and claim.state not in ("creating", "cancelled"):
+            # A launch was attempted without a parsed id: nothing proves a session stopped,
+            # so never report cancelled (D16). Authority is frozen above.
+            return ClaudeRunResult(
+                claim.state, host_status="unknown", prerequisite="host-ref-missing")
         if claim.host_ref is not None:
             envelope = self.store.get_authorization(claim.envelope_id)
             try:
@@ -774,7 +784,7 @@ class ClaudeAdapter:
             if completed.returncode != 0 or stopped != {claim.host_ref}:
                 self.store.advance(delegation_id, "unknown", "host-result-unknown")
                 return ClaudeRunResult("unknown", claim.host_ref, claim.host_session_ref)
-        # A claim that never reached a host has nothing to stop, so there is no host to
+        # A claim still `creating` never reached a host: nothing to stop, so no host can
         # confirm; frozen authority above is the whole cancellation (D16).
         current = self.store.get_delegation(delegation_id)
         if current.state != "cancelled":
