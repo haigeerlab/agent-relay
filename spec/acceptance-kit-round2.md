@@ -51,20 +51,20 @@ Confirmed by the user on 2026-10-07.
 
 ## Decisions
 
-D53–D56 follow the confirmed assumptions; the details marked (new) await the user's review of this spec.
+D53–D56 accepted on 2026-10-07 (including D53's Task 1 fallback and the `--design` option, approved at spec review).
 
 - **D53 root resolution (R2-11).** One shell block, identical in the three skills: `ROOT="${CLAUDE_PLUGIN_ROOT}"`;
   if empty or not a directory holding `hooks/native_collaboration_runtime.py`, the enabled agent-relay `source.path`
   from `codex plugin list --json`; else stop with "cannot locate the agent-relay plugin root" and the reason. A test
   pins the block in all three and forbids `installed_plugins.json` and `plugins/cache` in skill text. If Task 1 shows
-  (new) Claude substitutes a stale cache for a `directory` marketplace, the block also compares that root's tree hash with
+  Claude substitutes a stale cache for a `directory` marketplace, the block also compares that root's tree hash with
   the source and refuses on a mismatch (decided at Task 1, reported to the user before building on it).
 - **D54 stale copies (R2-5, R2-11).** preflight prints, per host, the copy in use and its tree hash next to the
   source's: Claude — each `installed_plugins.json` record's `installPath` (marked as the record, not proof of what a
   session loads); Codex — the cache under `~/.codex/plugins/cache/agent-relay-marketplace/agent-relay/`. Mismatch →
   `STALE` plus the host's refresh command (`claude plugin install …` / `codex plugin add …`), run only by the user.
 - **D55 allow lists (R2-8).** `base` and `routing` lists printed with the exact rules
-  (`Bash(python3 -B <root>/hooks/session_routing.py select *)`, `Read(//<design project>/**)` from `--design <path>`,
+  (`Bash(python3 -B <root>/hooks/session_routing.py select *)`, `Read(//<design project>/**)` from a new `--design <path>` option,
   omitted with a note when not given). Checklist A4, D8, D9 name the list to use.
 - **D56 launch line (R2-3).** `claude "<prompt>" --bg --permission-mode dontAsk --allowedTools "<list>"`, with a note
   that the prompt must come first; checklist A4 matches.
