@@ -9,7 +9,10 @@ import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
+import { spawn } from "node:child_process";
+
 import { BridgeStore } from "../src/bridge-store.js";
+import { transition } from "../src/delivery.js";
 import { IdempotencyConflictError } from "../src/idempotency.js";
 
 function fresh(): BridgeStore {
@@ -167,4 +170,65 @@ test("inbox, thread and outbox show the link; the outbox lists each message's re
   assert.equal(answered?.replyTo, original.id);
   assert.deepEqual(answered?.replies, []);
   s.close();
+});
+
+// agent-relay idempotency: reply de-duplication (D35).
+test("the same reply to the same message is stored once; a different body or recipient is a new reply", () => {
+  const s = fresh();
+  s.wakes.bind("s", { app: "codex", sessionId: "thread-s" });
+  const original = s.send({ fromAgent: "s", toAgent: "x", body: "question", threadId: "t1" });
+  const first = s.deliver({ fromAgent: "x", toAgent: "s", body: "answer", replyTo: original.id });
+  const again = s.deliver({ fromAgent: "x", toAgent: "s", body: "answer", replyTo: original.id, idempotencyKey: "fresh" });
+  assert.equal(again.duplicate, true);
+  assert.equal(again.message.id, first.message.id);
+  assert.equal(jobs(s), 1, "no second ping");
+  assert.equal(s.deliver({ fromAgent: "x", toAgent: "s", body: "answer, amended", replyTo: original.id }).duplicate, false);
+  assert.equal(s.deliver({ fromAgent: "y", toAgent: "s", body: "answer", replyTo: original.id }).duplicate, false);
+  assert.equal(s.deliver({ fromAgent: "x", toAgent: "y", body: "answer", replyTo: original.id }).duplicate, false);
+  s.close();
+});
+
+test("a reply that expired or failed may be sent again", () => {
+  const s = fresh();
+  const original = s.send({ fromAgent: "s", toAgent: "x", body: "question" });
+  const expired = s.send({ fromAgent: "x", toAgent: "s", body: "answer", replyTo: original.id });
+  s.database.prepare("UPDATE messages SET expires_at = ? WHERE id = ?").run(Date.now() - 1, expired.id);
+  const second = s.deliver({ fromAgent: "x", toAgent: "s", body: "answer", replyTo: original.id });
+  assert.equal(second.duplicate, false);
+  assert.equal(s.messageById(expired.id)?.deliveryState, "expired");
+  transition(s.database, second.message.id, "sending");
+  transition(s.database, second.message.id, "failed");
+  const third = s.deliver({ fromAgent: "x", toAgent: "s", body: "answer", replyTo: original.id });
+  assert.equal(third.duplicate, false);
+  assert.equal(s.deliver({ fromAgent: "x", toAgent: "s", body: "answer", replyTo: original.id }).message.id, third.message.id);
+  s.close();
+});
+
+test("processes racing the same reply on one mailbox store it once", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "agent-relay-reply-race-"));
+  const path = join(dir, "bridge.sqlite");
+  const setup = new BridgeStore(path);
+  const original = setup.send({ fromAgent: "s", toAgent: "x", body: "question" });
+  setup.close();
+  // Every process opens first and sends at one shared instant, so the sends themselves race. (Opening while another
+  // process writes can fail with "database is locked": the store sets busy_timeout after journal_mode — upstream.)
+  const start = Date.now() + 1500;
+  const script = `const { BridgeStore } = await import("./src/bridge-store.ts");
+    const s = new BridgeStore(${JSON.stringify(path)});
+    await new Promise((resolve) => setTimeout(resolve, ${start} - Date.now()));
+    console.log(s.deliver({ fromAgent: "x", toAgent: "s", body: "answer", replyTo: ${original.id} }).message.id);
+    s.close();`;
+  const cwd = dirname(dirname(fileURLToPath(import.meta.url)));
+  const ids = await Promise.all(Array.from({ length: 4 }, () => new Promise<string>((resolve, reject) => {
+    const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script], { cwd });
+    let out = "";
+    let err = "";
+    child.stdout.on("data", (chunk) => { out += chunk; });
+    child.stderr.on("data", (chunk) => { err += chunk; });
+    child.on("close", (code) => (code === 0 ? resolve(out.trim()) : reject(new Error(err))));
+  })));
+  assert.equal(new Set(ids).size, 1, ids.join(","));
+  const check = new BridgeStore(path);
+  assert.equal(Number((check.database.prepare("SELECT COUNT(*) AS n FROM messages WHERE reply_to = ?").get(original.id) as { n: number }).n), 1);
+  check.close();
 });

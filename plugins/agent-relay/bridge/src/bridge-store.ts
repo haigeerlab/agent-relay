@@ -432,6 +432,20 @@ export class BridgeStore {
       }
     }
 
+    // agent-relay idempotency (D35): the same reply to the same message is stored once, unless the earlier one
+    // never arrived (failed or expired), so a lost reply can be sent again.
+    if (replyTo !== null) {
+      expireDue(this.db);
+      const earlier = this.db
+        .prepare(
+          `SELECT * FROM messages WHERE reply_to = ? AND from_agent = ? AND to_agent = ? AND body = ?
+             AND COALESCE(delivery_state, 'queued') NOT IN ('failed', 'expired')
+           ORDER BY id LIMIT 1`,
+        )
+        .get(replyTo, input.fromAgent, input.toAgent, input.body) as unknown as MessageRow | undefined;
+      if (earlier) return { message: this.toMessage(earlier), duplicate: true };
+    }
+
     const direct = input.toAgent !== "*";
     // agent-relay durable-ordering (D30, D31): after the idempotent return, so a retry of a stored message passes.
     // The bridge's own notices (failure, retirement, results) must always get through.
