@@ -36,6 +36,11 @@ python3 -B "$ROOT/hooks/native_collaboration_runtime.py" upgrade --confirm
 It backs the mailbox up to `backups/<UTC time>/runtime-mailbox/`, builds the new runtime beside the old one, moves
 `mailbox/` and `data/` across, swaps, and checks the result (rolling back on failure). Show the user the reported
 `previous` directory, `backup` and `rollback` text; host entries need no change because the paths stay the same.
+After an upgrade that brings `identity-check`, tell the user: each session must register its name once more before it
+sends (that records its host; from then on a Claude session keeps its names across bridge restarts, while a Codex
+session re-registers with its own thread id after each restart), and Codex wake stays
+refused (pings held) while `~/.codex/config.toml` has `approvals_reviewer = "guardian_subagent"` or
+`approval_policy = "never"` — the user switches the Codex selector to 请求批准; never edit that file.
 
 ```bash
 python3 -B "$ROOT/hooks/native_collaboration_runtime.py" install

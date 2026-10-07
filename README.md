@@ -71,6 +71,13 @@ codex plugin add agent-relay@agent-relay-marketplace
 
 - **默认不唤醒**：加入信箱时默认 `wake: null`，空闲的会话不会被别人唤醒；只有你明确要求，当前会话才绑定唤醒。
 - **自动批准的会话永远不绑定唤醒**：被唤醒的会话会执行来信里的请求，所以开着自动批准的会话不允许被唤醒。
+  Codex 由 bridge 直接检查：`~/.codex/config.toml`（或 `$CODEX_HOME`）里 `approvals_reviewer = "guardian_subagent"`
+  或 `approval_policy = "never"` 时拒绝绑定，已绑定的 Codex 唤醒改为挂起（held）并通知发件人；配置读不出来按自动批准
+  处理。bridge 只读这个文件，从不修改。Claude 的权限模式 bridge 看不到，仍靠 skill 规则把关。
+- **身份归属于注册它的会话**：发消息（`from`）、ack、自动确认的 `bridge_wait` 只能用本会话注册过的名字，否则拒绝并
+  给出下一步。升级后每个会话先重新注册一次名字（记下所属会话）；之后 Claude 会话的名字在 bridge 重启后仍然有效，Codex 会话在 bridge 重启后要先用同一个线程 ID 重新注册。
+  别的会话的名字或唤醒绑定，只有你同意后才能用 `takeover: true` 接管；会话只能为自己绑定唤醒。只有原消息的收件人能
+  回复它（广播：除发送方外谁都可以；bridge 自动通知不能回复）。防的是误操作和串号，不是恶意本地进程。
 - **逐项确认**：初始化运行时、改宿主配置、加入新身份、扩大权限，都要你逐项同意。
 - **不会自动修改**项目或全局权限，不替你接受项目 trust 或 MCP 首次批准，不开 bypass 模式。缺少前置条件时
   显示 held 和最小下一步。
@@ -128,8 +135,8 @@ python3 -B plugins/agent-relay/hooks/state_migration.py migrate --confirm
 插件更新带来新版 bridge 时，`status` 会报告 `bridge.current: false`。agent 会先问你，在你关掉所有正在用信箱的
 会话后再执行 `native_collaboration_runtime.py upgrade --confirm`：先把邮箱备份到 `~/.agent-relay/backups/<时间>/`，
 在旁边装好新版，把 `mailbox/` 和 `data/` 挪过去再整体替换，核对通过才算完成，失败会自动换回。旧目录
-`runtime.previous-<时间>` 保留，确认无误后由你删除；宿主接入不用动。新版 bridge 会把邮箱升级到 schema 4（从 schema 2 一次升到位，升级前自动备份）：
-回到旧运行时还能打开它，但旧版 agent-relay 插件只认 schema 2（或 3），所以回滚时要连插件一起回滚，或者用备份恢复邮箱
+`runtime.previous-<时间>` 保留，确认无误后由你删除；宿主接入不用动。新版 bridge 会把邮箱升级到 schema 5（从 schema 2 一次升到位，升级前自动备份）：
+回到旧运行时还能打开它，但旧版 agent-relay 插件只认 schema 2（到 4），所以回滚时要连插件一起回滚，或者用备份恢复邮箱
 （之后收到的消息会丢失）。
 
 ## 卸载

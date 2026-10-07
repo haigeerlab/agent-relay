@@ -20,7 +20,9 @@ from typing import Any, Sequence
 
 # Mailbox schemas the Python readers understand: 2 (upstream 8f12c88) and 3 (delivery-state-machine adds
 # nullable delivery columns only). A newer, unknown schema is refused rather than guessed at.
-MAILBOX_SCHEMA_VERSIONS = (2, 3, 4)
+MAILBOX_SCHEMA_VERSIONS = (2, 3, 4, 5)
+# Seconds a mailbox reader waits for a bridge's write lock, the bridge's own busy_timeout (identity-check D40).
+MAILBOX_BUSY_TIMEOUT = 5.0
 # Upstream commit the vendored bridge descends from (plugins/agent-relay/bridge/UPSTREAM.md).
 BRIDGE_COMMIT = "8f12c880cfdba73812b6ab7bc0f373fc467e0343"
 # SHA-256 of UPSTREAM.sha256 for the unmodified 8f12c88 tree: what a legacy git-installed runtime holds (D26).
@@ -288,7 +290,7 @@ def probe_runtime(root: Path, *, node: str = "node") -> dict[str, Any]:
 UPGRADE_ROLLBACK = (
     "To go back to the previous runtime, stop every session using the mailbox, move runtime/mailbox and "
     "runtime/data into the previous directory, and rename it back to runtime. Its bridge opens the upgraded "
-    "(schema 4) mailbox in compatible mode, but an older agent-relay plugin's hooks read only schema 2 (or 3): roll "
+    "(schema 5) mailbox in compatible mode, but an older agent-relay plugin's hooks read only schema 2 (to 4): roll "
     "the plugin back too, or restore the mailbox from the backup (messages sent since are lost).")
 
 

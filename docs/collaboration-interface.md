@@ -41,8 +41,8 @@ The MCP server exposes exactly these ten tools to hosts. Current server name `sp
 
 | Item | Current (baseline) | Hardening target |
 |---|---|---|
-| `bridge_register` | In: `agent` (unique readable name), `capabilities?` string[], `wake?` `"auto"` \| `{app: codex\|claude, sessionId}` \| `null` (omitted keeps the binding). Out: the agent row with wake binding. Registering again reactivates a retired agent. B:src/server.ts:104-158 | Reject a `wake` binding when the host session is auto-approved, including Codex `approvals_reviewer = "guardian_subagent"` (finding 1) — `identity-check` |
-| `bridge_send` | In: `from`, `to` (name or `*`), `body`, `threadId?`, `idempotencyKey?`, `wake?` (default true), `allowUnregistered?`. Out: the stored message plus `warnings`. B:src/server.ts:159-200 | `from` verified against the host identity; body may come from a file path; returns a delivery state (section 5) — `identity-check`, `ops-commands`, `delivery-state-machine` (delivery state done in `delivery-state-machine`: `deliveryState`, `expiresAt`, `expiresInSeconds`; done in `idempotency`: `replyTo`, `duplicate`, a reused key with different content refused) |
+| `bridge_register` | In: `agent` (unique readable name), `capabilities?` string[], `wake?` `"auto"` \| `{app: codex\|claude, sessionId}` \| `null` (omitted keeps the binding). Out: the agent row with wake binding. Registering again reactivates a retired agent. B:src/server.ts:104-158 | Reject a `wake` binding when the host session is auto-approved, including Codex `approvals_reviewer = "guardian_subagent"` (finding 1) — `identity-check` (done for Codex: `approvals_reviewer = "guardian_subagent"` or `approval_policy = "never"`, unreadable config fails closed; Claude's mode is not visible to the bridge; `takeover` added) |
+| `bridge_send` | In: `from`, `to` (name or `*`), `body`, `threadId?`, `idempotencyKey?`, `wake?` (default true), `allowUnregistered?`. Out: the stored message plus `warnings`. B:src/server.ts:159-200 | `from` verified against the host identity; body may come from a file path; returns a delivery state (section 5) — `identity-check`, `ops-commands`, `delivery-state-machine` (delivery state done in `delivery-state-machine`: `deliveryState`, `expiresAt`, `expiresInSeconds`; done in `idempotency`: `replyTo`, `duplicate`, a reused key with different content refused; done in `identity-check`: `from` must be an identity this session registered, else refused with guidance) |
 | `bridge_inbox` | In: `agent`, `includeAcknowledged?`, `fromAgent?`, `threadId?`, `afterId?`, `limit?` (1–200, default 25), `maxChars?`, `maxBodyChars?`. Out: oldest-first page, `hasMore`. B:src/server.ts:226-248 | Done in `delivery-state-machine`: expired messages hidden by default; `bridge_inbox` lists them with `includeExpired` (history); `bridge_wait` never returns them |
 | `bridge_ack` | In: `agent`, `ids` (≥1). Marks handled; history kept. B:src/server.ts:292-308 | Done in `delivery-state-machine`: acknowledgement moves the wake job to the final state `acknowledged` (finding 5) |
 | `bridge_outbox` | In: `agent`, `includeAcknowledged?`, `limit?` (1–200, default 30). Out: unacknowledged direct sends, newest first, with ping outcome and recipient status. B:src/server.ts:348-364 | Done in `delivery-state-machine`: each entry carries `deliveryState` and `expiresAt` |
@@ -74,9 +74,9 @@ The MCP server exposes exactly these ten tools to hosts. Current server name `sp
 |---|---|---|
 | Stored message | `id` (integer, increasing), `from_agent`, `to_agent`, `body`, `thread_id?`, `idempotency_key?`, `created_at`. Unique `(from_agent, idempotency_key)`. B:src/schema.ts:27-40 | Adds a delivery state and its timestamps (section 5); idempotency key requires identical content (gap f) — `delivery-state-machine`, `idempotency` (delivery columns done in `delivery-state-machine`: schema 3; done in `idempotency`: key compared on recipient, body, thread and reply link, schema 4 `reply_to`) |
 | Acknowledgement | `(message_id, agent)` primary key, `acked_at`, `note?`. B:src/schema.ts:42-47, 103 | Unchanged |
-| Agent | `name`, `capabilities`, `registered_at`, `last_seen`, `retired_at?`, `retired_by?`, `retire_note?`; wake binding in `wake_targets(agent, target)`. B:src/schema.ts:49-54, 82-84, 100-102 | Records the host identity it was bound from — `identity-check` |
+| Agent | `name`, `capabilities`, `registered_at`, `last_seen`, `retired_at?`, `retired_by?`, `retire_note?`; wake binding in `wake_targets(agent, target)`. B:src/schema.ts:49-54, 82-84, 100-102 | Records the host identity it was bound from — `identity-check` (done: schema 5 `host_app`, `host_session`; Claude verified from the bridge environment, Codex as claimed) |
 | Wake job | `message_id`, `agent`, `target`, `state`, `attempt_id`, `attempts`, `retry_at`, `created_at`, `detail`, `pending_reason?`, `notified_at?`; unique `(message_id, agent)`. B:src/schema.ts:85-94, 104-105 | Unchanged shape; state rules in section 5 |
-| Reply | No reply-to field; a reply is an ordinary send on the same `threadId`. B:src/server.ts:159-200 | Replies carry the original message id; only its recipient may reply; same original + same text is de-duplicated (gaps f, g) — `idempotency`, `identity-check` (done in `idempotency`: `replyTo`, thread follows the original, same reply stored once unless it failed or expired; who may reply left to `identity-check`) |
+| Reply | No reply-to field; a reply is an ordinary send on the same `threadId`. B:src/server.ts:159-200 | Replies carry the original message id; only its recipient may reply; same original + same text is de-duplicated (gaps f, g) — `idempotency`, `identity-check` (done in `idempotency`: `replyTo`, thread follows the original, same reply stored once unless it failed or expired; who may reply left to `identity-check`; done in `identity-check`: only the recipient, broadcasts by anyone but the sender, notices by nobody) |
 
 ## 4. Session states
 
@@ -85,7 +85,7 @@ The MCP server exposes exactly these ten tools to hosts. Current server name `sp
 | Item | Current (baseline) | Hardening target |
 |---|---|---|
 | registered | A non-retired row in `agents`; says nothing about liveness. [BL §Results item 1] | Unchanged |
-| wake-bound | Row has a `wake_targets` entry (`claude` session id or `codex` thread id). [BL §Results item 1] | Binding refused for auto-approved sessions (finding 1) — `identity-check` |
+| wake-bound | Row has a `wake_targets` entry (`claude` session id or `codex` thread id). [BL §Results item 1] | Binding refused for auto-approved sessions (finding 1) — `identity-check` (done for Codex) |
 | wake-held | Host accepted no ping because of permission, trust, or busy state; reported in `bridge_wake_status`. B:src/wake-queue.ts:9 | Unchanged |
 | retired | `retired_at` set; hidden from `bridge_agents` unless requested; history kept. [BL §Cleanup] | Unchanged |
 | live (Claude) | Seen in `bridge_sessions` / `ListAgents`; Claude background sessions can hang indefinitely on a permission prompt in `default` mode (finding 6). [BL §Findings 6] | `doctor` reports a session that is live but blocked — `ops-commands` |
@@ -123,17 +123,17 @@ The MCP server exposes exactly these ten tools to hosts. Current server name `sp
 | Item | Current (baseline) | Hardening target |
 |---|---|---|
 | Naming | Readable prefix (user alias or host + project) plus a short random suffix; lazily registered on first join/send/read intent. S:plugins/spec-guard/skills/collab/SKILL.md:24-30 | Unchanged |
-| Reuse and takeover | A session reuses its first successful identity; it must not register, bind wake for, or take over another session's name. S:plugins/spec-guard/skills/collab/SKILL.md:32-34 — enforced by instruction only; `bridge_register` itself accepts any name, B:src/server.ts:104-158 | Server refuses re-binding a name to a different host session without explicit confirmation — `identity-check` |
-| Sender | `from` is free text; an unregistered sender gets a warning only [BL §Gap analysis, item g] | `from` must match the calling host's identity; mismatch rejected — `identity-check` |
-| Who may reply | Anyone may send on any thread [BL §Gap analysis, item g] | Only the addressed recipient may reply to a message id — `identity-check` |
-| Missing identity | Wake binding stops when the session id cannot be confirmed; titles, processes, and recent activity are never guessed. S:plugins/spec-guard/skills/collab/SKILL.md:32-34 | Explicit guidance text returned to the agent — `identity-check` |
+| Reuse and takeover | A session reuses its first successful identity; it must not register, bind wake for, or take over another session's name. S:plugins/spec-guard/skills/collab/SKILL.md:32-34 — enforced by instruction only; `bridge_register` itself accepts any name, B:src/server.ts:104-158 | Server refuses re-binding a name to a different host session without explicit confirmation — `identity-check` (done: `takeover: true`; the silent move from a dead Claude session removed) |
+| Sender | `from` is free text; an unregistered sender gets a warning only [BL §Gap analysis, item g] | `from` must match the calling host's identity; mismatch rejected — `identity-check` (done: registered through this bridge process, or recorded for this verified Claude session; Codex bridges carry no session id, so a Codex session re-registers after a restart) |
+| Who may reply | Anyone may send on any thread [BL §Gap analysis, item g] | Only the addressed recipient may reply to a message id — `identity-check` (done) |
+| Missing identity | Wake binding stops when the session id cannot be confirmed; titles, processes, and recent activity are never guessed. S:plugins/spec-guard/skills/collab/SKILL.md:32-34 | Explicit guidance text returned to the agent — `identity-check` (done) |
 
 ## 8. Authorization and wake rules
 
 | Item | Current (baseline) | Hardening target |
 |---|---|---|
 | Default | Registration sets `wake: null`; binding only on the user's explicit request in the current session. S:plugins/spec-guard/references/collaboration-runtime.md:76-79 | Unchanged |
-| Auto-approved sessions | Full-auto or bypass sessions must not bind wake (rule in skill and docs). Codex `approvals_reviewer = "guardian_subagent"` is **not** detected; two threads bound under it [BL §Findings 1] | Binding refused when the host session is auto-approved, guardian included — `identity-check` |
+| Auto-approved sessions | Full-auto or bypass sessions must not bind wake (rule in skill and docs). Codex `approvals_reviewer = "guardian_subagent"` is **not** detected; two threads bound under it [BL §Findings 1] | Binding refused when the host session is auto-approved, guardian included — `identity-check` (done for Codex, at bind and at each ping; Claude stays a skill rule) |
 | Confirmations | Runtime install, host attachment, uninstall, identity retirement, and new wake bindings each need separate explicit approval. S:plugins/spec-guard/references/collaboration-runtime.md:29-94 | Unchanged |
 | Permission files | Never written automatically; missing allow rules are diagnosed with a minimal suggestion. S:plugins/spec-guard/references/collaboration-runtime.md:96-102 | Unchanged |
 | Messages are data | Mailbox text never authorizes code, Git, ticket, configuration changes, or new sessions. S:plugins/spec-guard/skills/collab/SKILL.md:18-20 | Unchanged |
@@ -262,12 +262,12 @@ Gap items are from [BL §Gap analysis]; findings from [BL §Findings for the int
 | d. Persist before submit | §6 | `durable-ordering` (done) |
 | e. Ordering, independence, cap | §6 | `durable-ordering` (done) |
 | f. Retry key, reply de-duplication | §3, §6 | `idempotency` (done) |
-| g. Only recipient replies; sender identity | §3, §7 | `identity-check` |
+| g. Only recipient replies; sender identity | §3, §7 | `identity-check` (done) |
 | h. doctor, whoami, status/wait by id | §2.3 | `ops-commands` |
 | i. Body from file | §2.1, §2.3 | `ops-commands` |
 | j. State root override | §13 | `test-isolation` (done) |
 | k. Backup before host writes; complete uninstall | §2.3, §13 | `safe-uninstall` |
-| Finding 1. Guardian auto-review not detected | §2.1, §8 | `identity-check` |
+| Finding 1. Guardian auto-review not detected | §2.1, §8 | `identity-check` (done) |
 | Finding 2. `--expires-at` integer only | §10 | `ops-commands` |
 | Finding 3. Held create leaves a named envelope | §10 | `delegation-fixes` (agent-relay; after translation, before hardening) |
 | Finding 4. Claude round two `target-busy` while idle | §10 | `delegation-fixes` (agent-relay; after translation, before hardening) |

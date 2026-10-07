@@ -29,8 +29,9 @@ agent-relay 是从 Spec Guard 拆出的独立插件，让同一台 Mac 上的 Cl
 | delivery-state-machine | 给信箱消息补上投递状态机（queued → sending → accepted、failed 或 unknown；queued → expired）：有歧义的提交标为 unknown 且绝不自动重放；排队超时后标为 expired、默认不再读出也不再送达，超时可配置并给出默认值建议；ack 让对应唤醒任务结束（发现 5）。同时实现 bridge-vendoring D26 规定的已装运行时升级命令。 | mailbox-core, bridge-vendoring |
 | durable-ordering | 先持久化再提交（以崩溃注入测试证明）；按接收方保证投递顺序，一个接收方卡住不阻塞其他接收方；每个接收方的待投递数量有上限，上限可配置并给出默认值建议。 | delivery-state-machine |
 | idempotency | 同一发送方的重试 key 只对应一份内容：内容相同返回原消息，内容不同拒绝；回复带上被回复消息的 id，对同一条消息的相同回复去重。 | durable-ordering |
+| identity-check | 发送方 from 必须与调用方宿主会话绑定的身份一致，不一致拒绝；只有原消息的收件人能回复它；名字不能被另一个宿主会话改绑；身份缺失时返回明确指引；自动批准的会话（含 Codex guardian_subagent）不能绑定唤醒（发现 1）；并修正 bridge 打开信箱时 busy_timeout 设置晚于 journal_mode 的问题。 | idempotency |
 
-Build order: acceptance-kit → mailbox-core → session-routing → cross-host-delegation → packaging → state-migration → delegation-fixes → test-isolation → bridge-vendoring → delivery-state-machine → durable-ordering → idempotency
+Build order: acceptance-kit → mailbox-core → session-routing → cross-host-delegation → packaging → state-migration → delegation-fixes → test-isolation → bridge-vendoring → delivery-state-machine → durable-ordering → idempotency → identity-check
 
 <!-- Spec Guard 按严格串行推进。为兼容上游格式，逗号分组会按左到右顺序展开为单模块步骤，不代表并行授权。 -->
 <!-- 加固模块（test-isolation、delivery-state-machine、durable-ordering、idempotency、identity-check、ops-commands、

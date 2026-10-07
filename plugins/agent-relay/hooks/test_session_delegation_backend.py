@@ -95,10 +95,10 @@ class DelegationBackendTests(unittest.TestCase):
         self.assertIsNone(probe(
             "origin-codex", None, "origin-thread-exact", "bounded-development"))
 
-    def test_mailbox_schema_v3_and_v4_are_read_and_an_unknown_newer_one_is_not(self):
-        # delivery-state-machine moves the mailbox to schema 3, idempotency to 4 (additive columns only).
+    def test_mailbox_schemas_v3_to_v5_are_read_and_an_unknown_newer_one_is_not(self):
+        # delivery-state-machine moves the mailbox to schema 3, idempotency to 4, identity-check to 5 (additive columns only).
         database = self._database()
-        for version, readable in ((3, True), (4, True), (5, False)):
+        for version, readable in ((3, True), (4, True), (5, True), (6, False)):
             with self.subTest(version=version):
                 with sqlite3.connect(database) as connection:
                     connection.execute(f"PRAGMA user_version = {version}")

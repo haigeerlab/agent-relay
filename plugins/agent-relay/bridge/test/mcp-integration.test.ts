@@ -134,8 +134,9 @@ test("the bridge guards addressing, pages output and closes out finished agents"
       await client.callTool({ name: "bridge_send", arguments: { from: "lead", to: "not-yet", body: "hi", allowUnregistered: true } }),
     );
     assert.match(String((later.warnings as string[])[0]), /No agent named/);
-    const anonymous = payload(await client.callTool({ name: "bridge_send", arguments: { from: "ghost", to: "lead", body: "hi" } }));
-    assert.match(String((anonymous.warnings as string[])[0]), /not registered/);
+    // agent-relay identity-check: an unregistered sender is refused (it was a warning upstream).
+    assert.match(errorText(await client.callTool({ name: "bridge_send", arguments: { from: "ghost", to: "lead", body: "hi" } })),
+      /"ghost" is not registered/);
 
     for (const body of ["one", "two", "three"]) {
       await client.callTool({ name: "bridge_send", arguments: { from: "lead", to: "codex-worker", body, threadId: "paging" } });

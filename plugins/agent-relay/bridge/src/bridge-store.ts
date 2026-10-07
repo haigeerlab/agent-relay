@@ -1,6 +1,6 @@
 import { type DeliveryState, assertBelowPendingCap, expireDue, sendTimeoutMs } from "./delivery.js";
 import { WakeQueue } from "./wake-queue.js";
-import { conflictError, contentDifferences, ReplyLinkError, replyThread } from "./idempotency.js";
+import { assertMayReply, conflictError, contentDifferences, ReplyLinkError, replyThread } from "./idempotency.js";
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -35,6 +35,14 @@ export interface BridgeAgent {
   retiredAt: string | null;
   retiredBy: string | null;
   retireNote: string | null;
+  /** agent-relay identity-check: the host session this name was registered from; null when unknown. */
+  host: AgentHost | null;
+}
+
+/** A host session: Claude's id is verified from the bridge's environment, Codex's is claimed by the session. */
+export interface AgentHost {
+  app: "claude" | "codex";
+  sessionId: string;
 }
 
 export interface AgentSummary extends BridgeAgent {
@@ -236,6 +244,8 @@ interface AgentRow {
   retired_at: string | null;
   retired_by: string | null;
   retire_note: string | null;
+  host_app?: string | null;
+  host_session?: string | null;
 }
 
 interface RunRow {
@@ -322,9 +332,10 @@ export class BridgeStore {
       else mkdirSync(directory, { recursive: true, mode: 0o700 });
     }
     this.db = new DatabaseSync(dbPath);
+    // agent-relay identity-check (D40): wait for another process's lock before the first statement that needs one.
+    this.db.exec("PRAGMA busy_timeout = 5000;");
     this.db.exec("PRAGMA journal_mode = WAL;");
     this.db.exec("PRAGMA foreign_keys = ON;");
-    this.db.exec("PRAGMA busy_timeout = 5000;");
     this.migration = migrate(this.db, (from) => this.backupBeforeMigration(from));
     if (!inMemory) this.restrictDatabaseFiles();
     this.wakes = new WakeQueue(this.db, dbPath);
@@ -410,10 +421,11 @@ export class BridgeStore {
     const replyTo = input.replyTo ?? null;
     let threadId = input.threadId ?? null;
     if (replyTo !== null) {
-      const original = this.db.prepare("SELECT thread_id FROM messages WHERE id = ?").get(replyTo) as
-        | { thread_id: string | null }
+      const original = this.db.prepare("SELECT thread_id, from_agent, to_agent FROM messages WHERE id = ?").get(replyTo) as
+        | { thread_id: string | null; from_agent: string; to_agent: string }
         | undefined;
       if (!original) throw new ReplyLinkError(`No message #${replyTo} to reply to.`);
+      assertMayReply(replyTo, original.from_agent, original.to_agent, input.fromAgent);
       threadId = replyThread(replyTo, original.thread_id, input.threadId);
     }
     const idempotencyKey = input.idempotencyKey ?? null;
@@ -670,20 +682,23 @@ export class BridgeStore {
    * Register or refresh an agent's presence. Omitted capabilities keep the
    * existing list. Registering again reactivates a retired agent.
    */
-  register(name: string, capabilities?: string[]): BridgeAgent {
+  register(name: string, capabilities?: string[], host?: AgentHost | null): BridgeAgent {
     const now = this.now();
     const existing = this.getAgent(name);
     const serialized = JSON.stringify(capabilities ?? existing?.capabilities ?? []);
+    // agent-relay identity-check: a given host is recorded, `undefined` keeps the recorded one, `null` clears it.
     this.db
       .prepare(
-        `INSERT INTO agents (name, capabilities, registered_at, last_seen)
-         VALUES (?, ?, ?, ?)
+        `INSERT INTO agents (name, capabilities, registered_at, last_seen, host_app, host_session)
+         VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT(name) DO UPDATE SET
            capabilities = excluded.capabilities,
            last_seen = excluded.last_seen,
+           host_app = CASE WHEN ? THEN excluded.host_app ELSE COALESCE(excluded.host_app, agents.host_app) END,
+           host_session = CASE WHEN ? THEN excluded.host_session ELSE COALESCE(excluded.host_session, agents.host_session) END,
            retired_at = NULL, retired_by = NULL, retire_note = NULL`,
       )
-      .run(name, serialized, now, now);
+      .run(name, serialized, now, now, host?.app ?? null, host?.sessionId ?? null, host === null ? 1 : 0, host === null ? 1 : 0);
     return this.getAgent(name) as BridgeAgent;
   }
 
@@ -722,6 +737,9 @@ export class BridgeStore {
       retiredAt: row.retired_at ?? null,
       retiredBy: row.retired_by ?? null,
       retireNote: row.retire_note ?? null,
+      host: row.host_app && row.host_session
+        ? { app: row.host_app as AgentHost["app"], sessionId: row.host_session }
+        : null,
     };
   }
 

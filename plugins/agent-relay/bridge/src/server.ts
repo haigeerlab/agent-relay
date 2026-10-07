@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { pendingWarning } from "./delivery.js";
 import { duplicateWarning } from "./idempotency.js";
+import { CallerIdentity } from "./identity.js";
+import { codexApproval, codexAutoApprovalText } from "./codex-approval.js";
 import { randomUUID } from "node:crypto";
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -65,6 +67,8 @@ function main(): void {
   const orchestrator = new Orchestrator(store);
   const channelSessionId = channelSession();
   const localAgents: string[] = [];
+  // agent-relay identity-check: names this session may act as (D37).
+  const caller = new CallerIdentity(detectSession());
   const defaultAgent = () => localAgents.at(-1) ?? "claude-main";
   const projectFallback = () => {
     const project = process.env.CLAUDE_PROJECT_DIR?.trim();
@@ -108,7 +112,7 @@ function main(): void {
     {
       title: "Register agent presence",
       description:
-        "Register a unique agent name for this conversation. wake: \"auto\" binds this exact app session for background pings; an explicit {app, sessionId} binds another session; null disables pings; omitted keeps the current binding. Registering again reactivates a retired agent.",
+        "Register a unique agent name for this conversation. wake: \"auto\" binds this exact app session for background pings (a Codex task passes {app: \"codex\", sessionId: <its CODEX_THREAD_ID>}); a session can bind only itself; null disables pings; omitted keeps the current binding. A name registered by or bound to another session is refused unless takeover: true, which needs the user's agreement. Registering again reactivates a retired agent and, after a bridge restart, proves the name for this session again.",
       inputSchema: {
         agent: z.string().min(1).describe("Unique readable agent name, e.g. 'review-claude'. Not a session ID."),
         wake: z
@@ -123,29 +127,48 @@ function main(): void {
           .array(z.string())
           .optional()
           .describe("Skills this agent offers, e.g. ['review','architecture']. Omitted keeps the existing list."),
+        takeover: z.boolean().optional().describe(
+          "Move a name registered by or bound to another session to this one. Only after the user agrees."),
       },
     },
-    async ({ agent, capabilities, wake }) => {
+    async ({ agent, capabilities, wake, takeover }) => {
       const problem = agentNameProblem(agent);
       if (problem) throw new Error(problem);
       const notes: string[] = [];
-      if (wake !== undefined) {
-        const target = wake === "auto" ? detectSession() : wake;
-        if (wake === "auto" && !target) {
-          throw new Error("Could not detect this conversation's session. For Codex, pass wake: {app: \"codex\", sessionId: \"<task ID>\"}.");
-        }
-        const current = store.wakes.target(agent);
-        if (target && current && (current.app !== target.app || current.sessionId !== target.sessionId)) {
-          const stale = current.app === "claude" && !(await isClaudeSessionLive(current.sessionId));
-          if (!stale) {
-            throw new Error(`"${agent}" is bound to a different live ${current.app} session. Choose a unique agent name, or unbind it with wake: null first.`);
-          }
-          store.wakes.bind(agent, null);
-          notes.push("The previous Claude session is no longer running, so the binding moved to this session.");
-        }
-        store.wakes.bind(agent, target);
+      const target = wake === "auto" ? detectSession() : wake;
+      if (wake === "auto" && !target) {
+        throw new Error("Could not detect this conversation's session. For Codex, pass wake: {app: \"codex\", sessionId: \"<CODEX_THREAD_ID>\"} from this task's own environment; never guess it.");
       }
-      const registered = store.register(agent, capabilities);
+      // agent-relay identity-check (assumption 4): a Claude session binds only itself; the host it registers from is
+      // its verified session, else a Codex session's claimed thread; another session's name or binding needs takeover.
+      if (caller.host && target && (target.app !== caller.host.app || target.sessionId !== caller.host.sessionId)) {
+        throw new Error(`This session can bind wake only to this session (${caller.host.app}); it cannot bind another session.`);
+      }
+      if (target?.app === "codex") {
+        const approval = codexApproval();
+        if (approval.autoApproved) throw new Error(codexAutoApprovalText(approval));
+      }
+      const host = caller.host ?? (target?.app === "codex" ? target : null);
+      const existing = store.getAgent(agent);
+      const current = store.wakes.target(agent);
+      const owner = existing?.host ?? null;
+      const ownerConflict = !!owner && (!host || owner.app !== host.app || owner.sessionId !== host.sessionId);
+      const bindingConflict = !!target && !!current && (current.app !== target.app || current.sessionId !== target.sessionId);
+      if ((ownerConflict || bindingConflict) && !takeover) {
+        const other = ownerConflict ? owner! : current!;
+        const running = other.app === "claude" ? ((await isClaudeSessionLive(other.sessionId)) ? " (still running)" : " (no longer running)") : "";
+        const codexHint = !host && owner?.app === "codex"
+          ? " If it is this Codex task's own name, register again with wake: {app: \"codex\", sessionId: \"<CODEX_THREAD_ID>\"}."
+          : "";
+        throw new Error(
+          `"${agent}" is ${ownerConflict ? "registered by" : "bound to"} another ${other.app} session${running}.${codexHint} ` +
+            "Choose a different name, or pass takeover: true only after the user agrees to move it to this session.",
+        );
+      }
+      if (takeover && (ownerConflict || bindingConflict)) notes.push(`"${agent}" was taken over from another session.`);
+      if (wake !== undefined) store.wakes.bind(agent, target ?? null);
+      const registered = store.register(agent, capabilities, takeover && ownerConflict ? host : host ?? undefined);
+      caller.prove(agent);
       localAgents.splice(0, localAgents.length, ...localAgents.filter((name) => name !== agent), agent);
       const unread = store.countUnread(agent);
       return jsonResult({
@@ -181,12 +204,10 @@ function main(): void {
     },
     async ({ from, to, body, threadId, idempotencyKey, replyTo, wake, allowUnregistered, expiresInSeconds }) => {
       if (from === BRIDGE_AGENT) throw new Error(`"${BRIDGE_AGENT}" is reserved for automated notices.`);
+      caller.require(from, store.getAgent(from), "send as");
       const check = await checkRecipient(store, to, { allowUnregistered, isClaudeSessionLive });
       if (!check.ok) throw new Error(check.error);
       const warnings = [...check.warnings];
-      if (!store.getAgent(from)) {
-        warnings.push(`Sender "${from}" is not registered, so replies and delivery notices may not reach it. Call bridge_register first.`);
-      }
       const { message, duplicate } = store.deliver({
         wake,
         fromAgent: from,
@@ -280,6 +301,7 @@ function main(): void {
       },
     },
     async ({ agent, fromAgent, threadId, timeoutSeconds, acknowledge, limit, maxChars }) => {
+      if (acknowledge ?? true) caller.require(agent, store.getAgent(agent), "acknowledge messages for");
       const max = clampLimit(limit);
       store.touch(agent);
       const result = await waitForInbox(store, {
@@ -317,6 +339,7 @@ function main(): void {
       },
     },
     async ({ agent, ids }) => {
+      caller.require(agent, store.getAgent(agent), "acknowledge messages for");
       const acknowledged = store.ack(agent, ids);
       store.touch(agent);
       return jsonResult({ acknowledged, remainingUnread: store.countUnread(agent) });
