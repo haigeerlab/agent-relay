@@ -1,6 +1,7 @@
 """Mailbox readers wait for a bridge's write lock instead of failing at once (identity-check D40)."""
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 import sqlite3
 import tempfile
@@ -18,7 +19,7 @@ class MailboxBusyTimeoutTests(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory(prefix="ar-busy-")
         self.addCleanup(tmp.cleanup)
         self.database = Path(tmp.name) / "bridge.sqlite"
-        with sqlite3.connect(self.database) as connection:
+        with closing(sqlite3.connect(self.database)) as connection:
             connection.executescript("PRAGMA journal_mode = WAL; CREATE TABLE t (x); INSERT INTO t VALUES (1);")
         self.database.chmod(0o600)
 
