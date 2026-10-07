@@ -112,7 +112,8 @@ module as done; checklist C3/C7 current column updated.
 
 **Description:** With the agent-relay runtime ready, in a throwaway project: C7 (create while a prerequisite is
 missing, then add the temporary allow rules, create again with the same name, status and cancel without
-disambiguator) and C3 Codex → Claude (create, `status` until `created`, result, `continue` round two, read-only negative). Clean up sessions, identities and
+disambiguator) and C3 both directions (Codex → Claude: create, `status` until `created`, result, `continue` round two, read-only
+negative; Claude → Codex: create and round two), with acceptance-kit in design-test. Clean up sessions, identities and
 allow rules; record in todo.
 
 **Acceptance:** spec success criterion 2.

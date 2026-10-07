@@ -54,7 +54,8 @@ store already allows the repair: `bind_host` accepts `unknown → created` when 
    This is inferred from code and the recorded output, not yet seen in raw host JSON. The capture task records the raw
    entry before any change; if it shows something else, the fix follows the evidence and this spec is updated
    first.
-2. **Codex round two is out of scope;** it passed in the baseline (item 7) and in round 1 (D10, Claude → Codex).
+2. **No Codex-side code change is expected;** Claude → Codex round two passed in the baseline (item 7) and round 1
+   (D10). It is still rerun live, because C3 is judged both ways.
 3. **The record schema stays** (`user_version = 2`, same tables and columns, same state enum and evidence words).
    The fixes change transitions the code takes and how rows are selected, not what is stored.
 4. **Build after round 1.** Round 1 passed on 2026-10-07 (verdict in its record, release 0.1.0); code starts now.
@@ -133,7 +134,7 @@ The raw host capture is stored as a test fixture, with ids replaced.
 - Mutation: restoring the old reconcile rule turns the round-two test red; removing the `_resolve` filter turns the
   same-name test red.
 - `scripts/validate.sh` green: 238 plus the new tests.
-- Live: after the code, rerun C3 (Codex → Claude) and C7 once in a throwaway project and record it.
+- Live: after the code, rerun C3 (both directions) and C7 with acceptance-kit in design-test and record it.
 
 ## Boundaries
 
@@ -145,7 +146,8 @@ The raw host capture is stored as a test fixture, with ids replaced.
 ## Success criteria
 
 1. The two Prove-It tests fail before and pass after; regression and mutation checks hold.
-2. Live C3 Codex → Claude: create answers `created` or reaches it on the next `status`, and round two passes; live C7 leaves no ambiguity and no `unknown` cancel.
+2. Live C3 in both directions (user premise 4, 2026-10-07), judged by the interface's hardening-target column:
+   Codex → Claude create answers `created` or reaches it on the next `status`, and round two passes both ways; live C7 leaves no ambiguity and no `unknown` cancel.
 3. Interface, checklist and skill updated as in requirement 5.
 
 ## Open questions
