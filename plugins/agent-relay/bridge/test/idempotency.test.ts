@@ -117,7 +117,54 @@ test("bridge_send reports a duplicate and returns the refusal text to the sender
     const refused = await send("reworded result");
     assert.equal(refused.isError, true);
     assert.match(text(refused), /no resend is needed/);
+    const reply = JSON.parse(text(await client.callTool({ name: "bridge_send",
+      arguments: { from: "worker", to: "lead", body: "thanks", replyTo: first.id } })));
+    assert.equal(reply.replyTo, first.id);
   } finally {
     await client.close();
   }
+});
+
+// agent-relay idempotency: the reply link (assumption 3, D36).
+test("a reply names an existing original and takes its thread; a different thread or unknown original is refused", () => {
+  const s = fresh();
+  const original = s.send({ fromAgent: "s", toAgent: "x", body: "please review", threadId: "t1" });
+  const reply = s.send({ fromAgent: "x", toAgent: "s", body: "done", replyTo: original.id });
+  assert.equal(reply.replyTo, original.id);
+  assert.equal(reply.threadId, "t1", "thread inherited");
+  assert.equal(s.send({ fromAgent: "x", toAgent: "s", body: "more", replyTo: original.id, threadId: "t1" }).threadId, "t1");
+  assert.throws(() => s.send({ fromAgent: "x", toAgent: "s", body: "elsewhere", replyTo: original.id, threadId: "t2" }),
+    new RegExp(`Message #${original.id} is on thread "t1".*not "t2"`));
+  assert.throws(() => s.send({ fromAgent: "x", toAgent: "s", body: "lost", replyTo: 9999 }), /No message #9999 to reply to/);
+  const unthreaded = s.send({ fromAgent: "s", toAgent: "x", body: "no thread" });
+  assert.throws(() => s.send({ fromAgent: "x", toAgent: "s", body: "r", replyTo: unthreaded.id, threadId: "t9" }), /no thread/);
+  assert.equal(s.send({ fromAgent: "x", toAgent: "s", body: "r", replyTo: unthreaded.id }).threadId, null);
+  s.close();
+});
+
+test("the reply link is part of a retry's content", () => {
+  const s = fresh();
+  const a = s.send({ fromAgent: "s", toAgent: "x", body: "a" });
+  const b = s.send({ fromAgent: "s", toAgent: "x", body: "b" });
+  s.send({ fromAgent: "x", toAgent: "s", body: "ok", replyTo: a.id, idempotencyKey: "r" });
+  assert.throws(() => s.send({ fromAgent: "x", toAgent: "s", body: "ok", replyTo: b.id, idempotencyKey: "r" }),
+    (error: unknown) => error instanceof IdempotencyConflictError && /replyTo/.test((error as Error).message));
+  assert.equal(s.deliver({ fromAgent: "x", toAgent: "s", body: "ok", replyTo: a.id, idempotencyKey: "r" }).duplicate, true);
+  s.close();
+});
+
+test("inbox, thread and outbox show the link; the outbox lists each message's replies", () => {
+  const s = fresh();
+  const original = s.send({ fromAgent: "s", toAgent: "x", body: "question", threadId: "t1" });
+  const first = s.send({ fromAgent: "x", toAgent: "s", body: "answer 1", replyTo: original.id });
+  const second = s.send({ fromAgent: "y", toAgent: "s", body: "answer 2", replyTo: original.id });
+  assert.deepEqual(s.inbox("s").map((m) => m.replyTo), [original.id, original.id]);
+  assert.deepEqual(s.thread("t1").map((m) => m.replyTo), [null, original.id, original.id]);
+  const sent = s.outbox("s").entries.find((entry) => entry.id === original.id);
+  assert.equal(sent?.replyTo, null);
+  assert.deepEqual(sent?.replies, [first.id, second.id]);
+  const answered = s.outbox("x").entries.find((entry) => entry.id === first.id);
+  assert.equal(answered?.replyTo, original.id);
+  assert.deepEqual(answered?.replies, []);
+  s.close();
 });

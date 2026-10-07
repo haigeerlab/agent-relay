@@ -5,13 +5,27 @@ export interface MessageContent {
   toAgent: string;
   body: string;
   threadId: string | null;
+  replyTo: number | null;
 }
 
 export class IdempotencyConflictError extends Error {}
 
+/** A reply that names no stored message, or a thread other than its original's (D36). */
+export class ReplyLinkError extends Error {}
+
+/** The thread a reply goes on: the original's, which an explicit threadId must match (D36). */
+export function replyThread(originalId: number, originalThread: string | null, requested: string | null | undefined): string | null {
+  if (requested == null || requested === originalThread) return originalThread;
+  const where = originalThread === null ? "has no thread" : `is on thread "${originalThread}"`;
+  throw new ReplyLinkError(
+    `Message #${originalId} ${where}, so its reply must be on the same thread, not "${requested}". ` +
+      "Omit threadId to use the original's thread.",
+  );
+}
+
 /** Names of the content fields in which a retry differs from the stored message. */
 export function contentDifferences(stored: MessageContent, retry: MessageContent): string[] {
-  return (["toAgent", "body", "threadId"] as const).filter((field) => stored[field] !== retry[field]);
+  return (["toAgent", "body", "threadId", "replyTo"] as const).filter((field) => stored[field] !== retry[field]);
 }
 
 /**
