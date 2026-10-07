@@ -521,7 +521,9 @@ def _attempted(claim: DelegationClaim) -> bool:
 
 
 def default_state_root() -> Path:
-    return Path.home() / ".agent-relay" / "delegation"
+    from native_collaboration_runtime import state_home
+
+    return state_home() / "delegation"
 
 
 def _origin_session(host: str) -> str:
