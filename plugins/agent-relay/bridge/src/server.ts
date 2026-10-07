@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { pendingWarning } from "./delivery.js";
 import { duplicateWarning } from "./idempotency.js";
+import { CallerIdentity } from "./identity.js";
 import { randomUUID } from "node:crypto";
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -65,6 +66,8 @@ function main(): void {
   const orchestrator = new Orchestrator(store);
   const channelSessionId = channelSession();
   const localAgents: string[] = [];
+  // agent-relay identity-check: names this session may act as (D37).
+  const caller = new CallerIdentity(detectSession());
   const defaultAgent = () => localAgents.at(-1) ?? "claude-main";
   const projectFallback = () => {
     const project = process.env.CLAUDE_PROJECT_DIR?.trim();
@@ -145,7 +148,10 @@ function main(): void {
         }
         store.wakes.bind(agent, target);
       }
-      const registered = store.register(agent, capabilities);
+      // Record the host: Claude's verified session, else a Codex session's claimed one; otherwise keep the recorded host.
+      const claimed = wake && wake !== "auto" && wake.app === "codex" ? wake : null;
+      const registered = store.register(agent, capabilities, caller.host ?? claimed);
+      caller.prove(agent);
       localAgents.splice(0, localAgents.length, ...localAgents.filter((name) => name !== agent), agent);
       const unread = store.countUnread(agent);
       return jsonResult({
@@ -181,12 +187,10 @@ function main(): void {
     },
     async ({ from, to, body, threadId, idempotencyKey, replyTo, wake, allowUnregistered, expiresInSeconds }) => {
       if (from === BRIDGE_AGENT) throw new Error(`"${BRIDGE_AGENT}" is reserved for automated notices.`);
+      caller.require(from, store.getAgent(from), "send as");
       const check = await checkRecipient(store, to, { allowUnregistered, isClaudeSessionLive });
       if (!check.ok) throw new Error(check.error);
       const warnings = [...check.warnings];
-      if (!store.getAgent(from)) {
-        warnings.push(`Sender "${from}" is not registered, so replies and delivery notices may not reach it. Call bridge_register first.`);
-      }
       const { message, duplicate } = store.deliver({
         wake,
         fromAgent: from,
@@ -280,6 +284,7 @@ function main(): void {
       },
     },
     async ({ agent, fromAgent, threadId, timeoutSeconds, acknowledge, limit, maxChars }) => {
+      if (acknowledge ?? true) caller.require(agent, store.getAgent(agent), "acknowledge messages for");
       const max = clampLimit(limit);
       store.touch(agent);
       const result = await waitForInbox(store, {
@@ -317,6 +322,7 @@ function main(): void {
       },
     },
     async ({ agent, ids }) => {
+      caller.require(agent, store.getAgent(agent), "acknowledge messages for");
       const acknowledged = store.ack(agent, ids);
       store.touch(agent);
       return jsonResult({ acknowledged, remainingUnread: store.countUnread(agent) });
