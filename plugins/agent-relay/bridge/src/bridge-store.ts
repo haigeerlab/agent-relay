@@ -1,3 +1,4 @@
+import { type DeliveryState, sendTimeoutMs } from "./delivery.js";
 import { WakeQueue } from "./wake-queue.js";
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
@@ -16,6 +17,10 @@ export interface BridgeMessage {
   threadId: string | null;
   idempotencyKey: string | null;
   createdAt: string;
+  /** agent-relay delivery-state-machine: null for broadcasts. */
+  deliveryState: DeliveryState | null;
+  /** ISO time after which a still-queued direct message expires; null for broadcasts and older rows. */
+  expiresAt: string | null;
 }
 
 /** A registered agent and its advertised capabilities. */
@@ -122,6 +127,8 @@ export interface RunEvent {
 
 export interface SendInput {
   wake?: boolean;
+  /** Per-send queue timeout (D27), 60 … 604800 seconds; default from BRIDGE_QUEUE_TIMEOUT_MS or 24 h. */
+  expiresInSeconds?: number;
   fromAgent: string;
   toAgent: string;
   body: string;
@@ -203,6 +210,8 @@ interface MessageRow {
   thread_id: string | null;
   idempotency_key: string | null;
   created_at: string;
+  delivery_state?: string | null;
+  expires_at?: number | null;
 }
 
 interface AgentRow {
@@ -346,7 +355,14 @@ export class BridgeStore {
       threadId: row.thread_id,
       idempotencyKey: row.idempotency_key,
       createdAt: row.created_at,
+      deliveryState: row.to_agent === "*" ? null : ((row.delivery_state ?? "queued") as DeliveryState),
+      expiresAt: row.expires_at == null ? null : new Date(Number(row.expires_at)).toISOString(),
     };
+  }
+
+  /** The underlying connection, for the delivery module and tests. */
+  get database(): DatabaseSync {
+    return this.db;
   }
 
   /**
@@ -377,12 +393,17 @@ export class BridgeStore {
       if (existing) return this.toMessage(existing);
     }
 
+    const direct = input.toAgent !== "*";
+    const sentAt = Date.now();
+    const expiresAt = direct ? sentAt + sendTimeoutMs(input.expiresInSeconds) : null;
     const result = this.db
       .prepare(
-        `INSERT INTO messages (from_agent, to_agent, body, thread_id, idempotency_key, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO messages (from_agent, to_agent, body, thread_id, idempotency_key, created_at,
+                               delivery_state, delivery_changed_at, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(input.fromAgent, input.toAgent, input.body, threadId, idempotencyKey, this.now());
+      .run(input.fromAgent, input.toAgent, input.body, threadId, idempotencyKey,
+        new Date(sentAt).toISOString(), direct ? "queued" : null, direct ? sentAt : null, expiresAt);
 
     const message = this.messageById(Number(result.lastInsertRowid)) as BridgeMessage;
     if (input.wake !== false) this.wakes.enqueue(message);

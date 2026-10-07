@@ -24,3 +24,4 @@ A module that changes the bridge records the change here and rewrites `UPSTREAM.
 | Module | Files | Change |
 |---|---|---|
 | `delivery-state-machine` | `src/schema.ts`, `test/schema.test.ts` | Schema v3: nullable `messages.delivery_state`, `delivery_changed_at`, `read_at`, `expires_at` and an index; tests for the v2 → v3 migration and older-process inserts |
+| `delivery-state-machine` | `src/delivery.ts` (new), `src/bridge-store.ts`, `src/server.ts`, `test/delivery-state.test.ts` (new) | Delivery state and its one transition table (D28); a direct send starts `queued` with `expires_at` (24 h default, `BRIDGE_QUEUE_TIMEOUT_MS`, per-send `expiresInSeconds`); messages carry `deliveryState` and `expiresAt` |

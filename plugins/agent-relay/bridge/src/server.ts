@@ -170,9 +170,11 @@ function main(): void {
         threadId: z.string().optional().describe("Optional conversation thread identifier."),
         idempotencyKey: z.string().optional().describe("Optional key to prevent duplicate delivery on retry."),
         allowUnregistered: z.boolean().optional().describe("Deliver even if the recipient is unknown or retired."),
+        expiresInSeconds: z.number().int().min(60).max(604800).optional().describe(
+          "Queue timeout for a direct message: if still undelivered after this many seconds it expires and is never delivered. Default 24 h (BRIDGE_QUEUE_TIMEOUT_MS)."),
       },
     },
-    async ({ from, to, body, threadId, idempotencyKey, wake, allowUnregistered }) => {
+    async ({ from, to, body, threadId, idempotencyKey, wake, allowUnregistered, expiresInSeconds }) => {
       if (from === BRIDGE_AGENT) throw new Error(`"${BRIDGE_AGENT}" is reserved for automated notices.`);
       const check = await checkRecipient(store, to, { allowUnregistered, isClaudeSessionLive });
       if (!check.ok) throw new Error(check.error);
@@ -187,6 +189,7 @@ function main(): void {
         body,
         threadId: threadId ?? null,
         idempotencyKey: idempotencyKey ?? null,
+        expiresInSeconds,
       });
       store.touch(from);
       await dispatcher.flush();
