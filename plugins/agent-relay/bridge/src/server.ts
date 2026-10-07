@@ -161,7 +161,7 @@ function main(): void {
     {
       title: "Send a message",
       description:
-        "Save a message, then ping its bound recipient in the background. The recipient must be registered (use allowUnregistered only when it will register later). The result carries warnings when the recipient is unlikely to pick the message up. Broadcasts and wake:false sends do not ping anyone.",
+        "Save a message, then ping its bound recipient in the background. The recipient must be registered (use allowUnregistered only when it will register later). The result carries warnings when the recipient is unlikely to pick the message up. Broadcasts and wake:false sends do not ping anyone. A direct message reports deliveryState: queued, sending, accepted, failed, unknown or expired. Exactly-once is not promised: an unconfirmed ping is reported unknown and never re-sent, and a message still queued after its timeout (default 24 h) expires and is never delivered.",
       inputSchema: {
         wake: z.boolean().optional().describe("Ping a bound direct recipient. Defaults true. False saves silently."),
         from: z.string().min(1).describe("Sender agent name."),
@@ -354,7 +354,7 @@ function main(): void {
     "bridge_outbox",
     {
       title: "Check sent messages",
-      description: "List direct messages an agent sent that the recipient has not acknowledged yet (newest first), with ping outcome and whether the recipient is active, retired or unknown.",
+      description: "List direct messages an agent sent that the recipient has not acknowledged yet (newest first), with ping outcome, delivery state (queued, sending, accepted, failed, unknown, expired) and whether the recipient is active, retired or unknown.",
       inputSchema: {
         agent: z.string().min(1).describe("Sender whose outbox to read."),
         includeAcknowledged: z.boolean().optional().describe("Include messages the recipient already acknowledged."),

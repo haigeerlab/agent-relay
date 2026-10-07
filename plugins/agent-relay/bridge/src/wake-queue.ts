@@ -44,6 +44,8 @@ export interface WakeJob {
   createdAt: number;
   detail: string;
   pendingReason?: PendingReason | null;
+  /** agent-relay delivery-state-machine (D29): the message's own delivery state. */
+  deliveryState?: DeliveryState | null;
 }
 
 /** An unreachable recipient keeps its ping for an hour. */
@@ -88,7 +90,7 @@ export class WakeQueue {
   }
 
   private row(value: Record<string, unknown>): WakeJob {
-    const message = this.db.prepare("SELECT from_agent, thread_id, substr(body, 1, 280) AS preview FROM messages WHERE id = ?").get(Number(value.message_id));
+    const message = this.db.prepare("SELECT from_agent, to_agent, thread_id, substr(body, 1, 280) AS preview, delivery_state FROM messages WHERE id = ?").get(Number(value.message_id));
     const ack = this.db.prepare("SELECT acked_at FROM acknowledgements WHERE message_id = ? AND agent = ?").get(Number(value.message_id), value.agent as string);
     return {
       fromAgent: message?.from_agent as string | undefined,
@@ -100,6 +102,8 @@ export class WakeQueue {
       attemptId: value.attempt_id as string | null, attempts: Number(value.attempts),
       retryAt: Number(value.retry_at), createdAt: Number(value.created_at), detail: value.detail as string,
       pendingReason: (value.pending_reason as PendingReason | null | undefined) ?? null,
+      deliveryState: !message || message.to_agent === "*" ? null
+        : ((message.delivery_state as string | null) ?? "queued") as DeliveryState,
     };
   }
 

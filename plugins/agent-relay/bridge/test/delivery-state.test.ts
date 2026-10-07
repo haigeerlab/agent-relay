@@ -96,3 +96,20 @@ test("a row written by an older process (NULL state) reads and moves as queued",
   assert.equal(deliveryState(db, id), "sending");
   s.close();
 });
+
+test("the sender sees each message's delivery state in the outbox and in wake status (D29)", () => {
+  const s = store();
+  s.wakes.bind("b", { app: "codex", sessionId: "thread-b" });
+  const sent = s.send({ fromAgent: "a", toAgent: "b", body: "tracked" });
+  const lapsed = s.send({ fromAgent: "a", toAgent: "b", body: "lapsed", wake: false });
+  s.database.prepare("UPDATE messages SET expires_at = ? WHERE id = ?").run(Date.now() - 1, lapsed.id);
+  const job = s.wakes.claim(Date.now() + 1);
+  assert.ok(job);
+  s.wakes.finish(job, { state: "accepted", detail: "turn started" });
+  const entries = Object.fromEntries(s.outbox("a").entries.map((entry) => [entry.id, entry]));
+  assert.equal(entries[sent.id]?.deliveryState, "accepted");
+  assert.equal(entries[lapsed.id]?.deliveryState, "expired");
+  assert.equal(entries[sent.id]?.expiresAt, sent.expiresAt);
+  assert.equal(s.wakes.forMessage(sent.id)?.deliveryState, "accepted");
+  s.close();
+});

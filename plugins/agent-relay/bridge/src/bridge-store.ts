@@ -179,6 +179,9 @@ export interface OutboxEntry {
   acknowledgedAt: string | null;
   wake: { state: string; detail: string } | null;
   recipient: "active" | "retired" | "unknown";
+  /** agent-relay delivery-state-machine (D29). */
+  deliveryState: DeliveryState;
+  expiresAt: string | null;
 }
 
 export interface RetireInput {
@@ -563,11 +566,13 @@ export class BridgeStore {
   ): { totalUnacknowledged: number; hasMore: boolean; entries: OutboxEntry[] } {
     const limit = clampLimit(options.limit, 30);
     const ackFilter = options.includeAcknowledged ? "" : "AND a.acked_at IS NULL";
+    expireDue(this.db);
     const rows = this.db
       .prepare(
         `SELECT m.id, m.to_agent, m.thread_id, m.created_at, substr(m.body, 1, 200) AS preview,
                 length(m.body) AS body_length, a.acked_at, w.state AS wake_state,
-                w.detail AS wake_detail, r.name AS recipient_name, r.retired_at AS recipient_retired
+                w.detail AS wake_detail, r.name AS recipient_name, r.retired_at AS recipient_retired,
+                m.delivery_state, m.expires_at
          FROM messages m
          LEFT JOIN acknowledgements a ON a.message_id = m.id AND a.agent = m.to_agent
          LEFT JOIN wake_jobs w ON w.message_id = m.id AND w.agent = m.to_agent
@@ -601,6 +606,8 @@ export class BridgeStore {
             : { state: row.wake_state as string, detail: row.wake_detail as string },
         recipient:
           row.recipient_name === null ? "unknown" : row.recipient_retired ? "retired" : "active",
+        deliveryState: ((row.delivery_state as string | null) ?? "queued") as DeliveryState,
+        expiresAt: row.expires_at == null ? null : new Date(Number(row.expires_at)).toISOString(),
       })),
     };
   }
