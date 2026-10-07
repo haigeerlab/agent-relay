@@ -14,11 +14,10 @@ import sqlite3
 import subprocess
 import tempfile
 from typing import Any, Callable, Iterable
-from urllib.parse import quote
 
 from native_collaboration_adapters import CLAUDE_SERVER_NAME, CODEX_SERVER_NAME
 from state_migration import _snapshot
-from native_collaboration_runtime import (DENIED_TOOLS, MAILBOX_BUSY_TIMEOUT, MAILBOX_SCHEMA_VERSIONS, MAILBOX_TOOLS,
+from native_collaboration_runtime import (DENIED_TOOLS, MAILBOX_SCHEMA_VERSIONS, MAILBOX_TOOLS, open_mailbox_read_only,
                                           probe_runtime, status)
 
 DEFAULT_MAX_PENDING = 100
@@ -83,8 +82,7 @@ def _mailbox(database: Path, original: Path | None = None) -> dict[str, str]:
     if not original.exists():
         return _check("mailbox", "ok", "no mailbox yet; the bridge creates it on first use")
     try:
-        with closing(sqlite3.connect("file:%s?mode=ro" % quote(str(database)), uri=True,
-                                     timeout=MAILBOX_BUSY_TIMEOUT)) as connection:
+        with closing(open_mailbox_read_only(database)) as connection:
             version = connection.execute("PRAGMA user_version").fetchone()[0]
             if version not in MAILBOX_SCHEMA_VERSIONS:
                 return _check("mailbox", "fail", f"mailbox schema {version} is not one this plugin reads "
@@ -216,8 +214,7 @@ def _wake_bindings(database: Path, sessions_dir: Path, alive: Callable[[int], bo
     if not database.exists():
         return _check("wake-bindings", "ok", "no mailbox yet")
     try:
-        with closing(sqlite3.connect("file:%s?mode=ro" % quote(str(database)), uri=True,
-                                     timeout=MAILBOX_BUSY_TIMEOUT)) as connection:
+        with closing(open_mailbox_read_only(database)) as connection:
             rows = connection.execute(
                 "SELECT w.agent, w.target FROM wake_targets w JOIN agents a ON a.name = w.agent "
                 "WHERE a.retired_at IS NULL ORDER BY w.agent").fetchall()

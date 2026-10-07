@@ -10,10 +10,9 @@ from pathlib import Path
 import sqlite3
 import stat
 from typing import Any, Callable
-from urllib.parse import quote
 
 from native_collaboration_adapters import CLAUDE_SERVER_NAME, claude_config
-from native_collaboration_runtime import MAILBOX_BUSY_TIMEOUT, MAILBOX_SCHEMA_VERSIONS
+from native_collaboration_runtime import MAILBOX_SCHEMA_VERSIONS, open_mailbox_read_only
 from session_delegation import RESULT_KEY_PREFIX
 from session_delegation_codex import CommunicationServer
 from session_routing import BRIDGE_TRANSPORT
@@ -56,8 +55,7 @@ def _mailbox_connection(database: Path) -> sqlite3.Connection:
     if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid()
             or stat.S_IMODE(metadata.st_mode) & 0o077):
         raise ValueError("mailbox-database-unsafe")
-    uri = "file:%s?mode=ro" % quote(str(database.absolute()))
-    connection = sqlite3.connect(uri, uri=True, timeout=MAILBOX_BUSY_TIMEOUT)
+    connection = open_mailbox_read_only(database)
     connection.row_factory = sqlite3.Row
     return connection
 
@@ -127,8 +125,7 @@ def native_registration_probe(database: Path) -> Callable[
             if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid()
                     or stat.S_IMODE(metadata.st_mode) & 0o077):
                 return None
-            uri = "file:%s?mode=ro" % quote(str(database.absolute()))
-            with closing(sqlite3.connect(uri, uri=True, timeout=MAILBOX_BUSY_TIMEOUT)) as connection:
+            with closing(open_mailbox_read_only(database)) as connection:
                 if connection.execute("PRAGMA user_version").fetchone()[0] not in MAILBOX_SCHEMA_VERSIONS:
                     return None
                 agent = connection.execute(

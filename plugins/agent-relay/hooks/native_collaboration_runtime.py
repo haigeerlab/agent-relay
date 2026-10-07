@@ -326,13 +326,26 @@ def _servers_running(root: Path) -> int:
     return sum(1 for line in listing.splitlines() if server in line)
 
 
-def _mailbox_counts(database: Path) -> dict[str, int]:
+def open_mailbox_read_only(database: Path, *, timeout: float = MAILBOX_BUSY_TIMEOUT) -> "sqlite3.Connection":
+    """Open a mailbox (live or a private copy) read-only, on every supported Python's SQLite."""
     import sqlite3
     from urllib.parse import quote
 
+    uri = "file:%s?mode=ro" % quote(str(Path(database).absolute()))
+    if not any(Path(str(database) + suffix).exists() for suffix in ("-wal", "-shm")):
+        # No connection has the file open, so every committed row is in the file itself. Read it immutable: SQLite 3.43
+        # (macOS /usr/bin/python3 3.9) cannot open such a WAL-mode file with mode=ro alone, and newer versions would
+        # create -wal/-shm beside it (round2-fixes D51). A bridge starting meanwhile writes to its new -wal, not here.
+        uri += "&immutable=1"
+    return sqlite3.connect(uri, uri=True, timeout=timeout)
+
+
+def _mailbox_counts(database: Path) -> dict[str, int]:
+    from contextlib import closing
+
     if not database.is_file():
         return {}
-    with sqlite3.connect("file:%s?mode=ro" % quote(str(database)), uri=True) as connection:
+    with closing(open_mailbox_read_only(database)) as connection:
         tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         return {table: connection.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
                 for table in ("agents", "messages", "acknowledgements", "wake_jobs") if table in tables}

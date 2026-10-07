@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """State migration: blockers stop before any write; a migration copies, verifies, and leaves old data untouched."""
+from contextlib import closing
 import hashlib
 import json
 import sqlite3
@@ -46,7 +47,7 @@ class Fixture(unittest.TestCase):
         self.private(self.old_runtime / "data" / "claude-codex-bridge" / "runs")
         (self.old_runtime / "data").chmod(0o755)  # a looser source mode must not loosen the target
         database = mailbox / "bridge.sqlite"
-        with sqlite3.connect(database) as connection:
+        with closing(sqlite3.connect(database)) as connection, connection:
             connection.executescript(
                 "PRAGMA journal_mode=WAL;"
                 "CREATE TABLE messages (id INTEGER PRIMARY KEY, body TEXT);"
@@ -68,7 +69,7 @@ class Fixture(unittest.TestCase):
     def make_old_delegation(self, rows=(("cancelled", None),)):
         DelegationStore(self.old_delegation_dir)
         database = self.old_delegation_dir / "delegation.sqlite"
-        with sqlite3.connect(database) as connection:
+        with closing(sqlite3.connect(database)) as connection, connection:
             connection.execute(
                 "INSERT INTO authorizations VALUES (?, 'key-00000001', ?, 'task', 'claude', 'origin', '/p', 'repo', "
                 "'base', 0, '[\"codex\"]', 'safe-review', NULL, 1, 9999999999, 0, 'summary', 'cancelled', 1, 1)",
@@ -89,7 +90,7 @@ class Fixture(unittest.TestCase):
         (self.runtime / "manifest.json").write_text(json.dumps({"commit": BRIDGE_COMMIT}), encoding="utf-8")
         if agents:
             database = self.runtime / "mailbox" / "bridge.sqlite"
-            with sqlite3.connect(database) as connection:
+            with closing(sqlite3.connect(database)) as connection, connection:
                 connection.execute("CREATE TABLE agents (name TEXT)")
                 connection.executemany("INSERT INTO agents VALUES (?)", [("x",)] * agents)
             database.chmod(0o600)
@@ -135,7 +136,7 @@ class BlockerTests(Fixture):
 
     def test_a_launched_open_delegation_always_blocks(self):
         self.make_ready_case()
-        with sqlite3.connect(self.old_delegation_dir / "delegation.sqlite") as connection:
+        with closing(sqlite3.connect(self.old_delegation_dir / "delegation.sqlite")) as connection, connection:
             connection.execute("UPDATE delegations SET state='running', host_session_ref='s'")
         self.assert_blocked("was launched", acknowledged=("00f0de",))
 
