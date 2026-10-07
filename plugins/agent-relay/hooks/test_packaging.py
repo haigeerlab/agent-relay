@@ -57,11 +57,17 @@ class RelayStatusTests(unittest.TestCase):
         # Run exactly as Spec Guard's probe does: the declared argv, from the plugin root.
         argv = load(PLUGIN / "interface.json")["status"]
         done = subprocess.run([sys.executable, *argv[1:]], cwd=PLUGIN, capture_output=True, text=True,
-                              env=dict(os.environ, HOME=str(self.home)), timeout=60)
+                              env=self.environment(), timeout=60)
         self.assertEqual(done.returncode, 0, done.stderr)
         report = json.loads(done.stdout)
         self.assertEqual(set(report), {"ready", "setup"})
         return report
+
+    def environment(self):
+        # The default layout under this home: the variable is unset, as for an installed user.
+        env = dict(os.environ, HOME=str(self.home))
+        env.pop("AGENT_RELAY_HOME", None)
+        return env
 
     def make_ready_runtime(self):
         for directory in (self.root, self.root / "mailbox", self.root / "mailbox" / "backups", self.root / "data"):

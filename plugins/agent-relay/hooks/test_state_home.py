@@ -195,5 +195,19 @@ class EntryPointSweepTests(unittest.TestCase):
         self.assertEqual(offenders, [])
 
 
+
+class SealedRunTests(unittest.TestCase):
+    """Under scripts/validate.sh no test can reach the user's state or host config (D22)."""
+
+    def test_the_validate_run_points_every_root_into_its_seal(self):
+        seal = os.environ.get("AGENT_RELAY_TEST_SEAL")
+        if not seal:
+            self.skipTest("only meaningful inside scripts/validate.sh")
+        seal = Path(seal).resolve()
+        for path in (Path.home(), state_home(), default_root(),
+                     Path(os.environ["CLAUDE_CONFIG_DIR"]), Path(os.environ["CODEX_HOME"])):
+            self.assertTrue(path.resolve().is_relative_to(seal), path)
+
+
 if __name__ == "__main__":
     unittest.main()

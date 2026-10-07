@@ -249,7 +249,9 @@ class RecoveryTests(unittest.TestCase):
 
     def test_default_state_root_is_the_delegation_directory_under_agent_relay(self):
         # D9: runtime/, delegation/ and backups/ are siblings under ~/.agent-relay.
-        with mock.patch("session_delegation_control.Path.home", return_value=Path("/home/u")):
+        with mock.patch("session_delegation_control.Path.home", return_value=Path("/home/u")), \
+                mock.patch.dict(os.environ):
+            os.environ.pop("AGENT_RELAY_HOME", None)
             self.assertEqual(default_state_root(), Path("/home/u/.agent-relay/delegation"))
 
     def test_a_pre_split_result_key_is_refused(self):
