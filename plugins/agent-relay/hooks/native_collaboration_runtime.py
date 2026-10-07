@@ -26,8 +26,31 @@ class NativeRuntimeError(ValueError):
     """The opt-in bridge runtime is absent, unsafe, or could not be installed."""
 
 
+STATE_HOME_VARIABLE = "AGENT_RELAY_HOME"
+
+
+class StateHomeError(ValueError):
+    """AGENT_RELAY_HOME is set to something that cannot be the state root."""
+
+
+def state_home() -> Path:
+    """The one place that decides agent-relay's state root (test-isolation, D21).
+
+    `AGENT_RELAY_HOME` when set to an absolute path, else `~/.agent-relay`; an empty value
+    counts as unset, a relative one is refused rather than resolved against the cwd.
+    """
+    value = os.environ.get(STATE_HOME_VARIABLE, "")
+    if not value:
+        return Path.home() / ".agent-relay"
+    path = Path(value)
+    if not path.is_absolute():
+        raise StateHomeError(
+            f"{STATE_HOME_VARIABLE} must be an absolute path, got {value!r}")
+    return path
+
+
 def default_root() -> Path:
-    return Path.home() / ".agent-relay" / "runtime"
+    return state_home() / "runtime"
 
 
 def _private_directory(path: Path) -> None:
@@ -200,10 +223,14 @@ def probe_runtime(root: Path, *, node: str = "node") -> dict[str, Any]:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("status", "install", "probe"))
-    parser.add_argument("--root", type=Path, default=default_root())
+    parser.add_argument("--root", type=Path)
     parser.add_argument("--node", default="node")
     parser.add_argument("--npm", default="npm")
     args = parser.parse_args(argv)
+    try:
+        args.root = args.root or default_root()
+    except StateHomeError as error:
+        parser.exit(2, f"{parser.prog}: error: {error}\n")
     try:
         result = (status(args.root) if args.command == "status" else
                   probe_runtime(args.root, node=args.node) if args.command == "probe" else

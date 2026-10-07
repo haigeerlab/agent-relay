@@ -4,6 +4,14 @@
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
 
+# Seal the run (test-isolation D22): every test sees a throwaway home, state root and host config, so
+# none can read or write the user's ~/.agent-relay, ~/.claude or ~/.codex. Removed on any exit.
+SEAL="$(mktemp -d "${TMPDIR:-/tmp}/ar-validate-XXXXXX")" || exit 1
+trap 'rm -rf "$SEAL"' EXIT
+mkdir -p "$SEAL/home" "$SEAL/claude" "$SEAL/codex"
+export AGENT_RELAY_TEST_SEAL="$SEAL" HOME="$SEAL/home" AGENT_RELAY_HOME="$SEAL/agent-relay" \
+  CLAUDE_CONFIG_DIR="$SEAL/claude" CODEX_HOME="$SEAL/codex"
+
 TESTS_GLOB="plugins/agent-relay/hooks/test_*.py"
 F=0
 FILES=0

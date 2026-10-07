@@ -521,7 +521,9 @@ def _attempted(claim: DelegationClaim) -> bool:
 
 
 def default_state_root() -> Path:
-    return Path.home() / ".agent-relay" / "delegation"
+    from native_collaboration_runtime import state_home
+
+    return state_home() / "delegation"
 
 
 def _origin_session(host: str) -> str:
@@ -626,7 +628,7 @@ def _production_controller(args: argparse.Namespace) -> SessionDelegationControl
 
 
 def _add_runtime_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--state-root", type=Path, default=default_state_root())
+    parser.add_argument("--state-root", type=Path)
     parser.add_argument("--native-root", type=Path)
     parser.add_argument("--node")
     parser.add_argument("--claude-bin")
@@ -691,7 +693,17 @@ def _read_prompt() -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = _parser().parse_args(argv)
+    parser = _parser()
+    args = parser.parse_args(argv)
+    from native_collaboration_runtime import StateHomeError
+
+    try:
+        args.state_root = args.state_root or default_state_root()
+        if args.native_root is None:
+            from native_collaboration_runtime import default_root as default_native_root
+            args.native_root = default_native_root()
+    except StateHomeError as error:
+        parser.exit(2, f"{parser.prog}: error: {error}\n")
     try:
         if args.command == "permissions":
             payload = _permission_preflight(args)

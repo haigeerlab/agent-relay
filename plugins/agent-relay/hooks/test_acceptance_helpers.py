@@ -83,7 +83,8 @@ class CleanupTests(unittest.TestCase):
         shutil.copy(CLEANUP, self.tmp / "repo" / "scripts" / "acceptance" / "cleanup.sh")
         self.log = self.tmp / "retired.log"
         (hooks / "native_collaboration_runtime.py").write_text(
-            f"from pathlib import Path\ndef default_root():\n    return Path({str(self.tmp / 'root')!r})\n",
+            "from pathlib import Path\nclass StateHomeError(ValueError):\n    pass\n"
+            f"def default_root():\n    return Path({str(self.tmp / 'root')!r})\n",
             encoding="utf-8")
         (hooks / "native_collaboration_retire.py").write_text(
             "import sys\n"

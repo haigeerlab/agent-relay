@@ -245,7 +245,7 @@ Rules:
 | Migration safeguards | None | Implemented in `state-migration`: copy-only (old directories, host entries and permission files never changed; every old database read goes through a file copy); blocks on a launched non-terminal delegation, on a never-launched one unless acknowledged (D12), on running old bridge servers (D13), and unless the agent-relay runtime is ready with an empty mailbox and no delegation database (D14); backup under `~/.agent-relay/backups/<UTC>/`; every table count verified |
 | Backup before host config writes | None [BL §Gap analysis, item k] | Every host config write keeps a copy first — `safe-uninstall` |
 | Uninstall | Exact entry removal; mailbox history kept; runtime directory left [BL §Gap analysis, item k] | Documented complete uninstall; history kept by default — `safe-uninstall` |
-| State root override | Bridge honours `BRIDGE_DB_PATH`/`XDG_DATA_HOME`; Spec Guard has `--root` only [BL §Gap analysis, item j] | One environment variable relocates the whole state root; all tests use it — `test-isolation` |
+| State root override | Bridge honours `BRIDGE_DB_PATH`/`XDG_DATA_HOME`; Spec Guard has `--root` only [BL §Gap analysis, item j] | Done in `test-isolation`: `AGENT_RELAY_HOME` (absolute; relative exits 2) relocates runtime, mailbox, delegation and backups for every entry point; flags still win; host entries keep the absolute paths written at attach time, so moving the root needs a re-attach; `scripts/validate.sh` runs every test with home, state root and host config dirs in a throwaway directory |
 
 ## 14. Gap and findings index
 
@@ -262,7 +262,7 @@ Gap items are from [BL §Gap analysis]; findings from [BL §Findings for the int
 | g. Only recipient replies; sender identity | §3, §7 | `identity-check` |
 | h. doctor, whoami, status/wait by id | §2.3 | `ops-commands` |
 | i. Body from file | §2.1, §2.3 | `ops-commands` |
-| j. State root override | §13 | `test-isolation` |
+| j. State root override | §13 | `test-isolation` (done) |
 | k. Backup before host writes; complete uninstall | §2.3, §13 | `safe-uninstall` |
 | Finding 1. Guardian auto-review not detected | §2.1, §8 | `identity-check` |
 | Finding 2. `--expires-at` integer only | §10 | `ops-commands` |

@@ -19,13 +19,17 @@ from pathlib import Path
 repo = Path(sys.argv[1])
 hooks = repo / "plugins" / "agent-relay" / "hooks"
 sys.path.insert(0, str(hooks))
-from native_collaboration_runtime import default_root  # noqa: E402
+from native_collaboration_runtime import StateHomeError, default_root  # noqa: E402
 
 parser = argparse.ArgumentParser(prog="cleanup.sh")
 parser.add_argument("run")
 parser.add_argument("--confirm", action="store_true")
-parser.add_argument("--root", type=Path, default=default_root())
+parser.add_argument("--root", type=Path)
 args = parser.parse_args(sys.argv[2:])
+try:
+    args.root = args.root or default_root()
+except StateHomeError as error:
+    parser.exit(2, f"{parser.prog}: error: {error}\n")
 if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", args.run):
     parser.error("run id must be lowercase letters, digits and hyphens")
 prefix = f"ar-acc-{args.run}-"

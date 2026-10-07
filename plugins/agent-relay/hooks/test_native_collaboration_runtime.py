@@ -1,5 +1,6 @@
 """Opt-in native bridge runtime tests; never fetch upstream or change host settings."""
 import json
+import os
 import stat
 import subprocess
 import tempfile
@@ -24,6 +25,11 @@ class NativeCollaborationRuntimeTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix="sg-native-runtime-")
         self.addCleanup(self.tmp.cleanup)
+        # These tests pin the default (variable unset) layout under a patched home.
+        environment = patch.dict(os.environ)
+        environment.start()
+        self.addCleanup(environment.stop)
+        os.environ.pop("AGENT_RELAY_HOME", None)
         self.root = Path(self.tmp.name) / "native"
 
     def test_default_root_is_the_runtime_directory_under_agent_relay(self):

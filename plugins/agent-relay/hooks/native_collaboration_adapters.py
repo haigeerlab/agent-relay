@@ -17,7 +17,8 @@ import tempfile
 from typing import Any, Sequence
 
 from host_config_removal import add_claude_server, remove_claude_server, remove_codex_table
-from native_collaboration_runtime import DENIED_TOOLS, MAILBOX_TOOLS, default_root, status
+from native_collaboration_runtime import (DENIED_TOOLS, MAILBOX_TOOLS, StateHomeError,
+                                          default_root, status)
 
 
 CLAUDE_SERVER_NAME = "agent-relay"
@@ -139,7 +140,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("host", choices=("codex", "claude", "install-codex", "install-claude",
                                          "uninstall-codex", "uninstall-claude"))
-    parser.add_argument("--root", type=Path, default=default_root())
+    parser.add_argument("--root", type=Path)
     parser.add_argument("--node", type=Path, default=shutil.which("node"))
     parser.add_argument("--codex-config", type=Path, default=Path.home() / ".codex" / "config.toml")
     parser.add_argument("--claude-settings", type=Path,
@@ -148,6 +149,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--confirm-uninstall", action="store_true",
                         help="allow an uninstall command to remove host configuration")
     args = parser.parse_args(argv)
+    try:
+        args.root = args.root or default_root()
+    except StateHomeError as error:
+        parser.exit(2, f"{parser.prog}: error: {error}\n")
     if args.host.startswith("uninstall-") and not args.confirm_uninstall:
         print("uninstall-confirmation-required: rerun with --confirm-uninstall")
         return 1

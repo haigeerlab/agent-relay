@@ -23,7 +23,8 @@ from pathlib import Path
 from typing import Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from native_collaboration_runtime import status as runtime_status  # noqa: E402
+from native_collaboration_runtime import (  # noqa: E402
+    StateHomeError, state_home, status as runtime_status)
 from session_delegation import DATABASE_FILENAME, DelegationError, DelegationStore  # noqa: E402
 
 # Migration source: the names Spec Guard used before the split (D1).
@@ -42,6 +43,7 @@ NON_FINAL_WAKE_STATES = ("pending", "sending", "accepted", "unknown")
 @dataclass
 class Report:
     home: Path
+    target_root: Path | None = None
     old_mailbox: dict[str, int] | None = None
     old_delegation: dict[str, int] | None = None
     wake_jobs: dict[str, int] = field(default_factory=dict)
@@ -54,13 +56,19 @@ class Report:
     blockers: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict:
-        data = {key: value for key, value in self.__dict__.items() if key != "home"}
+        data = {key: value for key, value in self.__dict__.items()
+                if key not in ("home", "target_root")}
         data["verdict"] = "ready" if not self.blockers else "blocked"
         return data
 
 
-def _paths(home: Path) -> dict[str, Path]:
-    parent = home / NEW_PARENT
+def default_target() -> Path:
+    """The migration target when the CLI is not given a home: the state root (D21)."""
+    return state_home()
+
+
+def _paths(home: Path, target: Path | None = None) -> dict[str, Path]:
+    parent = home / NEW_PARENT if target is None else target
     return {"old_runtime": home / OLD_RUNTIME, "old_delegation": home / OLD_DELEGATION,
             "parent": parent, "runtime": parent / "runtime", "delegation": parent / "delegation",
             "backups": parent / "backups"}
@@ -116,9 +124,10 @@ def _host_entries(home: Path) -> dict[str, bool]:
 
 
 def inspect(home: Path, acknowledged: tuple[str, ...] = (),
-            process_count: Callable[[Path], int] = _running_servers) -> Report:
-    paths = _paths(home)
-    report = Report(home)
+            process_count: Callable[[Path], int] = _running_servers, *,
+            target: Path | None = None) -> Report:
+    paths = _paths(home, target)
+    report = Report(home, paths["parent"])
     with tempfile.TemporaryDirectory(prefix="agent-relay-detect-") as scratch:
         _inspect_old(paths, report, acknowledged, Path(scratch))
     if report.old_mailbox is None and report.old_delegation is None:
@@ -190,11 +199,12 @@ def _file_copy(source: Path, target: Path) -> None:
 
 
 def migrate(home: Path, acknowledged: tuple[str, ...] = (),
-            process_count: Callable[[Path], int] = _running_servers) -> tuple[Report, dict]:
-    report = inspect(home, acknowledged, process_count)
+            process_count: Callable[[Path], int] = _running_servers, *,
+            target: Path | None = None) -> tuple[Report, dict]:
+    report = inspect(home, acknowledged, process_count, target=target)
     if report.blockers:
         return report, {"state": "blocked"}
-    paths = _paths(home)
+    paths = _paths(home, target)
     backup = paths["backups"] / time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
     if backup.exists():
         return report, {"state": "blocked", "diagnostic": f"backup {backup.name} already exists"}
@@ -267,18 +277,24 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--confirm", action="store_true", help="required for migrate")
     parser.add_argument("--acknowledge-stale", action="append", default=[], metavar="ID_PREFIX",
                         help="a never-launched, non-terminal delegation the user confirms is dead (D12)")
-    parser.add_argument("--home", type=Path, default=Path.home(), help=argparse.SUPPRESS)
+    parser.add_argument("--home", type=Path, default=None, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    home = args.home or Path.home()
+    try:
+        # A test-only --home keeps `<home>/.agent-relay`; otherwise the state root (D21).
+        target = None if args.home is not None else default_target()
+    except StateHomeError as error:
+        parser.exit(2, f"{parser.prog}: error: {error}\n")
     if any(not re.fullmatch(r"[0-9a-f-]{6,36}", prefix) for prefix in args.acknowledge_stale):
         parser.error("--acknowledge-stale takes a delegation id prefix of at least six hex characters")
     acknowledged = tuple(args.acknowledge_stale)
     if args.command == "detect":
-        report = inspect(args.home, acknowledged)
+        report = inspect(home, acknowledged, target=target)
         print(json.dumps(report.as_dict(), indent=2, sort_keys=True))
         return 0
     if not args.confirm:
         parser.error("migrate needs --confirm")
-    report, result = migrate(args.home, acknowledged)
+    report, result = migrate(home, acknowledged, target=target)
     output = {"report": report.as_dict(), "result": result}
     if result["state"] == "migrated":
         output["next_steps"] = host_next_steps(report)

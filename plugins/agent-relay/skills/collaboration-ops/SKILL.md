@@ -16,7 +16,8 @@ python3 -B "$ROOT/hooks/native_collaboration_runtime.py" status
 ```
 
 - `absent`: explain that explicit installation creates private data under
-  `~/.agent-relay/runtime/`; run `install` only after the user asks to enable it.
+  `~/.agent-relay/runtime/` (or `$AGENT_RELAY_HOME/runtime/` when the user set `AGENT_RELAY_HOME`); run `install`
+  only after the user asks to enable it.
 - `ready`: the pinned runtime is usable; do not reinstall it merely to refresh a session.
 - any invalid or unavailable result: report the diagnostic and one next step. Do not loosen ownership or
   mode checks and do not substitute an unpinned package.
@@ -26,6 +27,10 @@ After explicit approval, install the pinned runtime with:
 ```bash
 python3 -B "$ROOT/hooks/native_collaboration_runtime.py" install
 ```
+
+`AGENT_RELAY_HOME` (an absolute path; a relative one exits 2) relocates the whole state root for every command.
+Host entries keep the absolute paths written when they were attached: after the root moves, install the runtime
+under it and attach the hosts again; the variable alone does not move an attached host.
 
 Host attachment is a separate user-level change. Print a configuration for inspection with
 `native_collaboration_adapters.py claude` or `codex`; run `install-claude` or `install-codex` only after
