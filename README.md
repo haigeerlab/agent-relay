@@ -44,7 +44,8 @@ codex plugin add agent-relay@agent-relay-marketplace
 装上插件只会加载 skill 和命令，**不会**自动创建运行时，也不会改宿主配置。第一次用时，agent 会先只读检查，
 告诉你需要做哪几步，每一步都等你同意：
 
-1. 安装私有运行时：在 `~/.agent-relay/runtime/` 建一个固定版本的 bridge 和私有邮箱（目录仅自己可读写）。
+1. 安装私有运行时：用插件自带、已核对哈希的 bridge 副本，在 `~/.agent-relay/runtime/` 构建运行时和私有邮箱（目录仅自己可读写）。
+   不需要 git；`npm` 依赖仍按锁文件从 npm 源安装，所以这一步需要联网。
 2. 接入宿主：给 Claude Code 注册用户级 MCP 服务 `agent-relay`，或在 Codex 配置里追加 `[mcp_servers.agent_relay]`。
    已经打开的会话需要重启才能看到。
 
@@ -130,4 +131,6 @@ python3 -B plugins/agent-relay/hooks/state_migration.py migrate --confirm
 ## 许可与致谢
 
 agent-relay 以 [MIT 许可](LICENSE) 发布。
-信箱运行时使用固定提交的上游 [claude-codex-mcp-bridge](https://github.com/WebisityStudio/claude-codex-mcp-bridge)（MIT）。
+信箱运行时基于 Tesla Major 的 [claude-codex-mcp-bridge](https://github.com/WebisityStudio/claude-codex-mcp-bridge)（MIT），
+固定提交 `8f12c88` 的副本收在 [`plugins/agent-relay/bridge/`](plugins/agent-relay/bridge/) 由 agent-relay 维护；
+来源、许可原文和改动记录见 [`UPSTREAM.md`](plugins/agent-relay/bridge/UPSTREAM.md)。

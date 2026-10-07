@@ -22,7 +22,10 @@ python3 -B "$ROOT/hooks/native_collaboration_runtime.py" status
 - any invalid or unavailable result: report the diagnostic and one next step. Do not loosen ownership or
   mode checks and do not substitute an unpinned package.
 
-After explicit approval, install the pinned runtime with:
+After explicit approval, install the runtime with the command below. It builds from the bridge copy shipped in
+the plugin (`bridge/`, checked against `bridge/UPSTREAM.sha256`; no `git`), and `npm ci` still needs network.
+`status` reports `bridge.source` (`upstream-git` for a runtime installed before this, `vendored` after) and
+`bridge.current` (whether it equals the plugin's copy); do not reinstall over an existing runtime to change it.
 
 ```bash
 python3 -B "$ROOT/hooks/native_collaboration_runtime.py" install
