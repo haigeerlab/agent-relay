@@ -85,12 +85,19 @@ D15–D17 taken as recommended by the user on 2026-10-07; D18 added by the proje
   `continue_turn` use it, built from the raw states the capture task records. A state the predicate does not know stays
   busy (safe default), and the answer names it so the next mismatch is diagnosable.
 
-- **D18 late Claude entry.** A row that is `unknown` with a `host_ref` and no `host_session_ref` is repaired on the
-  next `status` or `continue`: look the entry up by `host_ref`; if it passes the same checks as at create (session
-  id is a UUID prefixed by `host_ref`, cwd is the project, kind background), bind it with `bind_host` (moves to
-  `created`) and carry on as for a `created` row. If it is still absent or invalid, the answer stays `unknown` as
-  today. No longer sleep at create: the create path stays fail-closed and quick.
-  *Alternative rejected:* only lengthening the 0.7 s wait — it guesses a host timing that already changed once.
+- **D18 late Claude entry (revised after the round 1 owner's acceptance note).** Two layers:
+  1. *At create,* `_settled_session` keeps looking for the background entry with backoff up to a bounded total
+     (default 10 s; the exact bound is set from the Task 4 capture, at least twice the observed delay). Found and
+     valid → `created`, as on 2.1.288. Not found within the bound → the answer is `state=unknown`,
+     `hostStatus=unknown`, `prerequisite=host-entry-pending`, and the row keeps `host_ref` with no session.
+  2. *On the next `status` or `continue`,* a row that is `unknown` with a `host_ref` and no `host_session_ref` is
+     looked up again by `host_ref`; if it passes the create checks (session id is a UUID prefixed by `host_ref`,
+     cwd is the project, kind background) it is bound with `bind_host` (`unknown → created`) and handled as a
+     `created` row.
+  *Failure* is: the entry is still absent on a later call (answer stays `unknown`, `host-entry-pending`), or it
+  appears with a different session prefix, cwd or kind (answer `unknown`, nothing bound, `host-entry-invalid`).
+  Such a row is cancelled with the normal stop path, because `host_ref` is known.
+  *Regression sample:* round 1's row (`host_ref` 244e528e, no session ref, `unknown`) — its shape, not its prompt.
 
 ## Requirements
 
@@ -102,9 +109,11 @@ D15–D17 taken as recommended by the user on 2026-10-07; D18 added by the proje
    behaves as today.
 4. `continue` to a Claude target whose raw entry matches the captured idle entry proceeds (native wake or resume)
    instead of `target-busy`. A target that is genuinely working still answers `target-busy`.
-5. A Claude create whose entry appears after the create call returns: the next `status` answers `created` (or
-   later states) with the session bound, and `continue` works from there. A row whose entry never appears, or
-   appears with a different session prefix or cwd, stays `unknown`.
+5. A Claude create whose entry appears within the bound answers `created` at once. One whose entry appears only
+   after the create call returns answers `unknown`/`host-entry-pending`; the next `status` answers `created` (or
+   later states) with the session bound, and `continue` works from there. A row whose entry never appears stays
+   `unknown`/`host-entry-pending`; one with a different session prefix, cwd or kind stays `unknown`/
+   `host-entry-invalid` with nothing bound.
 6. Interface §10 rows "Held create" and "Claude round two" (and a row for finding 7) move to "done in `delegation-fixes`"; checklist C3 and
    C7 current columns updated; the `session-delegation` skill states D16.
 7. No change to records already on disk is required; migrated legacy rows are handled by D16 at cancel time.

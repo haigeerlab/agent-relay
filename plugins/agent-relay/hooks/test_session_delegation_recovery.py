@@ -354,7 +354,7 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(len(adapter.calls), 2)
 
     def test_new_create_after_held_one_resolves_the_launched_session_by_name(self):
-        controller, adapter = self.controller(["held", "created", "created"])
+        controller, adapter = self.controller(["held", "created", "created", "completed"])
         held = self.create(controller)
         self.assertEqual(held.state, "held")
         launched = self.create(
@@ -371,6 +371,13 @@ class RecoveryTests(unittest.TestCase):
                    if claim.host_ref is not None]
         self.assertEqual(adapter.calls[-1][1], bound.delegation_id)
         self.assertEqual(len(controller.list()), 2)
+
+        self.store.advance(bound.delegation_id, "registered", "host-registered")
+        self.store.set_turn_ref(bound.delegation_id, "turn-1")
+        self.store.advance(bound.delegation_id, "running", "host-running")
+        self.store.advance(bound.delegation_id, "completed", "host-completed")
+        controller.continue_named("复审", "Again")
+        self.assertEqual(adapter.calls[-1][:2], ("continue", bound.delegation_id))
 
     def test_lone_never_launched_session_still_resolves_by_name(self):
         controller, adapter = self.controller(["held", "held"])

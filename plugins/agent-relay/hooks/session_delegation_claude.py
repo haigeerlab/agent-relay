@@ -695,21 +695,24 @@ class ClaudeAdapter:
     def cancel(self, delegation_id: str) -> ClaudeRunResult:
         claim = self.store.get_delegation(delegation_id)
         self.store.cancel_authorization(claim.envelope_id)
-        if claim.target_host != "claude" or claim.host_ref is None:
+        if claim.target_host != "claude":
             return ClaudeRunResult("unknown")
-        envelope = self.store.get_authorization(claim.envelope_id)
-        try:
-            completed = self._run(
-                (str(self.installation.binary), "stop", claim.host_ref),
-                envelope.project_root,
-            )
-        except ClaudeCommandUncertain:
-            self.store.advance(delegation_id, "unknown", "host-result-unknown")
-            return ClaudeRunResult("unknown", claim.host_ref, claim.host_session_ref)
-        stopped = set(_STOPPED.findall(completed.stdout or ""))
-        if completed.returncode != 0 or stopped != {claim.host_ref}:
-            self.store.advance(delegation_id, "unknown", "host-result-unknown")
-            return ClaudeRunResult("unknown", claim.host_ref, claim.host_session_ref)
+        if claim.host_ref is not None:
+            envelope = self.store.get_authorization(claim.envelope_id)
+            try:
+                completed = self._run(
+                    (str(self.installation.binary), "stop", claim.host_ref),
+                    envelope.project_root,
+                )
+            except ClaudeCommandUncertain:
+                self.store.advance(delegation_id, "unknown", "host-result-unknown")
+                return ClaudeRunResult("unknown", claim.host_ref, claim.host_session_ref)
+            stopped = set(_STOPPED.findall(completed.stdout or ""))
+            if completed.returncode != 0 or stopped != {claim.host_ref}:
+                self.store.advance(delegation_id, "unknown", "host-result-unknown")
+                return ClaudeRunResult("unknown", claim.host_ref, claim.host_session_ref)
+        # A claim that never reached a host has nothing to stop, so there is no host to
+        # confirm; frozen authority above is the whole cancellation (D16).
         current = self.store.get_delegation(delegation_id)
         if current.state != "cancelled":
             self.store.advance(delegation_id, "cancelled", "host-cancelled")

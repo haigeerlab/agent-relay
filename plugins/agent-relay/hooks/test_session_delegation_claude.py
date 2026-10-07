@@ -538,6 +538,28 @@ class AdapterTests(unittest.TestCase):
                          "cancelled")
         self.assertFalse(managed.exists())
 
+    def test_cancel_never_launched_claim_is_cancelled_without_host_stop(self):
+        for state in ("creating", "unknown"):
+            with self.subTest(state=state):
+                _envelope, claim = self.make_claim(key="claude-never-" + state)
+                if state == "unknown":
+                    self.store.record_host_unknown(claim.delegation_id)
+                managed = self.store.root / (
+                    "claude-" + claim.delegation_id + ".mcp.json")
+                managed.write_text('{"mcpServers":{}}\n', encoding="utf-8")
+                managed.chmod(0o600)
+                runner = ScriptedRunner([])
+
+                result = self.adapter(runner).cancel(claim.delegation_id)
+
+                self.assertEqual(result.state, "cancelled")
+                self.assertEqual(runner.calls, [])
+                self.assertEqual(self.store.get_delegation(claim.delegation_id).state,
+                                 "cancelled")
+                self.assertEqual(self.store.get_authorization(claim.envelope_id).state,
+                                 "cancelled")
+                self.assertFalse(managed.exists())
+
     def test_status_accepts_post_stop_done_entry_without_status_or_pid(self):
         self.complete_claim()
         self.adapter(ScriptedRunner([

@@ -21,9 +21,11 @@ then finding 4 from that evidence, then docs, then one live run of C3 and C7.
 - D16 lives in each adapter's `cancel` (both already branch on `host_ref is None`).
 - D17: one module-level predicate in `session_delegation_claude.py` over `(state, status)`, used by
   `_reconcile_lifecycle` and `continue_turn`; unknown pairs are busy.
-- D18 lives in the Claude adapter: one helper "rebind a late entry" used at the top of `status` and
-  `continue_turn` for `unknown` rows with `host_ref` and no `host_session_ref`; it reuses `_exact_session`'s checks
-  and `bind_host`.
+- D18 lives in the Claude adapter, two layers: `_settled_session` waits with backoff up to a bounded total
+  (constructor parameter, default 10 s, tests inject `sleep` and a clock); one helper "rebind a late entry" used at
+  the top of `status` and `continue_turn` for `unknown` rows with `host_ref` and no `host_session_ref`, reusing
+  `_exact_session`'s checks and `bind_host`. Prerequisites `host-entry-pending` / `host-entry-invalid` name the two
+  failure cases.
 - No schema, state or evidence-word change. Verification for every task: `/bin/bash scripts/validate.sh`.
 
 ## Task List
@@ -57,10 +59,12 @@ states the narrowed rule.
 
 ### Task 3: Late Claude entry is bound on the next call (D18)
 
-**Description:** Prove-It test: create where the fake host lists the background entry only after the create call
-returns → today `unknown`, and `continue` raises `delegation-is-not-ready-for-follow-up`. Add the rebind helper;
-`status` then answers `created`, and `continue` proceeds. Negative tests: entry still absent → `unknown`; entry
-with another session prefix or cwd → `unknown`, nothing bound.
+**Description:** Prove-It tests with a fake host whose background list is late: (a) the entry appears after
+1.5 s of fake time → today `unknown`, after the fix `created` at create; (b) it appears only after the create call
+returns → create `unknown`/`host-entry-pending`, then `status` answers `created` and `continue` proceeds (today
+`delegation-is-not-ready-for-follow-up`); (c) round 1's row shape (`host_ref` 244e528e, no session ref) as a
+stored-row regression. Negatives: entry still absent → `host-entry-pending`; another session prefix, cwd or kind →
+`host-entry-invalid`, nothing bound. The bound is revisited after Task 4.
 
 **Acceptance:** spec requirement 5.
 

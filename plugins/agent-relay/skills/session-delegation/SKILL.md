@@ -106,7 +106,8 @@ repository identity、精确 baseline 和 dirty 状态，并在当前调用中�
 优先走已绑定的 native wake；busy 返回 `wake-held/target-busy`，绝不通过 resume 复制会话。Codex 精确使用
 `thread/resume`。响应丢失或宿主返回未知时保持 unknown，不能为了提高成功率再建一个。
 
-取消先冻结该 envelope 的新启动与后续轮次，再请求精确宿主停止；只有宿主确认后才显示 cancelled。不得清理
+取消先冻结该 envelope 的新启动与后续轮次，再请求精确宿主停止；只有宿主确认后才显示 cancelled。从未到达宿主的
+记录（例如因前置条件 held 的创建）没有可停止的宿主，冻结授权即完成取消，直接显示 cancelled。不得清理
 同名的其他会话、用户项目、未读结果或未知归属的临时文件。
 
 ## 用户可见结果
