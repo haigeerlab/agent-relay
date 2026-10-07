@@ -14,7 +14,7 @@ PREFLIGHT = REPO / "scripts" / "acceptance" / "preflight.sh"
 CLEANUP = REPO / "scripts" / "acceptance" / "cleanup.sh"
 
 
-class PreflightTests(unittest.TestCase):
+class PreflightFixture(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix="ar-preflight-")
         self.addCleanup(tmp.cleanup)
@@ -38,6 +38,8 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         return done.stdout
 
+
+class PreflightTests(PreflightFixture):
     def test_reports_versions_installs_reviewer_and_launch_command(self):
         self.fake("claude", 'echo "9.9.9 (Claude Code)"')
         listing = {"installed": [{"pluginId": "agent-relay@relay", "name": "agent-relay", "version": "0.1.0",
@@ -68,6 +70,70 @@ class PreflightTests(unittest.TestCase):
         self.assertIn("agent-relay (Claude)  not installed", out)
         self.assertIn("agent-relay (Codex)   unknown", out)
         self.assertIn("codex approvals       no config.toml", out)
+
+
+def load_preflight():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("preflight", REPO / "scripts" / "acceptance" / "preflight.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class StaleCopyTests(PreflightFixture):
+    """acceptance-kit-round2 D54 (round 2 R2-5, R2-11): every copy a host runs is compared with this checkout."""
+
+    def copy_source(self, target):
+        shutil.copytree(REPO / "plugins" / "agent-relay", target,
+                        ignore=shutil.ignore_patterns("node_modules", "__pycache__", ".DS_Store"))
+        return target
+
+    def test_tree_hash_sees_content_and_ignores_host_and_build_entries(self):
+        preflight = load_preflight()
+        a = self.copy_source(self.tmp / "a")
+        b = self.copy_source(self.tmp / "b")
+        self.assertEqual(preflight.tree_hash(a), preflight.tree_hash(b))
+        for ignored in ("node_modules/x.js", "migrated-command-skills/s.md", "hooks/__pycache__/x.pyc", ".git/HEAD"):
+            (b / ignored).parent.mkdir(parents=True, exist_ok=True)
+            (b / ignored).write_text("host or build output", encoding="utf-8")
+        self.assertEqual(preflight.tree_hash(a), preflight.tree_hash(b))
+        (b / "skills" / "collab" / "SKILL.md").write_text("changed", encoding="utf-8")
+        self.assertNotEqual(preflight.tree_hash(a), preflight.tree_hash(b))
+        self.assertIsNone(preflight.tree_hash(self.tmp / "missing"))
+
+    def test_marks_the_copy_each_host_runs_current_or_stale(self):
+        market = self.tmp / "market"
+        self.copy_source(market / "plugins" / "agent-relay")
+        (market / ".claude-plugin").mkdir(parents=True)
+        (market / ".claude-plugin" / "marketplace.json").write_text(json.dumps(
+            {"name": "relay", "plugins": [{"name": "agent-relay", "source": "./plugins/agent-relay"}]}), encoding="utf-8")
+        (self.claude_home / "plugins" / "known_marketplaces.json").write_text(json.dumps(
+            {"relay": {"source": {"source": "directory", "path": str(market)}, "installLocation": str(market)}}),
+            encoding="utf-8")
+        cache = self.claude_home / "plugins" / "cache" / "relay" / "agent-relay" / "0.1.0"
+        cache.mkdir(parents=True)
+        (self.claude_home / "plugins" / "installed_plugins.json").write_text(json.dumps(
+            {"version": 2, "plugins": {"agent-relay@relay": [{"installPath": str(cache), "version": "0.1.0",
+                                                                "gitCommitSha": "old"}]}}), encoding="utf-8")
+        codex_cache = self.copy_source(self.codex_home / "plugins" / "cache" / "relay" / "agent-relay" / "0.1.0")
+        (codex_cache / "migrated-command-skills").mkdir()
+        (codex_cache / "hooks" / "session_routing.py").write_text("# round-1 era copy\n", encoding="utf-8")
+        listing = {"installed": [{"pluginId": "agent-relay@relay", "name": "agent-relay", "version": "0.1.0",
+                                  "enabled": True, "source": {"path": str(market / "plugins" / "agent-relay")}}]}
+        (self.tmp / "codex.json").write_text(json.dumps(listing), encoding="utf-8")
+        self.fake("codex", f'case "$1" in --version) echo "codex-cli 9.0";; *) cat "{self.tmp}/codex.json";; esac')
+        before = sorted((p, p.stat().st_mtime_ns) for p in self.tmp.rglob("*"))
+        out = self.run_preflight()
+        self.assertEqual(before, sorted((p, p.stat().st_mtime_ns) for p in self.tmp.rglob("*")), "read only")
+        lines = out.splitlines()
+        loaded = next(line for line in lines if str(market / "plugins" / "agent-relay") in line and "Claude" in line)
+        self.assertIn("current", loaded)
+        record = next(line for line in lines if str(cache) in line)
+        self.assertIn("not loaded", record)
+        self.assertNotIn("STALE", record)
+        stale = next(line for line in lines if str(codex_cache) in line)
+        self.assertIn("STALE", stale)
+        self.assertIn("codex plugin add agent-relay@relay", stale)
 
 
 class CleanupTests(unittest.TestCase):

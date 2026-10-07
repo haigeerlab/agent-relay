@@ -64,12 +64,11 @@ D53–D56 accepted on 2026-10-07 (including D53's Task 1 fallback and the `--des
 - **D53 root resolution (R2-11).** One shell block, identical in the three skills: `ROOT="${CLAUDE_PLUGIN_ROOT}"`;
   if empty or not a directory holding `hooks/native_collaboration_runtime.py`, the enabled agent-relay `source.path`
   from `codex plugin list --json`; else stop with "cannot locate the agent-relay plugin root" and the reason. A test
-  pins the block in all three and forbids `installed_plugins.json` and `plugins/cache` in skill text. If Task 1 shows
-  Claude substitutes a stale cache for a `directory` marketplace, the block also compares that root's tree hash with
-  the source and refuses on a mismatch (decided at Task 1, reported to the user before building on it).
+  pins the block in all three and forbids `installed_plugins.json` and `plugins/cache` in skill text. Task 1 showed Claude substitutes the source directory it loads (not
+  the install cache), so no tree-hash check is added (user, 2026-10-08).
 - **D54 stale copies (R2-5, R2-11).** preflight prints, per host, the copy in use and its tree hash next to the
-  source's: Claude — each `installed_plugins.json` record's `installPath` (marked as the record, not proof of what a
-  session loads); Codex — the cache under `~/.codex/plugins/cache/agent-relay-marketplace/agent-relay/`. Mismatch →
+  source's: Claude — the plugin directory inside a `directory` marketplace's source (what sessions load, per Task 1), else
+  each record's `installPath`; `installPath` records of a `directory` marketplace are listed as not loaded; Codex — the cache under `~/.codex/plugins/cache/agent-relay-marketplace/agent-relay/`. Mismatch →
   `STALE` plus the host's refresh command (`claude plugin install …` / `codex plugin add …`), run only by the user.
 - **D55 allow lists (R2-8).** `base` and `routing` lists printed with the exact rules
   (`Bash(python3 -B <root>/hooks/session_routing.py select *)`, `Read(//<design project>/**)` from a new `--design <path>` option,
