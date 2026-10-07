@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+from datetime import datetime
 import hashlib
 import json
 import os
@@ -640,6 +641,23 @@ def _add_runtime_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
+EXPIRES_AT_FORMAT = ("use ISO 8601 with an offset, e.g. 2026-10-08T18:00:00+08:00 or 2026-10-08T10:00:00Z "
+                     "(integer epoch seconds are also accepted)")
+
+
+def expires_at(value: str) -> int:
+    """--expires-at (ops-commands D44): ISO 8601 with an explicit offset, or integer epoch seconds."""
+    if re.fullmatch(r"[0-9]+", value):
+        return int(value)
+    try:
+        moment = datetime.fromisoformat(value[:-1] + "+00:00" if value.endswith(("Z", "z")) else value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"invalid time {value!r}: {EXPIRES_AT_FORMAT}") from None
+    if moment.tzinfo is None:
+        raise argparse.ArgumentTypeError(f"time {value!r} has no offset: {EXPIRES_AT_FORMAT}")
+    return int(moment.timestamp())
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     _add_runtime_arguments(parser)
@@ -670,7 +688,8 @@ def _parser() -> argparse.ArgumentParser:
     create.add_argument("--horizon", choices=("task", "strict", "batch", "session"),
                         default="task")
     create.add_argument("--max-sessions", type=int, default=1)
-    create.add_argument("--expires-at", type=int, required=True)
+    create.add_argument("--expires-at", type=expires_at, required=True,
+                        help="when the authorization ends: " + EXPIRES_AT_FORMAT)
     create.add_argument("--idempotency-key", required=True)
     create.add_argument("--launch-key", required=True)
     create.add_argument("--name", required=True)

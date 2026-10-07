@@ -94,6 +94,8 @@ Codex 使用 app-managed current 受支持二进制和 app-server；Claude Code 
 repository identity、精确 baseline 和 dirty 状态，并在当前调用中生成一次 idempotency key 与 launch key；
 响应丢失后的重试必须复用这两个 key，不能换 key 重建。origin session 只由控制器从当前宿主可信环境读取，绝不让
 用户输入。任务正文只从 stdin 传入，不放进 argv、日志或控制数据库。
+`create --expires-at` 写带时区的 ISO 8601，例如 `2026-10-08T18:00:00+08:00` 或 `2026-10-08T10:00:00Z`（也接受整数
+epoch 秒）；不带时区的时间会被拒绝（退出码 2）。
 
 `list` 是纯本地控制目录读取：状态目录不存在时返回空列表，不初始化运行时，也不要求消息后端或两个宿主可用。
 `create` 之前先按上文显示非阻塞通知；direct request 使用 `direct-user`，Agent 建议并经用户确认后使用
