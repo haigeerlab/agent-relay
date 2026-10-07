@@ -19,7 +19,7 @@ import subprocess
 from typing import Any, Sequence
 from urllib.parse import quote
 
-from native_collaboration_runtime import MAILBOX_SCHEMA_VERSIONS, StateHomeError, default_root, status
+from native_collaboration_runtime import MAILBOX_BUSY_TIMEOUT, MAILBOX_SCHEMA_VERSIONS, StateHomeError, default_root, status
 
 
 class RetireError(ValueError):
@@ -32,7 +32,7 @@ def _open_read_only(database: Path) -> sqlite3.Connection:
             or stat.S_IMODE(metadata.st_mode) != 0o600):
         raise ValueError("native mailbox must be an owner-owned 0600 regular file")
     return sqlite3.connect(
-        "file:%s?mode=ro" % quote(str(database.absolute())), uri=True)
+        "file:%s?mode=ro" % quote(str(database.absolute())), uri=True, timeout=MAILBOX_BUSY_TIMEOUT)
 
 
 def identity_state(database: Path, name: str) -> dict[str, Any]:

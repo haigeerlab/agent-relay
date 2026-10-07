@@ -322,9 +322,10 @@ export class BridgeStore {
       else mkdirSync(directory, { recursive: true, mode: 0o700 });
     }
     this.db = new DatabaseSync(dbPath);
+    // agent-relay identity-check (D40): wait for another process's lock before the first statement that needs one.
+    this.db.exec("PRAGMA busy_timeout = 5000;");
     this.db.exec("PRAGMA journal_mode = WAL;");
     this.db.exec("PRAGMA foreign_keys = ON;");
-    this.db.exec("PRAGMA busy_timeout = 5000;");
     this.migration = migrate(this.db, (from) => this.backupBeforeMigration(from));
     if (!inMemory) this.restrictDatabaseFiles();
     this.wakes = new WakeQueue(this.db, dbPath);
