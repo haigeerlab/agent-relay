@@ -369,6 +369,7 @@ def upgrade_runtime(root: Path, *, node: str = "node", npm: str = "npm", source:
 
     if not backups.exists():
         backups.mkdir(mode=0o700)
+    backups.chmod(0o700)  # it may predate this command with a wider mode; it holds full mailbox copies
     backup.mkdir(mode=0o700)
     shutil.copytree(root / "mailbox", backup / "runtime-mailbox")
     try:

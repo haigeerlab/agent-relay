@@ -183,8 +183,24 @@ def _inspect_old(paths: dict[str, Path], report: Report, acknowledged: tuple[str
 
 
 def _private_dir(path: Path) -> None:
-    path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    """Create `path` and any missing parents owner-only, and make `path` itself 0700: mkdir(parents=True) gives the
+    parents the umask's mode (0755), and backups hold full mailbox copies."""
+    missing = []
+    current = path
+    while not current.exists():
+        missing.append(current)
+        current = current.parent
+    for directory in reversed(missing):
+        directory.mkdir(mode=0o700)
     path.chmod(0o700)
+
+
+def _private_tree(root: Path) -> None:
+    """Make a copied tree owner-only: directories 0700, files 0600 (symlinks are left as they are)."""
+    for path in [root, *root.rglob("*")]:
+        if path.is_symlink():
+            continue
+        path.chmod(0o700 if path.is_dir() else 0o600)
 
 
 def _sqlite_copy(source: Path, target: Path) -> None:
@@ -209,6 +225,7 @@ def migrate(home: Path, acknowledged: tuple[str, ...] = (),
     if backup.exists():
         return report, {"state": "blocked", "diagnostic": f"backup {backup.name} already exists"}
     _private_dir(paths["parent"])
+    _private_dir(paths["backups"])
     _private_dir(backup)
     result = {"state": "migrated", "backup": str(backup), "mismatches": []}
     old_mailbox = paths["old_runtime"] / "mailbox"
@@ -222,6 +239,7 @@ def migrate(home: Path, acknowledged: tuple[str, ...] = (),
                 _file_copy(daily, backup / "mailbox" / "backups" / daily.name)
         if (paths["old_runtime"] / "data").is_dir():
             shutil.copytree(paths["old_runtime"] / "data", backup / "data")
+            _private_tree(backup / "data")  # copytree keeps the source modes
         target = paths["runtime"] / "mailbox" / "bridge.sqlite"
         for suffix in ("", "-wal", "-shm"):
             Path(str(target) + suffix).unlink(missing_ok=True)
