@@ -58,10 +58,18 @@ Confirmed by the user on 2026-10-07: evidence (late receipt, recipient fetch) ma
    - No transition out of `failed` or `expired` except an explicit user action (re-send is a new message).
 4. **Finding 5:** `bridge_ack` moves the message's wake job to a new final state `acknowledged`.
 5. **Python readers accept v2 and v3** (retire, delegation backend); `state_migration` learns the new non-final
-   state set. No other spec-guard-visible output changes; `interface.json` stays at 1.0 unless the user wants the
-   new fields announced.
-6. **Upgrade command** exactly as D26 in `bridge-vendoring`; the round 1 coordinator runs it on this Mac's real
-   runtime only with the user's go-ahead.
+   state set. `interface.json` stays 1.0 (user). **spec-guard is unaffected** (coordinator checked spec-guard main
+   45ec482: nothing reads the mailbox; its probe only runs the declared `status` command) **provided
+   `relay_status.py`'s output and its `ready` rule stay exactly as they are** — a requirement of this module.
+6. **Upgrade command** exactly as D26 in `bridge-vendoring`, plus the schema: the mailbox backup is taken before
+   the swap, and the new bridge migrates v2 → v3 on first open (its own `VACUUM INTO` pre-migration backup also
+   runs). **Rollback after the migration:** the old `8f12c88` bridge does not refuse a v3 mailbox — it opens a newer
+   schema in compatible mode (`server.ts:77`) and its rows leave the new columns NULL (read as `queued`) — but an
+   older agent-relay plugin's Python hooks pin v2 and would stop retire and delegation result routing. So rolling
+   back the runtime means rolling back the plugin too, or restoring the pre-upgrade mailbox backup (losing messages
+   sent since); the upgrade output and README say so. Tested: v3 file opened by the vendored `8f12c88` code (in
+   `bridge-vendoring`'s tree) works; old-hook behaviour on v3 documented. The real-runtime upgrade runs only with the
+   user's go-ahead, after every session using the mailbox is closed, before integration round 2.
 
 ## Decisions
 
@@ -86,7 +94,8 @@ D27 (24 h default), D28 and D29 accepted on 2026-10-07.
 4. Expiry: a `queued` message past `expires_at` becomes `expired`, its job cancelled, hidden from inbox/wait by
    default, never pinged; a message already `accepted` never expires.
 5. Ack closes the wake job as `acknowledged` (finding 5); the pinned upstream test is updated deliberately.
-6. Python hooks accept v2 and v3; `state_migration` state lists updated; tests for both versions.
+6. Python hooks accept v2 and v3; `state_migration` state lists updated; tests for both versions. `relay_status.py`
+   output and `ready` rule unchanged (pinned by its existing tests).
 7. `upgrade --confirm` per D26, with tests (refuses while a server runs, backup first, mailbox/data moved, counts
    verified, previous directory kept, rollback on failure).
 8. `UPSTREAM.md` "agent-relay changes" lists these changes; `UPSTREAM.sha256` updated; README / interface §3, §5
