@@ -607,7 +607,8 @@ def _production_controller(args: argparse.Namespace) -> SessionDelegationControl
         selected = backend()
         if host == "codex":
             return prepare_codex_adapter(
-                store, args.codex_package_root, project, selected.codex_server)
+                store, args.codex_package_root, project, selected.codex_server,
+                retired_probe=selected.retired_probe)
         binary = args.claude_bin or shutil.which("claude")
         if not binary:
             raise ControlError("claude-binary-unavailable")

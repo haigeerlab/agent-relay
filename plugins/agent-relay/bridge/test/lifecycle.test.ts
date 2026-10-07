@@ -71,7 +71,8 @@ test("senders are warned when pings keep failing or the recipient looks idle", a
   store.close();
 });
 
-test("registration keeps capabilities when omitted and reactivates retired agents", () => {
+// agent-relay cleanup-gaps D61: the store primitive still reactivates; bridge_register guards it (identity.test.ts).
+test("registration keeps capabilities when omitted and the store primitive reactivates retired agents", () => {
   const store = new BridgeStore(":memory:");
   store.register("worker", ["review"]);
   assert.deepEqual(store.register("worker").capabilities, ["review"]);

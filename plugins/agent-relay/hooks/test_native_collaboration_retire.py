@@ -15,6 +15,9 @@ from native_collaboration_runtime import BRIDGE_COMMIT
 # 代替 node：记录参数与环境，并按真实 CLI 的方式把该身份标记为 retired。
 FAKE_NODE = """#!%s
 import json, os, sqlite3, sys
+if sys.argv[1:] == ["--version"]:
+    print("v24.18.0")
+    sys.exit(0)
 log = os.path.join(os.path.dirname(os.environ["BRIDGE_DB_PATH"]), "calls.jsonl")
 with open(log, "a") as handle:
     handle.write(json.dumps({"argv": sys.argv[1:], "db": os.environ["BRIDGE_DB_PATH"],
@@ -121,6 +124,60 @@ class NativeRetireTests(unittest.TestCase):
             self.assertEqual(main(["--name", "busy", "--root", str(self.root),
                                    "--node", str(self.node), "--confirm-retire"]), 1)
         self.assertEqual(json.loads(output.getvalue())["state"], "refused")
+        self.assertIn("1 unacknowledged", output.getvalue())
+
+
+class DeliveryStateRetireTests(NativeRetireTests):
+    """cleanup-gaps D59: retire follows the bridge's unread rule (expired never blocks) and names what blocks."""
+
+    def setUp(self):
+        super().setUp()
+        with sqlite3.connect(self.database) as connection:
+            connection.executescript("""
+                PRAGMA user_version=5;
+                ALTER TABLE messages ADD COLUMN delivery_state TEXT;
+                INSERT INTO agents VALUES ('stale', '2026-01-05', NULL);  -- after broadcast 3
+                INSERT INTO messages VALUES (10, 'busy', 'stale', '2026-01-03', 'secret expired body', 'expired');
+            """)
+
+    def send(self, to, ids, state):
+        with sqlite3.connect(self.database) as connection:
+            connection.executemany("INSERT INTO messages VALUES (?, 'busy', ?, '2026-01-03', 'secret body', ?)",
+                                   [(i, to, state) for i in ids])
+
+    def test_an_expired_message_does_not_block(self):
+        self.assertEqual(identity_state(self.database, "stale")["unacknowledged"], 0)
+        self.assertEqual(retire_identity(self.root, str(self.node), "stale"), {"state": "retired", "name": "stale"})
+
+    def test_the_refusal_names_the_blocking_message_and_its_state(self):
+        self.send("stale", [11], "accepted")
+        with self.assertRaises(RetireError) as caught:
+            retire_identity(self.root, str(self.node), "stale")
+        self.assertIn("1 unacknowledged", str(caught.exception))
+        self.assertIn("11 accepted", str(caught.exception))
+        self.assertNotIn("10 ", str(caught.exception))
+        self.assertNotIn("secret", str(caught.exception))
+        self.assertEqual(self.calls(), [])
+
+    def test_at_most_ten_ids_are_listed(self):
+        self.send("stale", range(20, 32), "unknown")
+        with self.assertRaises(RetireError) as caught:
+            retire_identity(self.root, str(self.node), "stale")
+        message = str(caught.exception)
+        self.assertIn("12 unacknowledged", message)
+        self.assertIn("20 unknown", message)
+        self.assertIn("29 unknown", message)
+        self.assertNotIn("30 unknown", message)
+        self.assertIn("and 2 more", message)
+
+    def test_the_command_prints_the_ids_without_bodies(self):
+        self.send("stale", [11], "accepted")
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.assertEqual(main(["--name", "stale", "--root", str(self.root), "--node", str(self.node),
+                                   "--confirm-retire"]), 1)
+        self.assertIn("11 accepted", output.getvalue())
+        self.assertNotIn("secret", output.getvalue())
 
 
 if __name__ == "__main__":

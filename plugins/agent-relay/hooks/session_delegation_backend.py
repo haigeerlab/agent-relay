@@ -47,6 +47,7 @@ class DelegationBackend:
         [str, str, str], MailboxResultRoute | None
     ]
     result_probe: Callable[[MailboxResultRoute, str], bool | None]
+    retired_probe: Callable[[str], bool | None] | None = None
 
 
 def _mailbox_connection(database: Path) -> sqlite3.Connection:
@@ -110,6 +111,27 @@ def native_result_probe(database: Path, route: MailboxResultRoute,
             return len(rows) >= 1
     except (OSError, sqlite3.Error, ValueError):
         return None
+
+
+def native_retired_probe(database: Path) -> Callable[[str], bool | None]:
+    """True only when the exact native agent exists and is retired; None when the mailbox is unreadable (D63)."""
+    database = Path(database)
+
+    def probe(name: str) -> bool | None:
+        try:
+            metadata = database.lstat()
+            if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid()
+                    or stat.S_IMODE(metadata.st_mode) & 0o077):
+                return None
+            with closing(open_mailbox_read_only(database)) as connection:
+                if connection.execute("PRAGMA user_version").fetchone()[0] not in MAILBOX_SCHEMA_VERSIONS:
+                    return None
+                rows = connection.execute("SELECT retired_at FROM agents WHERE name=?", (name,)).fetchall()
+                return len(rows) == 1 and rows[0][0] is not None
+        except (OSError, sqlite3.Error, ValueError, TypeError):
+            return None
+
+    return probe
 
 
 def native_registration_probe(database: Path) -> Callable[
@@ -178,4 +200,5 @@ def resolve_backend(
         lambda host, session, delegation: native_result_route(
             database, host, session, delegation),
         lambda route, sender: native_result_probe(database, route, sender),
+        native_retired_probe(database),
     )

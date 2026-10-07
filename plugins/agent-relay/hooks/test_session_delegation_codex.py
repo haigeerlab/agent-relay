@@ -511,6 +511,41 @@ class AdapterTests(unittest.TestCase):
         with self.assertRaisesRegex(CodexAdapterError, "not-ready-for-follow-up"):
             adapter.continue_turn(self.claim.delegation_id, "Do not duplicate")
 
+    def test_follow_up_to_a_retired_identity_is_held_without_any_host_request(self):
+        # cleanup-gaps D63: registering a retired name is refused, so the turn could never report back.
+        self.adapter([self.successful_client()]).create(self.claim.delegation_id, "Review")
+        asked = []
+        pending = deque([ScriptedClient([])])
+        adapter = CodexAdapter(
+            self.store, self.installation, (str(self.installation.binary), "app-server"),
+            {"PATH": "/bin"}, lambda: pending.popleft(),
+            retired_probe=lambda name: asked.append(name) or True,
+        )
+
+        result = adapter.continue_turn(self.claim.delegation_id, "Follow up")
+
+        self.assertEqual((result.state, result.prerequisite), ("held", "identity-retired"))
+        self.assertEqual(asked, [self.claim.friendly_name[:110] + "-thread-1"])
+        self.assertEqual(len(pending), 1, "no app-server was opened")
+        self.assertEqual(self.store.get_delegation(self.claim.delegation_id).state, "completed")
+
+    def test_follow_up_runs_when_the_identity_is_active_or_the_mailbox_unreadable(self):
+        for answer in (False, None):
+            with self.subTest(answer=answer):
+                self.setUp()
+                self.adapter([self.successful_client()]).create(self.claim.delegation_id, "Review")
+                resumed = ScriptedClient([
+                    ("thread/resume", self.thread_result()),
+                    ("mcpServerStatus/list", self.catalog()),
+                    ("turn/start", {"turn": {"id": "turn-2", "status": "inProgress"}}),
+                ], TurnOutcome("completed", False, "follow-up done"))
+                pending = deque([resumed])
+                adapter = CodexAdapter(
+                    self.store, self.installation, (str(self.installation.binary), "app-server"),
+                    {"PATH": "/bin"}, lambda: pending.popleft(), retired_probe=lambda name: answer,
+                )
+                self.assertEqual(adapter.continue_turn(self.claim.delegation_id, "Follow up").state, "completed")
+
     def test_follow_up_rejected_by_host_is_held_without_changing_the_claim(self):
         self.adapter([self.successful_client()]).create(self.claim.delegation_id, "Review")
         resumed = ScriptedClient([
@@ -622,6 +657,35 @@ class AdapterTests(unittest.TestCase):
             self.store.get_authorization(self.envelope.envelope_id).state,
             "cancelled",
         )
+
+    def test_cancel_closes_a_thread_that_never_got_a_turn_when_the_host_rejects_it(self):
+        # cleanup-gaps D60: thread/start returned an id, the launch failed before bind_host and turn/start (R2-7).
+        self.store.record_host_unknown(self.claim.delegation_id, "thread-never-turned")
+        cancel_client = ScriptedClient([
+            ("thread/archive", RpcRejected("thread/archive", -32600)),
+        ])
+
+        result = self.adapter([cancel_client]).cancel(self.claim.delegation_id)
+
+        self.assertEqual(result.state, "cancelled")
+        self.assertEqual(result.prerequisite, "host-thread-absent")
+        claim = self.store.get_delegation(self.claim.delegation_id)
+        self.assertEqual(claim.state, "cancelled")
+        self.assertIsNone(claim.host_session_ref)
+        self.assertIsNone(claim.last_turn_ref)
+
+    def test_cancel_keeps_unknown_when_a_turn_was_sent(self):
+        self.store.record_host_unknown(self.claim.delegation_id, "thread-never-turned")
+        self.store.set_turn_ref(self.claim.delegation_id, "turn-sent")
+        cancel_client = ScriptedClient([
+            ("thread/archive", RpcRejected("thread/archive", -32600)),
+        ])
+
+        result = self.adapter([cancel_client]).cancel(self.claim.delegation_id)
+
+        self.assertEqual(result.state, "unknown")
+        self.assertEqual(result.prerequisite, "host-request-rejected")
+        self.assertEqual(self.store.get_delegation(self.claim.delegation_id).state, "unknown")
 
 
 if __name__ == "__main__":

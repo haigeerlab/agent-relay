@@ -4,7 +4,7 @@
 Rollback requires every native identity to be retired with no unread mail. Agents cannot call
 bridge_retire (it is denied), and its default closes the backlog, which would mark unread mail
 as handled. This command retires one exact name through the pinned CLI with --keep-backlog,
-and only when that identity has no unacknowledged direct or broadcast delivery.
+and only when that identity has no unacknowledged direct or broadcast delivery (an expired one does not count).
 """
 from __future__ import annotations
 import argparse
@@ -44,16 +44,30 @@ def identity_state(database: Path, name: str) -> dict[str, Any]:
                 "SELECT registered_at, retired_at FROM agents WHERE name=?", (name,)).fetchone()
             if row is None:
                 return {"state": "absent"}
-            unread = connection.execute("""
-                SELECT COUNT(*) FROM messages m
+            # cleanup-gaps D59: the bridge's unread rule (UNREAD_FOR): an expired message never blocks.
+            states = "delivery_state" in {column[1] for column in connection.execute("PRAGMA table_info(messages)")}
+            blocking = connection.execute("""
+                SELECT m.id, CASE WHEN m.to_agent='*' THEN 'broadcast' ELSE %s END FROM messages m
                  WHERE (m.to_agent=? OR (m.to_agent='*' AND m.from_agent!=?
                                          AND m.created_at>=?))
+                   AND %s
                    AND NOT EXISTS (SELECT 1 FROM acknowledgements a
                                     WHERE a.message_id=m.id AND a.agent=?)
-            """, (name, name, row[0], name)).fetchone()[0]
+                 ORDER BY m.id
+            """ % (("COALESCE(m.delivery_state, 'queued')", "COALESCE(m.delivery_state, '') != 'expired'")
+                   if states else ("'queued'", "1")), (name, name, row[0], name)).fetchall()
     except (OSError, sqlite3.Error, ValueError) as error:
         raise RetireError("native mailbox is unavailable: " + type(error).__name__) from error
-    return {"state": "retired" if row[1] else "active", "unacknowledged": unread}
+    found = {"state": "retired" if row[1] else "active", "unacknowledged": len(blocking)}
+    if blocking:
+        found["blocking"] = [(identifier, state) for identifier, state in blocking]
+    return found
+
+
+def _blocking_text(blocking: list[tuple[int, str]]) -> str:
+    """Up to ten `id state` pairs, never bodies (D59)."""
+    shown = ", ".join("%d %s" % pair for pair in blocking[:10])
+    return shown + (" and %d more" % (len(blocking) - 10) if len(blocking) > 10 else "")
 
 
 def retire_identity(root: Path, node: str, name: str, note: str | None = None) -> dict[str, Any]:
@@ -67,8 +81,8 @@ def retire_identity(root: Path, node: str, name: str, note: str | None = None) -
     if before["state"] == "retired":
         return {"state": "already-retired", "name": name}
     if before["unacknowledged"]:
-        raise RetireError("%s still has %d unacknowledged message(s); read and acknowledge them "
-                          "first" % (name, before["unacknowledged"]))
+        raise RetireError("%s still has %d unacknowledged message(s) (%s); read and acknowledge them "
+                          "first" % (name, before["unacknowledged"], _blocking_text(before["blocking"])))
     command = [node, str(root / "dist" / "cli.js"), "retire", name, "--keep-backlog"]
     if note:
         command += ["--note", note]

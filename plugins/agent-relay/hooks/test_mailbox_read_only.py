@@ -76,7 +76,8 @@ class MailboxReadOnlyTests(unittest.TestCase):
         self.assertEqual(side_files(self.database), [])
 
     def test_retire_and_the_delegation_probe_read_a_closed_wal_mailbox(self):
-        self.assertEqual(identity_state(self.database, "a"), {"state": "active", "unacknowledged": 2})
+        found = identity_state(self.database, "a")
+        self.assertEqual((found["state"], found["unacknowledged"]), ("active", 2))
         self.assertIs(native_registration_probe(self.database)("a", None, "s", "bounded-development"), True)
 
     def test_doctor_reads_a_closed_wal_mailbox(self):

@@ -1,5 +1,26 @@
 # Changelog
 
+## [Unreleased]
+
+接口升到 **1.1**（`interface.json`）：`bridge_register` 的行为收紧，向后兼容；Spec Guard 的探测范围 `>=1.0,<2.0`
+不用改。补上清理 0.2.0 测试遗留时发现的三个缺口（模块 `cleanup-gaps`）。
+
+- **退役不再被过期消息挡住**：`native_collaboration_retire.py` 按 bridge 的未读规则计数，已过期的消息不算；仍挡住
+  退役的消息在拒绝信息里列出编号和投递状态（最多 10 个，不含正文）。
+- **宿主拒绝、从未发出过一轮的 Codex 委派可以取消**：线程拿到了 id、却在发出第一轮之前就启动失败，宿主又拒绝该线程时，
+  `cancel` 直接收尾为 `cancelled`，附 `host-thread-absent`；其他 `unknown` 照旧不自动收尾。
+- **已退役的名字不会被悄悄恢复**：`bridge_register`（含 `takeover`）遇到已退役的名字时拒绝，只有带
+  `reactivate: true`（需用户同意）才恢复，结果写明 `reactivated: true`。Codex 委派的身份已被退役时，追问返回
+  `held/identity-retired`，不再发出。
+- **preflight** 多一行 `runtime bridge`：已装运行时的 bridge 是否与本检出一致；只更新了插件、没有升级运行时会显示
+  `OLDER`。
+
+### 从 0.2.0 升级
+
+更新插件后，已装运行时的 bridge 比插件旧（`doctor` 的 `runtime` 为 warn，preflight 显示 `OLDER`）。关闭所有使用信箱的
+会话，再运行 `native_collaboration_runtime.py upgrade --confirm`；信箱历史保留，schema 不变（仍为 5）。不升级的话，
+退役名字的保护不会生效。
+
 ## [0.2.0] - 2026-10-08
 
 加固版本：接口仍为 1.0（`interface.json`），Spec Guard 的探测范围 `>=1.0,<2.0` 不用改。经过两轮真实宿主联调与

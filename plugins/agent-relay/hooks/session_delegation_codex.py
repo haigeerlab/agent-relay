@@ -590,6 +590,10 @@ def _validate_catalog(result: dict[str, Any]) -> None:
         raise CodexAdapterError("communication-server-missing")
 
 
+def _internal_name(friendly_name: str, thread_ref: str) -> str:
+    return friendly_name[:110] + "-" + thread_ref[:8]
+
+
 def _bound_prompt(prompt: str, thread_ref: str, friendly_name: str,
                   registration_tool: str) -> str:
     if (not isinstance(prompt, str) or not prompt.strip()
@@ -597,7 +601,7 @@ def _bound_prompt(prompt: str, thread_ref: str, friendly_name: str,
             or any((ord(character) < 32 and character not in "\n\t")
                    or ord(character) == 127 for character in prompt)):
         raise CodexAdapterError("delegation-prompt-invalid")
-    internal_name = friendly_name[:110] + "-" + thread_ref[:8]
+    internal_name = _internal_name(friendly_name, thread_ref)
     if registration_tool == "bridge_register":
         registration = (
             "Call bridge_register exactly once with agent " + internal_name
@@ -624,6 +628,7 @@ class CodexAdapter:
         environment: Mapping[str, str],
         client_factory: Callable[[], _Client],
         registration_tool: str = "bridge_register",
+        retired_probe: Callable[[str], bool | None] | None = None,
     ):
         if registration_tool != "bridge_register":
             raise CodexAdapterError("registration-tool-invalid")
@@ -633,6 +638,7 @@ class CodexAdapter:
         self.environment = sanitized_environment(environment)
         self.client_factory = client_factory
         self.registration_tool = registration_tool
+        self.retired_probe = retired_probe
 
     def _scope(self, delegation_id: str, *, isolated_worktree: bool) -> tuple[Any, Any, _Permission]:
         claim = self.store.get_delegation(delegation_id)
@@ -749,6 +755,12 @@ class CodexAdapter:
             delegation_id, isolated_worktree=isolated_worktree)
         if claim.state != "completed" or claim.host_ref is None:
             raise CodexAdapterError("delegation-is-not-ready-for-follow-up")
+        # cleanup-gaps D63: the turn re-registers <friendly>-<thread[:8]>; a retired name is refused (D61), so the
+        # turn could not report back. Only a definite True holds; an unreadable mailbox changes nothing.
+        if (self.retired_probe is not None
+                and self.retired_probe(_internal_name(claim.friendly_name, claim.host_ref)) is True):
+            return CodexRunResult("held", claim.host_ref, claim.last_turn_ref,
+                                  prerequisite="identity-retired")
         client = self._open(self.client_factory)
         try:
             try:
@@ -852,6 +864,12 @@ class CodexAdapter:
                 client.request("thread/archive", {"threadId": claim.host_ref})
             except RpcRejected:
                 current = self.store.get_delegation(delegation_id)
+                if (current.state == "unknown" and current.host_session_ref is None
+                        and current.last_turn_ref is None):
+                    # cleanup-gaps D60: thread/start answered but no turn was ever sent, so no work ran; the host
+                    # rejecting the thread leaves nothing to stop.
+                    self.store.advance(delegation_id, "cancelled", "host-cancelled")
+                    return CodexRunResult("cancelled", claim.host_ref, prerequisite="host-thread-absent")
                 if current.state != "unknown":
                     self.store.advance(
                         delegation_id, "unknown", "host-result-unknown")
@@ -872,6 +890,7 @@ def prepare_codex_adapter(
     package_root: Path,
     project: Path,
     communication: CommunicationServer,
+    retired_probe: Callable[[str], bool | None] | None = None,
 ) -> CodexAdapter:
     installation = discover_app_managed_codex(package_root)
     inventory = read_mcp_inventory(installation, project)
@@ -887,5 +906,5 @@ def prepare_codex_adapter(
 
     return CodexAdapter(
         store, installation, command, environment, client_factory,
-        registration_tool=registration_tool,
+        registration_tool=registration_tool, retired_probe=retired_probe,
     )

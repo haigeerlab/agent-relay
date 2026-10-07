@@ -95,6 +95,18 @@ class DelegationBackendTests(unittest.TestCase):
         self.assertIsNone(probe(
             "origin-codex", None, "origin-thread-exact", "bounded-development"))
 
+    def test_retired_probe_is_true_only_for_an_exact_retired_identity(self):
+        # cleanup-gaps D63: a Codex follow-up is held only on a definite retirement.
+        database = self._database()
+        with sqlite3.connect(database) as connection:
+            connection.execute("INSERT INTO agents VALUES ('done-thread-1', '[]', 'now', 'now', 'later')")
+        probe = self.resolve().retired_probe
+        self.assertIs(probe("done-thread-1"), True)
+        self.assertIs(probe("origin-codex"), False)
+        self.assertIs(probe("nobody"), False)
+        database.chmod(0o644)
+        self.assertIsNone(probe("done-thread-1"))
+
     def test_mailbox_schemas_v3_to_v5_are_read_and_an_unknown_newer_one_is_not(self):
         # delivery-state-machine moves the mailbox to schema 3, idempotency to 4, identity-check to 5 (additive columns only).
         database = self._database()

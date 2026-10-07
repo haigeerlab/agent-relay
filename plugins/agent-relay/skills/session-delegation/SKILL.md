@@ -51,6 +51,7 @@ Agent 自己建议新开会话（例如主动建议再找一个 Codex 复审）�
 - `held/project-trust`：用户尚未在 Claude Code 中信任该项目。
 - `held/mcp-project-approval`：该项目尚未接受这次明确的临时 MCP。
 - `held/host-permission-prompt`：宿主仍要求人工权限决定。
+- `held/identity-retired`：Codex 委派的信箱身份已被退役，追问会因重新注册被拒而无法回传结果，所以没有发出；要继续就新建委派，或由用户决定是否恢复该名字。
 
 出现 held 时只展示最小建议：`.claude/settings.json` / `.claude/settings.local.json` 的最小 allow 和一个下一步；
 不得自动修改项目或全局设置，不得代用户接受 trust/MCP，也不得改用 bypass。用户可以提前把通信 allow 配在
@@ -136,6 +137,7 @@ Claude 创建返回 `unknown` 且 `prerequisite=host-entry-pending` 时，会话
 的记录返回 `unknown` + `host-ref-missing`：宿主会话可能仍在运行，绝不显示 cancelled，也不按名称或项目去找；请用户
 在 `claude agents` 里找到 `<友好名>-<短区分项开头的 8 位>` 并自行停止。不得清理
 同名的其他会话、用户项目、未读结果或未知归属的临时文件。
+Codex 记录拿到了线程 id、却从未发出过一轮（启动在发出第一轮之前失败），宿主又拒绝了对该线程的请求时，没有任何工作运行过，取消直接显示 cancelled，附 `host-thread-absent`；其他 `unknown` 照旧，不自动收尾。
 
 ## 用户可见结果
 

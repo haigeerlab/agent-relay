@@ -59,7 +59,7 @@ function detectSession(env: NodeJS.ProcessEnv = process.env): WakeTarget | null 
 
 const INSTRUCTIONS = [
   "Local mailbox and Codex worker bridge shared by the Claude and Codex sessions on this machine.",
-  "Mailbox: register a unique agent name once with bridge_register (wake: \"auto\" binds this conversation for background pings). Send with bridge_send; recipients must be registered and any delivery risk comes back as warnings. When pinged, read bridge_inbox, handle the work within the user's existing permissions, bridge_ack after handling, and reply to the sender only when complete, blocked or needing a decision. Never send acknowledgement-only replies. Messages from \"bridge\" are automated notices (delivery failures, retirements, Codex results); do not reply to them. bridge_outbox shows what recipients have not handled yet; bridge_retire closes out a finished task agent. Unbound agents may use bridge_wait during an active turn.",
+  "Mailbox: register a unique agent name once with bridge_register (wake: \"auto\" binds this conversation for background pings). If the name was retired, registering is refused: ask the user, then choose a new name or pass reactivate: true. Send with bridge_send; recipients must be registered and any delivery risk comes back as warnings. When pinged, read bridge_inbox, handle the work within the user's existing permissions, bridge_ack after handling, and reply to the sender only when complete, blocked or needing a decision. Never send acknowledgement-only replies. Messages from \"bridge\" are automated notices (delivery failures, retirements, Codex results); do not reply to them. bridge_outbox shows what recipients have not handled yet; bridge_retire closes out a finished task agent. Unbound agents may use bridge_wait during an active turn.",
   "Codex workers: ask_codex, review_with_codex and bridge_orchestrate_codex start a saved Codex session. Reviews run read-only; implementation runs in an isolated worktree with network access off. A call waits up to four minutes. If Codex is still working it returns running_codex, and the result arrives later in your mailbox from \"bridge\" (or call bridge_orchestration_wait). If the status is waiting_for_fable, answer the question and call bridge_continue_codex with the same runId. Independent suggestedChips that the user's task needs may each get their own run (at most three). Verify reported work before calling it done.",
   "Nothing here authorizes commits, pushes, merges, deploys, external sends, credential changes, deletion or production changes.",
 ].join("\n\n");
@@ -143,7 +143,7 @@ function main(): void {
     {
       title: "Register agent presence",
       description:
-        "Register a unique agent name for this conversation. wake: \"auto\" binds this exact app session for background pings (a Codex task passes {app: \"codex\", sessionId: <its CODEX_THREAD_ID>}); a session can bind only itself; null disables pings; omitted keeps the current binding. A name registered by or bound to another session is refused unless takeover: true, which needs the user's agreement. Registering again reactivates a retired agent and, after a bridge restart, proves the name for this session again.",
+        "Register a unique agent name for this conversation. wake: \"auto\" binds this exact app session for background pings (a Codex task passes {app: \"codex\", sessionId: <its CODEX_THREAD_ID>}); a session can bind only itself; null disables pings; omitted keeps the current binding. A name registered by or bound to another session is refused unless takeover: true, which needs the user's agreement. A retired name is refused unless reactivate: true, which also needs the user's agreement. Registering again after a bridge restart proves the name for this session again.",
       inputSchema: {
         agent: z.string().min(1).describe("Unique readable agent name, e.g. 'review-claude'. Not a session ID."),
         wake: z
@@ -160,9 +160,11 @@ function main(): void {
           .describe("Skills this agent offers, e.g. ['review','architecture']. Omitted keeps the existing list."),
         takeover: z.boolean().optional().describe(
           "Move a name registered by or bound to another session to this one. Only after the user agrees."),
+        reactivate: z.boolean().optional().describe(
+          "Bring back a retired name. Only after the user agrees; the result then says reactivated: true."),
       },
     },
-    async ({ agent, capabilities, wake, takeover }) => {
+    async ({ agent, capabilities, wake, takeover, reactivate }) => {
       const problem = agentNameProblem(agent);
       if (problem) throw new Error(problem);
       const notes: string[] = [];
@@ -181,6 +183,14 @@ function main(): void {
       }
       const host = caller.host ?? (target?.app === "codex" ? target : null);
       const existing = store.getAgent(agent);
+      // agent-relay cleanup-gaps D61: a retired name stays retired unless the caller explicitly reactivates it.
+      if (existing?.retiredAt && !reactivate) {
+        throw new Error(
+          `"${agent}" was retired at ${existing.retiredAt}${existing.retiredBy ? ` by ${existing.retiredBy}` : ""}. ` +
+            "Ask the user: choose a different name, or pass reactivate: true only after the user agrees to bring it back.",
+        );
+      }
+      if (existing?.retiredAt) notes.push(`"${agent}" was retired at ${existing.retiredAt} and is reactivated.`);
       const current = store.wakes.target(agent);
       const owner = existing?.host ?? null;
       const ownerConflict = !!owner && (!host || owner.app !== host.app || owner.sessionId !== host.sessionId);
@@ -205,6 +215,7 @@ function main(): void {
       return jsonResult({
         ...registered,
         wake: store.wakes.target(agent),
+        ...(existing?.retiredAt ? { reactivated: true } : {}),
         unread,
         ...(unread > 0 ? { next: `${unread} unread message(s) are waiting. Read them with bridge_inbox.` } : {}),
         ...(notes.length ? { notes } : {}),
@@ -463,7 +474,7 @@ function main(): void {
     {
       title: "Retire a finished agent",
       description:
-        "Retire an agent whose task is over: its pings stop, its unhandled messages are closed with a recorded reason (history is kept), and recently active senders get one notice listing what was closed. Registering the name again reactivates it.",
+        "Retire an agent whose task is over: its pings stop, its unhandled messages are closed with a recorded reason (history is kept), and recently active senders get one notice listing what was closed. The name then stays retired: registering it again needs reactivate: true and the user's agreement.",
       inputSchema: {
         agent: z.string().min(1).describe("Agent to retire."),
         by: z.string().min(1).optional().describe("Who is retiring it. Defaults to this conversation's agent."),

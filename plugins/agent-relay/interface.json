@@ -1,4 +1,4 @@
 {
-  "interface": "1.0",
+  "interface": "1.1",
   "status": ["python3", "-B", "hooks/relay_status.py"]
 }

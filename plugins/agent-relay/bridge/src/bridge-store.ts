@@ -723,7 +723,8 @@ export class BridgeStore {
 
   /**
    * Register or refresh an agent's presence. Omitted capabilities keep the
-   * existing list. Registering again reactivates a retired agent.
+   * existing list. Registering again reactivates a retired agent; bridge_register allows that only with
+   * reactivate: true (agent-relay cleanup-gaps D61).
    */
   register(name: string, capabilities?: string[], host?: AgentHost | null): BridgeAgent {
     const now = this.now();

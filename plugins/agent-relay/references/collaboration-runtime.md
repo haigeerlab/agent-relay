@@ -91,7 +91,12 @@ python3 -B "$ROOT/hooks/native_collaboration_retire.py" \
 ```
 
 The command verifies the pinned runtime, requires an exact name, refuses any unacknowledged direct or broadcast
-delivery, and retires the identity while keeping backlog. It does not delete the database.
+delivery (an expired message does not count; the refusal lists up to ten blocking message ids with their delivery
+state, never their text), and retires the identity while keeping backlog. It does not delete the database.
+
+A retired name stays retired: `bridge_register` refuses it, with or without `takeover`, unless the call passes
+`reactivate: true`, which needs the user's agreement; the result then says `reactivated: true`. A Codex delegation
+whose identity was retired holds its follow-ups with `identity-retired`.
 
 ## Claude project permissions
 

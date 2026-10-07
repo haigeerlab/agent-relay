@@ -563,7 +563,7 @@ async function prune(parsed: ParsedCliCommand): Promise<number> {
       });
       notified += result.notified.length;
     }
-    console.log(`\n✓ Retired ${stale.length} agent(s); ${notified} active sender notice(s) sent. Re-registering a name reactivates it.`);
+    console.log(`\n✓ Retired ${stale.length} agent(s); ${notified} active sender notice(s) sent. A retired name comes back only with bridge_register reactivate: true.`);
     return 0;
   } finally {
     store.close();

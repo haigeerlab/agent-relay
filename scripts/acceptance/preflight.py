@@ -17,7 +17,7 @@ REPO = Path(__file__).resolve().parents[2]
 SOURCE = REPO / "plugins" / "agent-relay"
 sys.path.insert(0, str(SOURCE / "hooks"))
 from native_collaboration_adapters import CLAUDE_SERVER_NAME  # noqa: E402
-from native_collaboration_runtime import MAILBOX_TOOLS, StateHomeError, default_root  # noqa: E402
+from native_collaboration_runtime import MAILBOX_TOOLS, StateHomeError, default_root, status  # noqa: E402
 
 # Build output and what hosts add to their own copies (Codex writes migrated-command-skills/), never compared.
 IGNORED = frozenset(("node_modules", ".git", "__pycache__", ".DS_Store", "migrated-command-skills"))
@@ -163,6 +163,17 @@ def codex_reviewer():
     return value + note
 
 
+def runtime_bridge(root):
+    """Whether the installed runtime's bridge is this checkout's (cleanup-gaps): a plugin-only update leaves it older."""
+    found = status(root)
+    if found["state"] != "ready":
+        return found["state"]
+    if found["bridge"]["current"]:
+        return "current"
+    return ("OLDER than this checkout's (close the sessions using the mailbox, then "
+            "native_collaboration_runtime.py upgrade --confirm after the user agrees)")
+
+
 def block(label, lines):
     pad = " " * 22
     return "\n".join((f"{label:<22}" if index == 0 else pad) + line for index, line in enumerate(lines))
@@ -185,8 +196,9 @@ def main(argv=None):
     try:
         root = default_root()
         root_line = f"{root} ({'present' if root.exists() else 'absent'})"
+        bridge_line = runtime_bridge(root)
     except StateHomeError as error:
-        root_line = f"error: {error}"
+        root_line = bridge_line = f"error: {error}"
     print(f"claude version        {run('claude', '--version')[1]}")
     print(f"codex version         {run('codex', '--version')[1]}")
     print(f"this checkout         {SOURCE} (tree {SOURCE_HASH[:12]})")
@@ -194,6 +206,7 @@ def main(argv=None):
     print(block("agent-relay (Codex)", codex_install()))
     print(f"codex approvals       {codex_reviewer()}")
     print(f"runtime root          {root_line}")
+    print(f"runtime bridge        {bridge_line}")
     print(f"allow (base)          {base}")
     print(f"allow (routing)       {routing}")
     if args.design is None:
