@@ -38,7 +38,7 @@ it. **Files:** `hooks/session_delegation_control.py`, its tests, `skills/session
 
 ### Task 6: Docs
 README; collab skill (whoami, status/wait by id, bodyFile); collaboration-ops (doctor); interface rows 45, 51, 53, 65,
-69, 91, 161, 165, gaps h, i, findings 2, 6; checklist A1, A5, C8, D2, D16; `UPSTREAM.md`.
+69, 91, 161, 165, gaps h, i, baseline findings 2, 6 (interface §14 numbering); checklist A1, A5, C8, D2, D16; `UPSTREAM.md`.
 
 ### Task 7: Live (coordinator told first)
 Temporary `AGENT_RELAY_HOME`: runtime from this branch, `doctor` ok and with induced warnings; whoami from a Claude and a

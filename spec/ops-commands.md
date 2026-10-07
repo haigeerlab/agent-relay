@@ -6,7 +6,9 @@ Give operators and agents the everyday checks the mailbox lacks: one `doctor` th
 agent-relay is healthy and what to do next; `whoami` for a session's own identity; the status of one sent message and
 a wait on its outcome; a message body read from a file so it arrives byte-identical; and one documented time format
 for the delegation `--expires-at`. Interface gaps h, i; §2.1 rows 45, 51, 53; §2.3 rows 65, 69; §4 row 91; §10 rows
-161, 165; findings 2 and 6; checklist A1, A5, D2, C8, D16.
+161, 165; baseline findings 2 and 6 (interface §14, `[BL §Findings]` numbering — not the round 1 report's
+numbering, where finding 2 is the migration order and finding 6 the Codex approval subtables of `safe-uninstall`);
+checklist A1, A5, D2, C8, D16.
 
 Readers: the user; the round 1 coordinator (round 2 uses `doctor` in A1 and `whoami` in A5/D2); agents building
 `safe-uninstall`.
@@ -28,10 +30,10 @@ Readers: the user; the round 1 coordinator (round 2 uses `doctor` in A1 and `who
   `native_collaboration_runtime.py status | probe | install | upgrade`; host entries are only written, never checked
   (Claude's user-scoped MCP entry lives in `~/.claude.json` `mcpServers`, deny rules in `~/.claude/settings.json`;
   Codex in `~/.codex/config.toml`).
-- **Background prompts (finding 6):** the delegation controller already launches Claude targets only in `dontAsk` (or
+- **Background prompts (baseline finding 6, interface §4 row 91):** the delegation controller already launches Claude targets only in `dontAsk` (or
   `plan` for a host-native plan session) (`session_delegation_claude.py:193-207`), so a delegated target cannot hang on
   a prompt; any other wake-bound Claude session can still sit `waiting` and its pings go unanswered. Nothing reports it.
-- **`--expires-at` (finding 2):** `type=int` epoch seconds (`session_delegation_control.py:673`); an ISO string exits 2
+- **`--expires-at` (checklist C8; baseline finding 2):** `type=int` epoch seconds (`session_delegation_control.py:673`); an ISO string exits 2
   with argparse's message; not documented in the skill.
 
 ## Assumptions
@@ -66,7 +68,7 @@ D41–D45 accepted on 2026-10-07 (256 KiB cap; ISO 8601 with offset documented, 
   pointing at this runtime with exactly the ten tools; Claude `mcpServers.agent-relay` pointing at this runtime and the
   seven deny rules present); Codex auto-approval (guardian/never → `warn`: Codex wake refused, same rules as the
   bridge); wake-bound Claude identities whose session is `waiting` → `warn` "live but blocked on a prompt; pings will
-  not be handled" (finding 6), or not running → `warn` "binding to a closed session"; old Spec Guard bridge servers
+  not be handled" (a new check for interface §4 row 91), or not running → `warn` "binding to a closed session"; old Spec Guard bridge servers
   still running → `warn`. Codex thread liveness is not observable → reported `unknown`, not a warning.
 - **D43 body from file:** `bodyFile` is an absolute path to a regular file (not a symlink) owned by the user, at most
   256 KiB, valid UTF-8; exactly one of `body` and `bodyFile`; the stored body is the file's text unchanged (CRLF,
