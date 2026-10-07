@@ -13,4 +13,4 @@
   - `install` again: `ready`, mailbox bytes identical, the message readable, no stage left.
   - Real files: `~/.codex/config.toml`, `~/.claude/settings.json` and the real mailbox unchanged (mtime, size, hash, same as in the ops-commands snapshot); no new entry in `~/.agent-relay/backups`. `~/.claude.json` changed during the run (same size, new hash) — the Claude desktop app rewrites it continually (it also changed during the ops-commands run); every command here ran with `HOME` and `AGENT_RELAY_HOME` set to the temporary directory and `--claude-bin` set to the fake CLI, so the real `claude` was never called.
   - Run note: the first real-file snapshot used an unquoted list in zsh and recorded nothing; it was retaken mid-run (before any uninstall). Temporary directory removed; no process left
-- [ ] Checkpoint (gate): module review
+- [x] Checkpoint (gate): module review — accepted by the user 2026-10-07; push and PR approved
