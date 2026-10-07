@@ -17,6 +17,7 @@ from typing import Any, Callable, Iterable
 from urllib.parse import quote
 
 from native_collaboration_adapters import CLAUDE_SERVER_NAME, CODEX_SERVER_NAME
+from state_migration import _snapshot
 from native_collaboration_runtime import (DENIED_TOOLS, MAILBOX_BUSY_TIMEOUT, MAILBOX_SCHEMA_VERSIONS, MAILBOX_TOOLS,
                                           probe_runtime, status)
 
@@ -73,8 +74,10 @@ def _probe(root: Path, probe: Callable[[Path], dict[str, Any]]) -> dict[str, str
     return _check("probe", "ok", f"the bridge starts and lists {result.get('toolCount')} tools")
 
 
-def _mailbox(database: Path) -> dict[str, str]:
-    if not database.exists():
+def _mailbox(database: Path, original: Path | None = None) -> dict[str, str]:
+    """Read `database` (a private copy of `original`)."""
+    original = original or database
+    if not original.exists():
         return _check("mailbox", "ok", "no mailbox yet; the bridge creates it on first use")
     try:
         with closing(sqlite3.connect("file:%s?mode=ro" % quote(str(database)), uri=True,
@@ -103,7 +106,7 @@ def _mailbox(database: Path) -> dict[str, str]:
         cap = int(os.environ.get("BRIDGE_MAX_PENDING_PER_RECIPIENT", cap))
     except ValueError:
         pass
-    size = database.stat().st_size
+    size = original.stat().st_size
     full = [(agent, count) for agent, count in backlog if count >= cap * 0.8]
     if full:
         return _check("mailbox", "warn", "undelivered backlog near the cap of %d: %s" % (
@@ -287,11 +290,15 @@ def doctor(root: Path, *, home: Path | None = None, node: str = "node", codex_co
     database = root / "mailbox" / "bridge.sqlite"
     runtime, ready = _runtime(root)
     checks = [runtime]
-    if ready:
-        checks += [_probe(root, probe or (lambda r: _probe_outside(r, node))), _mailbox(database)]
-    checks += [_hosts(root, codex_config, claude_json, claude_settings), _codex_approval(codex_config)]
-    if ready:
-        checks.append(_wake_bindings(database, claude_sessions, alive))
+    # Opening a WAL mailbox, even read-only, touches its -shm next to it, so every read goes through a private copy
+    # made by plain file reads (as state-migration does); the live mailbox and its -wal/-shm stay untouched.
+    with tempfile.TemporaryDirectory(prefix="agent-relay-doctor-mailbox-") as scratch:
+        copy = _snapshot(database, Path(scratch)) if database.exists() else database
+        if ready:
+            checks += [_probe(root, probe or (lambda r: _probe_outside(r, node))), _mailbox(copy, database)]
+        checks += [_hosts(root, codex_config, claude_json, claude_settings), _codex_approval(codex_config)]
+        if ready:
+            checks.append(_wake_bindings(copy, claude_sessions, alive))
     checks.append(_old_bridges(processes()))
     states = {check["state"] for check in checks}
     overall = "fail" if "fail" in states else "warn" if "warn" in states else "ok"

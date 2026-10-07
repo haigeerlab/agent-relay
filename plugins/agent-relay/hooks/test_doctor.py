@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import sqlite3
 import tempfile
+import time
 import sys
 import unittest
 
@@ -91,6 +92,19 @@ class DoctorTests(unittest.TestCase):
         self.assertEqual(self.find(report, "wake-bindings")["detail"].count("unknown"), 1, "Codex liveness")
         for check in report["checks"]:
             self.assertTrue(check["detail"], check)
+        self.assertEqual({path: (path.stat().st_mtime_ns, path.read_bytes()) for path in files}, before)
+
+    def test_a_live_wal_mailbox_and_its_wal_and_shm_files_are_not_touched(self):
+        holder = sqlite3.connect(self.database, isolation_level=None)
+        self.addCleanup(holder.close)
+        holder.executescript("PRAGMA journal_mode = WAL; INSERT INTO messages (to_agent, delivery_state) VALUES ('reviewer', 'queued');")
+        files = [Path(str(self.database) + suffix) for suffix in ("", "-wal", "-shm")]
+        self.assertTrue(all(path.exists() for path in files))
+        before = {path: (path.stat().st_mtime_ns, path.read_bytes()) for path in files}
+        time.sleep(0.05)
+        report = self.run_doctor()
+        self.assertEqual(self.find(report, "mailbox")["state"], "ok", report)
+        self.assertIn("reviewer: 1", self.find(report, "mailbox")["detail"], "uncheckpointed WAL rows are seen")
         self.assertEqual({path: (path.stat().st_mtime_ns, path.read_bytes()) for path in files}, before)
 
     def test_warnings_name_the_problem_and_the_next_step(self):
