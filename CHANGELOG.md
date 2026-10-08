@@ -13,6 +13,9 @@
 - **升级不再因同一秒的备份撞名而失败**（模块 `acceptance-030-gaps`，D74）：`install-codex --approve-mailbox-tools` 后一秒内
   执行 `upgrade --confirm`，原来会报 “an upgrade with this timestamp already exists; retry in a second”；现在和宿主配置备份一样
   依次改用 `<时间>-1`、`<时间>-2`……，备份、暂存和 `runtime.previous-` 目录共用同一个后缀。
+- **“已通知”改为“已尝试通知”**（模块 `acceptance-030-gaps`，D76，0.3.0 验收发现 E2）：真机上 `osascript` 返回成功但 macOS
+  没显示横幅（脚本编辑器从未获准通知），bridge 却告诉发件方 “The user was notified”。现在 wake 详情与发件警告写 “A desktop
+  notification was attempted on this Mac; macOS may not show it …”，并指向等待列表与 doctor。
 - **README 写明通知权限**（模块 `acceptance-030-gaps`，D73）：bridge 的桌面通知由 `osascript` 发出，macOS 记在“脚本编辑器”
   名下（本机实测 `com.apple.ScriptEditor2`）；看不到横幅时到“系统设置 → 通知 → 脚本编辑器”打开。
 - **委派库不再因并发提交偶发报错**（模块 `delegation-sidecar-race`，D71）：检查 SQLite 附属文件时，另一个连接 COMMIT

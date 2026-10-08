@@ -35,6 +35,9 @@ test("a host claim records the Codex host and binds nothing", async () => {
     assert.equal(sent.json().wake, null, "no ping");
     assert.ok(sent.json().warnings.some((w: string) => /is a Codex session without a wake binding/.test(w)), sent.text);
     assert.ok(!sent.json().warnings.some((w: string) => /no known host/.test(w)), "the host is known now");
+    // agent-relay acceptance-030-gaps D76: a notice is only attempted; macOS may drop it.
+    assert.ok(sent.json().warnings.some((w: string) => /notification was attempted/.test(w)), sent.text);
+    assert.ok(!sent.json().warnings.some((w: string) => /The user was notified/.test(w)), "never claims the user saw it");
     assert.equal(readFileSync(log, "utf8").trim().split("\n").length, 1, "the D67 notice is attempted");
 
     const agents = (await claude.call("bridge_agents", {})).json().agents;

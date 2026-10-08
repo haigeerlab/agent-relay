@@ -39,7 +39,7 @@ test("an offline Codex recipient notifies once, without the body, and the wake d
   assert.equal(lines().length, 1);
   assert.match(lines()[0], new RegExp(`"sender" gave Codex work: message #${message.id} to "cx"`));
   assert.doesNotMatch(lines()[0], /secret/);
-  assert.match(store.wakes.forMessage(message.id)?.detail ?? "", /The user was notified on this Mac/);
+  assert.match(store.wakes.forMessage(message.id)?.detail ?? "", /A desktop notification was attempted on this Mac; macOS may not show it \(Script Editor notifications off, or Focus\)\. The user can list waiting messages with doctor or by asking any session\./);
   // Any other bridge on the same mailbox never notifies the same message again.
   assert.equal(notifyUndelivered(join(dir, "bridge.sqlite"),
     { messageId: message.id, fromAgent: "sender", agent: "cx", why: "again" }, { AGENT_RELAY_NOTIFY_LOG: log }), false);
@@ -128,7 +128,7 @@ test("a Codex recipient with no wake binding notifies at send time and the sende
     assert.ok((await sender.call("bridge_register", { agent: "sender" })).ok);
     const sent = await sender.call("bridge_send", { from: "sender", to: "cx", body: "secret work" });
     assert.ok(sent.ok, sent.text);
-    assert.ok(sent.json().warnings.some((w: string) => /The user was notified on this Mac/.test(w)), sent.text);
+    assert.ok(sent.json().warnings.some((w: string) => /A desktop notification was attempted on this Mac; macOS may not show it \(Script Editor notifications off, or Focus\)\. The user can list waiting messages with doctor or by asking any session\./.test(w)), sent.text);
     const lines = readFileSync(log, "utf8").trim().split("\n");
     assert.equal(lines.length, 1);
     assert.doesNotMatch(lines[0], /secret/);
