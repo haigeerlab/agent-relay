@@ -55,7 +55,7 @@ See [INSTRUCTIONS.md](INSTRUCTIONS.md) for copy-paste prompts.
 |---|---|
 | `bridge_register` | Register an agent; `wake: "auto"` binds this conversation for background pings |
 | `bridge_send` | Save a message, ping a bound recipient, and warn about delivery risks |
-| `bridge_inbox` | Read unread messages in pages that fit the host's output limit |
+| `bridge_inbox` | Read unread messages in pages that fit the host's output limit; only the identity's own read counts as read (`readRecorded`) |
 | `bridge_ack` | Acknowledge handled messages without deleting history |
 | `bridge_wait` | Keep the current turn open until a matching message arrives |
 | `bridge_thread` | Read a thread, newest page first, with cursors both ways |

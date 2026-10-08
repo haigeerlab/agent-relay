@@ -73,6 +73,8 @@ bridge 尝试过桌面通知，macOS 可能没显示，不要说成用户已经�
 
 读取用 `bridge_inbox`；处理后才调用 `bridge_ack`。主动等待使用 `bridge_wait` 且
 `acknowledge: false`，返回后仍需实际处理再确认。被唤醒后只处理当前权限允许的请求，有副作用的动作仍向用户取权。
+结果里 `readRecorded: false` 表示这次读取没有算作已读：读的是别人的身份（不影响对方的投递和唤醒），或读的是自己
+的名字但 bridge 重启后还没重新注册——后一种照 `readNote` 用 `bridge_register` 重新注册本会话的名字再读。
 
 ## 与同宿主原生通信的边界
 
