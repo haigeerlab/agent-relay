@@ -18,7 +18,7 @@ import tempfile
 from typing import Any, Sequence
 
 from host_backup import HostBackupError, backup_host_files, backup_message
-from host_config_removal import add_claude_server, remove_claude_server, remove_codex_table
+from host_config_removal import _differences, add_claude_server, remove_claude_server, remove_codex_table
 from native_collaboration_runtime import (DENIED_TOOLS, MAILBOX_TOOLS, NativeRuntimeError, StateHomeError,
                                           _servers_running, default_root, live_claude_sessions, status)
 
@@ -92,9 +92,34 @@ def _atomic_write(path: Path, content: str, mode: int) -> None:
         temporary.unlink(missing_ok=True)
 
 
+def mailbox_approvals(tools=MAILBOX_TOOLS) -> str:
+    """codex-gated-wake D70: the mailbox tools only read and write the mailbox, so a woken turn under the approval gate
+    reads and replies without a card; any execution still meets the read-only sandbox. Same table Codex writes for 始终允许."""
+    return "\n".join(f'[mcp_servers.{CODEX_SERVER_NAME}.tools.{tool}]\napproval_mode = "approve"\n' for tool in tools)
+
+
+def approve_mailbox_tools(root: Path, node: Path, target: Path) -> str:
+    """Add the missing approval tables to an existing entry that matches this runtime; refuse on any difference."""
+    target = Path(target)
+    existing, mode = _existing_regular(target)
+    problems, found = _differences(existing, codex_fragment(root, node), CODEX_SERVER_NAME)
+    if not found:
+        raise ValueError("native Codex MCP server is not installed; run install-codex")
+    if problems:
+        raise ValueError("native Codex MCP entry differs, nothing was changed: " + "; ".join(problems))
+    tables = re.findall(r'^\s*\[mcp_servers\.(?:"' + CODEX_SERVER_NAME + '"|' + CODEX_SERVER_NAME
+                        + r')\.tools\.(?:"([^"]+)"|([A-Za-z0-9_-]+))\]', existing, re.MULTILINE)
+    present = {quoted or bare for quoted, bare in tables}
+    missing = [tool for tool in MAILBOX_TOOLS if tool not in present]
+    if not missing:
+        return "All mailbox tools are already approved for Codex; nothing changed."
+    _atomic_write(target, existing.rstrip() + "\n\n" + mailbox_approvals(missing), mode)
+    return "%d mailbox tool approval(s) added for Codex; restart Codex to load them." % len(missing)
+
+
 def install_codex_config(root: Path, node: Path, target: Path) -> None:
     """Explicitly append only the native table; preserve every existing byte before it."""
-    fragment = codex_fragment(root, node)
+    fragment = codex_fragment(root, node) + "\n" + mailbox_approvals()
     target = Path(target)
     existing, mode = _existing_regular(target)
     table = re.compile(r'^\s*\[mcp_servers\.(?:"' + CODEX_SERVER_NAME + '"|'
@@ -212,6 +237,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--claude-bin", default="claude")
     parser.add_argument("--claude-sessions", type=Path, default=Path.home() / ".claude" / "sessions",
                         help="uninstall-claude: where Claude Code records its open sessions")
+    parser.add_argument("--approve-mailbox-tools", action="store_true",
+                        help="install-codex on an existing entry: add only the missing mailbox-tool approvals (D70)")
     parser.add_argument("--confirm-uninstall", action="store_true",
                         help="allow an uninstall command to remove host configuration")
     args = parser.parse_args(argv)
@@ -266,6 +293,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             result = codex_fragment(args.root, args.node)
         elif args.host == "claude":
             result = json.dumps(claude_config(args.root, args.node), indent=2, sort_keys=True)
+        elif args.host == "install-codex" and args.approve_mailbox_tools:
+            result = approve_mailbox_tools(args.root, args.node, args.codex_config)
         elif args.host == "install-codex":
             install_codex_config(args.root, args.node, args.codex_config)
             result = "Native Codex MCP configuration installed; restart Codex to load it."
