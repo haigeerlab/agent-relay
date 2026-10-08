@@ -407,12 +407,17 @@ def upgrade_runtime(root: Path, *, node: str = "node", npm: str = "npm", source:
     if running(root):
         raise NativeRuntimeError("a bridge server of this runtime is running; close every session using the "
                                  "mailbox first")
-    stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    second = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
     backups = Path(backups) if backups is not None else root.parent / "backups"
-    backup = backups / stamp
-    stage = root.parent / f".runtime-upgrade-{stamp}"
-    previous = root.parent / f"runtime.previous-{stamp}"
-    if stage.exists() or previous.exists() or backup.exists():
+    # acceptance-030-gaps D74: another backup this second (install-codex) takes the next suffix, as host_backup does.
+    for attempt in range(100):
+        stamp = second if attempt == 0 else f"{second}-{attempt}"
+        backup = backups / stamp
+        stage = root.parent / f".runtime-upgrade-{stamp}"
+        previous = root.parent / f"runtime.previous-{stamp}"
+        if not (stage.exists() or previous.exists() or backup.exists()):
+            break
+    else:
         raise NativeRuntimeError("an upgrade with this timestamp already exists; retry in a second")
     counts = _mailbox_counts(root / "mailbox" / "bridge.sqlite")
 

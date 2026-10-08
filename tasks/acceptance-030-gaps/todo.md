@@ -1,7 +1,7 @@
 # Todo: acceptance-030-gaps
 
 - [x] Task 1: Warn when the recipient has no wake binding and no known host (D72) — new `notify.test.ts` test (Codex caller registers `cx2` with `wake: null`; duplicate, `wake: false`, broadcast and a recorded Claude host stay silent; no notice logged): red with no `warnings` in the send result, green after `server.ts` adds the warning under `!duplicate && wake !== false && recipient && !recipient.host && !wakes.target(to)`. The full suite then showed `mcp-integration.test.ts` "two independent MCP clients" asserting no warnings for exactly this case (`codex` registered without wake from a Codex client); its expectation now names the D72 warning. Bridge `npm test` 149/149. `UPSTREAM.md` row, `UPSTREAM.sha256` regenerated (75 files), CHANGELOG entry
-- [ ] Task 2: Same-second upgrade picks a suffixed stamp (D74)
+- [x] Task 2: Same-second upgrade picks a suffixed stamp (D74) — `test_runtime_upgrade.py`: `test_a_backup_from_the_same_second_gets_a_suffix` (frozen `time.strftime`, `backups/<stamp>/host-config` present) red with "an upgrade with this timestamp already exists", green after `upgrade_runtime` tries `<stamp>`, `<stamp>-1` … `<stamp>-99` (backup, stage, previous and failed directories share the suffix); `test_every_suffix_taken_is_refused` keeps the refusal when all 100 are taken. `test_runtime_upgrade` 9 ok (Python 3.10.7). CHANGELOG entry
 - [ ] Checkpoint (report): validate on Python 3.9, 3.10, 3.14 + bridge `npm run check`
 - [ ] Task 3: Live check in a temporary AGENT_RELAY_HOME/HOME, then the README paragraph (D73)
 - [ ] Checkpoint (gate): module review
