@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Operator-only retirement of one native mailbox identity, keeping its backlog.
 
-Rollback requires every native identity to be retired with no unread mail. Agents cannot call
-bridge_retire (it is denied), and its default closes the backlog, which would mark unread mail
-as handled. This command retires one exact name through the pinned CLI with --keep-backlog,
+Rollback requires every native identity to be retired with no unread mail. Agents cannot retire
+identities (the bridge_retire tool was removed from the server in orchestrator-removal), and the CLI's
+default closes the backlog, which would mark unread mail as handled. This command retires one exact name through the pinned CLI with --keep-backlog,
 and only when that identity has no unacknowledged direct or broadcast delivery (an expired one does not count).
 """
 from __future__ import annotations
