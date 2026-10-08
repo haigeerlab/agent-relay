@@ -19,9 +19,19 @@ Bring the findings to the user and settle "known to work" (assumption 4) before 
 Tests on the payload.
 
 ### Task 3: Auto-approval no longer blocks Codex wake; fail closed (D66)
-Remove the refusal in `bridge_register` and the hold in `wake-dispatcher` where the gate is known to work (rule from
-Task 1); keep the hold otherwise. Tests: auto-approved config + supported owner → bind and wake (gated); unsupported
-or unknown → held as today; non-Codex unchanged.
+Remove the refusal in `bridge_register` and the hold in `wake-dispatcher`. Gate checks (spec Amendment 2): D66a
+ChatGPT app version ≥ 26.930 before the wake, else `held`; D66b after an accepted turn, the exact thread's rollout
+`turn_context` for that `turn.id` must show user / on-request / read-only, else write `<mailbox dir>/codex-gate.off`,
+notify once, and hold later Codex jobs. Tests with injected version and rollout readers: auto-approved config → bind
+and wake gated; old or unknown version → held; matching rollout → nothing; mismatch or missing → gate off + one
+notice + next job held; `codex-gate.off` present → held; non-Codex unchanged.
+
+### Task 3b: Pre-approve the mailbox tools for Codex (D70)
+`install-codex` writes `[mcp_servers.agent_relay.tools.<tool>]` / `approval_mode = "approve"` for the ten
+`MAILBOX_TOOLS`, skipping tools that already have one; new `install-codex --approve-mailbox-tools` adds only the
+missing subtables to an existing matching entry (backup first, refuse on any other difference); uninstall unchanged.
+Tests: fresh install, existing user-written subtable kept once, option on a matching entry, refusal on a mismatch,
+uninstall removes all, nothing written to `~/.codex/rules`.
 
 ### Task 4: Notify the user when a Codex message cannot be delivered (D67 B)
 On a Codex wake that ends `pending` offline, `held`, or a direct message to a Codex recipient without a wake binding

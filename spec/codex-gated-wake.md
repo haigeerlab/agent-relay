@@ -79,6 +79,52 @@ Confirmed by the user on 2026-10-08: gate every mode (assumption 1), visibility 
 - **D68 doctor states the selector accurately.** As assumption 6. Accepted on 2026-10-08.
 - **D69 interface 1.2.** As assumption 7. Accepted on 2026-10-08.
 
+## Amendment 1 (2026-10-08): read and reply without approval cards (user chose B)
+
+Probes by the coordinator (thread 01a1196e, located by session id; `config.toml` and `~/.codex/rules` backed up and
+restored, hash cb983224 unchanged):
+- Under the gate every `agent_relay` MCP call showed an approval card. 始终允许 on that card writes
+  `[mcp_servers.agent_relay.tools.<tool>]` / `approval_mode = "approve"` to `config.toml`, global; with those tables
+  `bridge_inbox`, `bridge_send`, `bridge_ack` no longer asked under the gate (user reviewer, on-request, read-only).
+- The terminal card has no 始终允许; 允许类似命令 appends an exact-prefix `prefix_rule(..., decision="allow")` to
+  `~/.codex/rules/default.rules`, global. A new command still asked and was refused when denied.
+
+Measured in this checkout: the Codex entry enables exactly `MAILBOX_TOOLS` (`bridge_register`, `bridge_send`,
+`bridge_inbox`, `bridge_ack`, `bridge_outbox`, `bridge_agents`, `bridge_sessions`, `bridge_wake_status`,
+`bridge_thread`, `bridge_wait`); the executing tools (`ask_codex`, `review_with_codex`, `bridge_orchestrate_codex`,
+`bridge_continue_codex`, orchestration wait/status) and `bridge_retire` are not enabled for Codex at all.
+`host_config_removal.py` already treats `tools.<name>` subtables holding only `approval_mode` as ours, so they coexist
+with tables the user wrote by 始终允许 and uninstall removes them without reporting a conflict. `install-codex`
+refuses when the server table already exists.
+
+Assumptions A1–A3, confirmed by the user on 2026-10-08 (A2: the new option):
+- **A1** `install-codex` writes `approval_mode = "approve"` subtables for the ten mailbox tools, skipping any tool that
+  already has one (no duplicate TOML table). These tools only read and write the mailbox; any execution in a woken
+  turn still meets the read-only sandbox and asks. No `~/.codex/rules` entry is ever written.
+- **A2** Existing installs (an entry already present, including this Mac): `install-codex --approve-mailbox-tools`
+  (new, explicit, backed up like every host write) adds only the missing subtables to a matching entry and refuses
+  on any other difference. Alternative: document uninstall-codex then install-codex.
+- **A3** uninstall-codex keeps removing them (unchanged); the plugin never removes or rewrites a table it did not
+  write except on uninstall, as today.
+
+- **D70 mailbox tools pre-approved for Codex.** As A1–A3. Accepted on 2026-10-08.
+
+## Amendment 2 (2026-10-08): "known to work" (D66), the user chose both checks
+
+Task 1 found no signal before a turn. Measured: the start-turn receipt carries `turn.id`; the thread's rollout
+`~/.codex/sessions/YYYY/MM/DD/rollout-<time>-<threadId>.jsonl` (named by the exact thread id) has one `turn_context`
+per turn with that `turn_id`, `approval_policy`, `approvals_reviewer` and `sandbox_policy.type`; the App version is
+`CFBundleShortVersionString` of `/Applications/ChatGPT.app` (26.930.61225 on this Mac).
+
+- **D66a before:** a gated wake is sent only when the ChatGPT app's version is at least 26.930 (the probed one);
+  missing or older → the job is `held` as before D66 (and the user is notified, D67).
+- **D66b after:** once Codex accepts the turn, the bridge reads the rollout named by the bound thread id and checks
+  that turn's `turn_context`: `approvals_reviewer = "user"`, `approval_policy = "on-request"`, sandbox `read-only`.
+  A mismatch, or no record within a short wait, turns gated wake off for this mailbox (`<mailbox dir>/codex-gate.off`,
+  later Codex jobs `held`) and notifies the user once; the user deletes the file to turn it back on. The bridge never
+  reads other threads' rollouts and never chooses a file by time.
+
+
 ## Requirements
 
 1. Task 1 probe (real Codex App, disposable test thread created for it, exact session id, coordinator told and the
@@ -110,4 +156,4 @@ turn back on 帮我批准.
 
 ## Open questions
 
-- Assumption 4: what counts as "known to work" is settled by the Task 1 probe and brought back to the user.
+None.
