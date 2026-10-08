@@ -64,7 +64,13 @@ the plugin (`bridge/`, checked against `bridge/UPSTREAM.sha256`; no `git`), and 
 `status` reports `bridge.source` (`upstream-git` for a runtime installed before this, `vendored` after) and
 `bridge.current` (whether it equals the plugin's copy); do not reinstall over an existing runtime to change it.
 When `bridge.current` is false, offer the upgrade and run it only after the user agrees and has closed every
-session that uses the mailbox (the command refuses while a bridge server of this runtime runs):
+session that uses the mailbox (the command refuses while a bridge server of this runtime runs). The user stops the
+bridges either by quitting the apps (every Claude Code session, and the ChatGPT app with ⌘Q) or by ending the bridge
+processes with `pkill -TERM -f "[a]gent-relay/runtime/dist/server.js"` (the bracket keeps it from matching its own
+shell); check with `pgrep -fl "agent-relay/runtime/dist/server.js"`. Never run that `pkill` without the user's explicit
+consent for that step: it ends every mailbox connection, this session's included. After a `pkill`, tell the user to
+reopen the Claude Code sessions and to quit the ChatGPT app completely and reopen it, or the open Codex threads keep
+failing with "Transport closed":
 
 ```bash
 python3 -B "$ROOT/hooks/native_collaboration_runtime.py" upgrade --confirm

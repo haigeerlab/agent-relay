@@ -173,6 +173,13 @@ python3 -B plugins/agent-relay/hooks/state_migration.py migrate --confirm
 回到旧运行时还能打开它，但旧版 agent-relay 插件只认 schema 2（到 4），所以回滚时要连插件一起回滚，或者用备份恢复邮箱
 （之后收到的消息会丢失）。
 
+停 bridge 有两种方式，升级前任选其一，然后在“终端”里用 `pgrep -fl "agent-relay/runtime/dist/server.js"` 确认没有输出：
+
+- **退出应用**：关掉所有 Claude Code 会话，⌘Q 退出 ChatGPT 应用（Codex 的 bridge 由它启动）。升级完成后重新打开即可。
+- **只结束 bridge 进程**：`pkill -TERM -f "[a]gent-relay/runtime/dist/server.js"`（方括号让它不会匹配到执行它的 shell
+  自己）。升级完成后，Claude Code 会话重开即可；ChatGPT 应用要 ⌘Q 完全退出再打开，否则已经打开的 Codex 线程会一直报
+  “Transport closed”。
+
 - **回滚**：同样关掉所有会话后执行 `native_collaboration_runtime.py rollback --confirm`，回到最新的
   `runtime.previous-<时间>`，信箱和数据一起带过去；先备份信箱，当前版本保留为 `runtime.rolled-back-<时间>`。
 - **中途被打断**：升级、重装或回滚半路停下（进程被杀、断电），`~/.agent-relay/runtime-swap.json` 会留下记录，`status` 报

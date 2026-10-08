@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+- **升级说明写清楚怎么停 bridge**（模块 `upgrade-restart-note`，D132–D134，0.5.2 E1 验收发现 F2）：README“升级运行时”与
+  collaboration-ops 技能写明两种方式——退出应用后重开；或用 `pkill -TERM -f "[a]gent-relay/runtime/dist/server.js"` 只结束
+  bridge（方括号让它不会结束执行它的 shell），这时 ChatGPT 应用要 ⌘Q 完全退出再打开，否则已打开的 Codex 线程会一直报
+  “Transport closed”。技能要求 agent 只有在用户明确同意这一步后才执行 `pkill`。只改文档。
 ## [0.5.2] - 2026-10-09
 
 接口仍为 **1.4**，信箱 schema 仍为 5，委派库结构仍为 2。这一版收尾 0.4.0 架构审核剩下的发现：状态迁移、委派的并发与
