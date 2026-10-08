@@ -73,7 +73,8 @@ class DoctorTests(unittest.TestCase):
         options = dict(home=self.home, codex_config=self.codex_config, claude_json=self.claude_json,
                        claude_settings=self.claude_settings, claude_sessions=self.sessions,
                        probe=lambda _root: {"state": "ready", "toolCount": 17},
-                       processes=lambda: self.processes, alive=lambda pid: pid in self.alive)
+                       processes=lambda: self.processes, alive=lambda pid: pid in self.alive,
+                       codex_app_version=lambda: "26.930.61225")
         options.update(overrides)
         return doctor(self.root, **options)
 
@@ -107,6 +108,27 @@ class DoctorTests(unittest.TestCase):
         self.assertIn("reviewer: 1", self.find(report, "mailbox")["detail"], "uncheckpointed WAL rows are seen")
         self.assertEqual({path: (path.stat().st_mtime_ns, path.read_bytes()) for path in files}, before)
 
+    def test_an_old_chatgpt_app_or_a_turned_off_gate_warns(self):
+        # codex-gated-wake D66/D68.
+        self.codex_config.write_text(codex_fragment(self.root, NODE))
+        for version in ("26.929.1", None):
+            with self.subTest(version=version):
+                check = self.find(self.run_doctor(codex_app_version=lambda: version), "codex-approval")
+                self.assertEqual(check["state"], "warn")
+                self.assertIn("26.930 or later", check["detail"])
+                self.assertIn("update the ChatGPT app", check["next"])
+        off = self.root / "mailbox" / "codex-gate.off"
+        off.write_text("turn t of thread: missing\n")
+        check = self.find(self.run_doctor(), "codex-approval")
+        self.assertEqual(check["state"], "warn")
+        self.assertIn("gated Codex wake is off", check["detail"])
+        self.assertIn(str(off), check["next"])
+
+    def test_no_codex_entry_means_no_version_warning(self):
+        self.codex_config.write_text("")
+        check = self.find(self.run_doctor(codex_app_version=lambda: None), "codex-approval")
+        self.assertEqual(check["state"], "ok", check)
+
     def test_warnings_name_the_problem_and_the_next_step(self):
         self.codex_config.write_text('approvals_reviewer = "guardian_subagent"\n\n' + codex_fragment(self.root, NODE))
         self.session("claude-live", "waiting")
@@ -114,8 +136,12 @@ class DoctorTests(unittest.TestCase):
         report = self.run_doctor()
         self.assertEqual(report["state"], "warn")
         states = self.states(report)
-        self.assertEqual(states["codex-approval"], "warn")
-        self.assertIn("请求批准", self.find(report, "codex-approval")["next"])
+        # codex-gated-wake D68: auto-approval no longer blocks wake (D66), so it is not a warning; the text is accurate.
+        approval = self.find(report, "codex-approval")
+        self.assertEqual(approval["state"], "ok", approval)
+        self.assertIn("applies per turn and is not stored in config.toml", approval["detail"])
+        self.assertIn("Woken peer turns run read-only", approval["detail"])
+        self.assertNotIn("请求批准", approval["detail"] + approval["next"])
         self.assertEqual(states["wake-bindings"], "warn")
         self.assertIn("waiting", self.find(report, "wake-bindings")["detail"])
         self.assertEqual(states["old-bridges"], "warn")

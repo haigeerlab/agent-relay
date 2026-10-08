@@ -12,6 +12,7 @@ from pathlib import Path
 import re
 import sqlite3
 import subprocess
+import sys
 import tempfile
 from typing import Any, Callable, Iterable
 
@@ -30,7 +31,8 @@ def _check(name: str, state: str, detail: str, next_step: str = "") -> dict[str,
 
 
 def codex_auto_approval(path: Path) -> tuple[bool, str]:
-    """The bridge's rule (``codex-approval.ts``): guardian review or ``never`` at top level; unreadable fails closed."""
+    """Is the user's own Codex default auto-approved (guardian review or ``never`` at top level; unreadable fails closed)?
+    Since codex-gated-wake (D66) this is information only: woken peer turns carry their own approval gate."""
     try:
         text = Path(path).read_text(encoding="utf-8")
     except FileNotFoundError:
@@ -173,13 +175,51 @@ def _hosts(root: Path, codex_config: Path, claude_json: Path, claude_settings: P
     return _check("host-entries", "ok", "attached to " + " and ".join(attached) + "; entries match this runtime")
 
 
-def _codex_approval(codex_config: Path) -> dict[str, str]:
-    auto, reason = codex_auto_approval(codex_config)
-    if auto:
-        return _check("codex-approval", "warn", f"Codex runs with auto-approval ({reason}): Codex wake binding is "
-                      "refused and pings to bound Codex sessions are held",
-                      "set the Codex approval selector to 请求批准; never edit the file for the user")
-    return _check("codex-approval", "ok", reason)
+# codex-gated-wake D66a: the ChatGPT app version the per-turn approval gate was probed on (bridge codex-gate.ts).
+MIN_CODEX_APP_VERSION = (26, 930)
+CHATGPT_PLIST = Path("/Applications/ChatGPT.app/Contents/Info.plist")
+
+
+def chatgpt_app_version() -> str | None:
+    if sys.platform != "darwin" or not CHATGPT_PLIST.exists():
+        return None
+    try:
+        done = subprocess.run(["/usr/bin/plutil", "-extract", "CFBundleShortVersionString", "raw", "-o", "-",
+                               str(CHATGPT_PLIST)], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if done.returncode != 0:
+        return None
+    return done.stdout.strip() or None
+
+
+def _version_ok(version: str | None) -> bool:
+    if not version or not re.fullmatch(r"\d+(\.\d+)*", version):
+        return False
+    parts = [int(part) for part in version.split(".")]
+    return tuple(parts[:2] + [0] * (2 - len(parts[:2]))) >= MIN_CODEX_APP_VERSION
+
+
+def _codex_approval(codex_config: Path, mailbox: Path, app_version: Callable[[], str | None]) -> dict[str, str]:
+    """codex-gated-wake D68: say accurately what governs which turn; warn only when gated wake cannot run."""
+    off = mailbox / "codex-gate.off"
+    if off.exists():
+        return _check("codex-approval", "warn", "gated Codex wake is off for this mailbox: an earlier woken turn did "
+                      "not show the approval gate, so Codex pings are held and the user is notified",
+                      f"check that Codex thread, then delete {off} to turn gated wake back on")
+    try:
+        attached = re.search(r"^\s*\[mcp_servers\.agent_relay\]", codex_config.read_text(encoding="utf-8"), re.M)
+    except (OSError, UnicodeError):
+        attached = None
+    version = app_version() if attached else None
+    if attached and not _version_ok(version):
+        return _check("codex-approval", "warn", f"ChatGPT app version {version or 'cannot be read'}: gated Codex wake "
+                      "needs 26.930 or later, so Codex pings are held and the user is notified",
+                      "update the ChatGPT app")
+    _auto, reason = codex_auto_approval(codex_config)
+    return _check("codex-approval", "ok", f"{reason}. That default covers the user's own turns; the App's approval "
+                  "selector applies per turn and is not stored in config.toml. Woken peer turns run read-only and ask "
+                  "the user before any action (mailbox tools excepted when pre-approved)")
 
 
 def _wake_bindings(database: Path, sessions_dir: Path, alive: Callable[[int], bool]) -> dict[str, str]:
@@ -242,7 +282,8 @@ def _probe_outside(root: Path, node: str) -> dict[str, Any]:
 def doctor(root: Path, *, home: Path | None = None, node: str | None = None, codex_config: Path | None = None,
            claude_json: Path | None = None, claude_settings: Path | None = None,
            claude_sessions: Path | None = None, probe: Callable[[Path], dict[str, Any]] | None = None,
-           processes: Callable[[], Iterable[str]] = _ps, alive: Callable[[int], bool] = pid_alive) -> dict[str, Any]:
+           processes: Callable[[], Iterable[str]] = _ps, alive: Callable[[int], bool] = pid_alive,
+           codex_app_version: Callable[[], str | None] = chatgpt_app_version) -> dict[str, Any]:
     home = Path(home) if home else Path.home()
     codex_home = os.environ.get("CODEX_HOME", "").strip()
     codex_config = Path(codex_config) if codex_config else (Path(codex_home) if codex_home else home / ".codex") / "config.toml"
@@ -261,7 +302,7 @@ def doctor(root: Path, *, home: Path | None = None, node: str | None = None, cod
             probed = (_probe(root, probe) if probe else
                       _probe_with_selected_node(root, node, claude_json, codex_config))
             checks += [probed, _mailbox(copy, database)]
-        checks += [_hosts(root, codex_config, claude_json, claude_settings), _codex_approval(codex_config)]
+        checks += [_hosts(root, codex_config, claude_json, claude_settings), _codex_approval(codex_config, root / "mailbox", codex_app_version)]
         if ready:
             checks.append(_wake_bindings(copy, claude_sessions, alive))
     checks.append(_old_bridges(processes()))
