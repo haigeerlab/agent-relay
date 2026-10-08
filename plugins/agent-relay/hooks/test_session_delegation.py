@@ -255,6 +255,22 @@ class PrivateStoreTests(DelegationTestCase):
         connect.assert_not_called()
         self.assertEqual(target.read_text(encoding="utf-8"), "unchanged")
 
+    def test_sidecar_removed_by_concurrent_commit_is_not_an_error(self):
+        # Another connection's COMMIT deletes its rollback journal; the check must
+        # tolerate the journal vanishing between noticing it and reading its metadata.
+        store = self.store()
+        journal = Path(str(store.database) + "-journal")
+        journal.touch(mode=0o600)
+        real_lstat = Path.lstat
+
+        def lstat_after_concurrent_commit(path, *args, **kwargs):
+            if path == journal and journal.exists():
+                journal.unlink()
+            return real_lstat(path, *args, **kwargs)
+
+        with patch.object(Path, "lstat", lstat_after_concurrent_commit):
+            self.assertEqual(store.count_delegations("not-an-envelope"), 0)
+
     def test_authorization_retry_reuses_identity_and_changed_content_conflicts(self):
         store = self.store()
         first = self.authorize(store)
