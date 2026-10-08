@@ -111,3 +111,67 @@ test("a bystander's bridge_outbox is not the sender's activity", async () => {
     await Promise.all([owner.close(), bystander.close()]);
   }
 });
+
+// D100's note covers this: a Codex caller has no verified host, so only a name registered through this bridge
+// process is its own; a Claude caller's verified session survives a bridge restart.
+test("after a bridge restart a Codex identity must register again before its reads count; a Claude one need not", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "agent-relay-read-receipt-restart-"));
+  const first = await session(dir, null);
+  const claudeFirst = await session(dir, "claude-kept");
+  assert.ok((await first.call("bridge_register", { agent: "cx" })).ok);
+  assert.ok((await claudeFirst.call("bridge_register", { agent: "cl" })).ok);
+  await Promise.all([first.close(), claudeFirst.close()]);
+
+  const codex = await session(dir, null);
+  const claude = await session(dir, "claude-kept");
+  try {
+    const before = (await codex.call("bridge_inbox", { agent: "cx" })).json();
+    assert.equal(before.readRecorded, false);
+    assert.match(before.readNote, /call bridge_register with it from this session again/);
+    assert.ok((await codex.call("bridge_register", { agent: "cx" })).ok);
+    assert.equal((await codex.call("bridge_inbox", { agent: "cx" })).json().readRecorded, true);
+
+    assert.equal((await claude.call("bridge_inbox", { agent: "cl" })).json().readRecorded, true,
+      "the verified Claude session is recognised without registering again");
+  } finally {
+    await Promise.all([codex.close(), claude.close()]);
+  }
+});
+
+// D102: whatever reads happen, a message is pinged successfully at most once, and a job never goes back to pending.
+test("no read pattern makes a message pinged more than once", () => {
+  const s = new BridgeStore(":memory:");
+  s.register("sender");
+  s.register("cx");
+  s.wakes.bind("cx", { app: "codex", sessionId: "thread-cx" });
+  const accepted = new Map<number, number>();
+  let offline = true;
+  // The dispatcher's loop with a fake transport: offline at first (pending, retried), then reachable.
+  const tick = (now: number) => {
+    const job = s.wakes.claim(now);
+    if (!job) return;
+    const state = offline ? "pending" : "accepted";
+    if (state === "accepted") accepted.set(job.messageId, (accepted.get(job.messageId) ?? 0) + 1);
+    s.wakes.finish(job, { state, detail: state, reason: "offline" });
+  };
+  const ids = ["bystander read first", "owner read first", "unrecorded own read", "read again and again"]
+    .map((body) => s.send({ fromAgent: "sender", toAgent: "cx", body }).id);
+  let now = Date.now() + 1;
+  for (let step = 0; step < 4; step += 1) tick((now += 70_000)); // a few offline retries
+  // A bystander's or an unregistered Codex session's read records nothing (D99): no recordRead call at all.
+  s.wakes.recordRead("cx", [ids[1]!]); // the owner's own read before its ping
+  offline = false;
+  for (let step = 0; step < 20; step += 1) {
+    tick((now += 70_000));
+    if (step % 3 === 0) s.wakes.recordRead("cx", [ids[3]!]); // the owner reads again and again
+  }
+  assert.equal(accepted.get(ids[1]!) ?? 0, 0, "a message its owner already read is not pinged");
+  for (const id of ids) assert.ok((accepted.get(id) ?? 0) <= 1, `message #${id} pinged at most once`);
+  // Reads that record nothing leave the ping to happen, once: the recipient is still told.
+  for (const id of [ids[0]!, ids[2]!]) assert.equal(accepted.get(id), 1, `message #${id} pinged once`);
+  for (const id of ids) {
+    const state = s.wakes.forMessage(id)?.state;
+    assert.ok(state !== "pending" && state !== "sending", `message #${id} job ended as ${state}`);
+  }
+  s.close();
+});
