@@ -1,6 +1,6 @@
 # Todo: register-retired-hint
 
 - [x] Task 1: The ownership refusal names a retired state (D64) — `bridge/src/server.ts` `bridge_register`: the owner/binding conflict refusal appends " It was retired at <time> by <who>; bringing it back here needs reactivate: true together with takeover: true, only after the user agrees." when `existing.retiredAt` is set; otherwise the text is unchanged. New test in `test/identity.test.ts` — red before (the refusal for B's `reactivate: true` on A's retired `gone` was only "\"gone\" is registered by another claude session (no longer running). … takeover: true …"): active `busy` refused for B without "retired"; retired `gone` with `reactivate: true` from B → ownership text + "It was retired at <retiredAt> by gone" + "reactivate: true together with takeover: true", row's `retiredAt` unchanged; `reactivate` + `takeover` from B → `reactivated: true`. `UPSTREAM.md` row `register-retired-hint`; `bridge-manifest.py` rewrote `UPSTREAM.sha256` (72 files); CHANGELOG `[Unreleased]` entry with the `upgrade --confirm` note. Bridge `npm run check` 140 ok; validate pass (Python 3.10.7)
-- [ ] Checkpoint (report): validate on Python 3.9, 3.10, 3.14 + bridge `npm run check`
+- [x] Checkpoint (report): validate on Python 3.9, 3.10, 3.14 + bridge `npm run check` — at bde46c9: `scripts/validate.sh` pass, 33 files / 535 tests on Python 3.9.6, 3.10.7 and 3.14.3; bridge `npm run check` ok in each run
 - [ ] Task 2: Live (temporary `AGENT_RELAY_HOME`/HOME, coordinator told first)
 - [ ] Checkpoint (gate): module review
