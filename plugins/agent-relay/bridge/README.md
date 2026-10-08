@@ -148,7 +148,7 @@ Retiring never deletes messages. Closed messages keep their history and a note s
 ~/.agent-relay/runtime/                          the installed runtime (upgrade keeps the previous one beside it)
 ```
 
-`AGENT_RELAY_HOME` moves the whole state root. agent-relay's host entries pass `BRIDGE_DB_PATH`, so every MCP process uses the same database. Set `BRIDGE_BACKUPS=0` to disable daily backups.
+`AGENT_RELAY_HOME` moves the whole state root. agent-relay's host entries pass `BRIDGE_DB_PATH`, so every MCP process uses the same database. Without it the server refuses to start (exit 2) instead of opening a default database, so start it only through those host entries (agent-relay server-db-guard D114). Set `BRIDGE_BACKUPS=0` to disable daily backups.
 
 Schema changes are additive and versioned. Before migrating an existing mailbox, the bridge writes a backup. Older bridge processes that are still running keep working against the migrated database.
 
