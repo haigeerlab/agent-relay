@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-08
+
+接口升到 **1.4**（`interface.json`）：`readRecorded` / `readNote` 以及运行时的 `rollback`、`recover` 命令和 `interrupted` 状态
+都是 1.x 内的兼容新增；Spec Guard 的探测范围 `>=1.0,<2.0` 不用改。这一版来自 0.4.0 的架构审核：删掉一直禁用的 Codex
+编排器和上游 TS CLI 的控制面，修正“别人读一眼就算已读”，让运行时的升级、重装可以恢复，并新增回滚命令。信箱 schema 仍为 5。
+
 - **升级中断后能恢复**（模块 `upgrade-recovery`，D104、D105、D109）：运行时的切换（升级、重装、回滚）在旁边写一份
   `runtime-swap.json` 记录进行到哪一步。半路停下时 `status` 报 `interrupted`，`install`、`upgrade`、`uninstall` 拒绝执行；新命令
   `recover --confirm` 一律回到切换前的运行时（不往前补完），信箱和数据搬回原处、核对行数，没换成的那份保留为
@@ -47,6 +53,43 @@
   Codex 那边“始终允许”留下的任何审批子表，卸载时照旧一并清掉。
 - **文档**（模块 `orchestrator-removal`，D94）：bridge 的 README、INSTRUCTIONS、CHANGELOG，接口文档 §2.2，collaboration-ops 与
   session-delegation 技能，以及本 README 的卸载说明，都改为“编排工具已删除”；旧名字只留在删除说明和历史里。
+
+以上 bridge 改动都要升级运行时才生效（见下）。四个模块：`orchestrator-removal`（#31）、`legacy-cli-cleanup`（#32）、
+`inbox-read-receipt`（#33）、`upgrade-recovery`（#34）。
+
+### 从 0.4.0 升级
+
+1. 两个宿主都更新插件：
+   - Claude Code（从 GitHub 装的）：先 `claude plugin marketplace update agent-relay-marketplace`，再
+     `claude plugin update agent-relay@agent-relay-marketplace`。
+   - Codex：把 `~/.codex/config.toml` 里 `[marketplaces.agent-relay-marketplace]` 的 `ref` 改成 `"v0.5.0"`（自己改，改前留一份
+     副本），再 `codex plugin marketplace upgrade`，最后 `codex plugin add agent-relay@agent-relay-marketplace`。
+   - 从本地克隆装的：把克隆更新到 v0.5.0 后，Claude 无需其他操作，Codex 再执行一次 `codex plugin add`。
+2. **关闭所有使用信箱的会话**：所有 Claude Code 会话，以及 ChatGPT 应用（Codex 的 bridge 由它启动）。在 macOS 自带的
+   “终端”里（不要在会话里）确认 `pgrep -fl "agent-relay/runtime/dist/server.js"` 没有输出，再执行
+   `python3 -B <插件目录>/hooks/native_collaboration_runtime.py upgrade --confirm`。这次升级已经由 0.5.0 的代码执行：写切换记录、
+   出错当场回退；万一半路被打断，`status` 会报 `interrupted`，按提示执行 `recover --confirm`。信箱先备份，schema 不变。
+3. 宿主接入不用重做：信箱工具的预先批准不变；0.4.0 写进 Claude 设置的 7 条禁用规则留着无害（它们禁用的工具已经不存在），
+   卸载时照旧移除。
+4. `doctor`：`runtime` 和 `probe` 为 ok，`probe` 列出 10 个工具；不再有 Codex CLI 一项。preflight 显示
+   `runtime bridge current`、各插件副本 `current`。
+5. 升级后的行为：
+   - 重开会话后各自重新注册一次名字。Codex 会话在 bridge 重启后读自己的收件箱，若结果里 `readRecorded` 为 false，按
+     `readNote` 的提示用同一个名字再注册一次。
+   - 读别人的收件箱不再把消息记为已读，收件人仍会被提醒。
+   - 想退回 0.4.0：关掉所有会话后 `rollback --confirm`，并把两个宿主的插件也退回 v0.4.0（见“已知问题”）。
+
+从更早的版本升级：先按各版本的说明做完宿主那边的步骤（从 0.2.x 来的要做 0.3.0 说明里的第 2 步），把 `ref` 换成
+`"v0.5.0"` 更新插件，再做上面第 2–5 步（一次 `upgrade --confirm` 即可）。
+
+### 已知问题
+
+- `rollback --confirm` 只换运行时，不换插件：0.5.0 插件的探针要求恰好 10 个工具，回到 0.4.0 的运行时后 doctor 的 `probe`
+  会判 fail，要把插件一起退回 v0.4.0。
+- 一次性的状态迁移工具（`state_migration.py`）不在这次的恢复范围里：它仍然不是独占执行，中途失败也不会自动回退。
+- 信箱里的编排表原样保留、不再读写；以后是否清理另行决定。
+- 读取收件箱仍不鉴权：身份按“同一用户、同一台 Mac”的威胁模型处理，Codex 自报的线程编号不作为凭证。
+- 0.4.0 列出的已知问题仍然存在（通知横幅、专注模式等），见下方 0.4.0 的“已知问题”。
 
 ## [0.4.0] - 2026-10-08
 
