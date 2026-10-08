@@ -36,8 +36,9 @@ agent-relay 是从 Spec Guard 拆出的独立插件，让同一台 Mac 上的 Cl
 | acceptance-kit-round2 | 补上第二轮联调暴露的验收与安装路径缺口：preflight 打印的后台会话启动命令把提示词放在选项之前，不再被 --allowedTools 吞掉（R2-3）；preflight 比对各宿主实际加载的插件与登记的安装路径、缓存和源码，旧副本直接报出，skill 解析插件根目录时不会选中旧缓存（R2-5、R2-11）；A4 测试会话的允许清单覆盖被测 skill 所需的会话路由选择器命令与 D9 跨项目读取规则，或由清单写明需额外添加的规则（R2-8）；在 PATH 首个 node 过旧、python3 为系统 3.9 的 shell 里，在保留历史上重装运行时（npm 用选中的 node 启动）、身份退役与验收清理脚本都能完成，沿用 D50 的 node 选择与 D51 的只读打开（R2-12）。 | acceptance-kit, round2-fixes |
 | adapter-node | 宿主适配器 install-codex、install-claude 及打印配置的 codex、claude 按 D50 的顺序选 node（--node → Claude 条目 → Codex 表 → PATH），低于 22.5.0 时在写宿主配置之前拒绝，PATH 首个 node 过旧时写入的仍是宿主条目固定的 node（R2-13）。 | acceptance-kit-round2 |
 | cleanup-gaps | 补上 0.2.0 清理测试遗留时发现的三个缺口：已过期的消息不再挡住身份退役，或拒绝时列出卡住的消息编号与状态；宿主明确拒绝（host-request-rejected）且线程从未建立的委派，cancel 在本地收尾为 cancelled，其他 unknown 仍不自动处理；register（含 takeover）遇到已退役的名字时拒绝，只有显式要求恢复时才重新启用，并在结果里写明原先已退役。 | delivery-state-machine, identity-check, delegation-fixes |
+| register-retired-hint | bridge_register 因名字属于另一个会话而拒绝时，若该名字已退役，拒绝信息同时写明退役时间与退役人，并说明恢复需要同时带 reactivate: true 和 takeover: true（0.2.1 验收观察 O1）；其他拒绝与成功路径不变。 | cleanup-gaps |
 
-Build order: acceptance-kit → mailbox-core → session-routing → cross-host-delegation → packaging → state-migration → delegation-fixes → test-isolation → bridge-vendoring → delivery-state-machine → durable-ordering → idempotency → identity-check → ops-commands → safe-uninstall → round2-fixes → acceptance-kit-round2 → adapter-node → cleanup-gaps
+Build order: acceptance-kit → mailbox-core → session-routing → cross-host-delegation → packaging → state-migration → delegation-fixes → test-isolation → bridge-vendoring → delivery-state-machine → durable-ordering → idempotency → identity-check → ops-commands → safe-uninstall → round2-fixes → acceptance-kit-round2 → adapter-node → cleanup-gaps → register-retired-hint
 
 <!-- Spec Guard 按严格串行推进。为兼容上游格式，逗号分组会按左到右顺序展开为单模块步骤，不代表并行授权。 -->
 <!-- 加固模块（test-isolation、delivery-state-machine、durable-ordering、idempotency、identity-check、ops-commands、

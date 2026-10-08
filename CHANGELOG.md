@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+- **注册被拒时说明名字已退役**（模块 `register-retired-hint`，0.2.1 验收观察 O1）：另一个会话带 `reactivate: true` 注册
+  一个已退役的名字时，拒绝信息除了归属冲突，还写明退役时间和退役人，并说明恢复需要同时带 `reactivate: true` 和
+  `takeover: true`。行为不变，接口仍为 1.1。改动在随插件附带的 bridge 里：更新插件后，关闭所有使用信箱的会话、退出
+  Codex，再执行 `native_collaboration_runtime.py upgrade --confirm` 才生效。
+
 ## [0.2.1] - 2026-10-08
 
 修复版本：接口升到 **1.1**（`interface.json`）——`bridge_register` 对已退役的名字默认拒绝，需要显式 `reactivate: true`，
