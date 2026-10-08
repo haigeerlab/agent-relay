@@ -36,14 +36,16 @@
    `recover --confirm`。宿主接入不用重做。
 3. `doctor`：`runtime`、`probe`（10 个工具）、`host-entries` 为 ok。宿主里 agent-relay 若显示连接失败，见上面 `server-db-guard`
    一条。
-4. 想退回 0.5.0：关掉所有会话后 `rollback --confirm`。两版工具集合相同，插件不必一起退回。
+4. 想退回 0.5.0：关掉所有会话后 `rollback --confirm`，并把两个宿主的插件也退回 v0.5.0。只回滚运行时也能用（两版工具集合
+   相同，探针照常列出 10 个工具），但 doctor 的 `runtime` 会一直 warn “bridge is older than this plugin's” 并提示再
+   `upgrade --confirm`，`status` 的 `bridge.current` 为 false。
 
 从更早的版本升级：按 0.5.0 的说明做完宿主那边的步骤，把 `ref` 换成 `"v0.5.1"` 更新插件，再做上面第 2–3 步。
 
 ### 已知问题
 
 - 0.5.0 列出的已知问题仍然存在（状态迁移工具不在恢复范围内、编排表保留、读取不鉴权等），见下方 0.5.0 的“已知问题”；其中
-  “回滚要连插件一起退回”只针对退回 0.4.0。
+  退回 0.4.0 时不连插件一起退回，探针会判 fail；退回 0.5.0 时探针能过，但 doctor 的 `runtime` 会 warn（见上面第 4 步）。
 - doctor 的 `host-entries` 对缺少 `BRIDGE_DB_PATH` 的条目报的是 “entry points at another runtime”，不会单独点明缺这个变量。
 
 ## [0.5.0] - 2026-10-08
