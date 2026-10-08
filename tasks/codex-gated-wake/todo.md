@@ -1,7 +1,7 @@
 # Todo: codex-gated-wake
 
 - [ ] Task 1: Real-App probe (gate) — user agrees first, coordinator told first
-- [ ] Task 2: Every Codex wake turn carries the gate (D65)
+- [x] Task 2: Every Codex wake turn carries the gate (D65) — done before Task 1 (it does not depend on the probe; Task 1 is run by the coordinator, the user's choice). `bridge/src/codex-wake.ts` `codexTurn`: `turnStart.request` = `{threadId: <bound session id>, input: [], approvalsReviewer: "user", approvalPolicy: "on-request", sandboxPolicy: {type: "readOnly", networkAccess: false}}`; `conversationId` unchanged. `test/codex-wake.test.ts` asserts the exact request — red before (actual had only `threadId` and `input`). `UPSTREAM.md` row, manifest rewritten (72 files). Bridge `npm run check` 140 ok; validate 33 files / 535 tests (Python 3.10.7)
 - [ ] Task 3: Auto-approval no longer blocks Codex wake; fail closed (D66)
 - [ ] Task 4: Notify the user when a Codex message cannot be delivered (D67 B)
 - [ ] Task 5: doctor `codex-approval` (D68)

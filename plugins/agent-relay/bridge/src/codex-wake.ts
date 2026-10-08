@@ -10,7 +10,12 @@ export function codexTurn(job: WakeJob) {
   return {
     conversationId: job.target.sessionId,
     turnStart: {
-      request: { threadId: job.target.sessionId, input: [] },
+      // agent-relay codex-gated-wake D65: in every approval mode the woken turn runs read-only and asks the user
+      // before any write or network access; it applies to this turn only (the user's next own turn restores theirs).
+      request: {
+        threadId: job.target.sessionId, input: [], approvalsReviewer: "user", approvalPolicy: "on-request",
+        sandboxPolicy: { type: "readOnly", networkAccess: false },
+      },
       context: {
         responseItems: [
           { type: "function_call", call_id: callId, name: "untrusted_input", arguments: "{}" },

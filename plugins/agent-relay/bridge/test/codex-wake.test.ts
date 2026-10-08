@@ -60,6 +60,11 @@ test("real framed IPC respects discovery, exact task, untrusted content and an a
       assert.ok(items[1].output[0].text.includes("/test/bridge.sqlite"));
       assert.equal(JSON.stringify(start).includes("developer"), false);
       assert.equal("permissions" in start.params.turnStart.request, false);
+      // agent-relay codex-gated-wake D65: every woken turn asks the user before acting, in every approval mode.
+      assert.deepEqual(start.params.turnStart.request, {
+        threadId: "exact-task", input: [], approvalsReviewer: "user", approvalPolicy: "on-request",
+        sandboxPolicy: { type: "readOnly", networkAccess: false },
+      });
     } finally {
       await new Promise<void>(ok => server.close(() => ok()));
       rmSync(dir, { recursive: true, force: true });
