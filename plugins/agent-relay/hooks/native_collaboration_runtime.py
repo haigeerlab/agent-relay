@@ -437,12 +437,16 @@ def _read_journal(root: Path) -> dict[str, Any] | None:
 
 
 def _write_journal(root: Path, journal: dict[str, Any]) -> None:
-    """Write the whole journal or nothing: a private temporary file renamed over the journal."""
-    path = _journal_path(root)
+    write_private_json(_journal_path(root), journal)
+
+
+def write_private_json(path: Path, value: dict[str, Any]) -> None:
+    """Write the whole file or nothing: a private temporary file, fsynced, renamed over `path` (also used by
+    state_migration.py for its journal, state-migration-safety D118)."""
     descriptor, temporary = tempfile.mkstemp(prefix=path.name + ".", dir=path.parent)
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            json.dump(journal, handle, sort_keys=True)
+            json.dump(value, handle, sort_keys=True)
             handle.flush()
             os.fsync(handle.fileno())
         os.chmod(temporary, 0o600)

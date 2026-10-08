@@ -13,6 +13,7 @@ import fcntl
 import json
 import os
 import re
+import secrets
 import shutil
 import sqlite3
 import stat
@@ -41,6 +42,10 @@ NEW_PARENT = Path(".agent-relay")
 
 TERMINAL_DELEGATION_STATES = frozenset(("completed", "cancelled"))
 NON_FINAL_WAKE_STATES = ("pending", "sending", "accepted", "unknown")
+# state-migration-safety D118: the swap journal and the stage beside the target.
+JOURNAL_NAME = "state-migration.json"
+STAGE_PREFIX = ".state-migration-"
+FAILED_PREFIX = ".state-migration-failed-"
 
 
 @dataclass
@@ -263,16 +268,78 @@ def _migrate(home: Path, acknowledged: tuple[str, ...], process_count: Callable[
     if report.blockers:
         return report, {"state": "blocked"}
     paths = _paths(home, target)
-    backup = paths["backups"] / time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    backup = paths["backups"] / stamp
     if backup.exists():
         return report, {"state": "blocked", "diagnostic": f"backup {backup.name} already exists"}
     _private_dir(paths["parent"])
     _private_dir(paths["backups"])
     _private_dir(backup)
-    result = {"state": "migrated", "backup": str(backup), "mismatches": []}
+    stage = paths["parent"] / f"{STAGE_PREFIX}{stamp}-{secrets.token_hex(3)}"
+    result: dict = {"state": "migrated", "backup": str(backup), "mismatches": []}
+    try:
+        _write_backup(paths, report, backup)
+        stage.mkdir(mode=0o700)  # never exist_ok: a stage is ours once this returns (D118)
+        items, expected = _prepare(paths, report, backup, stage)
+    except Exception as error:  # nothing in the target was touched yet
+        shutil.rmtree(stage, ignore_errors=True)
+        return report, {**result, "state": "rolled-back", "diagnostic": f"preparing failed ({error}); the target "
+                        "was not changed"}
+    for name, counts in expected.items():
+        staged = counts.pop("_staged")
+        if staged != counts:
+            result["mismatches"].append({"database": name, "expected": counts, "actual": staged})
+    if result["mismatches"]:
+        shutil.rmtree(stage, ignore_errors=True)
+        return report, {**result, "state": "rolled-back", "diagnostic": "the prepared copy does not match the backup"}
+    journal = {"stamp": stamp, "stage": str(stage), "backup": str(backup), "items": items, "counts": expected,
+               "step": None}
+    journalled = False
+    try:
+        for item in items:
+            name, target_path = item["name"], Path(item["target"])
+            journal["step"] = f"{name}:retiring"
+            journalled = True  # from here a journal may exist, even if this write fails half way
+            _write_journal(paths["parent"], journal)
+            if target_path.exists():
+                target_path.rename(stage / f"previous-{name}")
+            journal["step"] = f"{name}:placing"
+            _write_journal(paths["parent"], journal)
+            (stage / name).rename(target_path)
+        journal["step"] = "verifying"
+        _write_journal(paths["parent"], journal)
+        result["mismatches"] = _verify(paths, items, expected, result)
+        if result["mismatches"]:
+            raise MigrationMismatch("the row counts or the runtime differ after the swap")
+    except Exception as error:
+        if not journalled:
+            shutil.rmtree(stage, ignore_errors=True)
+            return report, {**result, "state": "rolled-back", "diagnostic": f"{error}; the target was not changed"}
+        kept = _put_back(paths["parent"], journal)
+        return report, {**result, "state": "rolled-back", "kept": str(kept),
+                        "diagnostic": f"{error}; the target was put back as it was"}
+    _journal_file(paths["parent"]).unlink()
+    result["previous"] = str(stage)
+    return report, result
+
+
+class MigrationMismatch(Exception):
+    """The swapped target does not match what was prepared (D119)."""
+
+
+def _journal_file(parent: Path) -> Path:
+    return parent / JOURNAL_NAME
+
+
+def _write_journal(parent: Path, journal: dict) -> None:
+    _runtime.write_private_json(_journal_file(parent), journal)
+
+
+def _write_backup(paths: dict[str, Path], report: Report, backup: Path) -> None:
+    """The timestamped backup, as before: snapshots of the old databases, daily backups and data."""
     old_mailbox = paths["old_runtime"] / "mailbox"
     if report.old_mailbox is not None:
-        # Snapshot once into the backup, then copy the snapshot into place, so both hold the same data.
+        # Snapshot once into the backup, then build the target from the backup, so both hold the same data.
         _private_dir(backup / "mailbox" / "backups")
         with tempfile.TemporaryDirectory(prefix="agent-relay-migrate-") as scratch:
             _sqlite_copy(_snapshot(old_mailbox / "bridge.sqlite", Path(scratch)), backup / "mailbox" / "bridge.sqlite")
@@ -282,39 +349,88 @@ def _migrate(home: Path, acknowledged: tuple[str, ...], process_count: Callable[
         if (paths["old_runtime"] / "data").is_dir():
             shutil.copytree(paths["old_runtime"] / "data", backup / "data")
             _private_tree(backup / "data")  # copytree keeps the source modes
-        target = paths["runtime"] / "mailbox" / "bridge.sqlite"
-        for suffix in ("", "-wal", "-shm"):
-            Path(str(target) + suffix).unlink(missing_ok=True)
-        _sqlite_copy(backup / "mailbox" / "bridge.sqlite", target)
-        for daily in sorted((backup / "mailbox" / "backups").glob("*")):
-            _file_copy(daily, paths["runtime"] / "mailbox" / "backups" / daily.name)
-        if (backup / "data").is_dir():
-            shutil.copytree(backup / "data", paths["runtime"] / "data", dirs_exist_ok=True)
-            (paths["runtime"] / "data").chmod(0o700)  # copytree copies the source mode; the runtime requires 0700
-        expected, actual = table_counts(backup / "mailbox" / "bridge.sqlite"), table_counts(target)
-        if expected != actual:
-            result["mismatches"].append({"database": "mailbox", "expected": expected, "actual": actual})
-        result["mailbox"] = actual
     if report.old_delegation is not None:
         with tempfile.TemporaryDirectory(prefix="agent-relay-migrate-") as scratch:
             _sqlite_copy(_snapshot(paths["old_delegation"], Path(scratch)), backup / DATABASE_FILENAME)
-        _private_dir(paths["delegation"])
-        target = paths["delegation"] / DATABASE_FILENAME
-        _sqlite_copy(backup / DATABASE_FILENAME, target)
-        expected, actual = table_counts(backup / DATABASE_FILENAME), table_counts(target)
-        if expected != actual:
-            result["mismatches"].append({"database": "delegation", "expected": expected, "actual": actual})
-        result["delegation"] = actual
-        try:
-            DelegationStore(paths["delegation"])
-        except DelegationError as error:
-            result["mismatches"].append({"database": "delegation", "diagnostic": str(error)})
+
+
+def _start_from(current: Path, staged: Path, skip: tuple[str, ...] = ()) -> None:
+    """Begin a staged directory as a copy of the current target (minus `skip` at its top), or empty and private."""
+    if current.is_dir():
+        shutil.copytree(current, staged, symlinks=True,
+                        ignore=lambda directory, names: [n for n in names if Path(directory) == current and n in skip])
+    else:
+        staged.mkdir(mode=0o700)
+    staged.chmod(0o700)
+
+
+def _prepare(paths: dict[str, Path], report: Report, backup: Path, stage: Path) -> tuple[list[dict], dict]:
+    """Build every directory the swap will place, next to the target (D118); return the items and the counts."""
+    items: list[dict] = []
+    expected: dict[str, dict] = {}
+
+    def item(name: str, target_path: Path) -> None:
+        items.append({"name": name, "target": str(target_path), "existed": target_path.exists()})
+
+    if report.old_mailbox is not None:
+        current = paths["runtime"] / "mailbox"
+        staged = stage / "mailbox"
+        _start_from(current, staged, ("bridge.sqlite", "bridge.sqlite-wal", "bridge.sqlite-shm"))
+        _private_dir(staged / "backups")
+        for daily in sorted((backup / "mailbox" / "backups").glob("*")):
+            _file_copy(daily, staged / "backups" / daily.name)
+        _sqlite_copy(backup / "mailbox" / "bridge.sqlite", staged / "bridge.sqlite")
+        expected["mailbox"] = {**table_counts(backup / "mailbox" / "bridge.sqlite"),
+                               "_staged": table_counts(staged / "bridge.sqlite")}
+        item("mailbox", current)
+        if (backup / "data").is_dir():
+            current = paths["runtime"] / "data"
+            _start_from(current, stage / "data")
+            shutil.copytree(backup / "data", stage / "data", dirs_exist_ok=True, symlinks=True)
+            (stage / "data").chmod(0o700)  # the runtime requires 0700
+            item("data", current)
+    if report.old_delegation is not None:
+        current = paths["delegation"]
+        staged = stage / "delegation"
+        _start_from(current, staged)
+        _sqlite_copy(backup / DATABASE_FILENAME, staged / DATABASE_FILENAME)
+        expected["delegation"] = {**table_counts(backup / DATABASE_FILENAME),
+                                  "_staged": table_counts(staged / DATABASE_FILENAME)}
+        DelegationStore(staged)  # refuses a database it cannot use, before anything is swapped
+        item("delegation", current)
+    return items, expected
+
+
+def _verify(paths: dict[str, Path], items: list[dict], expected: dict, result: dict) -> list[dict]:
+    mismatches = []
+    placed = {item["name"]: Path(item["target"]) for item in items}
+    for name, database in (("mailbox", "bridge.sqlite"), ("delegation", DATABASE_FILENAME)):
+        if name in placed:
+            actual = table_counts(placed[name] / database)
+            result[name] = actual
+            if actual != expected[name]:
+                mismatches.append({"database": name, "expected": expected[name], "actual": actual})
     after = runtime_status(paths["runtime"])
     if after.get("state") != "ready":
-        result["mismatches"].append({"runtime": after})
-    if result["mismatches"]:
-        result["state"] = "verification-failed"
-    return report, result
+        mismatches.append({"runtime": after})
+    return mismatches
+
+
+def _put_back(parent: Path, journal: dict) -> Path:
+    """Undo a journalled swap, newest item first (D119): what was placed goes back into the stage, what was retired
+    returns to its place. Back only, never forward. The journal goes, the stage is kept as a failed one."""
+    stage = Path(journal["stage"])
+    for entry in reversed(journal["items"]):
+        name, target_path = entry["name"], Path(entry["target"])
+        staged, previous = stage / name, stage / f"previous-{name}"
+        if not staged.exists() and target_path.exists():
+            target_path.rename(staged)
+        if previous.exists():
+            previous.rename(target_path)
+    _journal_file(parent).unlink(missing_ok=True)
+    kept = stage.with_name(stage.name.replace(STAGE_PREFIX, FAILED_PREFIX, 1))
+    stage.rename(kept)
+    return kept
 
 
 def host_next_steps(report: Report) -> list[str]:

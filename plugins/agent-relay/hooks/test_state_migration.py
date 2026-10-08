@@ -196,7 +196,8 @@ class MigrateTests(Fixture):
             self.assertTrue((backup / name).is_file(), name)
         self.assertEqual(state_migration.table_counts(backup / "mailbox" / "bridge.sqlite"), report.old_mailbox)
 
-    def test_a_count_mismatch_is_reported_and_nothing_is_removed(self):
+    def test_a_count_mismatch_is_reported_and_rolled_back(self):
+        # state-migration-safety D119: a mismatch no longer leaves the copy in place; the target goes back.
         self.make_ready_case()
         old_before = tree_digest(self.home / ".spec-guard")
         real = state_migration.table_counts
@@ -209,9 +210,10 @@ class MigrateTests(Fixture):
 
         with mock.patch.object(state_migration, "table_counts", side_effect=skewed):
             _report, result = state_migration.migrate(self.home, (), no_servers)
-        self.assertEqual(result["state"], "verification-failed")
+        self.assertEqual(result["state"], "rolled-back")
         self.assertEqual(result["mismatches"][0]["database"], "mailbox")
         self.assertTrue(Path(result["backup"]).is_dir())
+        self.assertFalse((self.runtime / "mailbox" / "bridge.sqlite").exists(), "the target mailbox went back")
         self.assertEqual(tree_digest(self.home / ".spec-guard"), old_before)
 
 
