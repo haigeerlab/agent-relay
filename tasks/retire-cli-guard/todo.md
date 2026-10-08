@@ -1,6 +1,6 @@
 # Todo: retire-cli-guard
 
-- [ ] Task 1: retire refuses without BRIDGE_DB_PATH; help says so (D111, D112)
+- [x] Task 1: retire refuses without BRIDGE_DB_PATH; help says so (D111, D112) — `cli.test.ts` (temporary HOME and `XDG_DATA_HOME`, no `BRIDGE_DB_PATH`): a planted default database with one agent (mtime set to 2026-09-01) → `retire planted` exits 2, stderr names `BRIDGE_DB_PATH` and `native_collaboration_retire.py --name <agent> --confirm-retire`, bytes, mtime and directory listing unchanged, agent not retired; unset and `"  "` → exit 2, nothing created under HOME; `help` → exit 0, says `needs BRIDGE_DB_PATH; run by native_collaboration_retire.py`, nothing created. Red 3/3 (the old code exited 0 and retired the planted agent in the default database; 1 for a missing agent; no help line), green after `cli.ts`: read and trim `BRIDGE_DB_PATH` before `new BridgeStore`, refuse with exit 2; usage line; `defaultDbPath` import dropped from the CLI (still used by the server). Existing CLI tests unchanged; cli tests 10/10. `UPSTREAM.md` row, manifest regenerated, CHANGELOG. `scripts/validate.sh` pass on Python 3.10.7 (output checked): 39 files, 598 tests, bridge 151
 - [ ] Task 2: docs (D113)
 - [ ] Checkpoint (report): validate on Python 3.9, 3.10, 3.14 + bridge `npm run check`
 - [ ] Task 3: live check

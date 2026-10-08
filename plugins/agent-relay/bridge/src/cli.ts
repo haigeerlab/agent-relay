@@ -3,7 +3,6 @@
 import { BridgeStore } from "./bridge-store.js";
 import { parseCliCommand, type ParsedCliCommand } from "./cli-logic.js";
 import { retireAgent } from "./lifecycle.js";
-import { defaultDbPath } from "./paths.js";
 import { VERSION } from "./version.js";
 
 // agent-relay legacy-cli-cleanup D95: only `retire` (run by native_collaboration_retire.py) and `help` remain; the
@@ -14,13 +13,23 @@ const USAGE = `Usage:
 Commands:
   retire <agent> [--note TEXT] [--keep-backlog]
                                   Retire a finished agent and close its unhandled messages
+                                  (needs BRIDGE_DB_PATH; run by native_collaboration_retire.py)
   help                            Show this help
 
 Install, upgrade, check and uninstall with agent-relay's native_collaboration_runtime.py.
 `;
 
+// agent-relay retire-cli-guard D111: retire opens only the mailbox it is given, never the upstream default database.
+const NO_MAILBOX = "retire needs BRIDGE_DB_PATH (the agent-relay mailbox); retire an identity with "
+  + "native_collaboration_retire.py --name <agent> --confirm-retire";
+
 function retire(parsed: ParsedCliCommand): number {
-  const store = new BridgeStore(defaultDbPath());
+  const dbPath = process.env.BRIDGE_DB_PATH?.trim();
+  if (!dbPath) {
+    console.error(NO_MAILBOX);
+    return 2;
+  }
+  const store = new BridgeStore(dbPath);
   try {
     const result = retireAgent(store, parsed.target as string, {
       by: "operator",

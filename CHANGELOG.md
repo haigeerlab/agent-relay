@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+- **CLI 的 `retire` 不再碰上游默认库**（模块 `retire-cli-guard`，D111、D112，0.5.0 真机复验发现 F1）：直接运行
+  `node ~/.agent-relay/runtime/dist/cli.js retire <名字>` 而没有设 `BRIDGE_DB_PATH` 时，以前会打开（不存在就新建）
+  `~/.local/share/claude-codex-bridge/bridge.sqlite` 并在那里退役，现在在打开任何数据库之前就拒绝，以 2 退出，并提示改用
+  `native_collaboration_retire.py --name <名字> --confirm-retire`。`BRIDGE_DB_PATH` 为空白也算没设；经 Python 脚本退役不变，
+  帮助里写明这一点。
+
 ## [0.5.0] - 2026-10-08
 
 接口升到 **1.4**（`interface.json`）：`readRecorded` / `readNote` 以及运行时的 `rollback`、`recover` 命令和 `interrupted` 状态
