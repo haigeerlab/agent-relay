@@ -72,4 +72,4 @@ jobs:
       - name: Validate
         run: |
           bash scripts/validate.sh | tee "$RUNNER_TEMP/validate.txt"
-          grep -q "ok    bridge: npm run check" "$RUNNER_TEMP/validate.txt" || { echo "the bridge check did not run"; exit 1; }
+          grep -qE "ok    bridge: npm run check +[0-9]+$" "$RUNNER_TEMP/validate.txt" || { echo "the bridge check did not run or ran no counted tests"; exit 1; }

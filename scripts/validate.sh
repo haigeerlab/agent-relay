@@ -38,7 +38,8 @@ BRIDGE="plugins/agent-relay/bridge"
 if [ -d "$BRIDGE/node_modules" ]; then
   OUT="$(cd "$BRIDGE" && npm run --silent check 2>&1)"
   RC=$?
-  RAN="$(printf '%s\n' "$OUT" | sed -n 's/^ℹ tests \([0-9][0-9]*\)$/\1/p' | tail -1)"
+  # Node 24 prints "ℹ tests N"; Node 22 prints TAP ("# tests N") when its output is not a terminal (found on CI).
+  RAN="$(printf '%s\n' "$OUT" | sed -nE 's/^(ℹ|#) tests ([0-9]+)$/\2/p' | tail -1)"
   TOTAL=$((TOTAL + ${RAN:-0}))
   if [ "$RC" -eq 0 ]; then
     printf '  ok    %-52s %s\n' "bridge: npm run check" "${RAN:-?}"
