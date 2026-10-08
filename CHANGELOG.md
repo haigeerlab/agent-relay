@@ -6,6 +6,9 @@
 1.x 内的兼容新增；Spec Guard 的探测范围 `>=1.0,<2.0` 不用改。其他通知渠道的评估（Codex App 自己的提示、弹窗、
 terminal-notifier）见 `spec/acceptance-030-gaps.md` D79，结论是不加，以等待列表为准。
 
+- **CI**（模块 `ci-macos`，D80）：GitHub Actions 在 `macos-15` 上为每个 PR 和 `main` 跑 `scripts/validate.sh`（含 bridge 的
+  `npm run check`，不允许跳过），Python 3.9（苹果命令行工具自带）/ 3.14 × Node 22 / 24 四个组合；actions 按 SHA 固定，令牌
+  只读。是否设为必需检查由维护者决定（README“开发与 CI”）。
 - **doctor 写明用的是哪个 Python 和 Node**（模块 `ci-macos`，D81）：新增 `toolchain` 检查，无论是否装了运行时都给出 Python
   路径与版本、Node 路径、版本与来源；找不到可用的 Node 时 warn。
 - **发给收不到提醒的身份时，发件方会得到警告**（模块 `acceptance-030-gaps`，D72，0.3.0 验收发现 E1）：收件方既没绑定唤醒、

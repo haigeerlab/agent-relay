@@ -1,0 +1,75 @@
+# agent-relay ci-macos (D80, D80a): the local validation on macOS, for every pull request and every push to main.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  validate:
+    name: Python ${{ matrix.python }} / Node ${{ matrix.node }}
+    runs-on: macos-15
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.9', '3.14']
+        node: ['22', '24']
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Python 3.9 is Apple's, from the Command Line Tools: the one macOS users run (setup-python has no current
+      # 3.9 build for arm64).
+      - name: Python 3.9 (Apple Command Line Tools)
+        if: matrix.python == '3.9'
+        run: |
+          mkdir -p "$RUNNER_TEMP/py39"
+          ln -s /usr/bin/python3 "$RUNNER_TEMP/py39/python3"
+          echo "$RUNNER_TEMP/py39" >> "$GITHUB_PATH"
+      - name: Python 3.14
+        if: matrix.python == '3.14'
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14'
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: plugins/agent-relay/bridge/package-lock.json
+
+      - name: Check the toolchain is the one asked for
+        env:
+          WANT_PYTHON: ${{ matrix.python }}
+          WANT_NODE: ${{ matrix.node }}
+        run: |
+          python3 -c 'import os, sys; want = tuple(map(int, os.environ["WANT_PYTHON"].split("."))); print(sys.executable, sys.version.split()[0]); sys.exit(sys.version_info[:2] != want)'
+          node -e 'console.log(process.execPath, process.versions.node); process.exit(process.versions.node.split(".")[0] === process.env.WANT_NODE ? 0 : 1)'
+
+      - name: Bridge dependencies
+        working-directory: plugins/agent-relay/bridge
+        run: npm ci
+
+      - name: doctor toolchain
+        run: |
+          python3 -B plugins/agent-relay/hooks/native_collaboration_runtime.py doctor --node "$(command -v node)" > "$RUNNER_TEMP/doctor.json" || true
+          python3 -c 'import json, sys; c = next(c for c in json.load(open(sys.argv[1]))["checks"] if c["check"] == "toolchain"); print("toolchain:", c["state"], c["detail"])' "$RUNNER_TEMP/doctor.json"
+
+      - name: Validate
+        run: |
+          bash scripts/validate.sh | tee "$RUNNER_TEMP/validate.txt"
+          grep -q "ok    bridge: npm run check" "$RUNNER_TEMP/validate.txt" || { echo "the bridge check did not run"; exit 1; }

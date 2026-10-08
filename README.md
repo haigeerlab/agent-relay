@@ -196,6 +196,14 @@ python3 -B plugins/agent-relay/hooks/state_migration.py migrate --confirm
 - [运行时说明](plugins/agent-relay/references/collaboration-runtime.md)、
   [协作协议](plugins/agent-relay/references/collaboration-protocol.md)。
 
+## 开发与 CI
+
+本地验证：`bash scripts/validate.sh`（先在 `plugins/agent-relay/bridge` 里 `npm ci`，否则 bridge 部分显示 skip）。
+每个 PR 和推到 `main` 的提交都会在 GitHub Actions 的 `macos-15` 上跑同一套验证，组合为 Python 3.9（苹果命令行工具自带）
+/ 3.14 × Node 22 / 24，日志里有 doctor 的 `toolchain` 一行，写明实际用的 Python 与 Node。要把它设为 `main` 的必需检查：
+仓库 Settings → Branches（或 Rules → Rulesets）→ 为 `main` 勾选 “Require status checks to pass”，选上四个
+`Python … / Node …` 检查。是否这样设由维护者决定。
+
 ## 许可与致谢
 
 agent-relay 以 [MIT 许可](LICENSE) 发布。
