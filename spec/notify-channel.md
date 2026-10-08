@@ -9,6 +9,10 @@ Homebrew's `terminal-notifier`, which is allowed; its test banner was seen by th
 `osascript` as the fallback, and make doctor judge the channel actually used. Decided by the user 2026-10-08; this
 reverses D79's "terminal-notifier is not installed" for the case where it already is (no new dependency).
 
+The user also asked (via the round-2 coordinator, 2026-10-08) that a notice say **what** the work is: today it shows
+only the sender and the message number, which does not work as a reminder. So a notice now shows a short preview of the
+message by default. This **reverses D67's "never the body"** and needs the user's explicit confirmation (D89).
+
 Readers: the user; the round-2 coordinator, who re-checks E1/E2 on the real host after 0.4.0.
 
 ## What exists today (measured on this Mac, 2026-10-08)
@@ -23,18 +27,26 @@ Readers: the user; the round-2 coordinator, who re-checks E1/E2 on the real host
 - terminal-notifier 2.0.0 options include actions we must never use (`-execute`, `-open`, `-activate`, `-sender`,
   `-ignoreDnD`, `-appIcon`, `-contentImage`, `-sound`). It reads the message from **stdin** when `-message` is absent.
   Probe: the stdin message `-execute open -a Calculator⏎"-sender" (a,b) {x=1} [y]` was delivered verbatim (read back
-  with `-list`), nothing ran (no Calculator), then removed with `-remove`.
+  with `-list`), nothing ran (no Calculator), then removed with `-remove`. Titles passed as arguments with a fixed
+  `agent-relay · ` prefix came back verbatim (`agent-relay · "x" (a,b) {k=v} -execute y → Codex`, `… ;rm -rf ~ …`), and a
+  stdin body `(a,b)` stayed text (not parsed as a property list).
+- terminal-notifier 3.1.0 (Homebrew stable since 2026-08-30; the user may upgrade) keeps `-title`, `-subtitle`,
+  `-group` and still takes the body from stdin ("the piped text then becomes the body", its README).
+- Agent names are free text (trimmed, at most 128 characters; `addressing.ts` `agentNameProblem`).
 
 ## Assumptions
 
 1. Only fixed paths, in order: `/opt/homebrew/bin/terminal-notifier`, `/usr/local/bin/terminal-notifier`. Never `PATH`.
    The candidate must resolve (all symlinks) to a regular, executable file owned by the current user or root and not
    writable by group or others; otherwise it is ignored (fallback to `osascript`).
-2. Peer-controlled text never becomes an argument: the message goes on **stdin**; the arguments are exactly
-   `-title agent-relay -group <group>`, with `<group>` built only from `agent-relay-` and the notice key reduced to
-   `[A-Za-z0-9._-]` (anything else replaced by `_`). `execFile`, no shell. Newlines in the text become spaces (one-line
-   banner); a leading `-` stays as text.
-3. Interface unchanged (1.3): the notice text and the "attempted" wording (D76) stay; only the channel changes.
+2. Only options present since 2.0 and unchanged in 3.1: `-title`, `-subtitle`, `-group`; the body goes on **stdin**
+   (not `-message`), so the message preview, the most attacker-shaped text, is never an argument at all. The sender and
+   recipient names do reach `-title` / `-subtitle`, always after a fixed prefix (`agent-relay · `, `#<id> · `) so a value
+   can never start with `-`, and cleaned as in D89. `<group>` is `agent-relay-` plus the notice key reduced to
+   `[A-Za-z0-9._-]` (anything else becomes `_`). `execFile`, no shell. (The coordinator suggested `-message` with
+   escaping; stdin needs no escaping and works on both versions, so it is used instead.)
+3. Interface unchanged (1.3): the "attempted" wording in wake details and send warnings (D76) stays; only what the
+   desktop notice itself shows and how it is sent change.
 4. The bridge cannot see whether macOS shows a banner; "attempted" remains the honest wording on either channel.
 
 ## Decisions
@@ -56,11 +68,26 @@ Readers: the user; the round-2 coordinator, who re-checks E1/E2 on the real host
   step says Script Editor cannot be allowed until it asks, so either install terminal-notifier (`brew install
   terminal-notifier`, the user's choice) or rely on the waiting list. `--test-notification` uses the same channel and
   says which.
+- **D89 preview by default (reverses D67's "never the body"; needs the user's confirmation).** A notice about a
+  message shows: title `agent-relay · <sender> → Codex`; subtitle `#<id> · <recipient>`; body the first 60 characters
+  (code points) of the message, with every control character (C0, C1, DEL, U+2028, U+2029) turned into a space, runs of
+  whitespace collapsed to one, trimmed, and `…` appended when cut. Names in the title and subtitle get the same cleaning
+  and are cut at 40 characters with `…`; a missing sender is `a peer`. A leading `-` in the body needs no escaping
+  (stdin) and stays visible. The gate-off notice (no message) keeps its text as the body, title `agent-relay · gated
+  Codex wake off`. With `notify-preview.off` next to the mailbox the old form returns: title `agent-relay`, body the D67
+  text without any message content. `osascript` (fallback) shows the same title, subtitle and body (still passed as
+  argv items, never in the script). README: the preview appears on the lock screen and when the screen is shared
+  (macOS "Show previews" can limit that), and how to turn it off.
 - **D88 docs.** README notification paragraph, the collaboration-ops skill, CHANGELOG; spec `acceptance-030-gaps` D79
   gets a dated note pointing here.
 
 ## Requirements
 
+0. Bridge tests for D89, red first: preview cut at 60 code points with `…` (and not cut at exactly 60); newline, tab,
+   other control characters and U+2028 become single spaces; a body starting with `-` arrives on stdin unchanged; a
+   sender with quotes, newline, `-` first and over 40 characters is cleaned and cut in the title and never starts an
+   argument; `notify-preview.off` gives the old title and body with no message content; the gate-off notice keeps
+   its text.
 1. Bridge tests, red first, with fake executables in a temporary directory:
    - a valid candidate is used with exactly `["-title", "agent-relay", "-group", "agent-relay-<key>"]` and the
      message on stdin; `osascript` is not called;
@@ -91,4 +118,5 @@ list; doctor tells the truth about the channel in use.
 
 ## Open questions
 
-D85 (A recommended) and D86 (per event recommended).
+D85 (A recommended), D86 (per event recommended), and the user's confirmation of D89 (message preview by default,
+reversing D67's "never the body").
