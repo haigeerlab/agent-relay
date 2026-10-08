@@ -6,7 +6,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { BridgeStore } from "../src/bridge-store.js";
-import { BUSY_NOTIFY_AFTER_MS, notifyUndelivered } from "../src/notify.js";
+import { BUSY_NOTIFY_AFTER_MS, NAME_CHARS, noticeFields, notifyUndelivered, PREVIEW_CHARS, REASON_CHARS } from "../src/notify.js";
 import { WakeDispatcher } from "../src/wake-dispatcher.js";
 import type { WakeResult } from "../src/wake-queue.js";
 import { session } from "./support/session.js";
@@ -29,7 +29,7 @@ function dispatcher(store: BridgeStore, log: string, results: WakeResult[], extr
   });
 }
 
-test("an offline Codex recipient notifies once, without the body, and the wake detail says so", async () => {
+test("an offline Codex recipient notifies once with a short preview, and the wake detail says so", async () => {
   const { dir, store, log, lines } = setup();
   const message = store.send({ fromAgent: "sender", toAgent: "cx", body: "secret body" });
   const d = dispatcher(store, log, [
@@ -37,8 +37,8 @@ test("an offline Codex recipient notifies once, without the body, and the wake d
   ]);
   await d.flush();
   assert.equal(lines().length, 1);
-  assert.match(lines()[0], new RegExp(`"sender" gave Codex work: message #${message.id} to "cx"`));
-  assert.doesNotMatch(lines()[0], /secret/);
+  // agent-relay notify-channel D89 (reverses D67's "never the body"): title, subtitle and a cleaned preview.
+  assert.equal(lines()[0], `agent-relay · sender → Codex | #${message.id} · cx · Codex is not running; the message waits | secret body`);
   assert.match(store.wakes.forMessage(message.id)?.detail ?? "", /A desktop notification was attempted on this Mac; macOS may not show it \(Script Editor notifications off, or Focus\)\. The user can list waiting messages with doctor or by asking any session\./);
   // Any other bridge on the same mailbox never notifies the same message again.
   assert.equal(notifyUndelivered(join(dir, "bridge.sqlite"),
@@ -87,7 +87,7 @@ test("busy notifies only after ten minutes, once, and never when delivered soone
   ]);
   await d2.flush();
   assert.equal(lines().length, 1);
-  assert.match(lines()[0], new RegExp(`message #${late.id}`));
+  assert.match(lines()[0], new RegExp(`#${late.id} · cx2 · Codex has been busy for ten minutes`));
   store.database.prepare("UPDATE wake_jobs SET retry_at = 0 WHERE message_id = ?").run(late.id);
   await d2.flush();
   assert.equal(lines().length, 1, "once per message");
@@ -131,7 +131,7 @@ test("a Codex recipient with no wake binding notifies at send time and the sende
     assert.ok(sent.json().warnings.some((w: string) => /A desktop notification was attempted on this Mac; macOS may not show it \(Script Editor notifications off, or Focus\)\. The user can list waiting messages with doctor or by asking any session\./.test(w)), sent.text);
     const lines = readFileSync(log, "utf8").trim().split("\n");
     assert.equal(lines.length, 1);
-    assert.doesNotMatch(lines[0], /secret/);
+    assert.match(lines[0], / \| secret work$/, "the preview (D89)");
     const silent = await sender.call("bridge_send", { from: "sender", to: "cx", body: "quiet", wake: false });
     assert.ok(silent.ok);
     assert.equal(readFileSync(log, "utf8").trim().split("\n").length, 1, "wake: false stays silent");
@@ -177,4 +177,68 @@ test("a recipient with no wake binding and no known host warns the sender, witho
   } finally {
     await sender.close();
   }
+});
+
+// agent-relay notify-channel D89: what a notice shows. Preview by default; notify-preview.off restores D67's form.
+const base = { messageId: 7, fromAgent: "sender", agent: "cx", why: "Codex is not running; the message waits" };
+
+test("a notice shows who, which message and a one-line preview of at most 60 characters", () => {
+  assert.equal(PREVIEW_CHARS, 60);
+  assert.equal(NAME_CHARS, 40);
+  assert.deepEqual(noticeFields({ ...base, body: "Please review the gate change" }, { preview: true }),
+    { title: "agent-relay · sender → Codex", subtitle: "#7 · cx · Codex is not running; the message waits",
+      body: "Please review the gate change" });
+  const sixty = "x".repeat(60);
+  assert.equal(noticeFields({ ...base, body: sixty }, { preview: true }).body, sixty, "exactly 60 is not cut");
+  assert.equal(noticeFields({ ...base, body: sixty + "y" }, { preview: true }).body, sixty + "…");
+  // Counted in code points, so an emoji is one character and is never split.
+  assert.equal(noticeFields({ ...base, body: "😀".repeat(61) }, { preview: true }).body, "😀".repeat(60) + "…");
+  assert.equal(noticeFields({ ...base, fromAgent: undefined, body: "x" }, { preview: true }).title, "agent-relay · a peer → Codex");
+  assert.equal(noticeFields({ ...base, body: " \n\t " }, { preview: true }).body, "(empty message)");
+});
+
+test("control characters and line breaks become single spaces; a leading dash stays text", () => {
+  const body = "  line one\r\nline\ttwo\u0000\u0007\u001b[31m\u007f\u0085\u2028\u2029end  ";
+  assert.equal(noticeFields({ ...base, body }, { preview: true }).body, "line one line two [31m end");
+  assert.equal(noticeFields({ ...base, body: "-execute open -a Calculator" }, { preview: true }).body,
+    "-execute open -a Calculator", "the body goes on stdin, never as an argument");
+});
+
+test("names are cleaned and cut at 40 characters, and the title and subtitle never start with a dash", () => {
+  const hostile = '-execute "x"\n(a,b) {k=v} ' + "n".repeat(50);
+  const fields = noticeFields({ ...base, fromAgent: hostile, agent: "-cx\r\nevil", body: "hi" }, { preview: true });
+  assert.equal(fields.title, `agent-relay · -execute "x" (a,b) {k=v} ${"n".repeat(15)}… → Codex`);
+  assert.equal(fields.subtitle, "#7 · -cx evil · Codex is not running; the message waits");
+  assert.ok(fields.title.startsWith("agent-relay · ") && fields.subtitle.startsWith("#7 · "));
+  assert.doesNotMatch(fields.title + fields.subtitle, /[\u0000-\u001f]/);
+});
+
+test("notify-preview.off restores the D67 form with no message content; the gate-off notice keeps its text", async () => {
+  const off = noticeFields({ ...base, body: "secret body" }, { preview: false });
+  assert.deepEqual(off, { title: "agent-relay", subtitle: "",
+    body: '"sender" gave Codex work: message #7 to "cx" (Codex is not running; the message waits).' });
+  const gate = noticeFields({ ...base, key: "gate-t1", event: "gate-off", why: "gated Codex wake is off" }, { preview: true });
+  assert.equal(gate.title, "agent-relay · gated Codex wake off");
+  assert.equal(gate.body, '"sender" gave Codex work: message #7 to "cx" (gated Codex wake is off).');
+
+  const { dir, store, log, lines } = setup();
+  writeFileSync(join(dir, "notify-preview.off"), "");
+  store.send({ fromAgent: "sender", toAgent: "cx", body: "secret body" });
+  const d = dispatcher(store, log, [{ state: "pending", detail: "offline", reason: "offline" }]);
+  await d.flush();
+  assert.equal(lines().length, 1);
+  assert.doesNotMatch(lines()[0], /secret/);
+  assert.match(lines()[0], /^agent-relay \|  \| "sender" gave Codex work/);
+  await d.close();
+  store.close();
+});
+
+test("the reason stays in the subtitle, cut at 80 characters (D89a)", () => {
+  assert.equal(REASON_CHARS, 80);
+  const act = "gated Codex wake is off; check Codex, then delete codex-gate.off next to the mailbox";
+  const fields = noticeFields({ ...base, why: act, body: "work" }, { preview: true });
+  assert.equal(fields.subtitle, `#7 · cx · ${Array.from(act).slice(0, 80).join("").trimEnd()}…`);
+  assert.match(fields.subtitle, /delete codex-gate\.off/, "the instruction survives the cut");
+  const gate = noticeFields({ ...base, event: "gate-off", why: "w", body: "work" }, { preview: true });
+  assert.equal(gate.subtitle, "#7 · cx");
 });

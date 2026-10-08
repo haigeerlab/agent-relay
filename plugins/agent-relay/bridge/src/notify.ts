@@ -13,6 +13,46 @@ export interface UndeliveredNotice {
   why: string;
   /** Deduplication key; defaults to the message id. A distinct event about the same message passes its own key. */
   key?: string;
+  /** The message text, for the preview (notify-channel D89). */
+  body?: string;
+  /** A notice about an event rather than a waiting message. */
+  event?: "gate-off";
+}
+
+// agent-relay notify-channel D89 (reverses codex-gated-wake D67's "never the body", confirmed by the user 2026-10-08):
+// a notice says what the work is. `notify-preview.off` next to the mailbox restores the D67 form.
+export const PREVIEW_CHARS = 60;
+export const NAME_CHARS = 40;
+/** notify-channel D89a: the reason stays in the subtitle (it may ask the user to act). */
+export const REASON_CHARS = 80;
+export const PREVIEW_OFF_FILE = "notify-preview.off";
+
+/** One line: control characters (C0, DEL, C1, U+2028/2029) become spaces, runs collapse, cut at `max` code points. */
+export function oneLine(text: string, max: number): string {
+  const flat = text.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, " ").replace(/\s+/g, " ").trim();
+  const chars = Array.from(flat);
+  return chars.length > max ? chars.slice(0, max).join("").trimEnd() + "…" : flat;
+}
+
+export interface NoticeFields {
+  title: string;
+  subtitle: string;
+  body: string;
+}
+
+/** What the desktop notice shows. Title and subtitle always start with a fixed prefix, never with a dash. */
+export function noticeFields(notice: UndeliveredNotice, { preview }: { preview: boolean }): NoticeFields {
+  if (!preview) return { title: "agent-relay", subtitle: "", body: noticeText(notice) };
+  const subtitle = `#${notice.messageId} · ${oneLine(notice.agent, NAME_CHARS)}`;
+  if (notice.event === "gate-off" || notice.body === undefined) {
+    return { title: notice.event === "gate-off" ? "agent-relay · gated Codex wake off" : "agent-relay", subtitle,
+      body: noticeText(notice) };
+  }
+  return {
+    title: `agent-relay · ${oneLine(notice.fromAgent ?? "a peer", NAME_CHARS) || "a peer"} → Codex`,
+    subtitle: `${subtitle} · ${oneLine(notice.why, REASON_CHARS)}`,
+    body: oneLine(notice.body, PREVIEW_CHARS) || "(empty message)",
+  };
 }
 
 // agent-relay acceptance-030-gaps D76: osascript returns 0 even when macOS drops the banner, so say only that it was tried.
@@ -27,7 +67,8 @@ export function noticeText(notice: UndeliveredNotice): string {
 /**
  * Show one desktop notification for this message unless it was already shown by any bridge on this mailbox.
  * Off with `AGENT_RELAY_NOTIFY=off` or a `notify.off` file next to the mailbox; `AGENT_RELAY_NOTIFY_LOG` records the
- * text in a file instead of showing it (tests). Never the message body. Returns true when this call notified.
+ * fields in a file instead of showing them (tests). Shows a short preview of the message (D89) unless
+ * `notify-preview.off` is next to the mailbox. Returns true when this call notified.
  */
 export function notifyUndelivered(mailboxPath: string, notice: UndeliveredNotice,
   env: NodeJS.ProcessEnv = process.env): boolean {
@@ -43,13 +84,14 @@ export function notifyUndelivered(mailboxPath: string, notice: UndeliveredNotice
   } catch {
     return false; // already notified (another bridge won the race), or the mark cannot be kept: never notify twice
   }
-  const text = noticeText(notice);
+  const fields = noticeFields(notice, { preview: !existsSync(join(dir, PREVIEW_OFF_FILE)) });
   if (log) {
-    appendFileSync(log, text + "\n");
+    appendFileSync(log, `${fields.title} | ${fields.subtitle} | ${fields.body}\n`);
     return true;
   }
-  // The text is an argument, never part of the script.
-  execFile("osascript", ["-e", "on run argv", "-e", 'display notification (item 1 of argv) with title "agent-relay"',
-    "-e", "end run", text], () => {});
+  // The texts are arguments, never part of the script.
+  execFile("osascript", ["-e", "on run argv", "-e",
+    "display notification (item 3 of argv) with title (item 1 of argv) subtitle (item 2 of argv)", "-e", "end run",
+    fields.title, fields.subtitle, fields.body], () => {});
   return true;
 }

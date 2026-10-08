@@ -69,7 +69,7 @@ Readers: the user; the round-2 coordinator, who re-checks E1/E2 on the real host
   terminal-notifier`, the user's choice) or rely on the waiting list. `--test-notification` uses the same channel and
   says which.
 - **D89 preview by default (reverses D67's "never the body"; confirmed by the user 2026-10-08).** A notice about a
-  message shows: title `agent-relay · <sender> → Codex`; subtitle `#<id> · <recipient>`; body the first 60 characters
+  message shows: title `agent-relay · <sender> → Codex`; subtitle `#<id> · <recipient> · <reason>` (D89a); body the first 60 characters
   (code points) of the message, with every control character (C0, C1, DEL, U+2028, U+2029) turned into a space, runs of
   whitespace collapsed to one, trimmed, and `…` appended when cut. Names in the title and subtitle get the same cleaning
   and are cut at 40 characters with `…`; a missing sender is `a peer`. A leading `-` in the body needs no escaping
@@ -78,6 +78,12 @@ Readers: the user; the round-2 coordinator, who re-checks E1/E2 on the real host
   text without any message content. `osascript` (fallback) shows the same title, subtitle and body (still passed as
   argv items, never in the script). README: the preview appears on the lock screen and when the screen is shared
   (macOS "Show previews" can limit that), and how to turn it off.
+- **D89a the reason stays visible (found in Task 1, chosen by the user 2026-10-08, option A).** The preview took the
+  body that used to carry the reason, including the one that asks the user to act ("gated Codex wake is off; check
+  Codex, then delete codex-gate.off …"). The subtitle therefore ends with the reason, cleaned like a name and cut at 80
+  characters with `…`. Reasons are fixed texts written by the bridge, never peer text. The gate-off notice keeps
+  subtitle `#<id> · <recipient>` and its text as the body. (Option B, reason instead of preview only for notices that
+  need action, was not chosen.)
 - **D88 docs.** README notification paragraph, the collaboration-ops skill, CHANGELOG; spec `acceptance-030-gaps` D79
   gets a dated note pointing here.
 

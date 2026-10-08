@@ -6,6 +6,10 @@
 1.x 内的兼容新增；Spec Guard 的探测范围 `>=1.0,<2.0` 不用改。其他通知渠道的评估（Codex App 自己的提示、弹窗、
 terminal-notifier）见 `spec/acceptance-030-gaps.md` D79，结论是不加，以等待列表为准。
 
+- **通知说清是什么事**（模块 `notify-channel`，D89、D89a，用户确认推翻 D67 的“不含正文”）：标题 `agent-relay · <发件会话> →
+  Codex`，副标题 `#<编号> · <收件身份> · <原因>`（原因保留“该做什么”，最长 80 字），正文是消息开头最多 60 字的单行预览
+  （控制字符与换行变空格，超长加 `…`）。信箱目录放 `notify-preview.off` 恢复旧样式（不含正文）。预览会出现在锁屏和共享
+  屏幕上。
 - **CI**（模块 `ci-macos`，D80）：GitHub Actions 在 `macos-15` 上为每个 PR 和 `main` 跑 `scripts/validate.sh`（含 bridge 的
   `npm run check`，不允许跳过），Python 3.9（苹果命令行工具自带）/ 3.14 × Node 22 / 24 四个组合；actions 按 SHA 固定，令牌
   只读。是否设为必需检查由维护者决定（README“开发与 CI”）。

@@ -97,7 +97,8 @@ export class WakeDispatcher {
         : result.state === "pending" ? "Codex is not running; the message waits" : null;
     if (!why) return result;
     const notified = notifyUndelivered(job.mailboxPath,
-      { messageId: job.messageId, fromAgent: job.fromAgent, agent: job.agent, why }, this.env);
+      { messageId: job.messageId, fromAgent: job.fromAgent, agent: job.agent, why,
+        body: this.store.messageById(job.messageId)?.body }, this.env);
     return notified ? { ...result, detail: `${result.detail} ${NOTIFIED_TEXT}` } : result;
   }
 
@@ -122,7 +123,7 @@ export class WakeDispatcher {
     }
     const notified = notifyUndelivered(job.mailboxPath, { messageId: job.messageId, fromAgent: job.fromAgent, agent: job.agent,
       why: `the woken turn did not show the approval gate (${verdict}); gated Codex wake is off until you check Codex`,
-      key: `gate-${result.turnId}` }, this.env);
+      key: `gate-${result.turnId}`, event: "gate-off" }, this.env);
     return { ...result, detail: `${result.detail}. Its record did not show the approval gate (${verdict}); gated Codex ` +
       `wake is now off for this mailbox.${notified ? ` ${NOTIFIED_TEXT}` : ""}` };
   }
