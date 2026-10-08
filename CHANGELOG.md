@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+- **只有本人读取才算已读**（模块 `inbox-read-receipt`，D99、D100）：`bridge_inbox` 和不确认的 `bridge_wait` 只有在调用方就是该
+  身份时才记已读、刷新活跃时间，`bridge_outbox` 同理只在本人查看时刷新活跃时间。以前任何会话读一眼别人的收件箱，消息就变成
+  `accepted`，还在等待的唤醒任务也被关掉，真正的收件人从此不会被提醒。读取仍不鉴权；结果新增 `readRecorded`（总是有）和
+  `readNote`（为 false 时说明原因；bridge 重启后的 Codex 会话读自己的身份时会看到它，按提示重新注册即可）。
+- **接口 1.4**（模块 `inbox-read-receipt`，D101）：`interface.json` 升到 1.4，`readRecorded` / `readNote` 是 1.x 内的兼容新增，接口文档
+  §2.1 与“Message read”一行写明只有本人读取才算；Spec Guard 的探测范围 `>=1.0,<2.0` 不用改。
 - **bridge 的 TS CLI 只留 `retire` 和 `help`**（模块 `legacy-cli-cleanup`，D95）：上游的 setup、doctor、status、demo、prune、backup、
   rollback、uninstall 都删了——安装、升级、体检和卸载只认 agent-relay 的 Python 运行时（这个 CLI 本来就不在 PATH 上，唯一的
   调用方是身份退役脚本）。命令写错时打印用法并以 2 退出；`retire` 的输出和退出码不变。

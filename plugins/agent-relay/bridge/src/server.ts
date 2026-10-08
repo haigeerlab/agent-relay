@@ -127,6 +127,18 @@ function main(): void {
   });
   const housekeeper = new Housekeeper(store, { log });
 
+  // agent-relay inbox-read-receipt D99, D100: only the identity itself records a read (delivery, wake) or activity;
+  // anyone may still list. The result says which, so a bystander knows it changed nothing.
+  const ownRead = (agent: string) => caller.owns(agent, store.getAgent(agent));
+  const readReceipt = (agent: string, recorded: boolean) => recorded
+    ? { readRecorded: true }
+    : {
+        readRecorded: false,
+        readNote: `This read was not recorded: ${JSON.stringify(agent)} is not an identity of this session, so its messages ` +
+          "stay unread for delivery and its recipient will still be pinged. If " + JSON.stringify(agent) + " is this " +
+          "session's own name (for example after the bridge restarted), call bridge_register with it from this session again.",
+      };
+
   const pagingInput = {
     limit: z.number().int().min(1).max(200).optional().describe("Maximum messages to return. Defaults to 25 (30 for threads)."),
     maxChars: z.number().int().min(1000).max(400000).optional().describe("Character budget for the whole result. Defaults to 48000 so MCP hosts never truncate it."),
@@ -340,7 +352,7 @@ function main(): void {
     {
       title: "Read inbox",
       description:
-        "List messages addressed to an agent, oldest first, in pages that fit the host's output limit. Acknowledged messages are hidden by default. When hasMore is true, acknowledge handled messages and read again, or pass afterId.",
+        "List messages addressed to an agent, oldest first, in pages that fit the host's output limit. Acknowledged messages are hidden by default. When hasMore is true, acknowledge handled messages and read again, or pass afterId. Only this session's own identity records the read (readRecorded: true); reading another agent's inbox changes nothing and says so (readRecorded: false, readNote).",
       inputSchema: {
         agent: z.string().min(1).describe("Agent whose inbox to read."),
         includeAcknowledged: z.boolean().optional().describe("Include messages this agent has already acknowledged."),
@@ -354,9 +366,12 @@ function main(): void {
     },
     async ({ agent, includeAcknowledged, fromAgent, threadId, afterId, includeExpired, limit, maxChars, maxBodyChars }) => {
       const page = store.inboxPage(agent, { includeAcknowledged, fromAgent, threadId, afterId, includeExpired, limit, maxChars, maxBodyChars });
-      store.wakes.recordRead(agent, page.messages.map((message) => message.id));
-      store.touch(agent);
-      return jsonResult({ agent, ...page });
+      const recorded = ownRead(agent);
+      if (recorded) {
+        store.wakes.recordRead(agent, page.messages.map((message) => message.id));
+        store.touch(agent);
+      }
+      return jsonResult({ agent, ...page, ...readReceipt(agent, recorded) });
     },
   );
 
@@ -365,7 +380,7 @@ function main(): void {
     {
       title: "Wait for the next bridge message",
       description:
-        "Keep this agent turn alive until a matching bridge message arrives, for agents without background pings. It cannot wake a chat whose turn has already ended, so call it before going idle. After handling and replying, call bridge_wait again while the coordination thread is active.",
+        "Keep this agent turn alive until a matching bridge message arrives, for agents without background pings. It cannot wake a chat whose turn has already ended, so call it before going idle. After handling and replying, call bridge_wait again while the coordination thread is active. Acknowledging needs this session's own identity; with acknowledge: false another agent's messages may be watched, which records nothing (readRecorded, readNote as in bridge_inbox).",
       inputSchema: {
         agent: z.string().min(1).describe("Agent whose inbox should wake this turn."),
         fromAgent: z.string().min(1).optional().describe("Optional sender filter."),
@@ -391,7 +406,8 @@ function main(): void {
       }
       if (acknowledge ?? true) caller.require(agent, store.getAgent(agent), "acknowledge messages for");
       const max = clampLimit(limit);
-      store.touch(agent);
+      const recorded = ownRead(agent);
+      if (recorded) store.touch(agent);
       const result = await waitForInbox(store, {
         agent,
         fromAgent,
@@ -402,8 +418,9 @@ function main(): void {
       const fitted = fitMessages(result.messages.slice(0, max), { maxChars });
       const ids = fitted.messages.map((message) => message.id);
       const acknowledged = (acknowledge ?? true) && ids.length > 0 ? store.ack(agent, ids) : 0;
-      store.wakes.recordRead(agent, ids);
+      if (recorded) store.wakes.recordRead(agent, ids);
       return jsonResult({
+        ...readReceipt(agent, recorded),
         timedOut: result.timedOut,
         count: fitted.messages.length,
         acknowledged,
@@ -490,7 +507,7 @@ function main(): void {
       },
     },
     async ({ agent, includeAcknowledged, limit }) => {
-      store.touch(agent);
+      if (ownRead(agent)) store.touch(agent);
       return jsonResult({ agent, ...store.outbox(agent, { includeAcknowledged, limit }) });
     },
   );
