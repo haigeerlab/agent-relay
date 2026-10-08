@@ -46,6 +46,8 @@ NON_FINAL_WAKE_STATES = ("pending", "sending", "accepted", "unknown")
 JOURNAL_NAME = "state-migration.json"
 STAGE_PREFIX = ".state-migration-"
 FAILED_PREFIX = ".state-migration-failed-"
+RECOVER_NEXT = ("a state migration stopped half way; close every session using the mailbox, then run "
+                "state_migration.py recover --confirm to put the target back as it was")
 
 
 @dataclass
@@ -58,6 +60,7 @@ class Report:
     open_delegations: list[dict] = field(default_factory=list)
     running_servers: int = 0
     target_servers: int = 0
+    interrupted: dict | None = None
     target_runtime: str = "absent"
     target_mailbox: dict[str, int] | None = None
     target_delegation_present: bool = False
@@ -137,6 +140,13 @@ def inspect(home: Path, acknowledged: tuple[str, ...] = (),
             target: Path | None = None, target_count: Callable[[Path], int] | None = None) -> Report:
     paths = _paths(home, target)
     report = Report(home, paths["parent"])
+    # state-migration-safety D120: a journal means an earlier migration stopped half way.
+    try:
+        report.interrupted = _read_journal(paths["parent"])
+    except JournalError as error:
+        report.blockers.append(str(error))
+    if report.interrupted is not None:
+        report.blockers.append(RECOVER_NEXT)
     with tempfile.TemporaryDirectory(prefix="agent-relay-detect-") as scratch:
         _inspect_old(paths, report, acknowledged, Path(scratch))
     if report.old_mailbox is None and report.old_delegation is None:
@@ -268,10 +278,13 @@ def _migrate(home: Path, acknowledged: tuple[str, ...], process_count: Callable[
     if report.blockers:
         return report, {"state": "blocked"}
     paths = _paths(home, target)
-    stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    # A retry right after `recover` may fall in the same second: the next free suffix, as the runtime does (D74).
+    second = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    stamp = next((candidate for candidate in [second] + [f"{second}-{n}" for n in range(1, 100)]
+                  if not (paths["backups"] / candidate).exists()), None)
+    if stamp is None:
+        return report, {"state": "blocked", "diagnostic": f"backups for {second} already exist; retry in a second"}
     backup = paths["backups"] / stamp
-    if backup.exists():
-        return report, {"state": "blocked", "diagnostic": f"backup {backup.name} already exists"}
     _private_dir(paths["parent"])
     _private_dir(paths["backups"])
     _private_dir(backup)
@@ -321,6 +334,47 @@ def _migrate(home: Path, acknowledged: tuple[str, ...], process_count: Callable[
     _journal_file(paths["parent"]).unlink()
     result["previous"] = str(stage)
     return report, result
+
+
+class JournalError(Exception):
+    """The journal exists but is not one this tool wrote (D120)."""
+
+
+def _read_journal(parent: Path) -> dict | None:
+    path = _journal_file(parent)
+    if not path.exists() and not path.is_symlink():
+        return None
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError) as error:
+        raise JournalError(f"the state migration journal {path} cannot be read; it needs a person") from error
+    if not isinstance(value, dict) or not isinstance(value.get("items"), list) or not value.get("stage"):
+        raise JournalError(f"the state migration journal {path} is not one this tool wrote; it needs a person")
+    return value
+
+
+def recover(home: Path, process_count: Callable[[Path], int] = _running_servers, *,
+            target: Path | None = None, target_count: Callable[[Path], int] | None = None) -> dict:
+    """Put an interrupted migration back from its journal (D120). Back only, never forward."""
+    paths = _paths(home, target)
+    if not paths["parent"].is_dir():
+        return {"state": "blocked", "diagnostic": "nothing to recover: no state migration journal"}
+    try:
+        with _exclusive(paths["parent"]):
+            try:
+                journal = _read_journal(paths["parent"])
+            except JournalError as error:
+                return {"state": "blocked", "diagnostic": str(error)}
+            if journal is None:
+                return {"state": "blocked", "diagnostic": "nothing to recover: no state migration journal"}
+            running = process_count(paths["old_runtime"]) + (target_count or _runtime._servers_running)(
+                paths["runtime"])
+            if running:
+                return {"state": "blocked", "diagnostic": f"{running} bridge server process(es) are running; close "
+                        "every session using the mailbox first"}
+            return {"state": "recovered", "kept": str(_put_back(paths["parent"], journal))}
+    except MigrationBusy as error:
+        return {"state": "blocked", "diagnostic": str(error)}
 
 
 class MigrationMismatch(Exception):
@@ -449,8 +503,8 @@ def host_next_steps(report: Report) -> list[str]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("command", choices=("detect", "migrate"))
-    parser.add_argument("--confirm", action="store_true", help="required for migrate")
+    parser.add_argument("command", choices=("detect", "migrate", "recover"))
+    parser.add_argument("--confirm", action="store_true", help="required for migrate and recover")
     parser.add_argument("--acknowledge-stale", action="append", default=[], metavar="ID_PREFIX",
                         help="a never-launched, non-terminal delegation the user confirms is dead (D12)")
     parser.add_argument("--home", type=Path, default=None, help=argparse.SUPPRESS)
@@ -469,7 +523,11 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(report.as_dict(), indent=2, sort_keys=True))
         return 0
     if not args.confirm:
-        parser.error("migrate needs --confirm")
+        parser.error(f"{args.command} needs --confirm")
+    if args.command == "recover":
+        result = recover(home, target=target)
+        print(json.dumps({"result": result}, indent=2, sort_keys=True))
+        return 0 if result["state"] == "recovered" else 1
     report, result = migrate(home, acknowledged, target=target)
     output = {"report": report.as_dict(), "result": result}
     if result["state"] == "migrated":

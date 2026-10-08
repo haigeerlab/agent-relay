@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """state-migration-safety: one migration at a time, never under a running bridge, all or nothing (D116-D121)."""
+import contextlib
 import fcntl
+import io
+import json
 import os
 from pathlib import Path
 import unittest
@@ -171,6 +174,88 @@ class AllOrNothingTests(SafetyFixture):
         self.assertFalse((self.home / ".agent-relay" / "state-migration.json").exists())
         previous = Path(result["previous"])
         self.assertTrue((previous / "previous-mailbox" / "notify.off").is_file(), "the replaced target is kept")
+
+
+
+class Killed(BaseException):
+    """Stands for the process dying: not an Exception, so no rollback runs."""
+
+
+def killed_at(step):
+    def write(parent, journal):
+        REAL_WRITE(parent, journal)
+        if journal["step"] == step:
+            raise Killed(step)
+    return write
+
+
+class RecoverTests(SafetyFixture):
+    """D120: a killed migration is reported as interrupted, refused, and put back by recover --confirm."""
+
+    def kill_at(self, step):
+        with mock.patch.object(state_migration, "_write_journal", side_effect=killed_at(step)), \
+                self.assertRaises(Killed):
+            state_migration.migrate(self.home, (), no_servers, target_count=no_servers)
+
+    def test_each_killed_step_is_reported_refused_and_recovered(self):
+        for step in STEPS:
+            with self.subTest(step=step):
+                self.setUp()
+                self.make_lived_in_case(delegation_dir=True)
+                before, old = self.watched(), tree_digest(self.home / ".spec-guard")
+                self.kill_at(step)
+                self.assertTrue((self.home / ".agent-relay" / "state-migration.json").exists())
+                report = state_migration.inspect(self.home, (), no_servers, target_count=no_servers)
+                self.assertEqual(report.interrupted["step"], step)
+                self.assertTrue(any("recover --confirm" in blocker for blocker in report.blockers), report.blockers)
+                _report, refused = state_migration.migrate(self.home, (), no_servers, target_count=no_servers)
+                self.assertEqual(refused["state"], "blocked")
+                result = state_migration.recover(self.home, no_servers, target_count=no_servers)
+                self.assertEqual(result["state"], "recovered", result)
+                self.assertEqual(self.watched(), before, "the target is exactly as before the migration")
+                self.assertEqual(tree_digest(self.home / ".spec-guard"), old)
+                self.assertFalse((self.home / ".agent-relay" / "state-migration.json").exists())
+                self.assertTrue(Path(result["kept"]).name.startswith(".state-migration-failed-"))
+                _report, again = state_migration.migrate(self.home, (), no_servers, target_count=no_servers)
+                self.assertEqual(again["state"], "migrated", again)
+
+    def test_recover_refuses_without_a_journal_or_while_a_bridge_runs(self):
+        self.make_lived_in_case()
+        nothing = state_migration.recover(self.home, no_servers, target_count=no_servers)
+        self.assertEqual(nothing["state"], "blocked")
+        self.assertIn("nothing to recover", nothing["diagnostic"])
+        self.kill_at("data:placing")
+        for old, new in ((running, no_servers), (no_servers, running)):
+            result = state_migration.recover(self.home, old, target_count=new)
+            self.assertEqual(result["state"], "blocked")
+            self.assertIn("running", result["diagnostic"])
+        self.assertTrue((self.home / ".agent-relay" / "state-migration.json").exists(), "a refusal changes nothing")
+
+    def test_an_unreadable_journal_blocks_and_needs_a_person(self):
+        self.make_lived_in_case()
+        (self.home / ".agent-relay" / "state-migration.json").write_text("{not json", encoding="utf-8")
+        report = state_migration.inspect(self.home, (), no_servers, target_count=no_servers)
+        self.assertTrue(any("cannot be read" in blocker for blocker in report.blockers), report.blockers)
+        result = state_migration.recover(self.home, no_servers, target_count=no_servers)
+        self.assertEqual(result["state"], "blocked")
+        self.assertIn("cannot be read", result["diagnostic"])
+
+    def test_cli_recover_needs_confirm_and_exits_0_when_recovered(self):
+        self.make_lived_in_case()
+        self.kill_at("mailbox:placing")
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as refused:
+            state_migration.main(["recover", "--home", str(self.home)])
+        self.assertEqual(refused.exception.code, 2)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(state_migration.main(["detect", "--home", str(self.home)]), 0)
+        self.assertEqual(json.loads(out.getvalue())["interrupted"]["step"], "mailbox:placing")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), \
+                mock.patch.object(state_migration._runtime, "_servers_running", return_value=0), \
+                mock.patch.object(state_migration, "_running_servers", return_value=0):
+            self.assertEqual(state_migration.main(["recover", "--confirm", "--home", str(self.home)]), 0)
+        self.assertEqual(json.loads(out.getvalue())["result"]["state"], "recovered")
 
 
 if __name__ == "__main__":
