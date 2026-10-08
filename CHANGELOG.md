@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-08
+
+接口仍为 **1.4**，信箱 schema 仍为 5。两处修正都来自 0.5.0 的真机复验：bridge 的 CLI 和 MCP 服务在没有指定信箱时，不再退回
+上游的默认库 `~/.local/share/claude-codex-bridge/bridge.sqlite`。agent-relay 自己的启动方式（宿主接入、`probe`、Codex 委派、
+退役脚本）本来就指定信箱，行为不变。
+
 - **MCP 服务也不再碰上游默认库**（模块 `server-db-guard`，D114）：没有设 `BRIDGE_DB_PATH` 就启动 `dist/server.js` 时，以前会
   打开（不存在就新建）`~/.local/share/claude-codex-bridge/bridge.sqlite`，变成一个只有它自己看得到的信箱，注册和发出的消息
   无人收到；现在在打开任何数据库之前就拒绝启动，以 2 退出，并在日志里说明服务由 `native_collaboration_adapters.py
@@ -13,6 +19,32 @@
   `~/.local/share/claude-codex-bridge/bridge.sqlite` 并在那里退役，现在在打开任何数据库之前就拒绝，以 2 退出，并提示改用
   `native_collaboration_retire.py --name <名字> --confirm-retire`。`BRIDGE_DB_PATH` 为空白也算没设；经 Python 脚本退役不变，
   帮助里写明这一点。
+
+以上改动都在 bridge 里，要升级运行时才生效（见下）。两个模块：`retire-cli-guard`（#37）、`server-db-guard`（#38）。
+
+### 从 0.5.0 升级
+
+1. 两个宿主都更新插件：
+   - Claude Code（从 GitHub 装的）：先 `claude plugin marketplace update agent-relay-marketplace`，再
+     `claude plugin update agent-relay@agent-relay-marketplace`。
+   - Codex：把 `~/.codex/config.toml` 里 `[marketplaces.agent-relay-marketplace]` 的 `ref` 改成 `"v0.5.1"`（自己改，改前留一份
+     副本），再 `codex plugin marketplace upgrade`，最后 `codex plugin add agent-relay@agent-relay-marketplace`。
+   - 从本地克隆装的：把克隆更新到 v0.5.1 后，Claude 无需其他操作，Codex 再执行一次 `codex plugin add`。
+2. **关闭所有使用信箱的会话**（所有 Claude Code 会话和 ChatGPT 应用），在 macOS 自带的“终端”里确认
+   `pgrep -fl "agent-relay/runtime/dist/server.js"` 没有输出，再执行
+   `python3 -B <插件目录>/hooks/native_collaboration_runtime.py upgrade --confirm`。半路被打断时按 `status` 的提示执行
+   `recover --confirm`。宿主接入不用重做。
+3. `doctor`：`runtime`、`probe`（10 个工具）、`host-entries` 为 ok。宿主里 agent-relay 若显示连接失败，见上面 `server-db-guard`
+   一条。
+4. 想退回 0.5.0：关掉所有会话后 `rollback --confirm`。两版工具集合相同，插件不必一起退回。
+
+从更早的版本升级：按 0.5.0 的说明做完宿主那边的步骤，把 `ref` 换成 `"v0.5.1"` 更新插件，再做上面第 2–3 步。
+
+### 已知问题
+
+- 0.5.0 列出的已知问题仍然存在（状态迁移工具不在恢复范围内、编排表保留、读取不鉴权等），见下方 0.5.0 的“已知问题”；其中
+  “回滚要连插件一起退回”只针对退回 0.4.0。
+- doctor 的 `host-entries` 对缺少 `BRIDGE_DB_PATH` 的条目报的是 “entry points at another runtime”，不会单独点明缺这个变量。
 
 ## [0.5.0] - 2026-10-08
 

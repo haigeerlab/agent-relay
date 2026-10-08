@@ -1,6 +1,6 @@
 {
   "name": "agent-relay",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "同一台 Mac 上 Claude Code 与 Codex 会话之间的协作信箱、会话路由与跨宿主委派。",
   "skills": "./skills/"
 }
