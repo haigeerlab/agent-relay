@@ -19,7 +19,6 @@ import { Housekeeper } from "./housekeeping.js";
 import { waitForInbox } from "./inbox-waiter.js";
 import { BRIDGE_AGENT, CLAUDE_HOLD_EXPLANATION } from "./notices.js";
 import { clampLimit, fitMessages } from "./paging.js";
-import { defaultDbPath } from "./paths.js";
 import { VERSION } from "./version.js";
 import { WakeDispatcher } from "./wake-dispatcher.js";
 import type { WakeTarget } from "./wake-queue.js";
@@ -60,7 +59,14 @@ const INSTRUCTIONS = [
 ].join("\n\n");
 
 function main(): void {
-  const dbPath = defaultDbPath();
+  // agent-relay server-db-guard D114: serve only the mailbox the launcher names, never the upstream default database.
+  const dbPath = process.env.BRIDGE_DB_PATH?.trim();
+  if (!dbPath) {
+    log("BRIDGE_DB_PATH is not set: the agent-relay mailbox server is started by the host entries that "
+      + "native_collaboration_adapters.py install-claude / install-codex attach");
+    process.exitCode = 2;
+    return;
+  }
   const store = new BridgeStore(dbPath);
   const channelSessionId = channelSession();
   const localAgents: string[] = [];
