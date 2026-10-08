@@ -14,7 +14,7 @@ import {
   supportedNode,
 } from "../src/cli-logic.js";
 import { codexConfigPath, readCodexServerEntry, updateCodexServerEntry } from "../src/codex-config.js";
-import { defaultDbPath, runtimePrefix, worktreeRoot } from "../src/paths.js";
+import { defaultDbPath, runtimePrefix } from "../src/paths.js";
 import {
   activateVersion,
   currentVersion,
@@ -75,7 +75,6 @@ test("paths honour overrides and default to the per-user data directory", () => 
   assert.equal(defaultDbPath({}, home), join(home, ".local", "share", "claude-codex-bridge", "bridge.sqlite"));
   assert.equal(defaultDbPath({ XDG_DATA_HOME: "/data" }, home), join("/data", "claude-codex-bridge", "bridge.sqlite"));
   assert.equal(defaultDbPath({ BRIDGE_DB_PATH: "/tmp/x.sqlite" }, home), "/tmp/x.sqlite");
-  assert.equal(worktreeRoot({ BRIDGE_WORKTREE_ROOT: "/wt" }, home), "/wt");
   assert.equal(codexConfigPath({ CODEX_HOME: "/codex" }, home), join("/codex", "config.toml"));
   assert.equal(codexConfigPath({}, home), join(home, ".codex", "config.toml"));
 });

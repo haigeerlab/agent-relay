@@ -97,10 +97,11 @@ entry. Never modify project or global settings merely because the runtime is rea
 
 For removal, `uninstall-claude --confirm-uninstall` and
 `uninstall-codex --confirm-uninstall` remove only the managed native entry: Codex's table together with the
-approval subtables Codex writes when the user picks 始终允许, Claude's MCP entry and its seven deny rules. While
+approval subtables Codex writes when the user picks 始终允许, Claude's MCP entry and the seven deny rules agent-relay 0.4.0 and earlier wrote (install no longer writes
+any: the server offers only the ten mailbox tools). While
 any Claude Code session is open (or a bridge of this runtime runs) `uninstall-claude` removes the entry but keeps the
-seven deny rules: an open session re-filters its cached tools against the new settings and would offer the upstream
-worker tools. You are an open session yourself, so in Claude never try to remove the rules: give the user the
+seven deny rules: an open session of a 0.4.0 runtime re-filters its cached tools against the new settings and would
+offer the removed worker tools. You are an open session yourself, so in Claude never try to remove the rules: give the user the
 command `uninstall-claude` prints and ask them to run it in a terminal after closing every Claude Code session. Any
 other difference is refused with the differing line numbers and keys; leave those lines for the user. Every
 install and uninstall first copies the host files to `backups/<UTC>/host-config/` and prints the path; tell the

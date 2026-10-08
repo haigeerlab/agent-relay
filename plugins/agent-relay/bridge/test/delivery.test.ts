@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readdirSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
 import { BridgeStore } from "../src/bridge-store.js";
 import { CHANNEL_METHOD, channelSession, type ChannelNotification } from "../src/claude-channel.js";
-import { dailyBackup, Housekeeper, pruneRunFiles } from "../src/housekeeping.js";
+import { dailyBackup, Housekeeper } from "../src/housekeeping.js";
 import { sweepDeliveryFailures } from "../src/notices.js";
 import { WakeDispatcher } from "../src/wake-dispatcher.js";
 import { BUSY_WAKE_WINDOW_MS, OFFLINE_WAKE_WINDOW_MS } from "../src/wake-queue.js";
@@ -154,18 +154,6 @@ test("daily backups happen once per day across processes and keep a week", () =>
   second.close();
 });
 
-test("old Codex event streams are pruned while result envelopes and other files are kept", () => {
-  const dir = mkdtempSync(join(tmpdir(), "bridge-runs-"));
-  const old = "11111111-1111-4111-8111-111111111111";
-  const fresh = "22222222-2222-4222-8222-222222222222";
-  const names = [`${old}.json`, `${old}.events.jsonl`, `${old}.stderr.log`, `${fresh}.events.jsonl`, "codex-turn.schema.json", "notes.txt"];
-  for (const name of names) writeFileSync(join(dir, name), "{}");
-  const past = new Date(Date.now() - 40 * 24 * HOUR);
-  for (const name of names.filter((entry) => !entry.startsWith(fresh))) utimesSync(join(dir, name), past, past);
-  assert.equal(pruneRunFiles(dir), 2);
-  assert.deepEqual(readdirSync(dir).sort(), [`${old}.json`, `${fresh}.events.jsonl`, "codex-turn.schema.json", "notes.txt"].sort());
-});
-
 test("the housekeeper sweeps failed pings on its first tick", async () => {
   const store = new BridgeStore(":memory:");
   store.register("sender");
@@ -174,7 +162,7 @@ test("the housekeeper sweeps failed pings on its first tick", async () => {
   const job = store.wakes.claim()!;
   store.wakes.finish(job, { state: "refused", detail: "Codex owner does not support peer content; update the app" });
   const logs: string[] = [];
-  await new Housekeeper(store, null, { log: (line) => logs.push(line) }).tick();
+  await new Housekeeper(store, { log: (line) => logs.push(line) }).tick();
   assert.equal(store.inbox("sender").length, 1);
   assert.deepEqual(logs, []);
   store.close();

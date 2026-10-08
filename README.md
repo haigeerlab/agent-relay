@@ -180,9 +180,10 @@ python3 -B plugins/agent-relay/hooks/state_migration.py migrate --confirm
      目录和文件只有你自己能读（0700 / 0600），用完请自行删除。
    - Codex：连同你选"始终允许"时 Codex 写入的工具审批子表（只有一行 `approval_mode`）一起移除；node 换了版本也能
      识别。别的差异会逐行指出（只写行号和键名，不打印值），留给你处理。
-   - Claude：移除 MCP 条目和 agent-relay 的 7 条禁用规则，其他设置不动。还有任何 Claude Code 会话开着（或这个
-     运行时的 bridge 还在跑）时，只移除条目、保留 7 条规则：开着的会话会按新设置重新过滤它缓存的工具列表，规则一删
-     就会露出上游的 worker 工具。所以这一步由你在**关掉所有 Claude Code 会话之后、在终端里**执行；从任何 Claude
+   - Claude：移除 MCP 条目；若这台机器是 0.4.0 或更早装的，还会移除当时写下的 7 条禁用规则（0.5.0 起服务只提供
+     十个信箱工具，安装不再写这些规则），其他设置不动。还有任何 Claude Code 会话开着（或这个运行时的 bridge 还在跑）
+     时，只移除条目、保留 7 条规则：开着的旧版会话会按新设置重新过滤它缓存的工具列表，规则一删就会露出已删除的
+     worker 工具。所以这一步由你在**关掉所有 Claude Code 会话之后、在终端里**执行；从任何 Claude
      会话里跑（包括让 agent 代跑）都会保留规则，并打印可以照抄的终端命令。
 4. 移除运行时：`native_collaboration_runtime.py uninstall --confirm`。只删构建产物，`mailbox/`（消息历史和备份）
    和 `data/` 保留；以后再 `install` 会围绕它们重建。

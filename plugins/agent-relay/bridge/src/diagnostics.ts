@@ -26,7 +26,6 @@ export interface DatabaseReport {
   retiredAgents: number;
   backlog: BacklogEntry[];
   wakeLastWeek: Array<{ app: string; state: string; count: number }>;
-  runs: Record<string, number>;
   latestDailyBackup: string | null;
   error?: string;
 }
@@ -69,7 +68,6 @@ export function inspectDatabase(path: string, now = Date.now()): DatabaseReport 
     retiredAgents: 0,
     backlog: [],
     wakeLastWeek: [],
-    runs: {},
     latestDailyBackup: latestDailyBackup(join(path, "..", "backups")),
   };
   if (!report.exists) return report;
@@ -114,12 +112,6 @@ export function inspectDatabase(path: string, now = Date.now()): DatabaseReport 
         )
         .all(now - 7 * 24 * 3_600_000) as Row[]
     ).map((row) => ({ app: String(row.app), state: String(row.state), count: Number(row.n) }));
-    report.runs = Object.fromEntries(
-      (db.prepare("SELECT status, COUNT(*) AS n FROM orchestration_runs GROUP BY status").all() as Row[]).map((row) => [
-        String(row.status),
-        Number(row.n),
-      ]),
-    );
   } catch (error) {
     report.error = error instanceof Error ? error.message : String(error);
   } finally {

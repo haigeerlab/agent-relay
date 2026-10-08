@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from native_collaboration_adapters import (CODEX_SERVER_NAME, DENIED_TOOLS,
+from native_collaboration_adapters import (CODEX_SERVER_NAME,
                                            claude_config,
                                            codex_fragment, install_claude_config,
                                            install_codex_config)
@@ -44,21 +44,15 @@ class NativeCollaborationAdaptersTests(unittest.TestCase):
         self.assertNotIn("ask_codex", fragment)
         self.assertNotIn("token", fragment.lower())
 
-    def test_claude_fragment_and_exact_deny_rules_leave_chrome_alone(self):
+    def test_claude_fragment_has_no_deny_rules_and_leaves_chrome_alone(self):
         result = claude_config(self.root, self.node)
         server = result["mcpServers"]["agent-relay"]
         self.assertEqual(server["command"], str(self.node.resolve()))
         self.assertEqual(server["env"]["BRIDGE_DB_PATH"],
                          str(self.root / "mailbox" / "bridge.sqlite"))
         self.assertEqual(server["env"]["XDG_DATA_HOME"], str(self.root / "data"))
-        # 逐字写死期望的拒绝清单，不能用被测常量的长度去验证它自己。
-        self.assertEqual(sorted(result["denyRules"]), sorted(
-            "mcp__agent-relay__" + tool for tool in (
-                "bridge_retire", "ask_codex", "review_with_codex", "bridge_orchestrate_codex",
-                "bridge_continue_codex", "bridge_orchestration_wait",
-                "bridge_orchestration_status")))
-        self.assertTrue(all(rule.startswith("mcp__agent-relay__")
-                            for rule in result["denyRules"]))
+        # orchestrator-removal D92: the server no longer has worker tools, so there is nothing to deny.
+        self.assertNotIn("denyRules", result)
         self.assertNotIn("chrome", json.dumps(result).lower())
         self.assertNotIn("token", json.dumps(result).lower())
 
@@ -79,18 +73,15 @@ class NativeCollaborationAdaptersTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "already exists"):
             install_codex_config(self.root, self.node, target)
 
-    def test_claude_install_denies_worker_tools_before_adding_server(self):
+    def test_claude_install_adds_the_server_and_leaves_the_settings_alone(self):
         target = Path(self.tmp.name) / "settings.json"
         original = {"chrome": {"enabled": True}, "permissions": {"deny": ["existing-rule"]}}
         target.write_text(json.dumps(original))
+        before = target.read_bytes()
         calls = []
 
         def fake_run(command, **_kwargs):
             calls.append(command)
-            settings = json.loads(target.read_text())
-            self.assertEqual(settings["chrome"], original["chrome"])
-            self.assertEqual(settings["permissions"]["deny"][0], "existing-rule")
-            self.assertEqual(len(settings["permissions"]["deny"]), 1 + len(DENIED_TOOLS))
             return subprocess.CompletedProcess(command, 0, "", "")
 
         with patch("host_config_removal.subprocess.run", side_effect=fake_run):
@@ -98,9 +89,13 @@ class NativeCollaborationAdaptersTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][:3], ["claude", "mcp", "add-json"])
         self.assertEqual(calls[0][-2:], ["--scope", "user"])
-        self.assertEqual(json.loads(target.read_text())["chrome"], original["chrome"])
+        self.assertEqual(target.read_bytes(), before, "orchestrator-removal D92: no deny rules are written")
+        absent = Path(self.tmp.name) / "absent-settings.json"
+        with patch("host_config_removal.subprocess.run", side_effect=fake_run):
+            install_claude_config(self.root, self.node, absent, "claude")
+        self.assertFalse(absent.exists(), "a missing settings file is not created")
 
-    def test_claude_install_refuses_an_existing_server_and_keeps_only_its_deny_rules(self):
+    def test_claude_install_refuses_an_existing_server_and_leaves_the_settings_alone(self):
         target = Path(self.tmp.name) / "settings.json"
         target.write_text('{"permissions":{"deny":[]}}')
         # 真实 CLI（2026-09-28 实测）：同名时 rc=1，输出 "MCP server X already exists in user config"。
@@ -108,10 +103,9 @@ class NativeCollaborationAdaptersTests(unittest.TestCase):
                 [], 1, "", "MCP server agent-relay already exists in user config")):
             with self.assertRaisesRegex(ValueError, "already exists; refusing to overwrite"):
                 install_claude_config(self.root, self.node, target, "claude")
-        self.assertTrue(all(rule.startswith("mcp__agent-relay__")
-                            for rule in json.loads(target.read_text())["permissions"]["deny"]))
+        self.assertEqual(target.read_text(), '{"permissions":{"deny":[]}}')
 
-    def test_claude_registration_failure_keeps_deny_rules(self):
+    def test_claude_registration_failure_leaves_the_settings_alone(self):
         target = Path(self.tmp.name) / "settings.json"
         target.write_text('{"chrome":{"enabled":true}}')
 
@@ -119,11 +113,9 @@ class NativeCollaborationAdaptersTests(unittest.TestCase):
             return subprocess.CompletedProcess(command, 1, "", "registration failed")
 
         with patch("host_config_removal.subprocess.run", side_effect=fake_run):
-            with self.assertRaisesRegex(ValueError, "deny rules are installed"):
+            with self.assertRaisesRegex(ValueError, "registration failed"):
                 install_claude_config(self.root, self.node, target, "claude")
-        saved = json.loads(target.read_text())
-        self.assertEqual(saved["chrome"], {"enabled": True})
-        self.assertEqual(len(saved["permissions"]["deny"]), len(DENIED_TOOLS))
+        self.assertEqual(target.read_text(), '{"chrome":{"enabled":true}}')
 
     def test_codex_install_refuses_symlinked_config(self):
         actual = Path(self.tmp.name) / "actual.toml"

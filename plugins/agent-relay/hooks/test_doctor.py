@@ -14,7 +14,7 @@ import unittest
 from native_collaboration_adapters import CLAUDE_SERVER_NAME, codex_fragment
 from native_collaboration_doctor import TEST_NOTIFICATION_TEXT, codex_auto_approval, doctor, send_test_notification
 from node_select import SelectedNode
-from native_collaboration_runtime import BRIDGE_COMMIT, BRIDGE_SOURCE, DENIED_TOOLS, bridge_tree, main
+from native_collaboration_runtime import BRIDGE_COMMIT, BRIDGE_SOURCE, bridge_tree, main
 
 NODE = Path(sys.executable)
 SCRIPT_EDITOR = "com.apple.ScriptEditor2"
@@ -48,8 +48,7 @@ class DoctorTests(unittest.TestCase):
             "command": str(NODE), "args": [server],
             "env": {"BRIDGE_DB_PATH": str(self.root / "mailbox" / "bridge.sqlite"),
                     "XDG_DATA_HOME": str(self.root / "data")}}}}))
-        self.claude_settings.write_text(json.dumps({"permissions": {"deny": [
-            f"mcp__{CLAUDE_SERVER_NAME}__{tool}" for tool in DENIED_TOOLS]}}))
+        self.claude_settings.write_text(json.dumps({"permissions": {"deny": []}}))
         self.session("claude-live", "idle")
         self.processes = ["/usr/bin/node " + server]
         self.alive = {4242}
@@ -211,9 +210,15 @@ class DoctorTests(unittest.TestCase):
                 self.assertEqual(report["state"], "fail")
                 self.assertEqual(self.states(report).get(name), "fail", json.dumps(report, indent=1))
 
-    def test_claude_deny_rules_missing_fail(self):
-        self.claude_settings.write_text(json.dumps({"permissions": {"deny": []}}))
-        self.assertEqual(self.find(self.run_doctor(), "host-entries")["state"], "fail")
+    def test_host_entries_need_no_deny_rules_and_accept_the_ones_040_wrote(self):
+        # orchestrator-removal D92: a fresh install has no deny rules; a host installed by 0.4.0 keeps them until
+        # uninstall, and neither is reported as wrong.
+        self.assertEqual(self.find(self.run_doctor(), "host-entries")["state"], "ok")
+        self.claude_settings.write_text(json.dumps({"permissions": {"deny": [
+            f"mcp__{CLAUDE_SERVER_NAME}__{tool}" for tool in (
+                "bridge_retire", "ask_codex", "review_with_codex", "bridge_orchestrate_codex",
+                "bridge_continue_codex", "bridge_orchestration_wait", "bridge_orchestration_status")]}}))
+        self.assertEqual(self.find(self.run_doctor(), "host-entries")["state"], "ok")
 
     def test_codex_auto_approval_matches_the_bridge_rules(self):
         cases = [

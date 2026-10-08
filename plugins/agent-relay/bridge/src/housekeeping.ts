@@ -1,17 +1,13 @@
-import { readdirSync, rmSync, statSync } from "node:fs";
+import { readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 import type { BridgeStore } from "./bridge-store.js";
 import { ensurePrivateDirectory } from "./fs-safety.js";
 import { sweepDeliveryFailures } from "./notices.js";
-import type { Orchestrator } from "./orchestrator.js";
 
 const DAY_MS = 24 * 3_600_000;
 export const DAILY_BACKUPS_KEPT = 7;
-export const RUN_FILE_RETENTION_MS = 30 * DAY_MS;
 const DAILY_BACKUP = /^bridge-daily-\d{4}-\d{2}-\d{2}\.sqlite$/;
-/** Only the bulky per-turn streams expire; the small final envelopes are kept as provenance. */
-const RUN_STREAM = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(\.events\.jsonl|\.stderr\.log)$/;
 
 /**
  * Keep a rolling week of daily mailbox copies. Exactly one bridge process per
@@ -29,38 +25,13 @@ export function dailyBackup(store: BridgeStore, now = Date.now(), keep = DAILY_B
   return path;
 }
 
-/** Remove Codex event streams and stderr logs older than the retention window. Returns how many were removed. */
-export function pruneRunFiles(directory: string, now = Date.now(), retentionMs = RUN_FILE_RETENTION_MS): number {
-  let removed = 0;
-  let names: string[];
-  try {
-    names = readdirSync(directory);
-  } catch {
-    return 0;
-  }
-  for (const name of names) {
-    if (!RUN_STREAM.test(name)) continue;
-    const path = join(directory, name);
-    try {
-      if (now - statSync(path).mtimeMs > retentionMs) {
-        rmSync(path, { force: true });
-        removed += 1;
-      }
-    } catch {
-      // Raced with another process; nothing to do.
-    }
-  }
-  return removed;
-}
-
 export interface HousekeeperOptions {
-  runsDir?: string;
   log?: (message: string) => void;
 }
 
 /**
  * Background upkeep shared by every bridge process: tell senders about failed
- * pings, recover orphaned Codex runs, and take the daily backup.
+ * pings and take the daily backup.
  */
 export class Housekeeper {
   private timer: NodeJS.Timeout | null = null;
@@ -69,7 +40,6 @@ export class Housekeeper {
 
   constructor(
     private readonly store: BridgeStore,
-    private readonly orchestrator: Orchestrator | null,
     private readonly options: HousekeeperOptions = {},
   ) {}
 
@@ -84,16 +54,9 @@ export class Housekeeper {
     this.busy = true;
     try {
       sweepDeliveryFailures(this.store, now);
-      if (this.orchestrator && this.ticks % 3 === 0) {
-        const { adopted, delivered } = await this.orchestrator.reconcile(now);
-        if (adopted || delivered) this.options.log?.(`recovered ${adopted} orphaned run(s), delivered ${delivered} result(s)`);
-      }
       if (this.ticks % 120 === 0) {
         const backup = dailyBackup(this.store, now);
-        if (backup) {
-          this.options.log?.(`daily backup written to ${backup}`);
-          if (this.options.runsDir) pruneRunFiles(this.options.runsDir, now);
-        }
+        if (backup) this.options.log?.(`daily backup written to ${backup}`);
       }
     } catch (error) {
       this.options.log?.(`housekeeping error: ${error instanceof Error ? error.message : String(error)}`);

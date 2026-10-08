@@ -8,6 +8,9 @@ import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
+import { BridgeStore } from "../src/bridge-store.js";
+import { retireAgent } from "../src/lifecycle.js";
+
 const projectRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 
 async function connect(name: string, dbPath: string, extraEnv: Record<string, string> = {}) {
@@ -55,23 +58,16 @@ test("two independent MCP clients exchange and acknowledge a message", async () 
     assert.deepEqual(
       tools.tools.map((tool) => tool.name).sort(),
       [
-        "ask_codex",
         "bridge_ack",
         "bridge_agents",
-        "bridge_continue_codex",
         "bridge_inbox",
-        "bridge_orchestrate_codex",
-        "bridge_orchestration_status",
-        "bridge_orchestration_wait",
         "bridge_outbox",
         "bridge_register",
-        "bridge_retire",
         "bridge_send",
         "bridge_sessions",
         "bridge_thread",
         "bridge_wait",
         "bridge_wake_status",
-        "review_with_codex",
       ].sort(),
     );
 
@@ -153,9 +149,13 @@ test("the bridge guards addressing, pages output and closes out finished agents"
     const outbox = payload(await client.callTool({ name: "bridge_outbox", arguments: { agent: "lead" } }));
     assert.equal(outbox.totalUnacknowledged, 4);
 
-    const retired = payload(await client.callTool({ name: "bridge_retire", arguments: { agent: "codex-worker", note: "done" } }));
-    assert.equal(retired.closed, 3);
-    assert.equal((retired.agent as { retiredBy: string }).retiredBy, "codex-worker", "defaults to this conversation's latest agent");
+    // agent-relay orchestrator-removal D91: retiring is the CLI's job (`retire`), not an MCP tool.
+    const store = new BridgeStore(dbPath);
+    try {
+      assert.equal(retireAgent(store, "codex-worker", { by: "user", note: "done" }).closed, 3);
+    } finally {
+      store.close();
+    }
     assert.match(
       errorText(await client.callTool({ name: "bridge_send", arguments: { from: "lead", to: "codex-worker", body: "more" } })),
       /retired/,

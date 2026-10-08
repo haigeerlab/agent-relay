@@ -15,7 +15,12 @@
   <img src="assets/bridge-demo.gif" alt="Claude Codex MCP Bridge send, wait, wake and acknowledge demo" width="900">
 </p>
 
-A local MCP bridge for Claude Code and OpenAI Codex. It gives a team of Claude and Codex conversations a durable SQLite mailbox, background pings between them, and saved Codex workers that run in a pinned sandbox and report back on their own.
+A local MCP bridge for Claude Code and OpenAI Codex. It gives a team of Claude and Codex conversations a durable SQLite mailbox and background pings between them.
+
+> **agent-relay copy.** agent-relay 0.5.0 removed the upstream Codex workers (`ask_codex`, `review_with_codex`,
+> `bridge_orchestrate_codex`, `bridge_continue_codex`, `bridge_orchestration_wait`, `bridge_orchestration_status`) and the
+> `bridge_retire` tool; the server offers only the ten mailbox tools below. Retire agents with the CLI `retire`. Tag
+> `v0.4.0` of agent-relay has the last copy of the removed code (module `orchestrator-removal`, see `UPSTREAM.md`).
 
 ```text
 Claude Code ──stdio MCP──┐
@@ -27,11 +32,10 @@ The default mode has no account, cloud relay, HTTP server or listening network p
 
 ## Why
 
-Plain MCP tools are request-response. Writing a message to a mailbox does not automatically start a new model turn in another chat. The bridge supports three patterns:
+Plain MCP tools are request-response. Writing a message to a mailbox does not automatically start a new model turn in another chat. The bridge supports two patterns:
 
 1. **Background pings (experimental, macOS):** bind each conversation once with `wake: "auto"`; a durable message pings an idle recipient through its app's local interface. If a ping cannot be delivered, the sender is told automatically. See [background setup and limits](docs/BACKGROUND-WAKE.md).
 2. **Active waits:** agents without pings use `bridge_wait` before going idle. The pending call returns when a matching message arrives.
-3. **Codex workers:** Claude calls `ask_codex`, `review_with_codex` or `bridge_orchestrate_codex`. The bridge starts a saved Codex session in an isolated worktree. If Codex needs longer than one tool call, the result arrives in the coordinator's mailbox when it finishes.
 
 See [INSTRUCTIONS.md](INSTRUCTIONS.md) for copy-paste prompts.
 
@@ -43,9 +47,6 @@ See [INSTRUCTIONS.md](INSTRUCTIONS.md) for copy-paste prompts.
 - Recipient checks: unknown names are rejected with "did you mean" suggestions, and senders get warnings when a message is unlikely to be picked up
 - Output paging so large inboxes and threads never overflow an MCP result
 - Optional background pings with delivery receipts, a 24-hour window for busy recipients and automatic notices to the sender when a ping fails
-- Codex workers with the sandbox pinned on every turn, read-only reviews, bridge-observed file changes and background completion through the mailbox
-- Worktrees outside your repository, with an option to carry uncommitted changes in
-- Recovery of Codex runs whose bridge process exited mid-turn
 - A versioned runtime with smoke-tested installs and one-command rollback
 
 ## Tools
@@ -60,24 +61,15 @@ See [INSTRUCTIONS.md](INSTRUCTIONS.md) for copy-paste prompts.
 | `bridge_thread` | Read a thread, newest page first, with cursors both ways |
 | `bridge_outbox` | See which of your messages recipients have not handled, and why |
 | `bridge_agents` | List agents with unread counts, last activity and ping health |
-| `bridge_retire` | Retire a finished agent and close its unhandled messages |
 | `bridge_sessions` | Discover live Claude sessions and this conversation's own session |
 | `bridge_wake_status` | Inspect ping outcomes separately from acknowledgements |
-| `ask_codex` | Send one bounded task to a Codex worker in an isolated worktree |
-| `review_with_codex` | Run an evidence-led review in a read-only sandbox |
-| `bridge_orchestrate_codex` | Start a Codex run with rounds, worktree and wait controls |
-| `bridge_continue_codex` | Resume the same Codex session with the coordinator's answer |
-| `bridge_orchestration_wait` | Wait for a running Codex run started by any bridge process |
-| `bridge_orchestration_status` | Read durable run state and audit events |
-
 ## Requirements
 
 - Node.js 22.5 or newer
 - Claude Code
-- OpenAI Codex CLI
-- Git, for worktree isolation
+- OpenAI Codex
 
-The mailbox works anywhere Node and both MCP clients run. The Codex launcher uses `CODEX_BIN` when set, then the Codex binary bundled in the macOS ChatGPT app, then `codex` from `PATH`.
+The mailbox works anywhere Node and both MCP clients run.
 
 Core tests run on macOS, Linux and Windows in GitHub Actions. Background pings and the live Claude Desktop plus Codex Desktop workflow were developed and verified on macOS.
 
@@ -163,36 +155,12 @@ Pick one canonical thread ID, register unique names, send with `bridge_send`, an
 
 Most MCP hosts cut tool calls near five minutes, so waits are capped at 290 seconds. Renew a timed-out wait while the task is active. A filtered wait only wakes for the exact sender and thread.
 
-## Codex workers in detail
-
-```json
-{
-  "projectPath": "/absolute/path/to/repository",
-  "task": "Implement and test the bounded change",
-  "threadId": "feature-x",
-  "useWorktree": true,
-  "includeUncommitted": false,
-  "maxRounds": 6,
-  "waitSeconds": 240
-}
-```
-
-- Implementation runs use the `workspace-write` sandbox with network access off. Reviews use `read-only`. The sandbox is pinned on every turn, including resumed ones, so a permissive default in your own Codex config never applies to bridge workers.
-- Worktrees live under `~/.local/share/claude-codex-bridge/worktrees/` (or `BRIDGE_WORKTREE_ROOT`). They stay out of your repository, so Metro, `tsc`, Jest and `git status` never see them.
-- Worktrees start from `HEAD`. When the main checkout has uncommitted changes, the result warns you; pass `includeUncommitted: true` to copy them in.
-- Every result includes `observedChanges`, the bridge's own `git status` of the workspace, next to what Codex reports.
-- If the status is `waiting_for_fable`, answer the question and call `bridge_continue_codex` with the same run ID.
-- Codex turns run as detached processes. If the bridge process that started one exits, another bridge process adopts the run, finishes it from its files and delivers the result.
-- `BRIDGE_CODEX_CONFIG` can tune bridge workers without touching your interactive defaults, for example `model_reasoning_effort="medium"`. Sandbox and approval keys are ignored.
-
-The bridge does not commit, push, merge, deploy or clean worktrees.
-
 ## Maintenance
 
 ```bash
 claude-codex-mcp-bridge doctor          # installation, mailbox health, ping delivery, permissions
 claude-codex-mcp-bridge doctor --fix    # also tighten mailbox file permissions
-claude-codex-mcp-bridge status          # size, backlog, runs, latest backup
+claude-codex-mcp-bridge status          # size, backlog, latest backup
 claude-codex-mcp-bridge prune           # list agents idle for 7+ days (dry run)
 claude-codex-mcp-bridge prune --apply   # retire them and close their unhandled messages
 claude-codex-mcp-bridge retire <agent> --note "task merged"
@@ -208,8 +176,6 @@ Retiring never deletes messages. Closed messages keep their history and a note s
 ```text
 ~/.local/share/claude-codex-bridge/bridge.sqlite     mailbox (owner-only)
 ~/.local/share/claude-codex-bridge/backups/          pre-migration and daily backups (7 kept)
-~/.local/share/claude-codex-bridge/runs/             Codex turn files (event streams pruned after 30 days; results kept)
-~/.local/share/claude-codex-bridge/worktrees/        Codex worktrees (never cleaned automatically)
 ~/.local/share/claude-codex-bridge/runtime/          installed runtime versions
 ```
 
@@ -229,9 +195,7 @@ Schema changes are additive and versioned. Before migrating an existing mailbox,
 ## Safety
 
 - No credentials are stored by this project. The Claude wake adapter reads only the addressed inbox's published peer token into memory and never logs it. It never uses child tokens or claims a permission mode.
-- The mailbox, backups and Codex turn files are owner-only. Messages are stored unencrypted, so do not send secrets through the mailbox.
-- Child processes receive a small allowlist of environment variables, not the full parent environment.
-- Worker sandboxes are pinned per turn. Worker prompts prohibit commits, pushes, deployments, external sends, credential changes, deletion and production mutations unless separately approved.
+- The mailbox and its backups are owner-only. Messages are stored unencrypted, so do not send secrets through the mailbox.
 - Messages from `bridge` are automated notices. Agents are told not to reply to them, and notices never trigger further notices.
 
 ## Development
@@ -242,10 +206,9 @@ npm test
 npm run build       # compiles into dist.next/ and swaps it in
 npm run check       # all of the above
 npm audit --omit=dev --audit-level=high
-BRIDGE_CODEX_CONFIG='model_reasoning_effort="low"' npm run smoke:orchestrator   # live Codex run, fully isolated
 ```
 
-The suite covers socket framing, identity and permission boundaries, migrations from 0.3 databases and compatibility with running 0.3 processes, ping persistence, crash recovery and failure notices, mailbox routing, addressing checks, retirement, paging, independent MCP processes, detached Codex turns with a fake Codex binary, orphaned run recovery, real git worktrees, Codex config edits and runtime rollback.
+The suite covers socket framing, identity and permission boundaries, migrations from 0.3 databases and compatibility with running 0.3 processes, ping persistence, crash recovery and failure notices, mailbox routing, addressing checks, retirement, paging, independent MCP processes, Codex config edits and runtime rollback.
 
 ## Related work
 

@@ -15,6 +15,11 @@ from host_backup import HostBackupError, backup_host_files
 from native_collaboration_adapters import codex_fragment, main
 from native_collaboration_runtime import BRIDGE_COMMIT
 
+# The deny rules agent-relay 0.4.0's install-claude wrote (written out, not taken from the constant under test).
+LEGACY_RULES = ["mcp__agent-relay__" + tool for tool in (
+    "bridge_retire", "ask_codex", "review_with_codex", "bridge_orchestrate_codex",
+    "bridge_continue_codex", "bridge_orchestration_wait", "bridge_orchestration_status")]
+
 SECRET = "ctx7sk-not-a-real-key"
 
 
@@ -144,8 +149,20 @@ class AdapterBackupTests(unittest.TestCase):
         self.assertNotIn(codex_fragment(self.root, self.node), self.codex.read_text())
 
 
+    def as_installed_by_040(self):
+        """orchestrator-removal D92: install no longer writes deny rules; a host installed by 0.4.0 has them."""
+        settings = json.loads(self.settings.read_text())
+        settings["permissions"]["deny"] += LEGACY_RULES
+        self.settings.write_text(json.dumps(settings))
+
+    def test_install_claude_writes_no_deny_rules(self):
+        before = self.settings.read_bytes()
+        self.assertEqual(self.run_main("install-claude")[0], 0)
+        self.assertEqual(self.settings.read_bytes(), before)
+
     def test_uninstall_claude_removes_exactly_the_agent_relay_deny_rules(self):
         self.assertEqual(self.run_main("install-claude")[0], 0)
+        self.as_installed_by_040()
         settings = json.loads(self.settings.read_text())
         settings["permissions"]["allow"] = ["Read"]
         settings["theme"] = "dark"
@@ -168,6 +185,7 @@ class AdapterBackupTests(unittest.TestCase):
         # round2-fixes D52 (round 2 R2-10): with every bridge stopped, an open session still re-filtered its cached
         # tool list against the new settings and offered the upstream worker tools once the rules were gone.
         self.assertEqual(self.run_main("install-claude")[0], 0)
+        self.as_installed_by_040()
         (self.sessions / f"{os.getpid()}.json").write_text(json.dumps({"pid": os.getpid(), "sessionId": "s-open"}))
         with patch("native_collaboration_adapters._servers_running", return_value=0):
             code, output = self.run_main("uninstall-claude")
@@ -188,6 +206,7 @@ class AdapterBackupTests(unittest.TestCase):
         from native_collaboration_runtime import NativeRuntimeError
 
         self.assertEqual(self.run_main("install-claude")[0], 0)
+        self.as_installed_by_040()
         for counter in ({"return_value": 2}, {"side_effect": NativeRuntimeError("cannot list processes")}):
             with self.subTest(counter=counter), patch("native_collaboration_adapters._servers_running", **counter):
                 code, output = self.run_main("uninstall-claude")

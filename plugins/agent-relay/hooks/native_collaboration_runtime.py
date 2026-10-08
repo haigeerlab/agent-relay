@@ -252,14 +252,16 @@ def install_runtime(root: Path, *, node: str = "node", npm: str = "npm",
     return status(root)
 
 
-# 固定提交的完整工具面：邮箱工具暴露给宿主，其余一律拒绝。上游新增工具必须先审查再归入其中一类，
-# 否则 probe 失败，避免新的 worker 工具静默暴露给 Claude。
+# The bridge's whole tool surface (orchestrator-removal D91): probe requires exactly these ten, so a tool added to the
+# server, or one missing, fails the runtime instead of reaching a host unreviewed.
 MAILBOX_TOOLS = (
     "bridge_register", "bridge_send", "bridge_inbox", "bridge_ack",
     "bridge_outbox", "bridge_agents", "bridge_sessions", "bridge_wake_status",
     "bridge_thread", "bridge_wait",
 )
-DENIED_TOOLS = (
+# The worker tools agent-relay 0.4.0 and earlier served and told hosts to deny (orchestrator-removal D92). Used only
+# to recognise and remove the Claude deny rules those versions wrote; never installed, never probed.
+LEGACY_WORKER_TOOLS = (
     "bridge_retire", "ask_codex", "review_with_codex", "bridge_orchestrate_codex",
     "bridge_continue_codex", "bridge_orchestration_wait", "bridge_orchestration_status",
 )
@@ -304,12 +306,13 @@ def probe_runtime(root: Path, *, node: str = "node", scratch: Path | None = None
         names = {tool["name"] for tool in listing}
     except (ValueError, KeyError, StopIteration, TypeError, AttributeError):
         return {"state": "invalid", "diagnostic": "native MCP did not return a valid tool catalog"}
-    if not set(MAILBOX_TOOLS) <= names:
-        return {"state": "invalid", "diagnostic": "native MCP mailbox tools are incomplete"}
-    unreviewed = sorted(names - set(MAILBOX_TOOLS) - set(DENIED_TOOLS))
-    if unreviewed:
+    missing = sorted(set(MAILBOX_TOOLS) - names)
+    if missing:
+        return {"state": "invalid", "diagnostic": "native MCP mailbox tools are incomplete: missing " + ", ".join(missing)}
+    extra = sorted(names - set(MAILBOX_TOOLS))
+    if extra:
         return {"state": "invalid",
-                "diagnostic": "native MCP exposes unreviewed tools: " + ", ".join(unreviewed)}
+                "diagnostic": "native MCP exposes tools beyond the ten mailbox tools: " + ", ".join(extra)}
     return {"state": "ready", "toolCount": len(names)}
 
 

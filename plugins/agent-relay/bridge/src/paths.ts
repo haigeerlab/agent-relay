@@ -24,15 +24,6 @@ export function defaultDbPath(env: Env = process.env, home = homedir()): string 
   return setting(env, "BRIDGE_DB_PATH") ?? join(dataDir(env, home), "bridge.sqlite");
 }
 
-export function runsDir(env: Env = process.env, home = homedir()): string {
-  return join(dataDir(env, home), "runs");
-}
-
-/** Worktrees live outside the repository so watchers, test runners and git status ignore them. */
-export function worktreeRoot(env: Env = process.env, home = homedir()): string {
-  return setting(env, "BRIDGE_WORKTREE_ROOT") ?? join(dataDir(env, home), "worktrees");
-}
-
 export function runtimePrefix(env: Env = process.env, home = homedir()): string {
   return join(dataDir(env, home), "runtime");
 }
