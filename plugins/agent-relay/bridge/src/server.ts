@@ -26,7 +26,7 @@ import type { WakeTarget } from "./wake-queue.js";
 
 /** Everything the MCP protocol reads/writes must stay on stdout; logs go to stderr. */
 function log(message: string): void {
-  process.stderr.write(`[claude-codex-bridge] ${message}\n`);
+  process.stderr.write(`[agent-relay] ${message}\n`);
 }
 
 function jsonResult(payload: unknown) {
@@ -109,7 +109,7 @@ function main(): void {
   if (store.migration.newer) log("mailbox schema is newer than this bridge build; running in compatible mode");
 
   const server = new McpServer(
-    { name: "claude-codex-bridge", version: VERSION },
+    { name: "agent-relay", version: VERSION },
     {
       ...(channelSessionId ? { capabilities: { experimental: { [CHANNEL_CAPABILITY]: {} } } } : {}),
       instructions: INSTRUCTIONS,

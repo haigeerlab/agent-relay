@@ -5,6 +5,9 @@
 - **bridge 的 TS CLI 只留 `retire` 和 `help`**（模块 `legacy-cli-cleanup`，D95）：上游的 setup、doctor、status、demo、prune、backup、
   rollback、uninstall 都删了——安装、升级、体检和卸载只认 agent-relay 的 Python 运行时（这个 CLI 本来就不在 PATH 上，唯一的
   调用方是身份退役脚本）。命令写错时打印用法并以 2 退出；`retire` 的输出和退出码不变。
+- **名字统一为 agent-relay**（模块 `legacy-cli-cleanup`，D96）：信箱服务在 MCP 握手里自报 `agent-relay`，日志前缀 `[agent-relay]`；
+  bridge 的 npm 包改名 `agent-relay-bridge`，只留一个 bin。发给 Claude/Codex 应用接口的 `clientType` 和默认数据目录名
+  （agent-relay 总是指定信箱路径，用不到它）保持原样。
 - **删除 Codex 编排器**（模块 `orchestrator-removal`，D90、D91、D93）：bridge 不再注册 `ask_codex`、`review_with_codex`、
   `bridge_orchestrate_codex`、`bridge_continue_codex`、`bridge_orchestration_wait`、`bridge_orchestration_status` 和
   `bridge_retire`，MCP 服务只提供十个信箱工具。这七个工具在所有宿主上本来就是禁用的；委托 Codex 改由 delegate 插件负责。

@@ -9,7 +9,7 @@ import { VERSION } from "./version.js";
 // agent-relay legacy-cli-cleanup D95: only `retire` (run by native_collaboration_retire.py) and `help` remain; the
 // Python runtime installs, upgrades, checks and uninstalls.
 const USAGE = `Usage:
-  claude-codex-mcp-bridge <command> [options]
+  agent-relay-bridge <command> [options]
 
 Commands:
   retire <agent> [--note TEXT] [--keep-backlog]
@@ -39,7 +39,7 @@ function retire(parsed: ParsedCliCommand): number {
 }
 
 function help(): number {
-  console.log(`Claude Codex MCP Bridge ${VERSION}\n\n${USAGE}`);
+  console.log(`agent-relay-bridge ${VERSION}\n\n${USAGE}`);
   return 0;
 }
 

@@ -46,6 +46,25 @@ test("an unknown command prints the usage and exits 2", () => {
   assert.match(result.stderr, /retire <agent> \[--note TEXT\] \[--keep-backlog\]/);
 });
 
+test("help names the package and points to the Python runtime", () => {
+  const dbPath = join(mkdtempSync(join(tmpdir(), "agent-relay-cli-")), "bridge.sqlite");
+  const result = cli(["help"], dbPath);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /^agent-relay-bridge \d+\.\d+\.\d+\n/);
+  assert.match(result.stdout, /\n {2}agent-relay-bridge <command> \[options\]\n/);
+  assert.match(result.stdout, /native_collaboration_runtime\.py/);
+  assert.doesNotMatch(result.stdout, /claude-codex/i);
+});
+
+test("the package is agent-relay-bridge with one bin for the CLI", () => {
+  const manifest = JSON.parse(readFileSync(join(projectRoot, "package.json"), "utf8")) as { name: string; bin: Record<string, string> };
+  const lock = JSON.parse(readFileSync(join(projectRoot, "package-lock.json"), "utf8")) as { name: string; packages: Record<string, { name?: string }> };
+  assert.equal(manifest.name, "agent-relay-bridge");
+  assert.deepEqual(manifest.bin, { "agent-relay-bridge": "dist/cli.js" });
+  assert.equal(lock.name, "agent-relay-bridge");
+  assert.equal(lock.packages[""]?.name, "agent-relay-bridge");
+});
+
 test("retire through the CLI keeps its output, exit code and --keep-backlog", () => {
   const dbPath = join(mkdtempSync(join(tmpdir(), "agent-relay-cli-")), "bridge.sqlite");
   const store = new BridgeStore(dbPath);
