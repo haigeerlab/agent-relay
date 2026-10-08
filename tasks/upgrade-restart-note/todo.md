@@ -1,5 +1,5 @@
 # Todo: upgrade-restart-note
 
-- [ ] Task 1: README, skill and CHANGELOG (D132–D134)
-- [ ] Checkpoint (report): validate on one Python
+- [x] Task 1: README, skill and CHANGELOG (D132–D134) — README "升级运行时": a paragraph on the two ways to stop the bridges (quit the apps and reopen them; or `pkill -TERM -f "[a]gent-relay/runtime/dist/server.js"`, after which Claude Code sessions are reopened and the ChatGPT app is quit with ⌘Q and reopened, or open Codex threads keep "Transport closed"), checked with `pgrep -fl`; collaboration-ops skill upgrade paragraph: the same, plus never run that `pkill` without the user's explicit consent for the step (it ends every mailbox connection, the agent's own included); CHANGELOG `[Unreleased]`. Checked the bracket claim with decoy processes: a shell whose command line holds the plain pattern is matched by the plain `pgrep -f` (1), a shell whose command line holds the bracketed text is not matched by the bracketed pattern (0)
+- [x] Checkpoint (report): validate on one Python — `scripts/validate.sh` pass on Python 3.10.7 (output checked): 42 files, 633 tests
 - [ ] Checkpoint (gate): module review
