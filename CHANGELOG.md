@@ -8,6 +8,8 @@
 - **升级不再因同一秒的备份撞名而失败**（模块 `acceptance-030-gaps`，D74）：`install-codex --approve-mailbox-tools` 后一秒内
   执行 `upgrade --confirm`，原来会报 “an upgrade with this timestamp already exists; retry in a second”；现在和宿主配置备份一样
   依次改用 `<时间>-1`、`<时间>-2`……，备份、暂存和 `runtime.previous-` 目录共用同一个后缀。
+- **README 写明通知权限**（模块 `acceptance-030-gaps`，D73）：bridge 的桌面通知由 `osascript` 发出，macOS 记在“脚本编辑器”
+  名下（本机实测 `com.apple.ScriptEditor2`）；看不到横幅时到“系统设置 → 通知 → 脚本编辑器”打开。
 - **委派库不再因并发提交偶发报错**（模块 `delegation-sidecar-race`，D71）：检查 SQLite 附属文件时，另一个连接 COMMIT
   删掉了 `-journal`，原来会抛出 `FileNotFoundError`；现在按不存在处理。不安全的附属文件（符号链接、非普通文件、属主或
   权限不对）照旧拒绝。
