@@ -153,7 +153,19 @@ python3 -B "$ROOT/hooks/state_migration.py" migrate --confirm [--acknowledge-sta
 
 It backs up, copies, and verifies; it never changes `~/.spec-guard/`, host entries, or permission files. Relay its
 next steps: attach the new host entries here, remove the old ones with Spec Guard's uninstall, rename project allow
-rules by hand.
+rules by hand. It runs one at a time and refuses while agent-relay's own bridges run (every session using the mailbox
+must be closed). It prepares everything beside the target and swaps it in whole; any failure puts the target back
+(`rolled-back`, the unswapped copy kept as `.state-migration-failed-*`).
+
+If `detect` reports `interrupted` (an earlier migration was killed half way), report it and, only after the user
+agrees and every mailbox session is closed:
+
+```bash
+python3 -B "$ROOT/hooks/state_migration.py" recover --confirm
+```
+
+It always goes back to the pre-migration layout, never forward. Never move these directories by hand, and never
+delete `.state-migration-*` or backup directories for the user.
 
 Read `references/collaboration-runtime.md` before host-specific setup or cleanup. Claude project trust,
 project MCP approval, and tool allow lists remain independent prerequisites; do not accept them for the user or

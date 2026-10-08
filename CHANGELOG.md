@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+- **状态迁移一次只跑一个，失败了就换回去**（模块 `state-migration-safety`，D116–D119，0.4.0 架构审核 B6、C11）：
+  `state_migration.py migrate --confirm` 以前没有互斥，也不检查 agent-relay 自己的信箱服务，却会删掉目标信箱文件再复制进去；
+  中途出错或被杀会留下“目标信箱已有数据、永远不能重试”的半截状态。现在同一时间只允许一次迁移（对 `~/.agent-relay` 目录加
+  锁，不留锁文件），agent-relay 的信箱服务在运行时也拒绝；信箱、data 和委派目录先在旁边准备好、核对行数，再整体换上，每一步
+  前写 `state-migration.json`；任何一步出错或行数不符都换回原样（以前行数不符时会把复制的数据留在原处），没换成的那份保留为
+  `.state-migration-failed-<时间>`，被换下的目录在成功后也保留。同一秒内已有备份时改用 `-1` 后缀。
+- **`state_migration.py recover --confirm`**（模块 `state-migration-safety`，D120）：迁移半路被杀时，`detect` 报 `interrupted`、
+  `migrate` 拒绝执行，这条命令按记录回到迁移前的样子（只回退、不补完），之后可以再迁移。接口文档 §13、README 与
+  collaboration-ops 技能写明这些；`interface.json` 仍为 1.4（D121）。
 ## [0.5.1] - 2026-10-08
 
 接口仍为 **1.4**，信箱 schema 仍为 5。两处修正都来自 0.5.0 的真机复验：bridge 的 CLI 和 MCP 服务在没有指定信箱时，不再退回
