@@ -131,6 +131,9 @@ epoch 秒）；不带时区的时间会被拒绝（退出码 2）。
 `thread/resume`。响应丢失或宿主返回未知时保持 unknown，不能为了提高成功率再建一个。
 Claude 创建返回 `unknown` 且 `prerequisite=host-entry-pending` 时，会话可能已经启动、只是还没对上宿主列表：稍后用
 `status` 再查，下一次 `status` 或 `continue` 会补绑；`host-entry-invalid` 表示列表里的条目对不上，不要自动重建。
+同一个委派同一时间只有一个创建或继续能碰到宿主：另一个调用正在处理时返回 `operation-in-progress`，没有启动任何东西；
+稍后用 `status` 查看，不要循环重试。返回 `unknown` + `previous-operation-interrupted` 表示上一次创建或继续在半路停了
+（进程被杀等），宿主可能已有会话或这一轮：用 `status` 核对，绝不按名称重新创建，也不再追问一遍。
 
 取消先冻结该 envelope 的新启动与后续轮次，再请求精确宿主停止；只有宿主确认后才显示 cancelled。仍处于 creating 的
 记录（例如因前置条件 held 的创建）从未尝试启动，冻结授权即完成取消，直接显示 cancelled。已尝试启动却没拿到宿主 id

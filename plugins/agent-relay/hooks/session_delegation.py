@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass
+import fcntl
 import hashlib
 import json
 import os
@@ -894,3 +895,77 @@ class DelegationStore:
                 if connection.in_transaction:
                     connection.execute("ROLLBACK")
                 raise
+
+
+class OperationBusy(Exception):
+    """Another call holds this delegation's claim (delegation-claim D122)."""
+
+
+class OperationClaim:
+    """Hold `<store.root>/claims/<delegation id>.lock` exclusively while one call may reach a host (D122).
+
+    The kernel drops the flock if the holder dies. The file carries the operation in flight: `begin` writes it
+    durably, `end` empties it, so a later holder that finds it non-empty knows the previous one died half way.
+    The file is never deleted; empty, it holds no state.
+    """
+
+    def __init__(self, store: "DelegationStore", delegation_id: str):
+        try:
+            canonical = str(UUID(delegation_id)) == delegation_id
+        except (TypeError, ValueError, AttributeError):
+            canonical = False
+        if not canonical:
+            raise DelegationError("claim-file-unsafe")
+        self.directory = Path(store.root) / "claims"
+        self.path = self.directory / (delegation_id + ".lock")
+        self._descriptor: int | None = None
+
+    def __enter__(self) -> "OperationClaim":
+        if not self.directory.exists() and not self.directory.is_symlink():
+            self.directory.mkdir(mode=0o700)
+        metadata = self.directory.lstat()
+        if (not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != os.getuid()
+                or stat.S_IMODE(metadata.st_mode) != 0o700):
+            raise DelegationError("claim-file-unsafe")
+        try:
+            descriptor = os.open(self.path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        except OSError as error:  # a symlink (ELOOP) or a directory (EISDIR) where the file belongs
+            raise DelegationError("claim-file-unsafe") from error
+        try:
+            metadata = os.fstat(descriptor)
+            if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid()
+                    or stat.S_IMODE(metadata.st_mode) != 0o600):
+                raise DelegationError("claim-file-unsafe")
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as error:
+                raise OperationBusy(self.path.name) from error
+        except BaseException:
+            os.close(descriptor)
+            raise
+        self._descriptor = descriptor
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        if self._descriptor is not None:
+            os.close(self._descriptor)
+            self._descriptor = None
+
+    def previous(self) -> str:
+        """The operation a previous holder began and never ended ("" when clean)."""
+        os.lseek(self._descriptor, 0, os.SEEK_SET)
+        return os.read(self._descriptor, 64).decode("ascii", "replace").strip()
+
+    def _write(self, data: bytes) -> None:
+        os.ftruncate(self._descriptor, 0)
+        os.lseek(self._descriptor, 0, os.SEEK_SET)
+        if data:
+            os.write(self._descriptor, data)
+        os.fsync(self._descriptor)
+
+    def begin(self, operation: str) -> None:
+        self._write(operation.encode("ascii"))
+
+    def end(self) -> None:
+        self._write(b"")
+
