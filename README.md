@@ -154,7 +154,13 @@ python3 -B plugins/agent-relay/hooks/state_migration.py migrate --confirm
 - `detect` 只读，列出旧数据的数量和挡住迁移的原因：还没结束的委派、仍在运行的旧信箱服务（先关掉或重启那些会话）、
   agent-relay 运行时还没装。从没启动过的卡住委派，确认它已经没用后可加 `--acknowledge-stale <id>` 放行。
 - `migrate` 先把旧数据备份到 `~/.agent-relay/backups/<时间>/`，再复制到 agent-relay 并逐表核对数量；只迁到全新的
-  agent-relay（信箱为空），从不合并两个信箱。
+  agent-relay（信箱为空），从不合并两个信箱。同一时间只允许一次迁移；agent-relay 自己的信箱服务在运行时也会拒绝（先关掉
+  所有会话）。所有内容先在旁边准备好、核对数量后再整体换上，任何一步出错都换回迁移前的样子，没换成的那份留在
+  `~/.agent-relay/.state-migration-failed-<时间>` 供查看。
+- 迁移中途被打断（进程被杀、断电）时，`detect` 报告 `interrupted`，`migrate` 拒绝执行；关掉所有会话后运行
+  `state_migration.py recover --confirm`，一律回到迁移前的样子，然后可以再迁移一次。这些目录都不会自动删除。
+- 迁移成功后，被换下来的目标目录（含迁移前的信箱）留在 `~/.agent-relay/.state-migration-<时间>-<随机>/previous-*`，
+  路径见结果里的 `previous`；确认迁移无误后可以自己删掉整个目录。
 - 旧目录、宿主配置和权限文件一律不动；迁移后按提示接入新的宿主条目、用 Spec Guard 自己的卸载删掉旧条目，
   并把项目权限规则手动改成 `mcp__agent-relay__bridge_*`。旧目录确认无误后由你自己删除。
 
