@@ -503,6 +503,39 @@ def recover_runtime(root: Path, *, running=_servers_running) -> dict[str, Any]:
     return {"state": "recovered", "kind": journal["kind"], "parked": str(parked), "runtime": _status(root)}
 
 
+def _swap(root: Path, journal: dict[str, Any], steps: dict[str, Callable[[], None]], verify: Callable[[], None]) -> None:
+    """Run a journalled swap (D104, D106): the journal names each step before its moves, and any failure, the final
+    rename and the verification included, puts the runtime back at once. Without a journal yet, nothing has moved."""
+    try:
+        for step in SWAP_STEPS[:-1]:
+            journal["step"] = step
+            _write_journal(root, journal)
+            steps[step]()
+        journal["step"] = "verifying"
+        _write_journal(root, journal)
+        verify()
+    except BaseException as error:
+        current = _read_journal(root)
+        if current is None:
+            # The first journal write failed: nothing moved, and the stage holds no history; it is the caller's build.
+            shutil.rmtree(journal["incoming"], ignore_errors=True)
+            raise
+        parked = _put_back(current)  # if this fails too, the journal stays for `recover --confirm`
+        _journal_path(root).unlink()
+        if not isinstance(error, Exception):
+            raise
+        raise NativeRuntimeError(f"{journal['kind']} failed ({error}) and was rolled back; the new build is kept at "
+                                 f"{parked}") from error
+    _journal_path(root).unlink()
+
+
+def _stage_name(parent: Path, kind: str, stamp: str) -> Path:
+    """A stage no other call uses (D107): the build refuses an existing one, so it is ours once the build returns."""
+    import secrets
+
+    return parent / f".runtime-{kind}-{stamp}-{secrets.token_hex(3)}"
+
+
 def upgrade_runtime(root: Path, *, node: str = "node", npm: str = "npm", source: Path = BRIDGE_SOURCE,
                     backups: Path | None = None, running=_servers_running) -> dict[str, Any]:
     """Replace an installed runtime with one built from the plugin's bridge, keeping mailbox and data (D26).
@@ -530,9 +563,9 @@ def upgrade_runtime(root: Path, *, node: str = "node", npm: str = "npm", source:
     for attempt in range(100):
         stamp = second if attempt == 0 else f"{second}-{attempt}"
         backup = backups / stamp
-        stage = root.parent / f".runtime-upgrade-{stamp}"
         previous = root.parent / f"runtime.previous-{stamp}"
-        if not (stage.exists() or previous.exists() or backup.exists()):
+        park = root.parent / f".runtime-upgrade-failed-{stamp}"
+        if not (park.exists() or previous.exists() or backup.exists()):
             break
     else:
         raise NativeRuntimeError("an upgrade with this timestamp already exists; retry in a second")
@@ -543,36 +576,31 @@ def upgrade_runtime(root: Path, *, node: str = "node", npm: str = "npm", source:
     backups.chmod(0o700)  # it may predate this command with a wider mode; it holds full mailbox copies
     backup.mkdir(mode=0o700)
     shutil.copytree(root / "mailbox", backup / "runtime-mailbox")
+    stage = _stage_name(root.parent, "upgrade", stamp)
+    _build_runtime(stage, node=node, npm=npm, source=source)  # refuses an existing stage, cleans up after itself
     try:
-        _build_runtime(stage, node=node, npm=npm, source=source)
-        for name in ("mailbox", "data"):
+        for name in HISTORY:
             shutil.rmtree(stage / name)
     except BaseException:
-        shutil.rmtree(stage, ignore_errors=True)
+        shutil.rmtree(stage, ignore_errors=True)  # built by this call just above
         raise
 
-    moved: list[str] = []
-    try:
-        for name in ("mailbox", "data"):
+    def move_history() -> None:
+        for name in HISTORY:
             (root / name).rename(stage / name)
-            moved.append(name)
-        root.rename(previous)
-    except BaseException:
-        for name in moved:
-            (stage / name).rename(root / name)
-        shutil.rmtree(stage, ignore_errors=True)
-        raise
-    stage.rename(root)
 
+    def verify() -> None:
+        after = _status(root)
+        if after["state"] != "ready" or not after["bridge"]["current"]:
+            raise NativeRuntimeError("the new runtime is not ready: " + str(after.get("diagnostic", after["state"])))
+        if _mailbox_counts(root / "mailbox" / "bridge.sqlite") != counts:
+            raise NativeRuntimeError("the mailbox row counts changed")
+
+    journal = {"kind": "upgrade", "stamp": stamp, "runtime": str(root), "incoming": str(stage),
+               "outgoing": str(previous), "park": str(park), "counts": counts}
+    _swap(root, journal, {"moving-history": move_history, "retiring-runtime": lambda: root.rename(previous),
+                          "promoting": lambda: stage.rename(root)}, verify)
     after = _status(root)
-    after_counts = _mailbox_counts(root / "mailbox" / "bridge.sqlite")
-    if after["state"] != "ready" or not after["bridge"]["current"] or after_counts != counts:
-        failed = root.parent / f".runtime-upgrade-failed-{stamp}"
-        root.rename(failed)
-        for name in ("mailbox", "data"):
-            (failed / name).rename(previous / name)
-        previous.rename(root)
-        raise NativeRuntimeError(f"upgrade verification failed and was rolled back (new build kept at {failed})")
     return {"state": "upgraded", "bridge": after["bridge"], "counts": counts,
             "previous": str(previous), "backup": str(backup), "rollback": UPGRADE_ROLLBACK}
 
@@ -604,33 +632,33 @@ def _reinstall_around_history(root: Path, *, node: str, npm: str, source: Path) 
     import time
 
     counts = _mailbox_counts(root / "mailbox" / "bridge.sqlite")
-    stage = root.parent / f".runtime-reinstall-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}"
+    stamp = time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())
+    stage = _stage_name(root.parent, "reinstall", stamp)
+    _build_runtime(stage, node=node, npm=npm, source=source)  # refuses an existing stage, cleans up after itself
     try:
-        _build_runtime(stage, node=node, npm=npm, source=source)
         for name in KEPT_ON_UNINSTALL:
             shutil.rmtree(stage / name)
     except BaseException:
-        shutil.rmtree(stage, ignore_errors=True)
+        shutil.rmtree(stage, ignore_errors=True)  # built by this call just above
         raise
-    moved: list[str] = []
-    try:
+
+    def move_history() -> None:
         for name in KEPT_ON_UNINSTALL:
             if (root / name).exists():
                 (root / name).rename(stage / name)
-                moved.append(name)
-        for name in KEPT_ON_UNINSTALL:
-            if not (stage / name).exists():
+            else:
                 (stage / name).mkdir(mode=0o700)
-        root.rmdir()
-    except BaseException:
-        for name in moved:
-            (stage / name).rename(root / name)
-        shutil.rmtree(stage, ignore_errors=True)
-        raise
-    stage.rename(root)
-    if _mailbox_counts(root / "mailbox" / "bridge.sqlite") != counts:
-        raise NativeRuntimeError("reinstall finished but the mailbox row counts changed; check the runtime")
-    return status(root)
+
+    def verify() -> None:
+        if _mailbox_counts(root / "mailbox" / "bridge.sqlite") != counts:
+            raise NativeRuntimeError("the mailbox row counts changed")
+
+    journal = {"kind": "reinstall", "stamp": stamp, "runtime": str(root), "incoming": str(stage), "outgoing": None,
+               "park": str(stage.parent / stage.name.replace(".runtime-reinstall-", ".runtime-reinstall-failed-")),
+               "counts": counts}
+    _swap(root, journal, {"moving-history": move_history, "retiring-runtime": root.rmdir,
+                          "promoting": lambda: stage.rename(root)}, verify)
+    return _status(root)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
