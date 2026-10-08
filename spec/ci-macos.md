@@ -47,8 +47,8 @@ Readers: the user; reviewers of every later PR.
 - **D80 workflow.** `.github/workflows/ci.yml`, on `pull_request` and `push` to `main` (plus `workflow_dispatch`). One
   job matrix on `macos-15`; each job: checkout, Python (assumption 2 or 3), Node, `npm ci` in the bridge, print the
   toolchain via doctor (D81), then `bash scripts/validate.sh`, which must report the bridge check as run, not skipped.
-- **D80a matrix.** Recommended: the full **2 × 2** (Python 3.9 / 3.14 × Node 22 / 24, four jobs in parallel, free on
-  a public repo). Alternative: the two diagonals only (3.9 + 22, 3.14 + 24), half the jobs. The user picks.
+- **D80a matrix.** The full **2 × 2**: Python 3.9 / 3.14 × Node 22 / 24, four jobs in parallel, free on a public
+  repo (chosen by the user 2026-10-08 over the two diagonals).
 - **D81 doctor names its toolchain.** A new check `toolchain`, always present, never needs a runtime: `ok`
   "python <sys.executable> (<version>); node <path> (<version>, from <source>)" using the same node selection as the
   probe; `warn` when no usable node is found (with the existing install hint). doctor's exit code is unchanged.
@@ -79,4 +79,4 @@ has what they need to decide about the required check.
 
 ## Open questions
 
-D80a: full 2 × 2 (recommended) or the two diagonals.
+None. Accepted by the user on 2026-10-08 (assumptions 1–8, D80–D82, D80a full matrix).
