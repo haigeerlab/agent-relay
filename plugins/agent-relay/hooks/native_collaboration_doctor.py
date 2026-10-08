@@ -403,7 +403,9 @@ def _codex_waiting(database: Path) -> dict[str, str]:
             old = True
     parts = []
     for agent, items in grouped.items():
-        senders = list(dict.fromkeys(sender for sender, _ in items))
+        # Names are free text (notify-channel live check): one line, as the desktop notice shows them.
+        senders = list(dict.fromkeys(" ".join(re.sub(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]", " ", str(sender)).split())
+                                     for sender, _ in items))
         ids = ", ".join(f"#{message_id}" for _, message_id in items[:20])
         parts.append(f"{agent}: {len(items)} waiting from {', '.join(senders)} ({ids})")
     detail = "; ".join(parts)

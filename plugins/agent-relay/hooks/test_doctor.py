@@ -269,6 +269,12 @@ class DoctorTests(unittest.TestCase):
         self.assertEqual(check["detail"], "codex-one: 2 waiting from a, b (#1, #2)")
         self.assertNotIn("secret", json.dumps(check))
 
+    def test_codex_waiting_keeps_free_text_sender_names_on_one_line(self):
+        # notify-channel live check: a sender name with a newline split the detail.
+        self.waiting_mailbox((8, '-evil "q"\n\tsender\u2028x', "codex-one", "queued", 1, False))
+        check = self.find(self.run_doctor(), "codex-waiting")
+        self.assertEqual(check["detail"], 'codex-one: 1 waiting from -evil "q" sender x (#8)')
+
     def test_codex_waiting_warns_after_ten_minutes(self):
         self.waiting_mailbox((7, "a", "codex-one", "queued", 11, False))
         check = self.find(self.run_doctor(), "codex-waiting")

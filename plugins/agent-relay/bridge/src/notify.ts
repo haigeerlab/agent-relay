@@ -57,7 +57,7 @@ export function noticeFields(notice: UndeliveredNotice, { preview }: { preview: 
 
 // agent-relay acceptance-030-gaps D76: osascript returns 0 even when macOS drops the banner, so say only that it was tried.
 export const NOTIFIED_TEXT = "A desktop notification was attempted on this Mac; macOS may not show it " +
-  "(Script Editor notifications off, or Focus). The user can list waiting messages with doctor or by asking any session.";
+  "(notifications not allowed for the app that shows them, or Focus). The user can list waiting messages with doctor or by asking any session.";
 
 export function noticeText(notice: UndeliveredNotice): string {
   return `${JSON.stringify(notice.fromAgent ?? "a peer")} gave Codex work: message #${notice.messageId} to ` +

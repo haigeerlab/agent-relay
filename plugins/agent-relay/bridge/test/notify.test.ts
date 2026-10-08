@@ -39,7 +39,7 @@ test("an offline Codex recipient notifies once with a short preview, and the wak
   assert.equal(lines().length, 1);
   // agent-relay notify-channel D89 (reverses D67's "never the body"): title, subtitle and a cleaned preview.
   assert.equal(lines()[0], `agent-relay · sender → Codex | #${message.id} · cx · Codex is not running; the message waits | secret body`);
-  assert.match(store.wakes.forMessage(message.id)?.detail ?? "", /A desktop notification was attempted on this Mac; macOS may not show it \(Script Editor notifications off, or Focus\)\. The user can list waiting messages with doctor or by asking any session\./);
+  assert.match(store.wakes.forMessage(message.id)?.detail ?? "", /A desktop notification was attempted on this Mac; macOS may not show it \(notifications not allowed for the app that shows them, or Focus\)\. The user can list waiting messages with doctor or by asking any session\./);
   // Any other bridge on the same mailbox never notifies the same message again.
   assert.equal(notifyUndelivered(join(dir, "bridge.sqlite"),
     { messageId: message.id, fromAgent: "sender", agent: "cx", why: "again" }, { AGENT_RELAY_NOTIFY_LOG: log }), false);
@@ -128,7 +128,7 @@ test("a Codex recipient with no wake binding notifies at send time and the sende
     assert.ok((await sender.call("bridge_register", { agent: "sender" })).ok);
     const sent = await sender.call("bridge_send", { from: "sender", to: "cx", body: "secret work" });
     assert.ok(sent.ok, sent.text);
-    assert.ok(sent.json().warnings.some((w: string) => /A desktop notification was attempted on this Mac; macOS may not show it \(Script Editor notifications off, or Focus\)\. The user can list waiting messages with doctor or by asking any session\./.test(w)), sent.text);
+    assert.ok(sent.json().warnings.some((w: string) => /A desktop notification was attempted on this Mac; macOS may not show it \(notifications not allowed for the app that shows them, or Focus\)\. The user can list waiting messages with doctor or by asking any session\./.test(w)), sent.text);
     const lines = readFileSync(log, "utf8").trim().split("\n");
     assert.equal(lines.length, 1);
     assert.match(lines[0], / \| secret work$/, "the preview (D89)");
