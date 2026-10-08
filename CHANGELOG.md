@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+- **确认与关闭唤醒任务一起完成**（模块 `ack-wake-atomic`，D130，0.4.0 架构审核）：`bridge_ack`（以及带确认的
+  `bridge_wait`）以前先在自动提交里记下确认，再另开事务关闭对应的唤醒任务，多条消息也是逐条提交；中途出错或被杀会留下
+  “消息已确认、唤醒任务还待发”，之后可能再提醒一次收件人。现在一次确认的全部消息与它们的唤醒任务在同一个事务里完成，
+  要么都成功，要么都不变；返回值、重复确认与只能确认发给自己的消息不变。bridge 改动，升级运行时后生效。
 - **多个进程同时首次打开委派库不再报错**（模块 `delegation-store-init`，D127、D128，`delegation-claim` 实测时发现）：以前几个
   进程同时第一次创建 `~/.agent-relay/delegation/` 时，可能报 “state directory could not be created” 或 “delegation database
   schema is incomplete”（主分支代码复现 30 次失败 3 次）；建库进程若在建表前死掉，留下的空库文件以后每次都被拒绝。现在目录被

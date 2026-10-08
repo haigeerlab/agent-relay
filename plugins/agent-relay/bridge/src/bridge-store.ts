@@ -1,4 +1,4 @@
-import { type DeliveryState, assertBelowPendingCap, expireDue, sendTimeoutMs } from "./delivery.js";
+import { type DeliveryState, assertBelowPendingCap, atomically, expireDue, sendTimeoutMs } from "./delivery.js";
 import { type WakeJob, WakeQueue } from "./wake-queue.js";
 import { assertMayReply, conflictError, contentDifferences, ReplyLinkError, replyThread } from "./idempotency.js";
 import { DatabaseSync } from "node:sqlite";
@@ -485,13 +485,17 @@ export class BridgeStore {
        WHERE m.id = ? AND ${DELIVERED_TO("?")}`,
     );
     const ackedAt = this.now();
-    let acknowledged = 0;
-    for (const id of messageIds) {
-      const result = stmt.run(agent, ackedAt, note, id, ...deliveredParams(agent));
-      acknowledged += Number(result.changes);
-      if (Number(result.changes) === 1) this.wakes.acknowledge(agent, id);
-    }
-    return acknowledged;
+    // agent-relay ack-wake-atomic D130: every acknowledgement and its wake closure commit together, or none does,
+    // so an acknowledged message never keeps an open wake job that could ping its recipient again.
+    return atomically(this.db, () => {
+      let acknowledged = 0;
+      for (const id of messageIds) {
+        const result = stmt.run(agent, ackedAt, note, id, ...deliveredParams(agent));
+        acknowledged += Number(result.changes);
+        if (Number(result.changes) === 1) this.wakes.acknowledge(agent, id);
+      }
+      return acknowledged;
+    });
   }
 
   /** All messages in a conversation thread, oldest first. */
