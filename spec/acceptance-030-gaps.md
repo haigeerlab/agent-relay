@@ -86,3 +86,87 @@ shows the warning and a same-second upgrade succeeding.
 ## Open questions
 
 None, once assumptions 1–7 are confirmed.
+
+## Amendment 1 (2026-10-08): E1 host claim and E2 notification visibility
+
+Tasks 1–3 (D72–D74) are done and stay. The round-2 coordinator then reported **E2** from the real host: the 12:34 held
+notice never appeared, and a direct `osascript … display notification` returned 0 with no banner. The bridge still
+wrote its `notified` mark and told the sender "The user was notified on this Mac", which is unfounded: the message can
+again wait unseen. The user chose (2026-10-08): E1 option A below, E2 items a–c in this module, CI as a separate module
+after this one.
+
+### Measured (this Mac, 2026-10-08)
+
+- `identity.ts:11`: Claude puts its session id in the bridge's environment (verified host); the Codex app-server does
+  not. A Codex task's thread id reaches the bridge only as the `wake` target it claims (`server.ts:182`).
+- `skills/collab/SKILL.md` registers with `wake: null` by default, so E1 is the normal Codex path, not an edge case.
+- Notification Center prefs (`defaults export com.apple.ncprefs`, read only), entry `com.apple.ScriptEditor2`:
+  `flags = 0x200e`, no `auth` key. Apps that do show notifications here have an `auth` value and flag bit `0x2000000`
+  (Claude `0x12802056` auth 7, Mail `0x1280000e` auth 1, Calendar `0x32882016` auth 263). Likely cause of E2: Script
+  Editor was never allowed to notify. The format is undocumented.
+- `bridge_agents` already returns unread counts per agent; doctor already reads a private copy of the mailbox.
+
+### Assumptions (amendment)
+
+8. A Codex task's own `CODEX_THREAD_ID`, passed as a host claim, is trusted exactly as much as the same id passed as a
+   `wake` target today; nothing else is inferred (option B, "not Claude so Codex", rejected).
+9. "Waiting for Codex" = direct messages to a non-retired agent whose recorded host is Codex, not acknowledged by it,
+   delivery state not `failed` or `expired`. Bodies are never shown; only count, senders and ids (at most 20 ids).
+10. The Script Editor reading in doctor is best effort: the plist format is undocumented, so doctor says "appears" and
+    always offers a visible test notification as the real check. Focus modes cannot be read; doctor says so.
+11. New `bridge_register` input and a new `bridge_agents` field are compatible additions: interface 1.2 → **1.3**.
+12. E2 item d (other channels) is an evaluation in this spec only, no code.
+
+### Decisions (amendment)
+
+- **D75 host claim without wake.** `bridge_register` takes an optional `host: {app: "codex", sessionId}`. It records
+  the Codex host and binds nothing. Refused when the caller has a verified host (a Claude session), when `app` is not
+  `codex`, or when a `wake` target is also given and differs. Ownership rules are unchanged: the recorded host is the
+  owner, and another session's name still needs `takeover`. With a recorded Codex host and no binding, sends take the
+  D67 path (notice attempted + sender warning); D72 stays the fallback when no host is known. The collab skill tells a
+  Codex task to pass `host` with its own `CODEX_THREAD_ID` whenever it registers without wake; the refusal hint for a
+  re-register without it names `host` as well as `wake`.
+- **D76 "attempted", not "notified".** `NOTIFIED_TEXT` and every use (wake detail, send warning) become: `A desktop
+  notification was attempted on this Mac; macOS may not show it (Script Editor notifications off, or Focus). The user
+  can list waiting messages with doctor or by asking any session.` The `notified/` marks keep deduplicating. README
+  (the D73 paragraph) says "attempted" and points to the waiting list and the doctor check.
+- **D77 waiting list.** `bridge_agents` adds `waiting: {count, from, ids}` to each agent with a recorded Codex host
+  and at least one waiting message (assumption 9). Doctor adds check `codex-waiting`: ok with "none" or the list;
+  **warn** when any listed message is older than 10 minutes (the D67 busy threshold), with the next step "open that
+  Codex task, or ask the sender". The collab skill: when the user asks what is waiting (等 Codex 处理的消息), call
+  `bridge_agents` and report `waiting` per agent.
+- **D78 notification check.** Doctor adds check `notifications`: ok "off by choice" when `notify.off` exists or
+  `AGENT_RELAY_NOTIFY=off`; warn "never registered" when Script Editor has no entry; warn "appears not allowed" when
+  it has no `auth` value or lacks flag `0x2000000`; ok "appears allowed (a Focus mode can still hide banners)"
+  otherwise; warn "cannot read" on any read error; not on macOS → ok "not macOS, no desktop notifications". Each warn
+  says: System Settings → Notifications → Script Editor (脚本编辑器) → Allow Notifications, then
+  `native_collaboration_runtime.py doctor --test-notification`. `--test-notification` shows one notification with
+  the fixed text "agent-relay test notification" through the same `osascript` call and prints "Did a banner appear?
+  If not, see the notifications check." It never runs without the flag.
+- **D79 other channels (evaluation, no code).**
+  - Codex app's own notices: they come from the Codex turn, which needs a wake; useless exactly when the wake was held
+    or Codex is offline.
+  - `display alert` / dialog via `osascript`: visible without notification permission, but modal and focus-stealing
+    from a background process; rejected.
+  - Third-party `terminal-notifier`: not installed and a new dependency; rejected.
+  - A notice to the sender's own mailbox: already done (warnings, bridge notices), but the sender is an agent, not the
+    user.
+  - Recommendation: the pull channel (D77 waiting list in doctor and any session) is the one the user can always see;
+    the push notice stays best effort with honest wording (D76).
+
+### Requirements (amendment)
+
+7. Bridge tests, red first: register with `wake: null, host: {app: "codex", sessionId}` records the host and no binding;
+   a send to it attempts a notice and warns with the D76 text; refusals for a Claude caller, `app: "claude"`, and a
+   different `wake` target; a recipient with no host still gets D72.
+8. Bridge test: the D76 text replaces "The user was notified" in send warnings and wake details (existing D67 tests
+   updated to the new text).
+9. Bridge test: `bridge_agents` `waiting` for a Codex-host recipient (count, senders, ids; acknowledged, failed and
+   expired excluded; none for Claude hosts). Python test: doctor `codex-waiting` ok / list / warn after 10 minutes.
+10. Python tests: doctor `notifications` for each state, from a fake `defaults export` output; `--test-notification`
+    calls `osascript` once with the fixed text and is never called by plain `doctor`.
+11. collab skill and README updated; `interface.json` 1.3 and `docs/collaboration-interface.md`; `UPSTREAM.md` rows and
+    `UPSTREAM.sha256`; CHANGELOG.
+12. Validation on Python 3.9, 3.10, 3.14 and bridge `npm run check`; live check in a temporary home: host claim →
+    D67 warning with D76 text, `bridge_agents` waiting, doctor `codex-waiting`; on this Mac, `doctor` `notifications`
+    reads the real Script Editor entry (read only) and `--test-notification` is run once for the user to confirm.
