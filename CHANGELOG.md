@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+- **MCP 服务也不再碰上游默认库**（模块 `server-db-guard`，D114）：没有设 `BRIDGE_DB_PATH` 就启动 `dist/server.js` 时，以前会
+  打开（不存在就新建）`~/.local/share/claude-codex-bridge/bridge.sqlite`，变成一个只有它自己看得到的信箱，注册和发出的消息
+  无人收到；现在在打开任何数据库之前就拒绝启动，以 2 退出，并在日志里说明服务由 `native_collaboration_adapters.py
+  install-claude / install-codex` 接入的宿主启动。宿主接入、`probe` 和 Codex 委派本来就传这个变量，不受影响。
 - **CLI 的 `retire` 不再碰上游默认库**（模块 `retire-cli-guard`，D111、D112，0.5.0 真机复验发现 F1）：直接运行
   `node ~/.agent-relay/runtime/dist/cli.js retire <名字>` 而没有设 `BRIDGE_DB_PATH` 时，以前会打开（不存在就新建）
   `~/.local/share/claude-codex-bridge/bridge.sqlite` 并在那里退役，现在在打开任何数据库之前就拒绝，以 2 退出，并提示改用
