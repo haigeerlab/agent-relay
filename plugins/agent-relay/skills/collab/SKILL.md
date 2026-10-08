@@ -67,6 +67,10 @@ bridge 会核对身份：发送、ack 和自动确认的 `bridge_wait` 只接受
 `pending`），不会确认任何消息。正文较长或含 `$`、反引号、引号等字符时，先写入文件再用 `bodyFile`（绝对路径）发送，
 不要拼进命令行。用户问“我是谁”时读 `bridge_sessions.whoami`，只报告名字、宿主、会话标题和项目，不展示完整内部 ID。
 
+用户问“有哪些等 Codex 处理的消息”“Codex 那边有没有卡住的消息”时，调用 `bridge_agents`，逐个报告带 `waiting` 的身份：
+名字、条数、发件方和编号（`waiting: {count, from, ids}`），不读正文；没有就说没有。发件结果里的“已尝试通知”只表示
+bridge 尝试过桌面通知，macOS 可能没显示，不要说成用户已经看到。
+
 读取用 `bridge_inbox`；处理后才调用 `bridge_ack`。主动等待使用 `bridge_wait` 且
 `acknowledge: false`，返回后仍需实际处理再确认。被唤醒后只处理当前权限允许的请求，有副作用的动作仍向用户取权。
 

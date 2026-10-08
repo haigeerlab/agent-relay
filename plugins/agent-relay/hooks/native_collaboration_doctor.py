@@ -6,6 +6,7 @@ and the mailbox are only read, the probe runs on disposable data outside the run
 from __future__ import annotations
 
 from contextlib import closing
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -258,6 +259,52 @@ def _wake_bindings(database: Path, sessions_dir: Path, alive: Callable[[int], bo
     return _check("wake-bindings", "ok", "; ".join(notes) or "no wake-bound identities")
 
 
+CODEX_WAITING_WARN_SECONDS = 600  # the D67 busy threshold
+
+
+def _codex_waiting(database: Path) -> dict[str, str]:
+    """acceptance-030-gaps D77: messages waiting for a Codex host (count, senders, ids; never bodies)."""
+    if not database.exists():
+        return _check("codex-waiting", "ok", "no mailbox yet")
+    try:
+        with closing(open_mailbox_read_only(database)) as connection:
+            agents = {row[1] for row in connection.execute("PRAGMA table_info(agents)")}
+            messages = {row[1] for row in connection.execute("PRAGMA table_info(messages)")}
+            if not {"host_app", "retired_at"} <= agents or not {"delivery_state", "from_agent", "created_at"} <= messages:
+                return _check("codex-waiting", "ok", "no Codex host recorded in this mailbox schema")
+            rows = connection.execute(
+                """SELECT m.to_agent, m.from_agent, m.id, m.created_at FROM messages m
+                   JOIN agents ag ON ag.name = m.to_agent
+                   WHERE ag.host_app = 'codex' AND ag.retired_at IS NULL
+                     AND COALESCE(m.delivery_state, 'queued') NOT IN ('failed', 'expired')
+                     AND NOT EXISTS (SELECT 1 FROM acknowledgements a WHERE a.message_id = m.id AND a.agent = m.to_agent)
+                   ORDER BY m.to_agent, m.id""").fetchall()
+    except sqlite3.Error as error:
+        return _check("codex-waiting", "fail", f"cannot read the mailbox: {error}", "run status, then check the file")
+    if not rows:
+        return _check("codex-waiting", "ok", "nothing is waiting for a Codex task")
+    grouped: dict[str, list[tuple[str, int]]] = {}
+    old = False
+    now = datetime.now(timezone.utc)
+    for agent, sender, message_id, created in rows:
+        grouped.setdefault(agent, []).append((sender, message_id))
+        try:
+            when = datetime.fromisoformat(str(created).replace("Z", "+00:00"))
+            old = old or (now - when).total_seconds() > CODEX_WAITING_WARN_SECONDS
+        except ValueError:
+            old = True
+    parts = []
+    for agent, items in grouped.items():
+        senders = list(dict.fromkeys(sender for sender, _ in items))
+        ids = ", ".join(f"#{message_id}" for _, message_id in items[:20])
+        parts.append(f"{agent}: {len(items)} waiting from {', '.join(senders)} ({ids})")
+    detail = "; ".join(parts)
+    if old:
+        return _check("codex-waiting", "warn", detail + "; some have waited more than 10 minutes",
+                      "open that Codex task (or start it) so it reads its inbox, or ask the sender")
+    return _check("codex-waiting", "ok", detail)
+
+
 def _old_bridges(processes: Iterable[str]) -> dict[str, str]:
     count = sum(1 for line in processes if OLD_BRIDGE in line)
     if count:
@@ -305,6 +352,7 @@ def doctor(root: Path, *, home: Path | None = None, node: str | None = None, cod
         checks += [_hosts(root, codex_config, claude_json, claude_settings), _codex_approval(codex_config, root / "mailbox", codex_app_version)]
         if ready:
             checks.append(_wake_bindings(copy, claude_sessions, alive))
+            checks.append(_codex_waiting(copy))
     checks.append(_old_bridges(processes()))
     states = {check["state"] for check in checks}
     overall = "fail" if "fail" in states else "warn" if "warn" in states else "ok"

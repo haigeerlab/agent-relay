@@ -819,6 +819,31 @@ export class BridgeStore {
   }
 
   /**
+   * agent-relay acceptance-030-gaps D77: direct messages waiting for each non-retired agent whose recorded host is
+   * Codex (not acknowledged by it, not failed or expired), oldest first: count, senders and at most 20 ids, never bodies.
+   */
+  codexWaiting(): Map<string, { count: number; from: string[]; ids: number[] }> {
+    const rows = this.db
+      .prepare(
+        `SELECT m.id, m.from_agent, m.to_agent FROM messages m JOIN agents ag ON ag.name = m.to_agent
+         WHERE ag.host_app = 'codex' AND ag.retired_at IS NULL
+           AND COALESCE(m.delivery_state, 'queued') NOT IN ('failed', 'expired')
+           AND NOT EXISTS (SELECT 1 FROM acknowledgements a WHERE a.message_id = m.id AND a.agent = m.to_agent)
+         ORDER BY m.to_agent, m.id`,
+      )
+      .all() as Array<{ id: number | bigint; from_agent: string; to_agent: string }>;
+    const waiting = new Map<string, { count: number; from: string[]; ids: number[] }>();
+    for (const row of rows) {
+      const entry = waiting.get(row.to_agent) ?? { count: 0, from: [], ids: [] };
+      entry.count += 1;
+      if (!entry.from.includes(row.from_agent)) entry.from.push(row.from_agent);
+      if (entry.ids.length < 20) entry.ids.push(Number(row.id));
+      waiting.set(row.to_agent, entry);
+    }
+    return waiting;
+  }
+
+  /**
    * Retire an agent: stop pings, and optionally close its unhandled backlog.
    * Closed messages keep their history; the acknowledgement records why.
    */

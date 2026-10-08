@@ -224,6 +224,44 @@ class DoctorTests(unittest.TestCase):
         if os.getuid() != 0:
             self.assertTrue(codex_auto_approval(path)[0])
 
+    def waiting_mailbox(self, *rows):
+        """Add the columns the D77 check reads, then (id, from, to, state, minutes ago, acked) rows."""
+        from datetime import datetime, timedelta, timezone
+        with sqlite3.connect(self.database) as connection:
+            connection.executescript("""
+                ALTER TABLE agents ADD COLUMN host_app TEXT;
+                ALTER TABLE messages ADD COLUMN from_agent TEXT;
+                ALTER TABLE messages ADD COLUMN created_at TEXT;
+                ALTER TABLE messages ADD COLUMN body TEXT;
+                UPDATE agents SET host_app = 'codex' WHERE name = 'codex-one';
+                UPDATE agents SET host_app = 'claude' WHERE name = 'reviewer';
+            """)
+            for message_id, sender, to, state, minutes, acked in rows:
+                created = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+                connection.execute("INSERT INTO messages (id, to_agent, delivery_state, from_agent, created_at, body) "
+                                   "VALUES (?, ?, ?, ?, ?, 'secret body')", (message_id, to, state, sender, created))
+                if acked:
+                    connection.execute("INSERT INTO acknowledgements VALUES (?, ?)", (message_id, to))
+
+    def test_codex_waiting_lists_what_waits_for_codex(self):
+        # acceptance-030-gaps D77: the place the user can always see, whatever macOS does with banners.
+        self.assertEqual(self.find(self.run_doctor(), "codex-waiting")["state"], "ok")
+        self.waiting_mailbox((1, "a", "codex-one", "queued", 1, False), (2, "b", "codex-one", "accepted", 2, False),
+                             (3, "a", "codex-one", "queued", 1, True), (4, "a", "codex-one", "failed", 1, False),
+                             (5, "a", "codex-one", "expired", 1, False), (6, "a", "reviewer", "queued", 30, False))
+        check = self.find(self.run_doctor(), "codex-waiting")
+        self.assertEqual(check["state"], "ok", check)
+        self.assertEqual(check["detail"], "codex-one: 2 waiting from a, b (#1, #2)")
+        self.assertNotIn("secret", json.dumps(check))
+
+    def test_codex_waiting_warns_after_ten_minutes(self):
+        self.waiting_mailbox((7, "a", "codex-one", "queued", 11, False))
+        check = self.find(self.run_doctor(), "codex-waiting")
+        self.assertEqual(check["state"], "warn", check)
+        self.assertIn("codex-one: 1 waiting from a (#7)", check["detail"])
+        self.assertIn("10 minutes", check["detail"])
+        self.assertIn("open that Codex task", check["next"])
+
     def test_cli_exit_codes(self):
         import contextlib
         import io
