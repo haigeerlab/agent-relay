@@ -13,6 +13,7 @@ import unittest
 
 from native_collaboration_adapters import CLAUDE_SERVER_NAME, codex_fragment
 from native_collaboration_doctor import TEST_NOTIFICATION_TEXT, codex_auto_approval, doctor, send_test_notification
+from node_select import SelectedNode
 from native_collaboration_runtime import BRIDGE_COMMIT, BRIDGE_SOURCE, DENIED_TOOLS, bridge_tree, main
 
 NODE = Path(sys.executable)
@@ -84,7 +85,8 @@ class DoctorTests(unittest.TestCase):
                        probe=lambda _root: {"state": "ready", "toolCount": 17},
                        processes=lambda: self.processes, alive=lambda pid: pid in self.alive,
                        codex_app_version=lambda: "26.930.61225",
-                       notification_prefs=lambda: prefs(SCRIPT_EDITOR_ALLOWED), platform="darwin")
+                       notification_prefs=lambda: prefs(SCRIPT_EDITOR_ALLOWED), platform="darwin",
+                       node_selector=lambda *a, **k: SelectedNode(NODE, "claude-entry", "v24.18.0"))
         options.update(overrides)
         return doctor(self.root, **options)
 
@@ -323,6 +325,31 @@ class DoctorTests(unittest.TestCase):
         self.assertEqual(calls[0][-1], TEST_NOTIFICATION_TEXT)
         self.assertEqual(TEST_NOTIFICATION_TEXT, "agent-relay test notification")
         self.assertIn("Did a banner appear?", result["ask"])
+
+    def test_toolchain_names_python_and_node(self):
+        # ci-macos D81: a CI log or a user report says which Python and Node doctor ran with, runtime or not.
+        import platform
+        from node_select import NodeSelectError, SelectedNode
+        chosen = SelectedNode(Path("/opt/node/bin/node"), "PATH", "v24.18.0")
+        for root in (self.root, self.home / "missing-runtime"):
+            report = doctor(root, home=self.home, codex_config=self.codex_config, claude_json=self.claude_json,
+                            claude_settings=self.claude_settings, claude_sessions=self.sessions,
+                            probe=lambda _root: {"state": "ready", "toolCount": 17}, processes=lambda: [],
+                            alive=lambda pid: False, codex_app_version=lambda: "26.930",
+                            notification_prefs=lambda: None, platform="linux",
+                            node_selector=lambda *a, **k: chosen)
+            check = self.find(report, "toolchain")
+            self.assertEqual(check["state"], "ok", check)
+            self.assertEqual(check["detail"], f"python {sys.executable} ({platform.python_version()}); "
+                                              "node /opt/node/bin/node (v24.18.0, from PATH)")
+
+        def none(*a, **k):
+            raise NodeSelectError("node-unavailable", "no node on PATH")
+        check = self.find(self.run_doctor(node_selector=none), "toolchain")
+        self.assertEqual(check["state"], "warn", check)
+        self.assertIn(f"python {sys.executable}", check["detail"])
+        self.assertIn("no node on PATH", check["detail"])
+        self.assertIn("Node 22.5.0", check["next"])
 
     def test_cli_exit_codes(self):
         import contextlib
