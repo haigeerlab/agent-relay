@@ -20,6 +20,8 @@ from session_delegation import (
     DelegationClaim,
     DelegationError,
     DelegationStore,
+    OperationBusy,
+    OperationClaim,
     RESULT_KEY_PREFIX,
     evaluate_authorization,
 )
@@ -371,11 +373,17 @@ class SessionDelegationController:
         route = self._turn_route(
             self._route(envelope, claim), prompt, turn_seed)
         adapter = self.adapter_factory(target_host, envelope.project_root)
-        result = adapter.create(
-            claim.delegation_id,
-            self._with_result_route(prompt, route, turn_seed),
-            isolated_worktree=isolated_worktree,
+        result, early = self._claimed(
+            claim, "create",
+            lambda: adapter.create(
+                claim.delegation_id,
+                self._with_result_route(prompt, route, turn_seed),
+                isolated_worktree=isolated_worktree,
+            ),
+            still=lambda current: current.state == "creating",
         )
+        if early is not None:
+            return early
         current = self.store.get_delegation(claim.delegation_id)
         delivery = (None if envelope.origin_host == current.target_host
                     else self._delivery(route, current))
@@ -392,6 +400,45 @@ class SessionDelegationController:
             routing=routing,
             diagnostic=self._result_fact(result, "diagnostic"),
         )
+
+    def _claimed(self, claim: DelegationClaim, operation: str, call: Callable[[], object], *,
+                 still: Callable[[DelegationClaim], bool] | None = None,
+                 ) -> tuple[object | None, PublicSession | None]:
+        """Run one adapter call under the delegation's claim (delegation-claim D123, D124).
+
+        Returns (adapter result, None), or (None, public answer) when no adapter call was made: another call holds
+        the claim, a previous holder died half way, or (`still`) the row moved on while this call waited for it.
+        """
+        def answer(current: DelegationClaim, **facts: object) -> PublicSession:
+            return self._public(current, self.store.get_authorization(current.envelope_id),
+                                host_operation=operation, **facts)
+
+        try:
+            with OperationClaim(self.store, claim.delegation_id) as held:
+                if held.previous():
+                    current = self._record_interrupted(claim.delegation_id)
+                    held.end()
+                    return None, answer(current, state="unknown", prerequisite="previous-operation-interrupted")
+                current = self.store.get_delegation(claim.delegation_id)
+                if still is not None and not still(current):
+                    return None, answer(current)
+                held.begin(operation)
+                try:
+                    return call(), None
+                finally:
+                    held.end()  # an adapter that may have reached a host records unknown itself
+        except OperationBusy:
+            return None, answer(self.store.get_delegation(claim.delegation_id),
+                                prerequisite="operation-in-progress")
+
+    def _record_interrupted(self, delegation_id: str) -> DelegationClaim:
+        """A previous call died between claiming and finishing: the host may have been reached (D124)."""
+        current = self.store.get_delegation(delegation_id)
+        if current.state == "creating":
+            return self.store.record_host_unknown(delegation_id)
+        if current.state in ("completed", "running"):
+            return self.store.advance(delegation_id, "unknown", "host-result-unknown")
+        return current
 
     def _resolve(
         self, friendly_name: str, *, disambiguator: str | None = None,
@@ -461,11 +508,16 @@ class SessionDelegationController:
         route = self._turn_route(
             self._route(envelope, claim), prompt, turn_seed)
         adapter = self.adapter_factory(claim.target_host, envelope.project_root)
-        result = adapter.continue_turn(
-            claim.delegation_id,
-            self._with_result_route(prompt, route, turn_seed),
-            isolated_worktree=isolated_worktree,
+        result, early = self._claimed(
+            claim, "continue",
+            lambda: adapter.continue_turn(
+                claim.delegation_id,
+                self._with_result_route(prompt, route, turn_seed),
+                isolated_worktree=isolated_worktree,
+            ),
         )
+        if early is not None:
+            return early
         current = self.store.get_delegation(claim.delegation_id)
         delivery = (None if envelope.origin_host == current.target_host
                     else self._delivery(route, current))
