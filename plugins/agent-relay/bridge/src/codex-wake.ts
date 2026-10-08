@@ -27,7 +27,7 @@ export function codexTurn(job: WakeJob) {
   };
 }
 
-export async function wakeCodex(job: WakeJob,
+export async function wakeCodex(job: WakeJob, ready: () => string | null = () => null,
   path = join(homedir(), ".codex", "ipc", "ipc.sock")): Promise<WakeResult> {
   if (process.platform === "win32") return { state: "refused", detail: "Native desktop wake adapter requires Unix local sockets" };
   const ipc = new CodexIpc();
@@ -42,13 +42,16 @@ export async function wakeCodex(job: WakeJob,
     if (owner.result?.supportsUntrustedAppInput !== true) {
       return { state: "refused", detail: "Codex owner does not support peer content; update the app" };
     }
+    // agent-relay codex-gated-wake D66a: only where the per-turn gate is known to work.
+    const unverified = ready();
+    if (unverified) return { state: "held", detail: `Gated Codex wake not sent: ${unverified}.` };
     submitted = true;
     const reply = await ipc.request("thread-follower-start-turn", codexTurn(job), 2, owner.handledByClientId);
     if (reply.resultType === "success") {
       if (typeof reply.result?.result?.turn?.id !== "string") {
         return { state: "unknown", detail: "Codex returned an unfamiliar receipt; check the task before retrying" };
       }
-      return { state: "accepted", detail: "Codex confirmed a new turn" };
+      return { state: "accepted", detail: "Codex confirmed a new turn", turnId: reply.result.result.turn.id };
     }
     // This exact native guard runs before context injection or turn creation.
     if (reply.error === "App context must wait until the current turn finishes") {

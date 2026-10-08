@@ -5,7 +5,6 @@ import { readBodyFile } from "./body-file.js";
 import { basename } from "node:path";
 import { CallerIdentity } from "./identity.js";
 import type { MessageStatus } from "./bridge-store.js";
-import { codexApproval, codexAutoApprovalText } from "./codex-approval.js";
 import { NOTIFIED_TEXT, notifyUndelivered } from "./notify.js";
 import { randomUUID } from "node:crypto";
 
@@ -178,10 +177,8 @@ function main(): void {
       if (caller.host && target && (target.app !== caller.host.app || target.sessionId !== caller.host.sessionId)) {
         throw new Error(`This session can bind wake only to this session (${caller.host.app}); it cannot bind another session.`);
       }
-      if (target?.app === "codex") {
-        const approval = codexApproval();
-        if (approval.autoApproved) throw new Error(codexAutoApprovalText(approval));
-      }
+      // agent-relay codex-gated-wake D66 (replaces identity-check D38): an auto-approved Codex session may bind wake;
+      // every woken turn carries the approval gate (D65).
       const host = caller.host ?? (target?.app === "codex" ? target : null);
       const existing = store.getAgent(agent);
       // agent-relay cleanup-gaps D61: a retired name stays retired unless the caller explicitly reactivates it.

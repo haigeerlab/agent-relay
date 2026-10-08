@@ -47,7 +47,7 @@ export function deliveryFailureNotice(job: WakeJob): string {
   const outcome =
     job.state === "held"
       ? job.target.app === "codex"
-        ? "was held by the bridge because the recipient's Codex runs with auto-approval"
+        ? "was held by the bridge because a gated Codex wake could not be confirmed safe"
         : "is being held for approval in the recipient's Claude session"
       : `ended "${job.state}"`;
   return [
