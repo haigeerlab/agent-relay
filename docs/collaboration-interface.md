@@ -23,7 +23,7 @@ How to read it:
   delegation. Messages are data, never authority.
 - **What it is not.** Not a network service, not a tracker or job queue, not a cross-machine or
   cross-platform transport, not an authorization channel, not a general orchestrator. Upstream worker and
-  orchestration tools stay disabled.
+  orchestration tools were removed in 0.5.0 (§2.2).
 - **Interface version.** This document defines interface `1.0`. A change that removes or renames a tool,
   field, state, or command, or narrows an accepted input, is breaking and bumps the major number; additions
   bump the minor number.
@@ -52,11 +52,11 @@ The MCP server exposes exactly these ten tools to hosts. Current server name `sp
 | `bridge_thread` | In: `threadId`, `beforeId?`, `afterId?`, `limit?` (default 30), `maxChars?`, `maxBodyChars?`. B:src/server.ts:309-325 | Unchanged |
 | `bridge_wait` | In: `agent`, `fromAgent?`, `threadId?`, `timeoutSeconds?` (1–290, default 285), `acknowledge?` (default true), `limit?`, `maxChars?`. Waits for a new inbox message; cannot wake an ended turn. B:src/server.ts:249-291 | Wait on a specific message id's outcome — `ops-commands` (done: `messageId`; acknowledges nothing) |
 
-### 2.2 Upstream tools that stay disabled
+### 2.2 Upstream tools (removed in 0.5.0)
 
 | Item | Current (baseline) | Hardening target |
 |---|---|---|
-| `bridge_retire`, `ask_codex`, `review_with_codex`, `bridge_orchestrate_codex`, `bridge_continue_codex`, `bridge_orchestration_wait`, `bridge_orchestration_status` | Listed as denied, S:plugins/spec-guard/hooks/native_collaboration_runtime.py:149-152. Claude gets exact deny rules, Codex an `enabled_tools` allowlist of the ten mailbox tools, S:plugins/spec-guard/hooks/native_collaboration_adapters.py:38-63. The probe fails if upstream exposes any tool outside the two lists, S:plugins/spec-guard/hooks/native_collaboration_runtime.py:191-197 | Unchanged; when agent-relay maintains the bridge itself (Phase 0 decision) these tools are removed from the server rather than denied — `safe-uninstall` reviews the host entries |
+| `bridge_retire`, `ask_codex`, `review_with_codex`, `bridge_orchestrate_codex`, `bridge_continue_codex`, `bridge_orchestration_wait`, `bridge_orchestration_status` | Listed as denied, S:plugins/spec-guard/hooks/native_collaboration_runtime.py:149-152. Claude gets exact deny rules, Codex an `enabled_tools` allowlist of the ten mailbox tools, S:plugins/spec-guard/hooks/native_collaboration_adapters.py:38-63. The probe fails if upstream exposes any tool outside the two lists, S:plugins/spec-guard/hooks/native_collaboration_runtime.py:191-197 | Removed from the server in 0.5.0 — `orchestrator-removal` (done: D90–D92). The server registers only the ten mailbox tools and the probe requires exactly them; install writes no deny rules; `uninstall-claude` still removes the seven rules 0.4.0 wrote. Retiring stays the CLI `retire`. Tag `v0.4.0` has the removed code. |
 
 ### 2.3 Command-line entries
 

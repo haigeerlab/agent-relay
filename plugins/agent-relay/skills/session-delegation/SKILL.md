@@ -62,7 +62,7 @@ Agent 自己建议新开会话（例如主动建议再找一个 Codex 复审）�
 ## 只复用 native 消息后端
 
 委派会话只连接已就绪的固定 native runtime；不可用时直接 held，不尝试其他传输。只开放十个 `bridge_*`
-邮箱工具。任何 `ask_codex`、review、worker、broadcast、orchestration 或 lifecycle 管理工具均不得进入委派
+邮箱工具。其他工具（broadcast、lifecycle 管理，以及 0.4.0 及以前的 worker 与 orchestration 工具）均不得进入委派
 会话目录；工具名不匹配时失败关闭，不能靠模型猜测。
 
 Codex 使用 app-managed current 受支持二进制和 app-server；Claude Code 使用 background session。创建通知

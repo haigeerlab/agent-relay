@@ -12,6 +12,8 @@
   完全一致，多一个或少一个都判为 invalid 并写明是哪个。`install-claude` 不再往 Claude 设置里写拒绝规则（已没有可拒绝的
   工具），也不再改动设置文件；0.4.0 写下的七条规则升级后留着无害，`uninstall-claude` 照旧识别并移除，doctor 不再要求它们。
   Codex 那边“始终允许”留下的任何审批子表，卸载时照旧一并清掉。
+- **文档**（模块 `orchestrator-removal`，D94）：bridge 的 README、INSTRUCTIONS、CHANGELOG，接口文档 §2.2，collaboration-ops 与
+  session-delegation 技能，以及本 README 的卸载说明，都改为“编排工具已删除”；旧名字只留在删除说明和历史里。
 
 ## [0.4.0] - 2026-10-08
 
