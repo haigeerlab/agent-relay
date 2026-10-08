@@ -33,8 +33,9 @@ Readers: the user; the round-2 coordinator, who reviews the PR before the user m
 
 ## Assumptions (accepted by the user 2026-10-08)
 
-1. The whole migration holds an exclusive `fcntl.flock` on `~/.agent-relay/state-migration.lock`; a second run that
-   cannot take it is refused. The kernel releases the lock when the process dies, so no stale lock is left.
+1. The whole migration holds an exclusive `fcntl.flock` (as built: on the `~/.agent-relay` directory itself, see D116);
+   a second run that cannot take it is refused. The kernel releases the lock when the process dies, so no stale lock
+   is left.
 2. Agent-relay's own bridges are checked too (`_servers_running` of the target runtime): `detect` lists them as a
    blocker and `migrate` refuses. The old-bridge check stays.
 3. Everything to be written is prepared first in `~/.agent-relay/.state-migration-<stamp>-<hex>/`: the whole
@@ -59,10 +60,12 @@ Readers: the user; the round-2 coordinator, who reviews the PR before the user m
 
 ## Decisions
 
-- **D116 lock.** `migrate` and `recover` open `<parent>/state-migration.lock` (created 0600 if missing, parent made
-  private as today) and take `fcntl.flock(LOCK_EX | LOCK_NB)`; `BlockingIOError` → result `{"state": "blocked",
-  "diagnostic": "another state migration is running"}`. The lock is held until the call returns; the file is left in
-  place (it carries no state). `detect` takes no lock.
+- **D116 lock.** `migrate` and `recover` open the state root `<parent>` directory read-only and take
+  `fcntl.flock(LOCK_EX | LOCK_NB)` on it; `BlockingIOError` → result `{"state": "blocked", "diagnostic": "another state
+  migration is running"}`. The lock is held until the call returns. Build correction: the spec first named a
+  `state-migration.lock` file, but creating it is a write, and the existing tests require that a blocked migration
+  writes nothing; locking the directory (exclusive on macOS, checked) needs no file. Without a state root the runtime
+  cannot be ready, so `migrate` only inspects and returns blocked. `detect` takes no lock.
 - **D117 own bridges.** `inspect` gains `target_count: Callable[[Path], int]` (default
   `native_collaboration_runtime._servers_running`) and adds the blocker "N agent-relay bridge server process(es) are
   running; close every session using the mailbox first"; `Report.target_servers` reports the count.

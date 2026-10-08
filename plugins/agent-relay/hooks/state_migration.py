@@ -8,6 +8,8 @@ not changed (spec/state-migration.md, decisions D12-D14).
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
+import fcntl
 import json
 import os
 import re
@@ -20,9 +22,10 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterator
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import native_collaboration_runtime as _runtime  # noqa: E402
 from native_collaboration_runtime import (  # noqa: E402
     StateHomeError, open_mailbox_read_only, state_home, status as runtime_status)
 from session_delegation import DATABASE_FILENAME, DelegationError, DelegationStore  # noqa: E402
@@ -49,6 +52,7 @@ class Report:
     wake_jobs: dict[str, int] = field(default_factory=dict)
     open_delegations: list[dict] = field(default_factory=list)
     running_servers: int = 0
+    target_servers: int = 0
     target_runtime: str = "absent"
     target_mailbox: dict[str, int] | None = None
     target_delegation_present: bool = False
@@ -125,7 +129,7 @@ def _host_entries(home: Path) -> dict[str, bool]:
 
 def inspect(home: Path, acknowledged: tuple[str, ...] = (),
             process_count: Callable[[Path], int] = _running_servers, *,
-            target: Path | None = None) -> Report:
+            target: Path | None = None, target_count: Callable[[Path], int] | None = None) -> Report:
     paths = _paths(home, target)
     report = Report(home, paths["parent"])
     with tempfile.TemporaryDirectory(prefix="agent-relay-detect-") as scratch:
@@ -136,6 +140,11 @@ def inspect(home: Path, acknowledged: tuple[str, ...] = (),
     if report.running_servers:
         report.blockers.append(f"{report.running_servers} old bridge server process(es) are running; close or restart "
                                "the sessions that use the old mailbox first (D13)")
+    # state-migration-safety D117: the target mailbox is swapped, so agent-relay's own bridges must be closed too.
+    report.target_servers = (target_count or _runtime._servers_running)(paths["runtime"])
+    if report.target_servers:
+        report.blockers.append(f"{report.target_servers} agent-relay bridge server process(es) are running; close "
+                               "every session using the mailbox first")
     target = runtime_status(paths["runtime"])
     report.target_runtime = target.get("state", "unknown")
     if report.target_runtime != "ready":
@@ -214,10 +223,43 @@ def _file_copy(source: Path, target: Path) -> None:
     target.chmod(0o600)
 
 
+class MigrationBusy(Exception):
+    """Another state migration holds the lock (D116)."""
+
+
+@contextmanager
+def _exclusive(parent: Path) -> Iterator[None]:
+    """Hold an exclusive flock on the state root directory itself for the whole call (D116): no lock file is
+    written, and the kernel drops the lock if the process dies."""
+    descriptor = os.open(parent, os.O_RDONLY)
+    try:
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise MigrationBusy("another state migration is running") from error
+        yield
+    finally:
+        os.close(descriptor)
+
+
 def migrate(home: Path, acknowledged: tuple[str, ...] = (),
             process_count: Callable[[Path], int] = _running_servers, *,
-            target: Path | None = None) -> tuple[Report, dict]:
-    report = inspect(home, acknowledged, process_count, target=target)
+            target: Path | None = None, target_count: Callable[[Path], int] | None = None) -> tuple[Report, dict]:
+    parent = _paths(home, target)["parent"]
+    if not parent.is_dir():  # no agent-relay state root yet: inspect blocks (the runtime cannot be ready)
+        report = inspect(home, acknowledged, process_count, target=target, target_count=target_count)
+        return report, {"state": "blocked"}
+    try:
+        with _exclusive(parent):
+            return _migrate(home, acknowledged, process_count, target, target_count)
+    except MigrationBusy as error:
+        return inspect(home, acknowledged, process_count, target=target, target_count=target_count), {
+            "state": "blocked", "diagnostic": str(error)}
+
+
+def _migrate(home: Path, acknowledged: tuple[str, ...], process_count: Callable[[Path], int],
+             target: Path | None, target_count: Callable[[Path], int] | None) -> tuple[Report, dict]:
+    report = inspect(home, acknowledged, process_count, target=target, target_count=target_count)
     if report.blockers:
         return report, {"state": "blocked"}
     paths = _paths(home, target)
