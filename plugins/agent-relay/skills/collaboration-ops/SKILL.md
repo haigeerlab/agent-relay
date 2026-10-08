@@ -73,6 +73,12 @@ python3 -B "$ROOT/hooks/native_collaboration_runtime.py" upgrade --confirm
 It backs the mailbox up to `backups/<UTC time>/runtime-mailbox/`, builds the new runtime beside the old one, moves
 `mailbox/` and `data/` across, swaps, and checks the result (rolling back on failure). Show the user the reported
 `previous` directory, `backup` and `rollback` text; host entries need no change because the paths stay the same.
+To go back, after the user agrees and has closed every session, run `rollback --confirm` (newest
+`runtime.previous-*`, mailbox and data carried, current build kept as `runtime.rolled-back-*`); repeat its `caveat`.
+When `status` says `interrupted` (a swap stopped half way; doctor's runtime check fails with the same next step),
+every other runtime command refuses: show the user the journal and, after they agree and have closed every session,
+run `recover --confirm`, which always returns to the runtime from before the swap. Never move the runtime directories
+by hand and never delete `runtime.previous-*`, `runtime.rolled-back-*` or `.runtime-*-failed-*` yourself.
 After an upgrade that brings `identity-check`, tell the user: each session must register its name once more before it
 sends (that records its host; from then on a Claude session keeps its names across bridge restarts, while a Codex
 session re-registers with its own thread id after each restart). After an upgrade that brings `codex-gated-wake`, an

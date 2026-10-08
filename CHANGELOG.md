@@ -12,6 +12,9 @@
 - **`rollback --confirm`**（模块 `upgrade-recovery`，D108）：一条命令回到最新的 `runtime.previous-*`，信箱和数据一起带过去；先备份信箱、
   记录切换日志、核对行数；当前版本保留为 `runtime.rolled-back-<时间>`，什么都不删。要求运行时就绪、没有 bridge 在跑。升级结果里的
   手工回滚步骤改为指向这条命令；旧版插件只认 schema ≤ 4 的提醒照旧附在结果里。
+- **doctor 与文档**（模块 `upgrade-recovery`，D109、D110）：有切换日志时 doctor 的 runtime 检查判为 fail，下一步指向
+  `recover --confirm`（以前会叫你重新 install）；日志读不了时也判 fail、不崩溃。README 升级段落、collaboration-ops 技能和接口文档
+  §2.3 写明 `rollback`、`recover` 与 `interrupted`，作为 1.4 内的新增。
 - **只有本人读取才算已读**（模块 `inbox-read-receipt`，D99、D100）：`bridge_inbox` 和不确认的 `bridge_wait` 只有在调用方就是该
   身份时才记已读、刷新活跃时间，`bridge_outbox` 同理只在本人查看时刷新活跃时间。以前任何会话读一眼别人的收件箱，消息就变成
   `accepted`，还在等待的唤醒任务也被关掉，真正的收件人从此不会被提醒。读取仍不鉴权；结果新增 `readRecorded`（总是有）和
