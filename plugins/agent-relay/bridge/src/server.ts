@@ -279,6 +279,11 @@ function main(): void {
               why: "its Codex session has no wake binding; the message waits" })) {
           warnings.push(`${JSON.stringify(to)} is a Codex session without a wake binding. ${NOTIFIED_TEXT}`);
         }
+        // agent-relay acceptance-030-gaps D72: with no binding and no recorded host nobody can be woken or notified.
+        if (!duplicate && wake !== false && recipient && !recipient.host && !store.wakes.target(to)) {
+          warnings.push(`${JSON.stringify(to)} has no wake binding and no known host; ` +
+            "it sees this message only when it reads its inbox.");
+        }
       }
       await dispatcher.flush();
       return jsonResult({

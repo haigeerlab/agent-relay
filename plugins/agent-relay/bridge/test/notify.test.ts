@@ -139,3 +139,42 @@ test("a Codex recipient with no wake binding notifies at send time and the sende
     await sender.close();
   }
 });
+
+test("a recipient with no wake binding and no known host warns the sender, without a notification (D72)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "agent-relay-unbound-"));
+  const log = join(dir, "notices.log");
+  const env = { AGENT_RELAY_NOTIFY: "", AGENT_RELAY_NOTIFY_LOG: log };
+  const UNBOUND = /"cx2" has no wake binding and no known host; it sees this message only when it reads its inbox\./;
+  const codex = await session(dir, null, env);
+  try {
+    // Found in the 0.3.0 acceptance: a Codex task registered with wake: null records no host.
+    const registered = await codex.call("bridge_register", { agent: "cx2", wake: null });
+    assert.ok(registered.ok, registered.text);
+  } finally {
+    await codex.close();
+  }
+  const prepared = new BridgeStore(join(dir, "bridge.sqlite"));
+  prepared.register("helper", [], { app: "claude", sessionId: "claude-helper" });
+  prepared.close();
+  const sender = await session(dir, "claude-sender", env);
+  try {
+    assert.ok((await sender.call("bridge_register", { agent: "sender" })).ok);
+    const sent = await sender.call("bridge_send", { from: "sender", to: "cx2", body: "work", idempotencyKey: "k1" });
+    assert.ok(sent.ok, sent.text);
+    assert.ok(sent.json().warnings?.some((w: string) => UNBOUND.test(w)), sent.text);
+    const again = await sender.call("bridge_send", { from: "sender", to: "cx2", body: "work", idempotencyKey: "k1" });
+    assert.ok(again.json().duplicate, again.text);
+    assert.ok(!(again.json().warnings ?? []).some((w: string) => UNBOUND.test(w)), "a duplicate does not warn again");
+    const quiet = await sender.call("bridge_send", { from: "sender", to: "cx2", body: "quiet", wake: false });
+    assert.ok(!(quiet.json().warnings ?? []).some((w: string) => UNBOUND.test(w)), "wake: false stays silent");
+    const all = await sender.call("bridge_send", { from: "sender", to: "*", body: "everyone" });
+    assert.ok(all.ok, all.text);
+    assert.ok(!(all.json().warnings ?? []).some((w: string) => /no known host/.test(w)), "a broadcast stays silent");
+    const helper = await sender.call("bridge_send", { from: "sender", to: "helper", body: "poll" });
+    assert.ok(helper.ok, helper.text);
+    assert.ok(!(helper.json().warnings ?? []).some((w: string) => /no known host/.test(w)), "a known Claude host stays silent");
+    assert.equal(existsSync(log), false, "never a desktop notification");
+  } finally {
+    await sender.close();
+  }
+});

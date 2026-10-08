@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- **发给收不到提醒的身份时，发件方会得到警告**（模块 `acceptance-030-gaps`，D72，0.3.0 验收发现 E1）：收件方既没绑定唤醒、
+  bridge 也不知道它在哪个宿主（例如以 `wake: null` 注册的 Codex 任务）时，`bridge_send` 的结果加一条警告，说明对方要自己查
+  收件箱才会看到。广播、重复发送和 `wake: false` 不提示；不弹桌面通知，投递不变。
 - **委派库不再因并发提交偶发报错**（模块 `delegation-sidecar-race`，D71）：检查 SQLite 附属文件时，另一个连接 COMMIT
   删掉了 `-journal`，原来会抛出 `FileNotFoundError`；现在按不存在处理。不安全的附属文件（符号链接、非普通文件、属主或
   权限不对）照旧拒绝。
