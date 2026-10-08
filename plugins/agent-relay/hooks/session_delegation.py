@@ -453,14 +453,20 @@ class DelegationStore:
                 raise DelegationError("delegation database sidecar is unsafe")
 
     def _initialize_if_empty(self) -> None:
-        """Create the tables only in an empty database (version 0, no tables), deciding under the write lock."""
+        """Create the tables only in an empty database (version 0, no schema objects), deciding under the write lock.
+
+        Review of #43: a database already past version 0 is left to validation without taking the write lock, and any
+        schema object (a view, index or trigger too, not only a table) makes a database not empty.
+        """
         with self._connection() as connection:
+            if connection.execute("PRAGMA user_version").fetchone()[0] != 0:
+                return
             try:
                 connection.execute("BEGIN IMMEDIATE")
                 version = connection.execute("PRAGMA user_version").fetchone()[0]
-                tables = connection.execute(
-                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table'").fetchone()[0]
-                if version != 0 or tables:
+                objects = connection.execute(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'").fetchone()[0]
+                if version != 0 or objects:
                     connection.execute("ROLLBACK")
                     return
                 # Statement by statement: executescript() would COMMIT first and drop the write lock.

@@ -50,6 +50,10 @@ Readers: the user; the round-2 coordinator, who reviews the PR before the user m
   another process created it: fall through to the metadata check).
 - **D129 docs.** CHANGELOG `[Unreleased]`; interface doc delegation storage row if it describes initialization.
 
+Review correction (after #43 merged): D128's empty check counts every schema object not named `sqlite_%` (a view,
+index or trigger makes a database not empty), and a database whose `user_version` is not 0 is left to validation
+without taking the write lock (read once without a lock, checked again under `BEGIN IMMEDIATE` only at 0).
+
 ## Requirements
 
 0. Red first (new `hooks/test_delegation_store_init.py`):
