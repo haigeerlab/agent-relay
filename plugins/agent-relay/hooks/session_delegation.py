@@ -57,6 +57,48 @@ _STATE_EVIDENCE = {
 }
 
 
+_SCHEMA_STATEMENTS = (
+    """CREATE TABLE authorizations (
+    envelope_id TEXT PRIMARY KEY,
+    idempotency_key TEXT NOT NULL UNIQUE,
+    request_digest TEXT NOT NULL,
+    horizon TEXT NOT NULL,
+    origin_host TEXT NOT NULL,
+    origin_session TEXT NOT NULL,
+    project_root TEXT NOT NULL,
+    repo_identity TEXT NOT NULL,
+    baseline TEXT NOT NULL,
+    dirty INTEGER NOT NULL,
+    target_hosts TEXT NOT NULL,
+    permission_intent TEXT NOT NULL,
+    host_permission TEXT,
+    max_sessions INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    depth INTEGER NOT NULL,
+    summary TEXT NOT NULL,
+    state TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+)""",
+    """CREATE TABLE delegations (
+    delegation_id TEXT PRIMARY KEY,
+    envelope_id TEXT NOT NULL REFERENCES authorizations(envelope_id),
+    launch_key TEXT NOT NULL UNIQUE,
+    target_host TEXT NOT NULL,
+    permission_intent TEXT NOT NULL,
+    friendly_name TEXT NOT NULL,
+    state TEXT NOT NULL,
+    host_ref TEXT,
+    host_session_ref TEXT,
+    host_version TEXT,
+    actual_permission TEXT,
+    last_turn_ref TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+)""",
+)
+
+
 class DelegationError(ValueError):
     """The request is unauthorized, ambiguous, stale, or stored unsafely."""
 
@@ -317,28 +359,26 @@ class DelegationStore:
         self._prepare_database()
 
     def _prepare_root(self) -> None:
-        if self.root.exists() or self.root.is_symlink():
+        if not (self.root.exists() or self.root.is_symlink()):
             try:
-                metadata = self.root.lstat()
+                self.root.mkdir(parents=True, mode=0o700)
+                self.root.chmod(0o700)
+            except FileExistsError:
+                pass  # delegation-store-init D127: another process created it meanwhile; check it below
             except OSError as error:
-                raise DelegationError("state directory is unavailable") from error
-            if stat.S_ISLNK(metadata.st_mode):
-                raise DelegationError("state directory must not be a symbolic link")
-            if not stat.S_ISDIR(metadata.st_mode):
-                raise DelegationError("state path must be a directory")
-            if metadata.st_uid != os.getuid():
-                raise DelegationError("state directory must belong to the current user")
-            if stat.S_IMODE(metadata.st_mode) != 0o700:
-                raise DelegationError("state directory must have mode 0700")
-            return
+                raise DelegationError("state directory could not be created") from error
         try:
-            self.root.mkdir(parents=True, mode=0o700)
-            self.root.chmod(0o700)
+            metadata = self.root.lstat()
         except OSError as error:
-            raise DelegationError("state directory could not be created") from error
-        metadata = self.root.lstat()
-        if metadata.st_uid != os.getuid() or stat.S_IMODE(metadata.st_mode) != 0o700:
-            raise DelegationError("state directory must belong to the current user with mode 0700")
+            raise DelegationError("state directory is unavailable") from error
+        if stat.S_ISLNK(metadata.st_mode):
+            raise DelegationError("state directory must not be a symbolic link")
+        if not stat.S_ISDIR(metadata.st_mode):
+            raise DelegationError("state path must be a directory")
+        if metadata.st_uid != os.getuid():
+            raise DelegationError("state directory must belong to the current user")
+        if stat.S_IMODE(metadata.st_mode) != 0o700:
+            raise DelegationError("state directory must have mode 0700")
 
     def _database_metadata(self) -> os.stat_result:
         try:
@@ -356,21 +396,21 @@ class DelegationStore:
         return metadata
 
     def _prepare_database(self) -> None:
-        created = False
-        if self.database.exists() or self.database.is_symlink():
-            self._database_metadata()
-        else:
+        if not (self.database.exists() or self.database.is_symlink()):
             flags = os.O_CREAT | os.O_EXCL | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
             try:
                 descriptor = os.open(self.database, flags, 0o600)
                 os.close(descriptor)
                 self.database.chmod(0o600)
-                created = True
+            except FileExistsError:
+                pass  # D128: another process created it meanwhile; checked below like any existing file
             except OSError as error:
                 raise DelegationError("delegation database could not be created") from error
+        self._database_metadata()
         try:
-            if created:
-                self._initialize_schema()
+            # D128: every opener, not only the file's creator, completes an empty database; a process that saw the
+            # creator's empty file used to fail, and a creator that died before its tables left it unusable.
+            self._initialize_if_empty()
             self._validate_schema()
         except DelegationError:
             raise
@@ -412,54 +452,22 @@ class DelegationStore:
                     or stat.S_IMODE(metadata.st_mode) != 0o600):
                 raise DelegationError("delegation database sidecar is unsafe")
 
-    def _initialize_schema(self) -> None:
+    def _initialize_if_empty(self) -> None:
+        """Create the tables only in an empty database (version 0, no tables), deciding under the write lock."""
         with self._connection() as connection:
             try:
-                connection.executescript(
-                    """
-                    BEGIN IMMEDIATE;
-                    CREATE TABLE authorizations (
-                        envelope_id TEXT PRIMARY KEY,
-                        idempotency_key TEXT NOT NULL UNIQUE,
-                        request_digest TEXT NOT NULL,
-                        horizon TEXT NOT NULL,
-                        origin_host TEXT NOT NULL,
-                        origin_session TEXT NOT NULL,
-                        project_root TEXT NOT NULL,
-                        repo_identity TEXT NOT NULL,
-                        baseline TEXT NOT NULL,
-                        dirty INTEGER NOT NULL,
-                        target_hosts TEXT NOT NULL,
-                        permission_intent TEXT NOT NULL,
-                        host_permission TEXT,
-                        max_sessions INTEGER NOT NULL,
-                        expires_at INTEGER NOT NULL,
-                        depth INTEGER NOT NULL,
-                        summary TEXT NOT NULL,
-                        state TEXT NOT NULL,
-                        created_at INTEGER NOT NULL,
-                        updated_at INTEGER NOT NULL
-                    );
-                    CREATE TABLE delegations (
-                        delegation_id TEXT PRIMARY KEY,
-                        envelope_id TEXT NOT NULL REFERENCES authorizations(envelope_id),
-                        launch_key TEXT NOT NULL UNIQUE,
-                        target_host TEXT NOT NULL,
-                        permission_intent TEXT NOT NULL,
-                        friendly_name TEXT NOT NULL,
-                        state TEXT NOT NULL,
-                        host_ref TEXT,
-                        host_session_ref TEXT,
-                        host_version TEXT,
-                        actual_permission TEXT,
-                        last_turn_ref TEXT,
-                        created_at INTEGER NOT NULL,
-                        updated_at INTEGER NOT NULL
-                    );
-                    PRAGMA user_version = 2;
-                    COMMIT;
-                    """
-                )
+                connection.execute("BEGIN IMMEDIATE")
+                version = connection.execute("PRAGMA user_version").fetchone()[0]
+                tables = connection.execute(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table'").fetchone()[0]
+                if version != 0 or tables:
+                    connection.execute("ROLLBACK")
+                    return
+                # Statement by statement: executescript() would COMMIT first and drop the write lock.
+                for statement in _SCHEMA_STATEMENTS:
+                    connection.execute(statement)
+                connection.execute("PRAGMA user_version = 2")
+                connection.execute("COMMIT")
             except sqlite3.Error:
                 if connection.in_transaction:
                     connection.execute("ROLLBACK")

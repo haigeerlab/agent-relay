@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+- **多个进程同时首次打开委派库不再报错**（模块 `delegation-store-init`，D127、D128，`delegation-claim` 实测时发现）：以前几个
+  进程同时第一次创建 `~/.agent-relay/delegation/` 时，可能报 “state directory could not be created” 或 “delegation database
+  schema is incomplete”（主分支代码复现 30 次失败 3 次）；建库进程若在建表前死掉，留下的空库文件以后每次都被拒绝。现在目录被
+  别的进程抢先建好时照常检查后使用，每个打开的进程都在写事务里给空库（版本 0 且没有任何表）建表，其他进程等它完成；已有
+  内容但结构不对的库照旧拒绝，目录、文件与附属文件的检查不变。委派库结构仍为 2。
 - **委派一次只有一个调用能碰到宿主**（模块 `delegation-claim`，D122–D125，0.4.0 架构审核）：以前用同一个启动键并发创建时，
   两个调用都会启动宿主会话（Codex 发两次 `thread/start`），并发追问会发出两轮，后到的那个在宿主已经动了之后才失败。现在
   控制器在调用 Claude/Codex 适配器之前先认领这个委派（`~/.agent-relay/delegation/claims/<id>.lock` 上的 flock，进程死掉
