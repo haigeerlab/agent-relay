@@ -154,6 +154,8 @@ after this one.
   the fixed text "agent-relay test notification" through the same `osascript` call and prints "Did a banner appear?
   If not, see the notifications check." It never runs without the flag.
 - **D79 other channels (evaluation, no code).**
+  *Note 2026-10-08: superseded in part by `spec/notify-channel.md` — terminal-notifier was installed on the user's Mac
+  and allowed, while Script Editor could not be allowed at all; it is now used when present (D83).*
   - Codex app's own notices: they come from the Codex turn, which needs a wake; useless exactly when the wake was held
     or Codex is offline.
   - `display alert` / dialog via `osascript`: visible without notification permission, but modal and focus-stealing

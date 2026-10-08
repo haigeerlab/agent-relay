@@ -45,7 +45,9 @@ python3 -B "$ROOT/hooks/native_collaboration_runtime.py" doctor
 
 `toolchain` names the Python running doctor and the node it would use (path, version, where it was found); quote it
 when reporting a problem. `codex-waiting` lists messages waiting for a Codex task (count, senders, ids, never bodies); it warns after 10
-minutes. `notifications` says whether macOS appears to let Script Editor show the bridge's notices (best effort;
+minutes. `notifications` says whether macOS appears to let the bridge's channel show its notices (terminal-notifier from
+Homebrew's fixed paths when installed, else Script Editor via osascript, which can never be allowed because it never
+asks) (best effort;
 Focus is invisible to it). When the user wants to check a banner, add `--test-notification`: it shows one
 notification with the fixed text "agent-relay test notification"; ask the user whether it appeared. Never run it
 unasked.

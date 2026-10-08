@@ -89,12 +89,16 @@ codex plugin add agent-relay@agent-relay-marketplace
   门控只在确认能生效时才用：**真正挡住老版本的是事前的版本门槛**（ChatGPT 应用 26.930 或更新，否则唤醒挂起并通知你）；
   唤醒后再读该线程这一轮的记录核对（只是兜底），对不上就在信箱目录写 `codex-gate.off`、停用门控唤醒并通知你，你检查过
   再删掉这个文件。Claude 的权限模式 bridge 看不到，自动批准的 Claude 会话仍靠 skill 规则不绑定唤醒。
-- **Codex 收不到时会通知你**：Codex 没开、被挂起、或身份没绑定唤醒时，bridge 立刻在这台 Mac 上弹一条通知（写明哪个
-  会话、第几号消息，不含正文），Codex 只是在忙则 10 分钟后仍未送达才通知；每条消息最多一次。不想要就在信箱目录
-  （`~/.agent-relay/runtime/mailbox/`）放一个 `notify.off` 文件。
-  通知由 `osascript` 发出，macOS 把它记在“脚本编辑器”名下；没开权限或开着专注模式时，macOS 会**悄悄丢掉**它，bridge
-  无从得知，所以 wake 详情和发件方警告只写“已尝试通知”（attempted）。看不到横幅时，到“系统设置 → 通知 → 脚本编辑器”
-  打开允许通知；doctor 的 `notifications` 检查会告诉你看起来是否已允许，`doctor --test-notification` 弹一条测试通知让你确认。
+- **Codex 收不到时会通知你**：Codex 没开、被挂起、或身份没绑定唤醒时，bridge 立刻在这台 Mac 上弹一条通知，Codex 只是
+  在忙则 10 分钟后仍未送达才通知；每条消息最多一次。通知的标题写发件会话，副标题写消息编号、收件身份和原因（需要你动手时
+  写明怎么做），正文是**消息开头最多 60 字的单行预览**。预览会出现在锁屏和共享屏幕上（macOS 的“显示预览”设置可限制）；
+  不想显示正文，就在信箱目录（`~/.agent-relay/runtime/mailbox/`）放一个 `notify-preview.off` 文件，退回只写编号的样式；
+  完全不要通知就放 `notify.off`。
+  **通道**：装了 Homebrew 的 terminal-notifier（只认 `/opt/homebrew/bin` 与 `/usr/local/bin`，不按 PATH 找）就用它，
+  否则用 `osascript`。`osascript` 的通知记在“脚本编辑器”名下，而脚本编辑器从不申请通知权限，所以多数 Mac 上会被**悄悄
+  丢掉**、系统设置里也找不到开关；想看到横幅就 `brew install terminal-notifier`（是否安装由你决定），第一次弹出时允许它。
+  bridge 看不到 macOS 是否真的显示了，所以 wake 详情和发件方警告只写“已尝试通知”（attempted）。doctor 的
+  `notifications` 检查按实际通道判断看起来是否允许，`doctor --test-notification` 走同一通道弹一条测试通知让你确认。
   一定看得到的地方是**等待列表**：在任一会话里问“有哪些等 Codex 处理的消息”，或跑 doctor 看 `codex-waiting`（只列数量、
   发件方和编号，不含正文）。
 - **发给收不到提醒的身份时会提示发件方**：收件方既没绑定唤醒、bridge 也不知道它在哪个宿主（例如 Codex 以 `wake: null`

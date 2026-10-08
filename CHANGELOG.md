@@ -4,7 +4,8 @@
 
 接口升到 **1.3**（`interface.json`）：`bridge_register` 的 `host`、`bridge_agents` 的 `waiting` 与 `host.verified` 都是
 1.x 内的兼容新增；Spec Guard 的探测范围 `>=1.0,<2.0` 不用改。其他通知渠道的评估（Codex App 自己的提示、弹窗、
-terminal-notifier）见 `spec/acceptance-030-gaps.md` D79，结论是不加，以等待列表为准。
+terminal-notifier）见 `spec/acceptance-030-gaps.md` D79；其中“terminal-notifier 未安装”一条已由 `notify-channel` 修正：
+装了就用它（见下）。等待列表仍是一定看得到的地方。
 
 - **doctor 按实际通道判断通知**（模块 `notify-channel`，D87）：找到合格的 terminal-notifier 时看它在通知中心的授权，否则看
   脚本编辑器；脚本编辑器无法被允许（它从不申请），所以提示改为“装 terminal-notifier（你决定）或用等待列表”，不再让你去
