@@ -419,6 +419,21 @@ class DoctorTests(unittest.TestCase):
         self.assertIn("no node on PATH", check["detail"])
         self.assertIn("Node 22.5.0", check["next"])
 
+    def test_an_interrupted_swap_fails_the_runtime_check_and_names_recover(self):
+        # upgrade-recovery D109.
+        import native_collaboration_runtime as runtime
+        runtime._write_journal(self.root, {"kind": "upgrade", "step": "promoting", "runtime": str(self.root),
+                                           "incoming": str(self.root.parent / "in"), "outgoing": None,
+                                           "park": str(self.root.parent / "park")})
+        check = self.find(self.run_doctor(), "runtime")
+        self.assertEqual(check["state"], "fail", check)
+        self.assertIn("stopped half way", check["detail"])
+        self.assertIn("recover --confirm", check["next"])
+        runtime._journal_path(self.root).write_text("not json")
+        check = self.find(self.run_doctor(), "runtime")
+        self.assertEqual(check["state"], "fail", check)
+        self.assertIn("cannot be read", check["detail"])
+
     def test_doctor_no_longer_takes_claude_settings(self):
         # legacy-cli-cleanup D97: doctor stopped reading the Claude settings in orchestrator-removal (D92).
         import contextlib

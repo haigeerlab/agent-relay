@@ -151,7 +151,18 @@ def _uninstalled(root: Path) -> bool:
 
 
 def status(root: Path) -> dict[str, Any]:
-    """Inspect the optional runtime without creating it or opening the mailbox."""
+    """Inspect the optional runtime without creating it or opening the mailbox.
+
+    A swap journal beside the runtime means an upgrade, reinstall or rollback stopped half way (upgrade-recovery D109).
+    """
+    journal = _read_journal(root)
+    if journal is not None:
+        return {"state": "interrupted", "journal": journal, "next": _RECOVER_NEXT}
+    return _status(root)
+
+
+def _status(root: Path) -> dict[str, Any]:
+    """The runtime directory itself, ignoring any swap journal (used while a swap is under way)."""
     root = Path(root)
     if not root.exists() and not root.is_symlink():
         return {"state": "absent"}
@@ -209,6 +220,13 @@ def _run(command: list[str], *, cwd: Path | None = None, env: dict[str, str] | N
 def install_runtime(root: Path, *, node: str = "node", npm: str = "npm",
                     source: Path = BRIDGE_SOURCE) -> dict[str, Any]:
     """Build the runtime from the verified vendored bridge; never run its broad setup command."""
+    _refuse_when_interrupted(Path(root))
+    return _build_runtime(root, node=node, npm=npm, source=source)
+
+
+def _build_runtime(root: Path, *, node: str = "node", npm: str = "npm",
+                   source: Path = BRIDGE_SOURCE) -> dict[str, Any]:
+    """install_runtime without the journal check: also builds the stage of an upgrade or reinstall."""
     root = Path(root)
     if not root.is_absolute():
         raise NativeRuntimeError("native runtime path must be absolute")
@@ -316,11 +334,13 @@ def probe_runtime(root: Path, *, node: str = "node", scratch: Path | None = None
     return {"state": "ready", "toolCount": len(names)}
 
 
+ROLLBACK_CAVEAT = (
+    "The previous runtime's bridge opens the upgraded (schema 5) mailbox in compatible mode, but an older agent-relay "
+    "plugin's hooks read only schema 2 (to 4): roll the plugin back too, or restore the mailbox from the backup "
+    "(messages sent since are lost).")
 UPGRADE_ROLLBACK = (
-    "To go back to the previous runtime, stop every session using the mailbox, move runtime/mailbox and "
-    "runtime/data into the previous directory, and rename it back to runtime. Its bridge opens the upgraded "
-    "(schema 5) mailbox in compatible mode, but an older agent-relay plugin's hooks read only schema 2 (to 4): roll "
-    "the plugin back too, or restore the mailbox from the backup (messages sent since are lost).")
+    "To go back to the previous runtime, close every session using the mailbox and run "
+    "native_collaboration_runtime.py rollback --confirm (it uses the newest runtime.previous-*). " + ROLLBACK_CAVEAT)
 
 
 def _servers_running(root: Path) -> int:
@@ -390,6 +410,134 @@ def _mailbox_counts(database: Path) -> dict[str, int]:
                 for table in ("agents", "messages", "acknowledgements", "wake_jobs") if table in tables}
 
 
+# upgrade-recovery D104: a swap of the runtime directory (upgrade, reinstall, rollback) is journalled beside it, with
+# the step before each move, so a swap stopped at any point is found and put back.
+SWAP_STEPS = ("moving-history", "retiring-runtime", "promoting", "verifying")
+_RECOVER_NEXT = ("a runtime swap stopped half way; close every session using the mailbox, then run "
+                 "native_collaboration_runtime.py recover --confirm to put the previous runtime back")
+HISTORY = ("mailbox", "data")
+
+
+def _journal_path(root: Path) -> Path:
+    return Path(root).parent / "runtime-swap.json"
+
+
+def _read_journal(root: Path) -> dict[str, Any] | None:
+    path = _journal_path(root)
+    if not path.exists() and not path.is_symlink():
+        return None
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError) as error:
+        raise NativeRuntimeError(f"the runtime swap journal {path} cannot be read; it needs a person") from error
+    if not isinstance(value, dict) or value.get("step") not in SWAP_STEPS or value.get("kind") not in (
+            "upgrade", "reinstall", "rollback"):
+        raise NativeRuntimeError(f"the runtime swap journal {path} is not one this plugin wrote; it needs a person")
+    return value
+
+
+def _write_journal(root: Path, journal: dict[str, Any]) -> None:
+    """Write the whole journal or nothing: a private temporary file renamed over the journal."""
+    path = _journal_path(root)
+    descriptor, temporary = tempfile.mkstemp(prefix=path.name + ".", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(journal, handle, sort_keys=True)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, path)
+    except BaseException:
+        Path(temporary).unlink(missing_ok=True)
+        raise
+
+
+def _refuse_when_interrupted(root: Path) -> None:
+    if _read_journal(root) is not None:
+        raise NativeRuntimeError(_RECOVER_NEXT)
+
+
+def _put_back(journal: dict[str, Any]) -> Path:
+    """Undo a journalled swap from any step: the pre-swap runtime gets its name and its history back, the incoming
+    directory goes to `park`. Never rolls forward (upgrade-recovery D105). Returns where the incoming directory went."""
+    root, incoming, park = Path(journal["runtime"]), Path(journal["incoming"]), Path(journal["park"])
+    outgoing = Path(journal["outgoing"]) if journal.get("outgoing") else None
+    step = journal["step"]
+    # Where the incoming directory is now: still under its own name, or already promoted to `runtime`.
+    if not incoming.exists() and step in ("promoting", "verifying") and root.exists():
+        if park.exists():
+            raise NativeRuntimeError(f"{park} already exists; the incoming runtime cannot be parked there")
+        root.rename(park)
+        incoming = park
+    # The pre-swap runtime gets its name back (a reinstall's was an empty directory around the history).
+    if outgoing is not None and not root.exists() and outgoing.exists():
+        outgoing.rename(root)
+    if not root.exists():
+        root.mkdir(mode=0o700)
+    for name in HISTORY:
+        if (incoming / name).exists() and not (root / name).exists():
+            (incoming / name).rename(root / name)
+    if incoming != park and incoming.exists():
+        if park.exists():
+            raise NativeRuntimeError(f"{park} already exists; the incoming runtime cannot be parked there")
+        incoming.rename(park)
+    return park
+
+
+def recover_runtime(root: Path, *, running=_servers_running) -> dict[str, Any]:
+    """Put an interrupted swap back to the runtime it started from, mailbox and data included (D105)."""
+    root = Path(root)
+    journal = _read_journal(root)
+    if journal is None:
+        raise NativeRuntimeError("nothing to recover: no runtime swap journal at " + str(_journal_path(root)))
+    places = [root, Path(journal["incoming"]), Path(journal["park"])]
+    if journal.get("outgoing"):
+        places.append(Path(journal["outgoing"]))
+    if any(running(place) for place in places):
+        raise NativeRuntimeError("a bridge server of this runtime is running; close every session using the "
+                                 "mailbox first")
+    parked = _put_back(journal)
+    counts = _mailbox_counts(root / "mailbox" / "bridge.sqlite")
+    if journal.get("counts") and counts != journal["counts"]:
+        raise NativeRuntimeError(f"recovered, but the mailbox row counts differ from before the swap ({counts} vs "
+                                 f"{journal['counts']}); the journal is kept, check the mailbox before going on")
+    _journal_path(root).unlink()
+    return {"state": "recovered", "kind": journal["kind"], "parked": str(parked), "runtime": _status(root)}
+
+
+def _swap(root: Path, journal: dict[str, Any], steps: dict[str, Callable[[], None]], verify: Callable[[], None]) -> None:
+    """Run a journalled swap (D104, D106): the journal names each step before its moves, and any failure, the final
+    rename and the verification included, puts the runtime back at once. Without a journal yet, nothing has moved."""
+    try:
+        for step in SWAP_STEPS[:-1]:
+            journal["step"] = step
+            _write_journal(root, journal)
+            steps[step]()
+        journal["step"] = "verifying"
+        _write_journal(root, journal)
+        verify()
+    except BaseException as error:
+        current = _read_journal(root)
+        if current is None:
+            # The first journal write failed: nothing moved, and the stage holds no history; it is the caller's build.
+            shutil.rmtree(journal["incoming"], ignore_errors=True)
+            raise
+        parked = _put_back(current)  # if this fails too, the journal stays for `recover --confirm`
+        _journal_path(root).unlink()
+        if not isinstance(error, Exception):
+            raise
+        raise NativeRuntimeError(f"{journal['kind']} failed ({error}) and was rolled back; the runtime that was "
+                                 f"coming in is at {parked}") from error
+    _journal_path(root).unlink()
+
+
+def _stage_name(parent: Path, kind: str, stamp: str) -> Path:
+    """A stage no other call uses (D107): the build refuses an existing one, so it is ours once the build returns."""
+    import secrets
+
+    return parent / f".runtime-{kind}-{stamp}-{secrets.token_hex(3)}"
+
+
 def upgrade_runtime(root: Path, *, node: str = "node", npm: str = "npm", source: Path = BRIDGE_SOURCE,
                     backups: Path | None = None, running=_servers_running) -> dict[str, Any]:
     """Replace an installed runtime with one built from the plugin's bridge, keeping mailbox and data (D26).
@@ -402,6 +550,7 @@ def upgrade_runtime(root: Path, *, node: str = "node", npm: str = "npm", source:
     import time
 
     root = Path(root)
+    _refuse_when_interrupted(root)
     before = status(root)
     if before["state"] != "ready":
         raise NativeRuntimeError("only a ready runtime can be upgraded: " + str(before.get("diagnostic", before["state"])))
@@ -416,9 +565,9 @@ def upgrade_runtime(root: Path, *, node: str = "node", npm: str = "npm", source:
     for attempt in range(100):
         stamp = second if attempt == 0 else f"{second}-{attempt}"
         backup = backups / stamp
-        stage = root.parent / f".runtime-upgrade-{stamp}"
         previous = root.parent / f"runtime.previous-{stamp}"
-        if not (stage.exists() or previous.exists() or backup.exists()):
+        park = root.parent / f".runtime-upgrade-failed-{stamp}"
+        if not (park.exists() or previous.exists() or backup.exists()):
             break
     else:
         raise NativeRuntimeError("an upgrade with this timestamp already exists; retry in a second")
@@ -429,43 +578,99 @@ def upgrade_runtime(root: Path, *, node: str = "node", npm: str = "npm", source:
     backups.chmod(0o700)  # it may predate this command with a wider mode; it holds full mailbox copies
     backup.mkdir(mode=0o700)
     shutil.copytree(root / "mailbox", backup / "runtime-mailbox")
+    stage = _stage_name(root.parent, "upgrade", stamp)
+    _build_runtime(stage, node=node, npm=npm, source=source)  # refuses an existing stage, cleans up after itself
     try:
-        install_runtime(stage, node=node, npm=npm, source=source)
-        for name in ("mailbox", "data"):
+        for name in HISTORY:
             shutil.rmtree(stage / name)
     except BaseException:
-        shutil.rmtree(stage, ignore_errors=True)
+        shutil.rmtree(stage, ignore_errors=True)  # built by this call just above
         raise
 
-    moved: list[str] = []
-    try:
-        for name in ("mailbox", "data"):
+    def move_history() -> None:
+        for name in HISTORY:
             (root / name).rename(stage / name)
-            moved.append(name)
-        root.rename(previous)
-    except BaseException:
-        for name in moved:
-            (stage / name).rename(root / name)
-        shutil.rmtree(stage, ignore_errors=True)
-        raise
-    stage.rename(root)
 
-    after = status(root)
-    after_counts = _mailbox_counts(root / "mailbox" / "bridge.sqlite")
-    if after["state"] != "ready" or not after["bridge"]["current"] or after_counts != counts:
-        failed = root.parent / f".runtime-upgrade-failed-{stamp}"
-        root.rename(failed)
-        for name in ("mailbox", "data"):
-            (failed / name).rename(previous / name)
-        previous.rename(root)
-        raise NativeRuntimeError(f"upgrade verification failed and was rolled back (new build kept at {failed})")
+    def verify() -> None:
+        after = _status(root)
+        if after["state"] != "ready" or not after["bridge"]["current"]:
+            raise NativeRuntimeError("the new runtime is not ready: " + str(after.get("diagnostic", after["state"])))
+        if _mailbox_counts(root / "mailbox" / "bridge.sqlite") != counts:
+            raise NativeRuntimeError("the mailbox row counts changed")
+
+    journal = {"kind": "upgrade", "stamp": stamp, "runtime": str(root), "incoming": str(stage),
+               "outgoing": str(previous), "park": str(park), "counts": counts}
+    _swap(root, journal, {"moving-history": move_history, "retiring-runtime": lambda: root.rename(previous),
+                          "promoting": lambda: stage.rename(root)}, verify)
+    after = _status(root)
     return {"state": "upgraded", "bridge": after["bridge"], "counts": counts,
             "previous": str(previous), "backup": str(backup), "rollback": UPGRADE_ROLLBACK}
+
+
+def _free_stamp(root: Path, backups: Path, *names: str) -> str:
+    """This UTC second, or the next free suffix, so no backup or swap directory of it exists yet (D74)."""
+    import time
+
+    second = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    for attempt in range(100):
+        stamp = second if attempt == 0 else f"{second}-{attempt}"
+        if not (backups / stamp).exists() and not any((root.parent / (name + stamp)).exists() for name in names):
+            return stamp
+    raise NativeRuntimeError("a swap with this timestamp already exists; retry in a second")
+
+
+def rollback_runtime(root: Path, *, backups: Path | None = None, running=_servers_running) -> dict[str, Any]:
+    """Swap back to the newest runtime.previous-* with mailbox and data (upgrade-recovery D108), journalled like an
+    upgrade. The current build is kept as runtime.rolled-back-<stamp>; nothing is deleted."""
+    root = Path(root)
+    _refuse_when_interrupted(root)
+    current = status(root)
+    if current["state"] != "ready":
+        raise NativeRuntimeError("only a ready runtime can be rolled back: " + str(current.get("diagnostic", current["state"])))
+    candidates = sorted(path for path in root.parent.glob("runtime.previous-*")
+                        if (path / "manifest.json").is_file() and (path / "dist" / "server.js").is_file())
+    if not candidates:
+        raise NativeRuntimeError("there is no previous runtime (runtime.previous-*) to roll back to")
+    previous = candidates[-1]
+    if running(root) or running(previous):
+        raise NativeRuntimeError("a bridge server of this runtime is running; close every session using the "
+                                 "mailbox first")
+    backups = Path(backups) if backups is not None else root.parent / "backups"
+    stamp = _free_stamp(root, backups, "runtime.rolled-back-")
+    outgoing = root.parent / f"runtime.rolled-back-{stamp}"
+    counts = _mailbox_counts(root / "mailbox" / "bridge.sqlite")
+    if not backups.exists():
+        backups.mkdir(mode=0o700)
+    backups.chmod(0o700)
+    backup = backups / stamp
+    backup.mkdir(mode=0o700)
+    shutil.copytree(root / "mailbox", backup / "runtime-mailbox")
+
+    def move_history() -> None:
+        for name in HISTORY:
+            if (previous / name).exists():
+                raise NativeRuntimeError(f"{previous / name} already exists; it is not an emptied previous runtime")
+            (root / name).rename(previous / name)
+
+    def verify() -> None:
+        after = _status(root)
+        if after["state"] != "ready":
+            raise NativeRuntimeError("the previous runtime is not ready: " + str(after.get("diagnostic")))
+        if _mailbox_counts(root / "mailbox" / "bridge.sqlite") != counts:
+            raise NativeRuntimeError("the mailbox row counts changed")
+
+    journal = {"kind": "rollback", "stamp": stamp, "runtime": str(root), "incoming": str(previous),
+               "outgoing": str(outgoing), "park": str(previous), "counts": counts}
+    _swap(root, journal, {"moving-history": move_history, "retiring-runtime": lambda: root.rename(outgoing),
+                          "promoting": lambda: previous.rename(root)}, verify)
+    return {"state": "rolled-back", "runtime": _status(root), "previous": str(previous),
+            "rolledBack": str(outgoing), "backup": str(backup), "counts": counts, "caveat": ROLLBACK_CAVEAT}
 
 
 def uninstall_runtime(root: Path, *, running=_servers_running) -> dict[str, Any]:
     """Remove the runtime build and keep `mailbox/` (history, backups) and `data/` (safe-uninstall D47)."""
     root = Path(root)
+    _refuse_when_interrupted(root)
     current = status(root)
     if current["state"] in ("absent", "uninstalled"):
         return current
@@ -489,39 +694,40 @@ def _reinstall_around_history(root: Path, *, node: str, npm: str, source: Path) 
     import time
 
     counts = _mailbox_counts(root / "mailbox" / "bridge.sqlite")
-    stage = root.parent / f".runtime-reinstall-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}"
+    stamp = time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())
+    stage = _stage_name(root.parent, "reinstall", stamp)
+    _build_runtime(stage, node=node, npm=npm, source=source)  # refuses an existing stage, cleans up after itself
     try:
-        install_runtime(stage, node=node, npm=npm, source=source)
         for name in KEPT_ON_UNINSTALL:
             shutil.rmtree(stage / name)
     except BaseException:
-        shutil.rmtree(stage, ignore_errors=True)
+        shutil.rmtree(stage, ignore_errors=True)  # built by this call just above
         raise
-    moved: list[str] = []
-    try:
+
+    def move_history() -> None:
         for name in KEPT_ON_UNINSTALL:
             if (root / name).exists():
                 (root / name).rename(stage / name)
-                moved.append(name)
-        for name in KEPT_ON_UNINSTALL:
-            if not (stage / name).exists():
+            else:
                 (stage / name).mkdir(mode=0o700)
-        root.rmdir()
-    except BaseException:
-        for name in moved:
-            (stage / name).rename(root / name)
-        shutil.rmtree(stage, ignore_errors=True)
-        raise
-    stage.rename(root)
-    if _mailbox_counts(root / "mailbox" / "bridge.sqlite") != counts:
-        raise NativeRuntimeError("reinstall finished but the mailbox row counts changed; check the runtime")
-    return status(root)
+
+    def verify() -> None:
+        if _mailbox_counts(root / "mailbox" / "bridge.sqlite") != counts:
+            raise NativeRuntimeError("the mailbox row counts changed")
+
+    journal = {"kind": "reinstall", "stamp": stamp, "runtime": str(root), "incoming": str(stage), "outgoing": None,
+               "park": str(stage.parent / stage.name.replace(".runtime-reinstall-", ".runtime-reinstall-failed-")),
+               "counts": counts}
+    _swap(root, journal, {"moving-history": move_history, "retiring-runtime": root.rmdir,
+                          "promoting": lambda: stage.rename(root)}, verify)
+    return _status(root)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("status", "install", "probe", "upgrade", "doctor", "uninstall"))
-    parser.add_argument("--confirm", action="store_true", help="required for upgrade and uninstall")
+    parser.add_argument("command", choices=("status", "install", "probe", "upgrade", "doctor", "uninstall", "recover",
+                                            "rollback"))
+    parser.add_argument("--confirm", action="store_true", help="required for upgrade, uninstall, recover and rollback")
     parser.add_argument("--root", type=Path)
     parser.add_argument("--node", help="default: doctor uses the node the host entries pin (then PATH); "
                                        "the other commands use PATH's node")
@@ -541,6 +747,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "uninstall" and not args.confirm:
         parser.exit(2, f"{parser.prog}: error: uninstall removes the runtime build (history is kept); rerun with "
                        "--confirm after the user agrees and every session using the mailbox is closed\n")
+    if args.command == "rollback" and not args.confirm:
+        parser.exit(2, f"{parser.prog}: error: rollback swaps back to the previous runtime; rerun with --confirm after "
+                       "the user agrees and every session using the mailbox is closed\n")
+    if args.command == "recover" and not args.confirm:
+        parser.exit(2, f"{parser.prog}: error: recover puts the runtime back as it was before the interrupted swap; "
+                       "rerun with --confirm after the user agrees and every session using the mailbox is closed\n")
     if args.command in ("install", "upgrade"):
         # The node the host entries pin, checked before anything is built (acceptance-kit-round2 D57).
         from node_select import NodeSelectError, select_node
@@ -565,6 +777,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1 if report["state"] == "fail" else 0
     try:
         result = (upgrade_runtime(args.root, node=args.node, npm=args.npm) if args.command == "upgrade" else
+                  recover_runtime(args.root) if args.command == "recover" else
+                  rollback_runtime(args.root) if args.command == "rollback" else
                   uninstall_runtime(args.root) if args.command == "uninstall" else
                   status(args.root) if args.command == "status" else
                   probe_runtime(args.root, node=args.node) if args.command == "probe" else
@@ -572,7 +786,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     except NativeRuntimeError as error:
         result = {"state": "error", "diagnostic": str(error)}
     print(json.dumps(result, sort_keys=True))
-    return 0 if result["state"] in ("absent", "ready", "upgraded", "current", "uninstalled") else 1
+    return 0 if result["state"] in ("absent", "ready", "upgraded", "current", "uninstalled", "recovered",
+                                            "rolled-back") else 1
 
 
 if __name__ == "__main__":

@@ -167,6 +167,13 @@ python3 -B plugins/agent-relay/hooks/state_migration.py migrate --confirm
 回到旧运行时还能打开它，但旧版 agent-relay 插件只认 schema 2（到 4），所以回滚时要连插件一起回滚，或者用备份恢复邮箱
 （之后收到的消息会丢失）。
 
+- **回滚**：同样关掉所有会话后执行 `native_collaboration_runtime.py rollback --confirm`，回到最新的
+  `runtime.previous-<时间>`，信箱和数据一起带过去；先备份信箱，当前版本保留为 `runtime.rolled-back-<时间>`。
+- **中途被打断**：升级、重装或回滚半路停下（进程被杀、断电），`~/.agent-relay/runtime-swap.json` 会留下记录，`status` 报
+  `interrupted`，doctor 判为 fail，其他命令拒绝执行。关掉所有会话后执行 `native_collaboration_runtime.py recover --confirm`：
+  一律回到切换前的运行时（不往前补完），没换成的那份保留为 `.runtime-<类型>-failed-<时间>`。之后可以再升级一次。
+- `runtime.previous-*`、`runtime.rolled-back-*`、`.runtime-*-failed-*` 都不会自动删除，确认无误后由你删。
+
 ## 卸载
 
 完整卸载按下面的顺序做（`collaboration-ops` skill 会逐步先问你），消息历史默认保留：

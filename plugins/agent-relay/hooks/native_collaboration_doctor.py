@@ -23,8 +23,9 @@ from typing import Any, Callable, Iterable
 from native_collaboration_adapters import CLAUDE_SERVER_NAME, CODEX_SERVER_NAME
 from node_select import NodeSelectError, select_node, toml_table
 from state_migration import _snapshot
-from native_collaboration_runtime import (MAILBOX_SCHEMA_VERSIONS, MAILBOX_TOOLS, live_claude_sessions,
-                                          open_mailbox_read_only, pid_alive, probe_runtime, status)
+from native_collaboration_runtime import (MAILBOX_SCHEMA_VERSIONS, MAILBOX_TOOLS, NativeRuntimeError,
+                                          live_claude_sessions, open_mailbox_read_only, pid_alive, probe_runtime,
+                                          status)
 
 DEFAULT_MAX_PENDING = 100
 OLD_BRIDGE = "/.spec-guard/native-collaboration/dist/server.js"
@@ -61,7 +62,15 @@ def codex_auto_approval(path: Path) -> tuple[bool, str]:
 
 
 def _runtime(root: Path) -> tuple[dict[str, str], bool]:
-    current = status(root)
+    try:
+        current = status(root)
+    except NativeRuntimeError as error:  # an unreadable swap journal (upgrade-recovery D109)
+        return _check("runtime", "fail", str(error), "show the journal to the user; do not move anything"), False
+    if current["state"] == "interrupted":
+        journal = current["journal"]
+        return _check("runtime", "fail", f"a runtime {journal['kind']} stopped half way (step {journal['step']})",
+                      "close every session using the mailbox, then run native_collaboration_runtime.py "
+                      "recover --confirm after the user agrees"), False
     if current["state"] == "uninstalled":
         return _check("runtime", "warn", f"runtime build removed; message history kept at {current['history']}",
                       "install it again to use agent-relay (the history is kept), or delete it yourself"), False
