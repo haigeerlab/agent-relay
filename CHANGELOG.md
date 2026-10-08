@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+接口升到 **1.2**（`interface.json`）：自动审批（“帮我批准”）的 Codex 会话现在可以绑定唤醒，属于 1.x 内的兼容变化；
+Spec Guard 的探测范围 `>=1.0,<2.0` 不用改。
+
+- **被唤醒的 Codex 回合要用户批准才能动手**（模块 `codex-gated-wake`，D65）：不论审批模式，bridge 唤醒 Codex 的那一轮
+  都单独设为用户审批、on-request、只读沙箱且不联网；写文件、执行会改东西的命令、联网都会弹审批卡。用户自己的下一轮
+  恢复原设置，`config.toml` 不改。
+- **自动审批不再让协作无声卡住**（D66）：取代原来的“拒绝绑定、挂起唤醒”。门控只在确认能生效时使用：**真正挡住老版本
+  的是事前的版本门槛**（ChatGPT 应用 26.930 或更新，否则挂起并通知用户）；唤醒后读该线程这一轮的 `turn_context`
+  核对只是兜底（每 0.5 秒读一次、最多 10 秒），不符就写 `mailbox/codex-gate.off`、停用门控唤醒并通知用户。
+- **Codex 收不到时通知用户**（D67）：不在线、挂起、未绑定唤醒时立即，忙则 10 分钟后仍未送达才通知；macOS 通知，写明
+  发件会话和消息编号、不含正文，每条消息最多一次，信箱目录放 `notify.off` 可关闭。
+- **doctor 的 `codex-approval` 说法改准**（D68）：App 的审批选择器按轮生效、不写进 `config.toml`；只有 ChatGPT 应用过旧
+  或门控被停用时才 warn。
+- **信箱工具对 Codex 预先批准**（D70）：`install-codex` 给 10 个信箱工具写 `approval_mode = "approve"`，读信、回复、确认
+  不弹卡；已安装的运行 `native_collaboration_adapters.py install-codex --approve-mailbox-tools`（先备份，只补缺的）。
+  不写 `~/.codex/rules`。
+
 - **注册被拒时说明名字已退役**（模块 `register-retired-hint`，0.2.1 验收观察 O1）：另一个会话带 `reactivate: true` 注册
   一个已退役的名字时，拒绝信息除了归属冲突，还写明退役时间和退役人，并说明恢复需要同时带 `reactivate: true` 和
   `takeover: true`。行为不变，接口仍为 1.1。改动在随插件附带的 bridge 里：更新插件后，关闭所有使用信箱的会话、退出

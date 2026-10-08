@@ -82,10 +82,16 @@ codex plugin add agent-relay@agent-relay-marketplace
 ## 授权与安全
 
 - **默认不唤醒**：加入信箱时默认 `wake: null`，空闲的会话不会被别人唤醒；只有你明确要求，当前会话才绑定唤醒。
-- **自动批准的会话永远不绑定唤醒**：被唤醒的会话会执行来信里的请求，所以开着自动批准的会话不允许被唤醒。
-  Codex 由 bridge 直接检查：`~/.codex/config.toml`（或 `$CODEX_HOME`）里 `approvals_reviewer = "guardian_subagent"`
-  或 `approval_policy = "never"` 时拒绝绑定，已绑定的 Codex 唤醒改为挂起（held）并通知发件人；配置读不出来按自动批准
-  处理。bridge 只读这个文件，从不修改。Claude 的权限模式 bridge 看不到，仍靠 skill 规则把关。
+- **被唤醒的 Codex 回合要你批准才能动手**：不管你平时用“帮我批准”还是“请求批准”，bridge 唤醒 Codex 的那一轮都单独
+  改成“用户审批 + on-request + 只读沙箱、不联网”：它能读项目、读信箱、回复，但写文件、跑会改东西的命令、联网都会弹
+  审批卡等你点；你自己的下一轮会恢复你原来的设置，`config.toml` 不会被改。`install-codex` 给 10 个信箱工具写了
+  `approval_mode = "approve"`，所以读信、回复、确认不弹卡（已安装的用 `install-codex --approve-mailbox-tools` 补上）。
+  门控只在确认能生效时才用：**真正挡住老版本的是事前的版本门槛**（ChatGPT 应用 26.930 或更新，否则唤醒挂起并通知你）；
+  唤醒后再读该线程这一轮的记录核对（只是兜底），对不上就在信箱目录写 `codex-gate.off`、停用门控唤醒并通知你，你检查过
+  再删掉这个文件。Claude 的权限模式 bridge 看不到，自动批准的 Claude 会话仍靠 skill 规则不绑定唤醒。
+- **Codex 收不到时会通知你**：Codex 没开、被挂起、或身份没绑定唤醒时，bridge 立刻在这台 Mac 上弹一条通知（写明哪个
+  会话、第几号消息，不含正文），Codex 只是在忙则 10 分钟后仍未送达才通知；每条消息最多一次。不想要就在信箱目录
+  （`~/.agent-relay/runtime/mailbox/`）放一个 `notify.off` 文件。
 - **身份归属于注册它的会话**：发消息（`from`）、ack、自动确认的 `bridge_wait` 只能用本会话注册过的名字，否则拒绝并
   给出下一步。升级后每个会话先重新注册一次名字（记下所属会话）；之后 Claude 会话的名字在 bridge 重启后仍然有效，Codex 会话在 bridge 重启后要先用同一个线程 ID 重新注册。
   别的会话的名字或唤醒绑定，只有你同意后才能用 `takeover: true` 接管；会话只能为自己绑定唤醒。只有原消息的收件人能
@@ -108,9 +114,8 @@ codex plugin add agent-relay@agent-relay-marketplace
   同一个 key 换了收件人、正文、线程或回复对象会被拒绝，报错写明已存消息的编号并说明无需重发。回复可带
   `replyTo`（原消息编号），自动落在原消息的线程上，发件箱里能看到每条消息收到了哪些回复；对同一条消息发同样的回复
   只存一次，除非上一条最终失败或过期。
-- **Codex 的手动审批成本**：Codex 的审批选择器是全局的。设为“请求批准”时，被唤醒的 Codex 回合里每一次信箱
-  调用（读收件箱、发送、确认）都会停下来等人点；设为 AI 自动审批（`approvals_reviewer = "guardian_subagent"`）
-  则等同于自动批准，不应绑定唤醒。
+- **Codex 的审批选择器按轮生效**：App 里的选择器只管你自己发起的那一轮，不写进 `config.toml`；被唤醒的那一轮由
+  bridge 单独加门控（见上），所以用“帮我批准”也可以绑定唤醒。
 
 ## 不做什么
 
@@ -122,7 +127,7 @@ codex plugin add agent-relay@agent-relay-marketplace
 ## 与 Spec Guard 的关系
 
 两个插件互相独立，可以只装其中一个。同时安装时，Spec Guard 读取本插件根目录的
-[`interface.json`](plugins/agent-relay/interface.json)（接口 1.1）判断 agent-relay 是否可用，只通过 agent-relay 的
+[`interface.json`](plugins/agent-relay/interface.json)（接口 1.2）判断 agent-relay 是否可用，只通过 agent-relay 的
 skill 名使用协作；未安装时 Spec Guard 的工作流照常运行，只在需要协作的步骤提示安装。
 
 ### 从 Spec Guard 的协作能力迁移
