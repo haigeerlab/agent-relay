@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+接口升到 **1.3**（`interface.json`）：`bridge_register` 的 `host`、`bridge_agents` 的 `waiting` 与 `host.verified` 都是
+1.x 内的兼容新增；Spec Guard 的探测范围 `>=1.0,<2.0` 不用改。其他通知渠道的评估（Codex App 自己的提示、弹窗、
+terminal-notifier）见 `spec/acceptance-030-gaps.md` D79，结论是不加，以等待列表为准。
+
 - **发给收不到提醒的身份时，发件方会得到警告**（模块 `acceptance-030-gaps`，D72，0.3.0 验收发现 E1）：收件方既没绑定唤醒、
   bridge 也不知道它在哪个宿主（例如以 `wake: null` 注册的 Codex 任务）时，`bridge_send` 的结果加一条警告，说明对方要自己查
   收件箱才会看到。广播、重复发送和 `wake: false` 不提示；不弹桌面通知，投递不变。
