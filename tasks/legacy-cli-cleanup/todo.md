@@ -1,6 +1,6 @@
 # Todo: legacy-cli-cleanup
 
-- [ ] Task 1: the TS CLI keeps only `retire` and `help` (D95)
+- [x] Task 1: the TS CLI keeps only `retire` and `help` (D95) — new `cli.test.ts`: parser refuses the eight removed commands, `--purge` and a third positional, still parses `retire … --note … --keep-backlog`, `--note=…`, `-h`; red (parser test and "an unknown command prints the usage and exits 2": old CLI exited 1 without usage); the retire-through-the-CLI test (output `✓ Retired kept` / `Closed 0 unhandled message(s)`, `--keep-backlog` leaves the message unhandled, `retiredBy` `operator`, unknown name exit 1 with `✗`) was green on the old CLI and stays green as the guard. Then `cli-logic.ts` is the parser only, `cli.ts` is `retire` (verbatim) + `help` + usage on a parse error (exit 2); removed `runtime.ts`, `codex-config.ts`, `diagnostics.ts`, `findStaleAgents` and its test, `scripts/mailbox-request.ts` (needed `runtime.ts`), and the setup/runtime/codex-config/skill-target tests. Built `dist/cli.js` checked by hand: `retire w --keep-backlog` → exit 0 with the same two lines; `setup` → exit 2. Bridge check 141/141; `test_native_collaboration_retire.py` OK. `UPSTREAM.md` row, manifest, CHANGELOG
 - [ ] Task 2: names (D96)
 - [ ] Task 3: Python doctor option and retire docstring (D97)
 - [ ] Checkpoint (report): bridge check, validate on one Python
