@@ -13,6 +13,10 @@
 - **升级不再因同一秒的备份撞名而失败**（模块 `acceptance-030-gaps`，D74）：`install-codex --approve-mailbox-tools` 后一秒内
   执行 `upgrade --confirm`，原来会报 “an upgrade with this timestamp already exists; retry in a second”；现在和宿主配置备份一样
   依次改用 `<时间>-1`、`<时间>-2`……，备份、暂存和 `runtime.previous-` 目录共用同一个后缀。
+- **doctor 检查通知权限**（模块 `acceptance-030-gaps`，D78）：新增 `notifications` 检查，读取通知中心设置（只读）里
+  “脚本编辑器”那一项：从未登记、看起来没允许、读不到都 warn，并写明到“系统设置 → 通知 → 脚本编辑器”打开；看起来已允许
+  则 ok（专注模式仍可能挡住，doctor 看不到）。`doctor --test-notification` 按 bridge 的方式弹一条固定内容的测试通知，只在
+  带这个参数时弹。判断依据是本机实测的未公开格式，所以只说“看起来”。
 - **等 Codex 处理的消息有了一定看得到的地方**（模块 `acceptance-030-gaps`，D77）：`bridge_agents` 给宿主为 Codex 的身份加
   `waiting: {count, from, ids}`（未确认、未失败或过期，最多 20 个编号，不含正文）；collab skill 在你问“有哪些等 Codex 处理的
   消息”时照此回答；doctor 新增 `codex-waiting` 检查，有消息等了超过 10 分钟就 warn，并提示打开那个 Codex 任务。

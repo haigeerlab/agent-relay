@@ -525,6 +525,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--npm", help="default: the npm beside the chosen node, else PATH's")
     for option in ("--codex-config", "--claude-json", "--claude-settings", "--claude-sessions"):
         parser.add_argument(option, type=Path, help="doctor: read this file or directory instead of the default")
+    parser.add_argument("--test-notification", action="store_true",
+                        help="doctor: also show one test notification the way the bridge does, to see if it appears")
     args = parser.parse_args(argv)
     try:
         args.root = args.root or default_root()
@@ -553,6 +555,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         from native_collaboration_doctor import doctor
         report = doctor(args.root, node=args.node, codex_config=args.codex_config, claude_json=args.claude_json,
                         claude_settings=args.claude_settings, claude_sessions=args.claude_sessions)
+        if args.test_notification:  # acceptance-030-gaps D78: only on explicit request
+            from native_collaboration_doctor import send_test_notification
+            report["testNotification"] = send_test_notification()
         print(json.dumps(report, ensure_ascii=False, sort_keys=True))
         return 1 if report["state"] == "fail" else 0
     try:

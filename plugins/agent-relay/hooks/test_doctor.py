@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import plistlib
 import sqlite3
 import tempfile
 import time
@@ -11,10 +12,18 @@ import sys
 import unittest
 
 from native_collaboration_adapters import CLAUDE_SERVER_NAME, codex_fragment
-from native_collaboration_doctor import codex_auto_approval, doctor
+from native_collaboration_doctor import TEST_NOTIFICATION_TEXT, codex_auto_approval, doctor, send_test_notification
 from native_collaboration_runtime import BRIDGE_COMMIT, BRIDGE_SOURCE, DENIED_TOOLS, bridge_tree, main
 
 NODE = Path(sys.executable)
+SCRIPT_EDITOR = "com.apple.ScriptEditor2"
+# Measured on this Mac 2026-10-08: apps that show notifications have an auth value and flag 0x2000000.
+SCRIPT_EDITOR_ALLOWED = {"bundle-id": SCRIPT_EDITOR, "flags": 0x12802056, "auth": 7}
+SCRIPT_EDITOR_NEVER_ALLOWED = {"bundle-id": SCRIPT_EDITOR, "flags": 0x200e}  # the real entry when E2 was found
+
+
+def prefs(*apps):
+    return plistlib.dumps({"apps": [{"bundle-id": "com.apple.mail", "flags": 0x1280000e, "auth": 1}, *apps]})
 
 
 class DoctorTests(unittest.TestCase):
@@ -74,7 +83,8 @@ class DoctorTests(unittest.TestCase):
                        claude_settings=self.claude_settings, claude_sessions=self.sessions,
                        probe=lambda _root: {"state": "ready", "toolCount": 17},
                        processes=lambda: self.processes, alive=lambda pid: pid in self.alive,
-                       codex_app_version=lambda: "26.930.61225")
+                       codex_app_version=lambda: "26.930.61225",
+                       notification_prefs=lambda: prefs(SCRIPT_EDITOR_ALLOWED), platform="darwin")
         options.update(overrides)
         return doctor(self.root, **options)
 
@@ -262,6 +272,58 @@ class DoctorTests(unittest.TestCase):
         self.assertIn("10 minutes", check["detail"])
         self.assertIn("open that Codex task", check["next"])
 
+    def test_notifications_check_reads_script_editor_best_effort(self):
+        # acceptance-030-gaps D78: osascript notifications are attributed to Script Editor; macOS drops them silently.
+        cases = [
+            (prefs(SCRIPT_EDITOR_ALLOWED), "ok", "appears allowed"),
+            (prefs(SCRIPT_EDITOR_NEVER_ALLOWED), "warn", "appears not allowed"),
+            (prefs({**SCRIPT_EDITOR_ALLOWED, "flags": 0x200e}), "warn", "appears not allowed"),
+            (prefs({"bundle-id": SCRIPT_EDITOR, "flags": 0x12802056}), "warn", "appears not allowed"),
+            (prefs(), "warn", "never registered"),
+            (b"not a plist", "warn", "cannot read"),
+            (None, "warn", "cannot read"),
+        ]
+        for data, state, words in cases:
+            check = self.find(self.run_doctor(notification_prefs=lambda data=data: data), "notifications")
+            self.assertEqual((check["state"], words in check["detail"]), (state, True), check)
+            if state == "warn":
+                self.assertIn("Script Editor", check["next"])
+                self.assertIn("--test-notification", check["next"])
+        self.assertIn("Focus", self.find(self.run_doctor(), "notifications")["detail"])
+        check = self.find(self.run_doctor(platform="linux", notification_prefs=lambda: None), "notifications")
+        self.assertEqual((check["state"], "not macOS" in check["detail"]), ("ok", True), check)
+
+    def test_notifications_turned_off_by_choice_is_ok(self):
+        (self.root / "mailbox" / "notify.off").write_text("")
+        check = self.find(self.run_doctor(notification_prefs=lambda: prefs()), "notifications")
+        self.assertEqual((check["state"], "off by choice" in check["detail"]), ("ok", True), check)
+        (self.root / "mailbox" / "notify.off").unlink()
+        os.environ["AGENT_RELAY_NOTIFY"] = "off"
+        self.addCleanup(os.environ.pop, "AGENT_RELAY_NOTIFY", None)
+        check = self.find(self.run_doctor(notification_prefs=lambda: prefs()), "notifications")
+        self.assertEqual(check["state"], "ok", check)
+
+    def test_test_notification_runs_osascript_once_and_only_on_request(self):
+        calls = []
+
+        def fake_run(command, **kwargs):
+            calls.append(command)
+            import subprocess
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        from unittest.mock import patch
+        with patch("native_collaboration_doctor.subprocess.run", side_effect=fake_run):
+            self.run_doctor()
+            self.run_doctor(notification_prefs=lambda: prefs())
+        self.assertFalse([c for c in calls if c and c[0] == "osascript"], "plain doctor never shows a notification")
+        calls.clear()
+        result = send_test_notification(run=fake_run)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][0], "osascript")
+        self.assertEqual(calls[0][-1], TEST_NOTIFICATION_TEXT)
+        self.assertEqual(TEST_NOTIFICATION_TEXT, "agent-relay test notification")
+        self.assertIn("Did a banner appear?", result["ask"])
+
     def test_cli_exit_codes(self):
         import contextlib
         import io
@@ -278,6 +340,13 @@ class DoctorTests(unittest.TestCase):
         code, report = run()
         self.assertEqual(code, 1)
         self.assertEqual(report["state"], "fail")
+        self.assertNotIn("testNotification", report)
+        from unittest.mock import patch
+        with patch("native_collaboration_doctor.send_test_notification",
+                   return_value={"sent": True, "text": "agent-relay test notification", "ask": "Did a banner appear?"}) as sent:
+            code, report = run("--test-notification")
+        sent.assert_called_once()
+        self.assertEqual(report["testNotification"]["sent"], True)
 
 
 if __name__ == "__main__":

@@ -43,6 +43,12 @@ the host entries pin (then PATH) and names it; `node-too-old` means that node is
 python3 -B "$ROOT/hooks/native_collaboration_runtime.py" doctor
 ```
 
+`codex-waiting` lists messages waiting for a Codex task (count, senders, ids, never bodies); it warns after 10
+minutes. `notifications` says whether macOS appears to let Script Editor show the bridge's notices (best effort;
+Focus is invisible to it). When the user wants to check a banner, add `--test-notification`: it shows one
+notification with the fixed text "agent-relay test notification"; ask the user whether it appeared. Never run it
+unasked.
+
 - `absent`: explain that explicit installation creates private data under
   `~/.agent-relay/runtime/` (or `$AGENT_RELAY_HOME/runtime/` when the user set `AGENT_RELAY_HOME`); run `install`
   only after the user asks to enable it.
