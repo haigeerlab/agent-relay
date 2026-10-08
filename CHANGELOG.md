@@ -15,6 +15,9 @@
 - **doctor 与文档**（模块 `upgrade-recovery`，D109、D110）：有切换日志时 doctor 的 runtime 检查判为 fail，下一步指向
   `recover --confirm`（以前会叫你重新 install）；日志读不了时也判 fail、不崩溃。README 升级段落、collaboration-ops 技能和接口文档
   §2.3 写明 `rollback`、`recover` 与 `interrupted`，作为 1.4 内的新增。
+- **Spec Guard 看到的提示也指向 recover**（模块 `upgrade-recovery`，第二轮联调审查 #34 发现）：`relay_status.py`（`interface.json` 的
+  `status` 命令）在切换中断时给出 recover 的指引，不再叫你去安装（安装会被拒绝）；切换记录读不了时也照常回答，提示交给人检查，
+  不再报错退出。
 - **只有本人读取才算已读**（模块 `inbox-read-receipt`，D99、D100）：`bridge_inbox` 和不确认的 `bridge_wait` 只有在调用方就是该
   身份时才记已读、刷新活跃时间，`bridge_outbox` 同理只在本人查看时刷新活跃时间。以前任何会话读一眼别人的收件箱，消息就变成
   `accepted`，还在等待的唤醒任务也被关掉，真正的收件人从此不会被提醒。读取仍不鉴权；结果新增 `readRecorded`（总是有）和
