@@ -27,6 +27,8 @@ description: 加入本机 Claude Code／Codex 联调、查看联调消息与已�
 2. 调用 `bridge_register`，默认 `wake: null`。只有用户在当前对话明确要求“加入并允许唤醒”，且会话未开启自动批准，才绑定当前会话：
    Claude Code 先用 `bridge_sessions` 核对 `thisSession`，再用 `wake: "auto"`；Codex Desktop 只使用当前任务
    环境中的合法 `CODEX_THREAD_ID`，以 `{app: "codex", sessionId: 当前任务 ID}` 注册。
+   Codex Desktop 不绑定唤醒时也带上 `host: {app: "codex", sessionId: 当前任务的 CODEX_THREAD_ID}`：它只记下宿主，
+   让发来的消息能提醒用户、出现在等待列表里，不绑定唤醒也不授予任何权限；只能填本任务自己的 ID，环境里没有就省略。
 3. 注册后调用 `bridge_inbox` 和 `bridge_agents`，只报告可读名称、宿主、项目简称和真实状态。
 
 同一会话始终复用首次成功的身份；不能替另一个会话注册、绑定唤醒或接管同名身份。无法确认当前会话 ID 时，
@@ -34,7 +36,7 @@ description: 加入本机 Claude Code／Codex 联调、查看联调消息与已�
 
 bridge 会核对身份：发送、ack 和自动确认的 `bridge_wait` 只接受本会话注册过的名字。被拒绝且报错说该名字
 未经本会话注册时（例如 bridge 重启后），用同一个名字重新 `bridge_register` 一次；Codex 要带上本任务环境里的
-`{app: "codex", sessionId: CODEX_THREAD_ID}`。报错说名字属于另一个会话时，换一个名字；只有用户在当前对话明确
+`{app: "codex", sessionId: CODEX_THREAD_ID}`（不绑定唤醒时带同样的 `host`）。报错说名字属于另一个会话时，换一个名字；只有用户在当前对话明确
 同意接管，才加 `takeover: true`。Codex 处于“帮我批准”也可以绑定唤醒：被唤醒的那一轮由 bridge 单独改成用户
 审批、只读沙箱，动手前会弹审批卡。唤醒被挂起（held）时如实转述原因（ChatGPT 应用版本过旧，或门控被停用、要用户检查后
 删除 `codex-gate.off`），不要改配置，也不要换方式绕过。回复（`replyTo`）只能由原消息的收件人发出。
@@ -64,6 +66,10 @@ bridge 会核对身份：发送、ack 和自动确认的 `bridge_wait` 只接受
 `agent`（本会话的名字）和 `messageId`，返回 `outcome`（`acknowledged`、`replied`、`failed`、`expired`，超时为
 `pending`），不会确认任何消息。正文较长或含 `$`、反引号、引号等字符时，先写入文件再用 `bodyFile`（绝对路径）发送，
 不要拼进命令行。用户问“我是谁”时读 `bridge_sessions.whoami`，只报告名字、宿主、会话标题和项目，不展示完整内部 ID。
+
+用户问“有哪些等 Codex 处理的消息”“Codex 那边有没有卡住的消息”时，调用 `bridge_agents`，逐个报告带 `waiting` 的身份：
+名字、条数、发件方和编号（`waiting: {count, from, ids}`），不读正文；没有就说没有。发件结果里的“已尝试通知”只表示
+bridge 尝试过桌面通知，macOS 可能没显示，不要说成用户已经看到。
 
 读取用 `bridge_inbox`；处理后才调用 `bridge_ack`。主动等待使用 `bridge_wait` 且
 `acknowledge: false`，返回后仍需实际处理再确认。被唤醒后只处理当前权限允许的请求，有副作用的动作仍向用户取权。

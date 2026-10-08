@@ -2,6 +2,33 @@
 
 ## [Unreleased]
 
+接口升到 **1.3**（`interface.json`）：`bridge_register` 的 `host`、`bridge_agents` 的 `waiting` 与 `host.verified` 都是
+1.x 内的兼容新增；Spec Guard 的探测范围 `>=1.0,<2.0` 不用改。其他通知渠道的评估（Codex App 自己的提示、弹窗、
+terminal-notifier）见 `spec/acceptance-030-gaps.md` D79，结论是不加，以等待列表为准。
+
+- **发给收不到提醒的身份时，发件方会得到警告**（模块 `acceptance-030-gaps`，D72，0.3.0 验收发现 E1）：收件方既没绑定唤醒、
+  bridge 也不知道它在哪个宿主（例如以 `wake: null` 注册的 Codex 任务）时，`bridge_send` 的结果加一条警告，说明对方要自己查
+  收件箱才会看到。广播、重复发送和 `wake: false` 不提示；不弹桌面通知，投递不变。
+- **Codex 不绑唤醒也能登记自己的宿主**（模块 `acceptance-030-gaps`，D75、D75a）：`bridge_register` 新增可选 `host:
+  {app: "codex", sessionId: <CODEX_THREAD_ID>}`，只记录宿主、不绑定唤醒；发给它的消息会尝试通知用户，并进入等待列表。
+  这只是任务自报，不授予任何权限：不建立绑定、不代替接管、不证明发件身份；从 Claude 会话、与 `wake` 不一致或别的 app 时拒绝。
+  `bridge_agents` 的 `host` 与 whoami 的 `recordedHost` 新增 `verified`（只有 Claude 宿主为 true）。collab skill 让 Codex
+  不绑唤醒时带上 `host`。
+- **升级不再因同一秒的备份撞名而失败**（模块 `acceptance-030-gaps`，D74）：`install-codex --approve-mailbox-tools` 后一秒内
+  执行 `upgrade --confirm`，原来会报 “an upgrade with this timestamp already exists; retry in a second”；现在和宿主配置备份一样
+  依次改用 `<时间>-1`、`<时间>-2`……，备份、暂存和 `runtime.previous-` 目录共用同一个后缀。
+- **doctor 检查通知权限**（模块 `acceptance-030-gaps`，D78）：新增 `notifications` 检查，读取通知中心设置（只读）里
+  “脚本编辑器”那一项：从未登记、看起来没允许、读不到都 warn，并写明到“系统设置 → 通知 → 脚本编辑器”打开；看起来已允许
+  则 ok（专注模式仍可能挡住，doctor 看不到）。`doctor --test-notification` 按 bridge 的方式弹一条固定内容的测试通知，只在
+  带这个参数时弹。判断依据是本机实测的未公开格式，所以只说“看起来”。
+- **等 Codex 处理的消息有了一定看得到的地方**（模块 `acceptance-030-gaps`，D77）：`bridge_agents` 给宿主为 Codex 的身份加
+  `waiting: {count, from, ids}`（未确认、未失败或过期，最多 20 个编号，不含正文）；collab skill 在你问“有哪些等 Codex 处理的
+  消息”时照此回答；doctor 新增 `codex-waiting` 检查，有消息等了超过 10 分钟就 warn，并提示打开那个 Codex 任务。
+- **“已通知”改为“已尝试通知”**（模块 `acceptance-030-gaps`，D76，0.3.0 验收发现 E2）：真机上 `osascript` 返回成功但 macOS
+  没显示横幅（脚本编辑器从未获准通知），bridge 却告诉发件方 “The user was notified”。现在 wake 详情与发件警告写 “A desktop
+  notification was attempted on this Mac; macOS may not show it …”，并指向等待列表与 doctor。
+- **README 写明通知权限**（模块 `acceptance-030-gaps`，D73）：bridge 的桌面通知由 `osascript` 发出，macOS 记在“脚本编辑器”
+  名下（本机实测 `com.apple.ScriptEditor2`）；看不到横幅时到“系统设置 → 通知 → 脚本编辑器”打开。
 - **委派库不再因并发提交偶发报错**（模块 `delegation-sidecar-race`，D71）：检查 SQLite 附属文件时，另一个连接 COMMIT
   删掉了 `-journal`，原来会抛出 `FileNotFoundError`；现在按不存在处理。不安全的附属文件（符号链接、非普通文件、属主或
   权限不对）照旧拒绝。

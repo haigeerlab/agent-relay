@@ -6,7 +6,9 @@ and the mailbox are only read, the probe runs on disposable data outside the run
 from __future__ import annotations
 
 from contextlib import closing
+from datetime import datetime, timezone
 import json
+import plistlib
 import os
 from pathlib import Path
 import re
@@ -258,6 +260,107 @@ def _wake_bindings(database: Path, sessions_dir: Path, alive: Callable[[int], bo
     return _check("wake-bindings", "ok", "; ".join(notes) or "no wake-bound identities")
 
 
+SCRIPT_EDITOR = "com.apple.ScriptEditor2"
+NOTIFY_ALLOWED_FLAG = 0x2000000  # measured 2026-10-08, undocumented: set on every app here that shows notifications
+TEST_NOTIFICATION_TEXT = "agent-relay test notification"
+ALLOW_NOTIFICATIONS = ("System Settings → Notifications → Script Editor (脚本编辑器) → Allow Notifications, then "
+                       "`native_collaboration_runtime.py doctor --test-notification` to see one")
+
+
+def read_notification_prefs() -> bytes | None:
+    """Notification Center's per-app settings, read only (`defaults export`, nothing written)."""
+    try:
+        return subprocess.run(["defaults", "export", "com.apple.ncprefs", "-"], check=True, capture_output=True,
+                              timeout=10).stdout
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return None
+
+
+def _notifications(mailbox: Path, prefs: Callable[[], bytes | None], platform: str) -> dict[str, str]:
+    """acceptance-030-gaps D78: can the bridge's osascript notices be seen? Best effort; the plist is undocumented."""
+    if (mailbox / "notify.off").exists() or os.environ.get("AGENT_RELAY_NOTIFY") == "off":
+        return _check("notifications", "ok", "desktop notifications are off by choice (notify.off); "
+                      "the waiting list (codex-waiting) still shows what waits for Codex")
+    if platform != "darwin":
+        return _check("notifications", "ok", "not macOS, no desktop notifications; use the waiting list")
+    try:
+        data = prefs()
+        apps = plistlib.loads(data)["apps"] if data else None
+        entry = next((app for app in apps if app.get("bundle-id") == SCRIPT_EDITOR), None) if apps is not None else None
+    except (plistlib.InvalidFileException, ValueError, KeyError, TypeError, AttributeError):
+        apps = None
+    if apps is None:
+        return _check("notifications", "warn", "cannot read the notification settings, so whether banners show is "
+                      "unknown", ALLOW_NOTIFICATIONS)
+    if entry is None:
+        return _check("notifications", "warn", "Script Editor has never registered for notifications on this Mac, "
+                      "so the bridge's notices (sent with osascript) are not shown", ALLOW_NOTIFICATIONS)
+    if not entry.get("auth") or not int(entry.get("flags") or 0) & NOTIFY_ALLOWED_FLAG:
+        return _check("notifications", "warn", "Script Editor appears not allowed to notify, so the bridge's "
+                      "notices (sent with osascript) are dropped silently", ALLOW_NOTIFICATIONS)
+    return _check("notifications", "ok", "Script Editor appears allowed to notify (a Focus mode can still hide "
+                  "banners; doctor cannot see Focus)")
+
+
+def send_test_notification(run: Callable[..., Any] = subprocess.run) -> dict[str, Any]:
+    """Show one notification through the bridge's own osascript call (only on explicit request)."""
+    try:
+        run(["osascript", "-e", "on run argv", "-e",
+             'display notification (item 1 of argv) with title "agent-relay"', "-e", "end run",
+             TEST_NOTIFICATION_TEXT], check=False, capture_output=True, timeout=10)
+        sent = True
+    except (OSError, subprocess.TimeoutExpired):
+        sent = False
+    return {"sent": sent, "text": TEST_NOTIFICATION_TEXT,
+            "ask": "Did a banner appear? If not, see the notifications check."}
+
+
+CODEX_WAITING_WARN_SECONDS = 600  # the D67 busy threshold
+
+
+def _codex_waiting(database: Path) -> dict[str, str]:
+    """acceptance-030-gaps D77: messages waiting for a Codex host (count, senders, ids; never bodies)."""
+    if not database.exists():
+        return _check("codex-waiting", "ok", "no mailbox yet")
+    try:
+        with closing(open_mailbox_read_only(database)) as connection:
+            agents = {row[1] for row in connection.execute("PRAGMA table_info(agents)")}
+            messages = {row[1] for row in connection.execute("PRAGMA table_info(messages)")}
+            if not {"host_app", "retired_at"} <= agents or not {"delivery_state", "from_agent", "created_at"} <= messages:
+                return _check("codex-waiting", "ok", "no Codex host recorded in this mailbox schema")
+            rows = connection.execute(
+                """SELECT m.to_agent, m.from_agent, m.id, m.created_at FROM messages m
+                   JOIN agents ag ON ag.name = m.to_agent
+                   WHERE ag.host_app = 'codex' AND ag.retired_at IS NULL
+                     AND COALESCE(m.delivery_state, 'queued') NOT IN ('failed', 'expired')
+                     AND NOT EXISTS (SELECT 1 FROM acknowledgements a WHERE a.message_id = m.id AND a.agent = m.to_agent)
+                   ORDER BY m.to_agent, m.id""").fetchall()
+    except sqlite3.Error as error:
+        return _check("codex-waiting", "fail", f"cannot read the mailbox: {error}", "run status, then check the file")
+    if not rows:
+        return _check("codex-waiting", "ok", "nothing is waiting for a Codex task")
+    grouped: dict[str, list[tuple[str, int]]] = {}
+    old = False
+    now = datetime.now(timezone.utc)
+    for agent, sender, message_id, created in rows:
+        grouped.setdefault(agent, []).append((sender, message_id))
+        try:
+            when = datetime.fromisoformat(str(created).replace("Z", "+00:00"))
+            old = old or (now - when).total_seconds() > CODEX_WAITING_WARN_SECONDS
+        except ValueError:
+            old = True
+    parts = []
+    for agent, items in grouped.items():
+        senders = list(dict.fromkeys(sender for sender, _ in items))
+        ids = ", ".join(f"#{message_id}" for _, message_id in items[:20])
+        parts.append(f"{agent}: {len(items)} waiting from {', '.join(senders)} ({ids})")
+    detail = "; ".join(parts)
+    if old:
+        return _check("codex-waiting", "warn", detail + "; some have waited more than 10 minutes",
+                      "open that Codex task (or start it) so it reads its inbox, or ask the sender")
+    return _check("codex-waiting", "ok", detail)
+
+
 def _old_bridges(processes: Iterable[str]) -> dict[str, str]:
     count = sum(1 for line in processes if OLD_BRIDGE in line)
     if count:
@@ -283,7 +386,9 @@ def doctor(root: Path, *, home: Path | None = None, node: str | None = None, cod
            claude_json: Path | None = None, claude_settings: Path | None = None,
            claude_sessions: Path | None = None, probe: Callable[[Path], dict[str, Any]] | None = None,
            processes: Callable[[], Iterable[str]] = _ps, alive: Callable[[int], bool] = pid_alive,
-           codex_app_version: Callable[[], str | None] = chatgpt_app_version) -> dict[str, Any]:
+           codex_app_version: Callable[[], str | None] = chatgpt_app_version,
+           notification_prefs: Callable[[], bytes | None] = read_notification_prefs,
+           platform: str = sys.platform) -> dict[str, Any]:
     home = Path(home) if home else Path.home()
     codex_home = os.environ.get("CODEX_HOME", "").strip()
     codex_config = Path(codex_config) if codex_config else (Path(codex_home) if codex_home else home / ".codex") / "config.toml"
@@ -305,6 +410,8 @@ def doctor(root: Path, *, home: Path | None = None, node: str | None = None, cod
         checks += [_hosts(root, codex_config, claude_json, claude_settings), _codex_approval(codex_config, root / "mailbox", codex_app_version)]
         if ready:
             checks.append(_wake_bindings(copy, claude_sessions, alive))
+            checks.append(_codex_waiting(copy))
+    checks.append(_notifications(root / "mailbox", notification_prefs, platform))
     checks.append(_old_bridges(processes()))
     states = {check["state"] for check in checks}
     overall = "fail" if "fail" in states else "warn" if "warn" in states else "ok"

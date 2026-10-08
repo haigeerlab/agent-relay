@@ -85,7 +85,9 @@ test("two independent MCP clients exchange and acknowledge a message", async () 
       }),
     );
     assert.equal(sent.body, "Please verify the implementation");
-    assert.equal(sent.warnings, undefined);
+    // agent-relay acceptance-030-gaps D72: "codex" registered without wake and without a known host.
+    assert.deepEqual(sent.warnings,
+      ['"codex" has no wake binding and no known host; it sees this message only when it reads its inbox.']);
 
     const inbox = payload(await codex.callTool({ name: "bridge_inbox", arguments: { agent: "codex" } }));
     assert.equal(inbox.count, 1);

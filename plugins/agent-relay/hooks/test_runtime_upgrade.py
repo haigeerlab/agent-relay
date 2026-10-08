@@ -116,6 +116,26 @@ class RuntimeUpgradeTests(unittest.TestCase):
         self.assertTrue((self.root / "mailbox" / "bridge.sqlite").is_file())
         self.assertEqual((self.root / "data" / "keep.txt").read_text(), "data kept\n")
 
+    def test_a_backup_from_the_same_second_gets_a_suffix(self):
+        # acceptance-030-gaps D74: install-codex --approve-mailbox-tools backed up into backups/<stamp>/ this second.
+        stamp = "20261008T040541Z"
+        (self.backups / stamp / "host-config").mkdir(parents=True)
+        with patch("time.strftime", return_value=stamp):
+            result = self.upgrade()
+        self.assertEqual(result["state"], "upgraded")
+        self.assertEqual(Path(result["backup"]), self.backups / f"{stamp}-1")
+        self.assertEqual(Path(result["previous"]), self.home / f"runtime.previous-{stamp}-1")
+        self.assertTrue((self.backups / stamp / "host-config").is_dir(), "the earlier backup is untouched")
+        self.assertFalse(any(self.home.glob(".runtime-upgrade-*")), "the stage was swapped in")
+
+    def test_every_suffix_taken_is_refused(self):
+        stamp = "20261008T040541Z"
+        for attempt in range(100):
+            (self.backups / (stamp if attempt == 0 else f"{stamp}-{attempt}")).mkdir(parents=True)
+        with patch("time.strftime", return_value=stamp), self.assertRaisesRegex(NativeRuntimeError, "retry in a second"):
+            self.upgrade()
+        self.assertFalse(status(self.root)["bridge"]["current"])
+
     def test_cli_needs_confirmation(self):
         with patch.dict(os.environ, {"AGENT_RELAY_HOME": str(self.home)}), \
                 patch("sys.stdout"), self.assertRaises(SystemExit) as caught:

@@ -84,7 +84,8 @@ function main(): void {
       sessionName: own?.name ?? null,
       project: projectDir ? basename(projectDir) : null,
       identities: caller.identities(store.agents()).map(({ agent, provenHere }) => ({
-        name: agent.name, provenHere, recordedHost: agent.host, wake: store.wakes.target(agent.name),
+        name: agent.name, provenHere,
+        recordedHost: agent.host ? { ...agent.host, verified: agent.host.app === "claude" } : null, wake: store.wakes.target(agent.name),
       })),
       ...(host ? {} : { note: "This bridge cannot see its session (Codex does not pass one to MCP servers): host, title and project are unknown, and only names registered through this connection are listed." }),
     };
@@ -162,9 +163,11 @@ function main(): void {
           "Move a name registered by or bound to another session to this one. Only after the user agrees."),
         reactivate: z.boolean().optional().describe(
           "Bring back a retired name. Only after the user agrees; the result then says reactivated: true."),
+        host: z.object({ app: z.literal("codex"), sessionId: z.string().min(1).max(128) }).optional().describe(
+          "A Codex task registering without wake names its own thread: {app: \"codex\", sessionId: <its CODEX_THREAD_ID>}. It is recorded so the user can be told about messages waiting for it; it binds nothing and grants nothing. Never another thread's id."),
       },
     },
-    async ({ agent, capabilities, wake, takeover, reactivate }) => {
+    async ({ agent, capabilities, wake, takeover, reactivate, host: claimed }) => {
       const problem = agentNameProblem(agent);
       if (problem) throw new Error(problem);
       const notes: string[] = [];
@@ -179,7 +182,15 @@ function main(): void {
       }
       // agent-relay codex-gated-wake D66 (replaces identity-check D38): an auto-approved Codex session may bind wake;
       // every woken turn carries the approval gate (D65).
-      const host = caller.host ?? (target?.app === "codex" ? target : null);
+      // agent-relay acceptance-030-gaps D75/D75a: a Codex task may name its host without binding wake. The claim is
+      // only recorded (for the D67 notice and the D77 waiting list); it never binds, proves or takes over anything.
+      if (claimed && caller.host) {
+        throw new Error("This session's host is verified from its environment; omit host.");
+      }
+      if (claimed && target && (target.app !== claimed.app || target.sessionId !== claimed.sessionId)) {
+        throw new Error("host and wake name different sessions; a Codex task names only its own thread in both.");
+      }
+      const host = caller.host ?? (target?.app === "codex" ? target : null) ?? claimed ?? null;
       const existing = store.getAgent(agent);
       // agent-relay cleanup-gaps D61: a retired name stays retired unless the caller explicitly reactivates it.
       if (existing?.retiredAt && !reactivate) {
@@ -197,7 +208,8 @@ function main(): void {
         const other = ownerConflict ? owner! : current!;
         const running = other.app === "claude" ? ((await isClaudeSessionLive(other.sessionId)) ? " (still running)" : " (no longer running)") : "";
         const codexHint = !host && owner?.app === "codex"
-          ? " If it is this Codex task's own name, register again with wake: {app: \"codex\", sessionId: \"<CODEX_THREAD_ID>\"}."
+          ? " If it is this Codex task's own name, register again with wake: {app: \"codex\", sessionId: \"<CODEX_THREAD_ID>\"}" +
+            " or, without pings, host: {app: \"codex\", sessionId: \"<CODEX_THREAD_ID>\"}."
           : "";
         // agent-relay register-retired-hint D64: with reactivate the retired check passed, so say it here (O1).
         const retired = existing?.retiredAt
@@ -278,6 +290,11 @@ function main(): void {
             && notifyUndelivered(dbPath, { messageId: message.id, fromAgent: from, agent: to,
               why: "its Codex session has no wake binding; the message waits" })) {
           warnings.push(`${JSON.stringify(to)} is a Codex session without a wake binding. ${NOTIFIED_TEXT}`);
+        }
+        // agent-relay acceptance-030-gaps D72: with no binding and no recorded host nobody can be woken or notified.
+        if (!duplicate && wake !== false && recipient && !recipient.host && !store.wakes.target(to)) {
+          warnings.push(`${JSON.stringify(to)} has no wake binding and no known host; ` +
+            "it sees this message only when it reads its inbox.");
         }
       }
       await dispatcher.flush();
@@ -444,18 +461,23 @@ function main(): void {
     "bridge_agents",
     {
       title: "List agents",
-      description: "List registered agents with unread counts, last activity, ping binding and recent ping health. Retired agents are hidden unless requested.",
+      description: "List registered agents with unread counts, last activity, ping binding and recent ping health. An agent whose recorded host is Codex and has messages waiting carries waiting: {count, from, ids} (no bodies); tell the user when they ask what is waiting for Codex. Retired agents are hidden unless requested.",
       inputSchema: {
         includeRetired: z.boolean().optional().describe("Include retired agents."),
       },
     },
     async ({ includeRetired }) => {
+      const waiting = store.codexWaiting();
       const agents = store.agentSummaries({ includeRetired }).map((agent) => {
         const health = store.wakes.health(agent.name, 1)[0];
         return {
           ...agent,
+          // agent-relay acceptance-030-gaps D75a: only a Claude host comes from a verified environment.
+          host: agent.host ? { ...agent.host, verified: agent.host.app === "claude" } : null,
           wake: store.wakes.target(agent.name),
           ...(health ? { lastPing: { state: health.state, detail: health.detail } } : {}),
+          // agent-relay acceptance-030-gaps D77: what waits for a Codex host, so any session can tell the user.
+          ...(waiting.has(agent.name) ? { waiting: waiting.get(agent.name) } : {}),
         };
       });
       return jsonResult({ count: agents.length, agents });

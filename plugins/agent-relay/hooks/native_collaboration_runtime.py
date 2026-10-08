@@ -407,12 +407,17 @@ def upgrade_runtime(root: Path, *, node: str = "node", npm: str = "npm", source:
     if running(root):
         raise NativeRuntimeError("a bridge server of this runtime is running; close every session using the "
                                  "mailbox first")
-    stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    second = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
     backups = Path(backups) if backups is not None else root.parent / "backups"
-    backup = backups / stamp
-    stage = root.parent / f".runtime-upgrade-{stamp}"
-    previous = root.parent / f"runtime.previous-{stamp}"
-    if stage.exists() or previous.exists() or backup.exists():
+    # acceptance-030-gaps D74: another backup this second (install-codex) takes the next suffix, as host_backup does.
+    for attempt in range(100):
+        stamp = second if attempt == 0 else f"{second}-{attempt}"
+        backup = backups / stamp
+        stage = root.parent / f".runtime-upgrade-{stamp}"
+        previous = root.parent / f"runtime.previous-{stamp}"
+        if not (stage.exists() or previous.exists() or backup.exists()):
+            break
+    else:
         raise NativeRuntimeError("an upgrade with this timestamp already exists; retry in a second")
     counts = _mailbox_counts(root / "mailbox" / "bridge.sqlite")
 
@@ -520,6 +525,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--npm", help="default: the npm beside the chosen node, else PATH's")
     for option in ("--codex-config", "--claude-json", "--claude-settings", "--claude-sessions"):
         parser.add_argument(option, type=Path, help="doctor: read this file or directory instead of the default")
+    parser.add_argument("--test-notification", action="store_true",
+                        help="doctor: also show one test notification the way the bridge does, to see if it appears")
     args = parser.parse_args(argv)
     try:
         args.root = args.root or default_root()
@@ -548,6 +555,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         from native_collaboration_doctor import doctor
         report = doctor(args.root, node=args.node, codex_config=args.codex_config, claude_json=args.claude_json,
                         claude_settings=args.claude_settings, claude_sessions=args.claude_sessions)
+        if args.test_notification:  # acceptance-030-gaps D78: only on explicit request
+            from native_collaboration_doctor import send_test_notification
+            report["testNotification"] = send_test_notification()
         print(json.dumps(report, ensure_ascii=False, sort_keys=True))
         return 1 if report["state"] == "fail" else 0
     try:

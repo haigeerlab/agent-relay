@@ -39,8 +39,9 @@ agent-relay 是从 Spec Guard 拆出的独立插件，让同一台 Mac 上的 Cl
 | register-retired-hint | bridge_register 因名字属于另一个会话而拒绝时，若该名字已退役，拒绝信息同时写明退役时间与退役人，并说明恢复需要同时带 reactivate: true 和 takeover: true（0.2.1 验收观察 O1）；其他拒绝与成功路径不变。 | cleanup-gaps |
 | codex-gated-wake | Codex 处于自动审批（帮我批准 / approval_policy never）时协作不再无声卡住：消息到达时让用户看得见是哪个会话给 Codex 派了活；唤醒照常发出，但被唤醒的那一轮按轮改为用户审批、on-request、只读沙箱，任何执行都须用户批准，用户自己的对话设置不变；对端消息永远不能在无人批准时触发执行；唤醒只按绑定的 sessionId 精确定位线程；doctor 的 codex-approval 提示改为准确说法。 | identity-check, delivery-state-machine, ops-commands |
 | delegation-sidecar-race | 委派库检查 SQLite 附属文件时，另一连接 COMMIT 删除 -journal 不再抛出 FileNotFoundError：附属文件消失视为不存在，不安全的附属文件（符号链接、非普通文件、属主或权限不对）仍拒绝；以确定性测试复现该时序，并在 Python 3.9、3.10、3.14 上验证。 | cross-host-delegation |
+| acceptance-030-gaps | 补上 0.3.0 验收与升级时发现的缺口：发给既没绑定唤醒、宿主也未知的收件方时，发件结果警告对方要自己查收件箱才会看到（E1，Claude 与 Codex 收件方都适用，不发桌面通知）；README 写明横幅不出现时给“脚本编辑器”开通知权限；runtime upgrade 的备份目录与前一次备份同一秒撞名时不再报错要求重试。 | mailbox-core, codex-gated-wake |
 
-Build order: acceptance-kit → mailbox-core → session-routing → cross-host-delegation → packaging → state-migration → delegation-fixes → test-isolation → bridge-vendoring → delivery-state-machine → durable-ordering → idempotency → identity-check → ops-commands → safe-uninstall → round2-fixes → acceptance-kit-round2 → adapter-node → cleanup-gaps → register-retired-hint → codex-gated-wake → delegation-sidecar-race
+Build order: acceptance-kit → mailbox-core → session-routing → cross-host-delegation → packaging → state-migration → delegation-fixes → test-isolation → bridge-vendoring → delivery-state-machine → durable-ordering → idempotency → identity-check → ops-commands → safe-uninstall → round2-fixes → acceptance-kit-round2 → adapter-node → cleanup-gaps → register-retired-hint → codex-gated-wake → delegation-sidecar-race → acceptance-030-gaps
 
 <!-- Spec Guard 按严格串行推进。为兼容上游格式，逗号分组会按左到右顺序展开为单模块步骤，不代表并行授权。 -->
 <!-- 加固模块（test-isolation、delivery-state-machine、durable-ordering、idempotency、identity-check、ops-commands、
