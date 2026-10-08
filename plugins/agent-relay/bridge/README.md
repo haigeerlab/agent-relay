@@ -47,7 +47,7 @@ See [INSTRUCTIONS.md](INSTRUCTIONS.md) for copy-paste prompts.
 - Recipient checks: unknown names are rejected with "did you mean" suggestions, and senders get warnings when a message is unlikely to be picked up
 - Output paging so large inboxes and threads never overflow an MCP result
 - Optional background pings with delivery receipts, a 24-hour window for busy recipients and automatic notices to the sender when a ping fails
-- A versioned runtime with smoke-tested installs and one-command rollback
+- Installed, upgraded, checked and uninstalled by agent-relay's Python runtime
 
 ## Tools
 
@@ -75,57 +75,24 @@ Core tests run on macOS, Linux and Windows in GitHub Actions. Background pings a
 
 ## Install
 
-### One command
+agent-relay installs this copy; the upstream `setup` command was removed (module `legacy-cli-cleanup`). From the
+agent-relay plugin root, after the user agrees:
 
 ```bash
-npx --yes --package=github:WebisityStudio/claude-codex-mcp-bridge claude-codex-mcp-bridge setup
+python3 hooks/native_collaboration_runtime.py install          # build and probe the runtime under ~/.agent-relay/runtime
+python3 hooks/native_collaboration_adapters.py install-claude  # add the Claude MCP entry
+python3 hooks/native_collaboration_adapters.py install-codex   # add the Codex entry (300-second tool timeout)
+python3 hooks/native_collaboration_runtime.py doctor
 ```
 
-Setup:
+See agent-relay's README for upgrades, uninstalling and the steps that need a closed session.
 
-- installs the package as a new runtime version under `~/.local/share/claude-codex-bridge/runtime/versions/`;
-- starts that runtime against a throwaway mailbox and checks its tools before activating it;
-- points Claude Code and Codex at `runtime/current`, so updates and rollbacks never touch a checkout you are editing;
-- edits only the bridge's own entry in Codex's `config.toml` (per-tool approval settings are kept, and a backup is written) and sets `tool_timeout_sec = 300` so waits are not cut at Codex's 60-second default;
-- installs the `ask-codex`, `review-with-codex` and coordinator skills plus a `codex-teammate` Claude agent.
-
-Setup keeps the Node.js binary your apps already launch the bridge with (pass `--node PATH` to choose another) and registers through the newest Claude Code bundled with the desktop app when present (`CLAUDE_BIN` overrides), so an older standalone `claude` on `PATH` never rewrites your Claude settings. Once installed, later updates only switch the `current` link; neither app's configuration changes again.
-
-Open fresh Claude and Codex sessions afterwards. Running sessions keep the bridge they started with.
+### From a checkout (development)
 
 ```bash
-npx --yes --package=github:WebisityStudio/claude-codex-mcp-bridge claude-codex-mcp-bridge doctor
-```
-
-### From a checkout
-
-```bash
-git clone https://github.com/WebisityStudio/claude-codex-mcp-bridge.git
-cd claude-codex-mcp-bridge
 npm ci
 npm run check
-node dist/cli.js setup
 ```
-
-`setup` refuses to install a `dist/` that is older than `src/`. Run `npm run build` first.
-
-## Everyday use
-
-After opening a fresh Claude session:
-
-```text
-/ask-codex investigate why the authentication tests are flaky
-/review-with-codex focus on authentication and tenant isolation
-```
-
-Or ask Claude directly:
-
-```text
-Ask Codex to implement this change and verify it.
-Have Codex review this repository for security regressions.
-```
-
-The project path defaults to the Claude session's project. A call waits up to four minutes. If Codex is still working, the call returns `running_codex` and the result arrives later in your mailbox from `bridge`, which also pings your conversation if it is bound. Do not start a duplicate run.
 
 ## Background pings
 
@@ -157,29 +124,30 @@ Most MCP hosts cut tool calls near five minutes, so waits are capped at 290 seco
 
 ## Maintenance
 
+From the agent-relay plugin root:
+
 ```bash
-claude-codex-mcp-bridge doctor          # installation, mailbox health, ping delivery, permissions
-claude-codex-mcp-bridge doctor --fix    # also tighten mailbox file permissions
-claude-codex-mcp-bridge status          # size, backlog, latest backup
-claude-codex-mcp-bridge prune           # list agents idle for 7+ days (dry run)
-claude-codex-mcp-bridge prune --apply   # retire them and close their unhandled messages
-claude-codex-mcp-bridge retire <agent> --note "task merged"
-claude-codex-mcp-bridge backup          # manual point-in-time copy
-claude-codex-mcp-bridge rollback        # switch back to the previous runtime
-claude-codex-mcp-bridge uninstall       # keeps mailbox data unless --purge
+python3 hooks/native_collaboration_runtime.py doctor              # runtime, probe, mailbox, host entries, pings
+python3 hooks/native_collaboration_runtime.py status
+python3 hooks/native_collaboration_runtime.py upgrade --confirm   # every session using the mailbox closed first
+python3 hooks/native_collaboration_retire.py --name <agent> --confirm-retire
+python3 hooks/native_collaboration_runtime.py uninstall --confirm # keeps mailbox history
 ```
+
+The bridge's own CLI (`agent-relay-bridge`, not on `PATH`) keeps only `retire <agent> [--note TEXT] [--keep-backlog]`,
+which the retire script runs with `--keep-backlog`.
 
 Retiring never deletes messages. Closed messages keep their history and a note saying why, recently active senders get one notice listing what was closed. The name stays retired: `bridge_register` refuses it unless the call passes `reactivate: true` (agent-relay change).
 
 ## Storage
 
 ```text
-~/.local/share/claude-codex-bridge/bridge.sqlite     mailbox (owner-only)
-~/.local/share/claude-codex-bridge/backups/          pre-migration and daily backups (7 kept)
-~/.local/share/claude-codex-bridge/runtime/          installed runtime versions
+~/.agent-relay/runtime/mailbox/bridge.sqlite     mailbox (owner-only)
+~/.agent-relay/runtime/mailbox/backups/          pre-migration and daily backups (7 kept)
+~/.agent-relay/runtime/                          the installed runtime (upgrade keeps the previous one beside it)
 ```
 
-Override the mailbox in both MCP configurations with `BRIDGE_DB_PATH`. All MCP processes must point to the same database. Set `BRIDGE_BACKUPS=0` to disable daily backups.
+`AGENT_RELAY_HOME` moves the whole state root. agent-relay's host entries pass `BRIDGE_DB_PATH`, so every MCP process uses the same database. Set `BRIDGE_BACKUPS=0` to disable daily backups.
 
 Schema changes are additive and versioned. Before migrating an existing mailbox, the bridge writes a backup. Older bridge processes that are still running keep working against the migrated database.
 
@@ -208,7 +176,7 @@ npm run check       # all of the above
 npm audit --omit=dev --audit-level=high
 ```
 
-The suite covers socket framing, identity and permission boundaries, migrations from 0.3 databases and compatibility with running 0.3 processes, ping persistence, crash recovery and failure notices, mailbox routing, addressing checks, retirement, paging, independent MCP processes, Codex config edits and runtime rollback.
+The suite covers socket framing, identity and permission boundaries, migrations from 0.3 databases and compatibility with running 0.3 processes, ping persistence, crash recovery and failure notices, mailbox routing, addressing checks, retirement, paging, independent MCP processes and the `retire` CLI.
 
 ## Related work
 

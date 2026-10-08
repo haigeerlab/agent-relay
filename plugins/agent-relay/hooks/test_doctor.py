@@ -82,7 +82,7 @@ class DoctorTests(unittest.TestCase):
 
     def run_doctor(self, **overrides):
         options = dict(home=self.home, codex_config=self.codex_config, claude_json=self.claude_json,
-                       claude_settings=self.claude_settings, claude_sessions=self.sessions,
+                       claude_sessions=self.sessions,
                        probe=lambda _root: {"state": "ready", "toolCount": 17},
                        processes=lambda: self.processes, alive=lambda pid: pid in self.alive,
                        codex_app_version=lambda: "26.930.61225",
@@ -401,7 +401,7 @@ class DoctorTests(unittest.TestCase):
         chosen = SelectedNode(Path("/opt/node/bin/node"), "PATH", "v24.18.0")
         for root in (self.root, self.home / "missing-runtime"):
             report = doctor(root, home=self.home, codex_config=self.codex_config, claude_json=self.claude_json,
-                            claude_settings=self.claude_settings, claude_sessions=self.sessions,
+                            claude_sessions=self.sessions,
                             probe=lambda _root: {"state": "ready", "toolCount": 17}, processes=lambda: [],
                             alive=lambda pid: False, codex_app_version=lambda: "26.930",
                             notification_prefs=lambda: None, platform="linux",
@@ -419,6 +419,19 @@ class DoctorTests(unittest.TestCase):
         self.assertIn("no node on PATH", check["detail"])
         self.assertIn("Node 22.5.0", check["next"])
 
+    def test_doctor_no_longer_takes_claude_settings(self):
+        # legacy-cli-cleanup D97: doctor stopped reading the Claude settings in orchestrator-removal (D92).
+        import contextlib
+        import io
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as raised:
+            # Every path is given, so even a doctor that accepted the option would read only this test's files.
+            main(["doctor", "--root", str(self.root), "--codex-config", str(self.codex_config),
+                  "--claude-json", str(self.claude_json), "--claude-sessions", str(self.sessions),
+                  "--claude-settings", str(self.claude_settings)])
+        self.assertEqual(raised.exception.code, 2)
+        with self.assertRaises(TypeError):
+            doctor(self.root, claude_settings=self.claude_settings)
+
     def test_cli_exit_codes(self):
         import contextlib
         import io
@@ -428,7 +441,7 @@ class DoctorTests(unittest.TestCase):
             with contextlib.redirect_stdout(out):
                 code = main(["doctor", "--root", str(self.home / "missing-runtime"),
                              "--codex-config", str(self.codex_config), "--claude-json", str(self.claude_json),
-                             "--claude-settings", str(self.claude_settings), "--claude-sessions", str(self.sessions),
+                             "--claude-sessions", str(self.sessions),
                              *extra])
             return code, json.loads(out.getvalue())
 

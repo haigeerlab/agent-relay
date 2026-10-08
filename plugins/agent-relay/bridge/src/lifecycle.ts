@@ -1,6 +1,5 @@
-import type { AgentSummary, BridgeStore, RetireRecord } from "./bridge-store.js";
+import type { BridgeStore, RetireRecord } from "./bridge-store.js";
 import { BRIDGE_AGENT } from "./notices.js";
-import type { WakeTarget } from "./wake-queue.js";
 
 /** Senders idle longer than this are not notified; they would only gather more backlog. */
 const ACTIVE_SENDER_MS = 7 * 24 * 3_600_000;
@@ -55,33 +54,4 @@ export function retireAgent(store: BridgeStore, name: string, options: RetireOpt
     }
   }
   return { ...record, notified };
-}
-
-export interface StaleAgent extends AgentSummary {
-  wake: WakeTarget | null;
-}
-
-/**
- * Active agents with no observable activity for `olderThanMs`. Agents bound
- * to a Claude session that is still running are never stale.
- */
-export async function findStaleAgents(
-  store: BridgeStore,
-  options: {
-    olderThanMs: number;
-    now?: number;
-    isClaudeSessionLive?: (sessionId: string) => Promise<boolean>;
-  },
-): Promise<StaleAgent[]> {
-  const now = options.now ?? Date.now();
-  const stale: StaleAgent[] = [];
-  for (const summary of store.agentSummaries()) {
-    if (now - Date.parse(summary.lastActivity) <= options.olderThanMs) continue;
-    const wake = store.wakes.target(summary.name);
-    if (wake?.app === "claude" && options.isClaudeSessionLive && (await options.isClaudeSessionLive(wake.sessionId))) {
-      continue;
-    }
-    stale.push({ ...summary, wake });
-  }
-  return stale;
 }

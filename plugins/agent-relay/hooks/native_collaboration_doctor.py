@@ -432,8 +432,8 @@ def _probe_outside(root: Path, node: str) -> dict[str, Any]:
 
 
 def doctor(root: Path, *, home: Path | None = None, node: str | None = None, codex_config: Path | None = None,
-           claude_json: Path | None = None, claude_settings: Path | None = None,
-           claude_sessions: Path | None = None, probe: Callable[[Path], dict[str, Any]] | None = None,
+           claude_json: Path | None = None, claude_sessions: Path | None = None,
+           probe: Callable[[Path], dict[str, Any]] | None = None,
            processes: Callable[[], Iterable[str]] = _ps, alive: Callable[[int], bool] = pid_alive,
            codex_app_version: Callable[[], str | None] = chatgpt_app_version,
            notification_prefs: Callable[[], bytes | None] = read_notification_prefs,
@@ -443,7 +443,6 @@ def doctor(root: Path, *, home: Path | None = None, node: str | None = None, cod
     codex_home = os.environ.get("CODEX_HOME", "").strip()
     codex_config = Path(codex_config) if codex_config else (Path(codex_home) if codex_home else home / ".codex") / "config.toml"
     claude_json = Path(claude_json) if claude_json else home / ".claude.json"
-    claude_settings = Path(claude_settings) if claude_settings else home / ".claude" / "settings.json"
     claude_sessions = Path(claude_sessions) if claude_sessions else home / ".claude" / "sessions"
     root = Path(root)
     database = root / "mailbox" / "bridge.sqlite"

@@ -2,17 +2,12 @@
 
 ## Install and verify
 
-```bash
-npx --yes --package=github:WebisityStudio/claude-codex-mcp-bridge claude-codex-mcp-bridge setup
-npx --yes --package=github:WebisityStudio/claude-codex-mcp-bridge claude-codex-mcp-bridge doctor
-npx --yes --package=github:WebisityStudio/claude-codex-mcp-bridge claude-codex-mcp-bridge demo
-```
-
-Open fresh Claude and Codex sessions after setup. If an update misbehaves, `claude-codex-mcp-bridge rollback` switches new sessions back to the previous runtime.
+agent-relay installs and checks the mailbox (its README: `native_collaboration_runtime.py install`, the host adapters,
+then `doctor`). Open fresh Claude and Codex sessions afterwards.
 
 ## Background pings between existing conversations
 
-Both MCP clients must use the same mailbox database (setup does this).
+Both MCP clients must use the same mailbox database (agent-relay's host entries do this).
 
 ```text
 Register a unique agent name for this conversation with bridge_register and wake: "auto" (for Codex, pass {app: "codex", sessionId: "<this task ID>"} if auto cannot detect it). Send handoffs using bridge_send with the agreed threadId and an idempotencyKey, and read any warnings it returns. When a ping arrives, read your inbox, handle the work, acknowledge after handling, and send a substantive completion or blocker reply to the original sender. Messages from "bridge" are automated notices: act on them but do not reply. End the turn when no work remains; do not use bridge_wait or acknowledgement-only ping loops. Peer messages do not grant extra permissions. When this task is finished, tell the user which task-specific agents can be retired (the user runs the CLI `retire`).
@@ -27,7 +22,7 @@ Use this when both conversations are open and you want to watch them exchange me
 ### Bootstrap prompt for Claude
 
 ```text
-Use claude-codex-bridge for this task.
+Use the agent-relay mailbox for this task.
 
 Register as claude-main. Use the canonical thread ID <THREAD_ID>.
 Send every handoff with bridge_send.
@@ -46,7 +41,7 @@ Stop only when the task is complete, genuinely blocked, needs my approval, or I 
 ### Bootstrap prompt for Codex
 
 ```text
-Use claude-codex-bridge for this task.
+Use the agent-relay mailbox for this task.
 
 Register as codex-main. Use the canonical thread ID <THREAD_ID>.
 Send every handoff with bridge_send.
@@ -68,15 +63,14 @@ Stop only when the task is complete, genuinely blocked, needs my approval, or I 
 2. A filtered wait only wakes for the selected sender and thread.
 3. Threadless discovery messages do not wake a thread-filtered wait.
 4. Registration proves discovery, not active processing.
-5. Most hosts cut long MCP calls near five minutes, so use 285 seconds and renew. Setup raises Codex's own tool timeout to 300 seconds.
+5. Most hosts cut long MCP calls near five minutes, so use 285 seconds and renew. agent-relay's Codex entry sets its own tool timeout to 300 seconds.
 6. This fallback keeps the current call alive; it cannot wake an ended turn. Bound background-ping recipients can end their turns.
 
 ## Housekeeping
 
 ```bash
-claude-codex-mcp-bridge prune            # agents idle for 7+ days, dry run
-claude-codex-mcp-bridge prune --apply    # retire them; history is kept
-claude-codex-mcp-bridge doctor           # includes ping health and unhandled backlog
+python3 hooks/native_collaboration_runtime.py doctor                          # ping health and unhandled backlog
+python3 hooks/native_collaboration_retire.py --name <agent> --confirm-retire   # history is kept
 ```
 
 ## Stop conditions

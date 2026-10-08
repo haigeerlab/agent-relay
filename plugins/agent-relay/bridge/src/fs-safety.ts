@@ -1,6 +1,8 @@
 import { chmodSync, lstatSync, mkdirSync } from "node:fs";
 
 /** Name of the per-user data directory under the XDG data home. */
+// agent-relay legacy-cli-cleanup D96: only the default path when BRIDGE_DB_PATH is unset (agent-relay always sets it);
+// renaming it would move existing data for no agent-relay user.
 export const DATA_DIR_NAME = "claude-codex-bridge";
 
 /**

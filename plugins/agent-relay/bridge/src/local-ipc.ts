@@ -35,6 +35,7 @@ export class CodexIpc {
         try { this.read(chunk); } catch { socket.destroy(); this.fail(); }
       });
     });
+    // agent-relay legacy-cli-cleanup D96: the app interface knows this client by its upstream name; not renamed.
     const reply = await this.request("initialize", { clientType: "claude-codex-bridge" });
     if (reply.resultType !== "success" || typeof reply.result?.clientId !== "string") {
       throw new IpcError("Codex IPC initialization rejected");

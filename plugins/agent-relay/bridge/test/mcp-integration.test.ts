@@ -54,6 +54,8 @@ test("two independent MCP clients exchange and acknowledge a message", async () 
   const codex = await connect("codex-test-client", dbPath);
 
   try {
+    // agent-relay legacy-cli-cleanup D96: the server introduces itself by the product's name.
+    assert.equal(claude.getServerVersion()?.name, "agent-relay");
     const tools = await claude.listTools();
     assert.deepEqual(
       tools.tools.map((tool) => tool.name).sort(),

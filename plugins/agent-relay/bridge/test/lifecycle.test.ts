@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { agentNameProblem, checkRecipient, editDistance, suggestNames } from "../src/addressing.js";
 import { BridgeStore } from "../src/bridge-store.js";
-import { findStaleAgents, retireAgent } from "../src/lifecycle.js";
+import { retireAgent } from "../src/lifecycle.js";
 
 const DAY = 24 * 3_600_000;
 
@@ -187,23 +187,6 @@ test("thread pages start at the newest messages and page in both directions", ()
   const forward = store.threadPage("long", { afterId: 40, limit: 5 });
   assert.deepEqual(forward.messages.map((message) => message.body), ["m41", "m42", "m43", "m44", "m45"]);
   assert.equal(forward.newerAfterId, 45);
-  store.close();
-});
-
-test("stale agents are those idle past the window, except live Claude sessions", async () => {
-  const store = new BridgeStore(":memory:");
-  store.register("idle");
-  store.register("live-claude");
-  store.wakes.bind("live-claude", { app: "claude", sessionId: "alive" });
-  store.send({ fromAgent: "x", toAgent: "idle", body: "waiting" });
-  const stale = await findStaleAgents(store, {
-    olderThanMs: 7 * DAY,
-    now: Date.now() + 10 * DAY,
-    isClaudeSessionLive: async (sessionId) => sessionId === "alive",
-  });
-  assert.deepEqual(stale.map((agent) => agent.name), ["idle"]);
-  assert.equal(stale[0]?.unread, 1);
-  assert.deepEqual(await findStaleAgents(store, { olderThanMs: 7 * DAY }), []);
   store.close();
 });
 

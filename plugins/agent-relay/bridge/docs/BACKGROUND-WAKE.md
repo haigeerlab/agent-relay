@@ -4,7 +4,7 @@ Background pings connect existing local app conversations. The model can end its
 
 ## Connect two conversations
 
-Both MCP servers must use the same SQLite database (setup configures this). Register each conversation once with a unique agent name:
+Both MCP servers must use the same SQLite database (agent-relay's host entries configure this). Register each conversation once with a unique agent name:
 
 ```json
 {"agent": "review-claude", "wake": "auto"}
@@ -60,11 +60,11 @@ The bridge does not state a permission mode, because it has none. Claiming one w
 - approve held messages in a terminal session; or
 - deliberately set `"crossSessionInbound": "accept"` in `~/.claude/settings.json`, accepting that local peers can then deliver messages to bypass sessions without review.
 
-`claude-codex-mcp-bridge doctor` reports how many recent Claude pings were held or expired and the current `crossSessionInbound` value. It never changes it.
+agent-relay's `native_collaboration_runtime.py doctor` reports ping health per bound identity. It never changes `crossSessionInbound`.
 
 ## Claude Code channels (opt-in)
 
-Claude Code channels let an MCP server push events into the session that launched it. Set `BRIDGE_CLAUDE_CHANNEL=1` in the bridge's Claude MCP environment and start Claude Code with `--dangerously-load-development-channels server:claude-codex-bridge` (or `--channels` once the server is allowed). The bridge then declares the `claude/channel` capability. Pings for that session are pushed through the channel by the session's own bridge process, and other processes skip them while its heartbeat is fresh.
+Claude Code channels let an MCP server push events into the session that launched it. Set `BRIDGE_CLAUDE_CHANNEL=1` in the bridge's Claude MCP environment and start Claude Code with `--dangerously-load-development-channels server:agent-relay` (or `--channels` once the server is allowed). The bridge then declares the `claude/channel` capability. Pings for that session are pushed through the channel by the session's own bridge process, and other processes skip them while its heartbeat is fresh.
 
 Channels are a research preview. Claude Code returns no receipt for channel events, so they are recorded as `unknown` until the recipient reads its inbox. The desktop app does not currently expose the launch flags, so this mode applies to terminal sessions.
 
@@ -81,14 +81,10 @@ Claude's normal tool approvals still apply after waking. The bridge does not gra
 
 ## Isolated verification
 
-`scripts/mailbox-request.ts` is a development MCP client that requires an explicit absolute database path. It starts this repository's server with that database and never defaults to the live mailbox:
-
-```bash
-node --import tsx scripts/mailbox-request.ts /absolute/test/bridge.sqlite bridge_inbox '{"agent":"test-agent"}'
-```
+The test suite starts this repository's server against temporary databases; it never touches the live mailbox.
 
 A short-lived client does not keep retrying after it closes. App-connected MCP servers keep the background dispatcher.
 
-Because live clients run the stable runtime installed by setup, rebuilding a checkout never changes the bridge that running sessions use.
+Because live clients run the runtime agent-relay installed, rebuilding a checkout never changes the bridge that running sessions use.
 
 The regression suite uses temporary databases and real local sockets to cover identity checks, peer authentication, held and refused receipts, exact Codex targeting, untrusted input, fragmented frames, response loss, single ownership, crash recovery, busy and offline retry windows, sender notices, channel routing and duplicate suppression. No test requires an app account or sends a message to a real conversation.

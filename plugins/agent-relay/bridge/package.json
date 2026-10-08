@@ -1,5 +1,5 @@
 {
-  "name": "claude-codex-mcp-bridge",
+  "name": "agent-relay-bridge",
   "version": "0.4.0",
   "type": "module",
   "description": "Local MCP mailbox and background pings for Claude Code and OpenAI Codex.",
@@ -31,8 +31,7 @@
     "LICENSE"
   ],
   "bin": {
-    "claude-codex-mcp-bridge": "dist/cli.js",
-    "claude-codex-mcp-server": "dist/server.js"
+    "agent-relay-bridge": "dist/cli.js"
   },
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
