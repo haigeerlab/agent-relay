@@ -11,6 +11,8 @@ export interface UndeliveredNotice {
   fromAgent?: string;
   agent: string;
   why: string;
+  /** Deduplication key; defaults to the message id. A distinct event about the same message passes its own key. */
+  key?: string;
 }
 
 export const NOTIFIED_TEXT = "The user was notified on this Mac.";
@@ -35,7 +37,7 @@ export function notifyUndelivered(mailboxPath: string, notice: UndeliveredNotice
   try {
     const marks = join(dir, "notified");
     mkdirSync(marks, { recursive: true, mode: 0o700 });
-    writeFileSync(join(marks, String(notice.messageId)), "", { flag: "wx", mode: 0o600 });
+    writeFileSync(join(marks, notice.key ?? String(notice.messageId)), "", { flag: "wx", mode: 0o600 });
   } catch {
     return false; // already notified (another bridge won the race), or the mark cannot be kept: never notify twice
   }

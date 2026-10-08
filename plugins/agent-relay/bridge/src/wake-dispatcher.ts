@@ -88,7 +88,10 @@ export class WakeDispatcher {
 
   /** agent-relay codex-gated-wake D67: held or offline at once, busy after ten minutes; once per message. */
   private noticeUndelivered(job: WakeJob, result: WakeResult, now = Date.now()): WakeResult {
-    const why = result.state === "held" ? "Codex could not be woken safely; the message waits"
+    const why = result.state === "held"
+      ? (result.detail.startsWith("Gated Codex wake is turned off")
+        ? "gated Codex wake is off; check Codex, then delete codex-gate.off next to the mailbox"
+        : "Codex could not be woken safely; the message waits")
       : result.state === "pending" && result.reason === "busy"
         ? (now - job.createdAt >= BUSY_NOTIFY_AFTER_MS ? "Codex has been busy for ten minutes" : null)
         : result.state === "pending" ? "Codex is not running; the message waits" : null;
@@ -118,7 +121,8 @@ export class WakeDispatcher {
       try { writeFileSync(off, `turn ${result.turnId} of ${job.target.sessionId}: ${verdict}\n`, { mode: 0o600 }); } catch { /* still told */ }
     }
     const notified = notifyUndelivered(job.mailboxPath, { messageId: job.messageId, fromAgent: job.fromAgent, agent: job.agent,
-      why: `the woken turn did not show the approval gate (${verdict}); gated Codex wake is off until you check Codex` }, this.env);
+      why: `the woken turn did not show the approval gate (${verdict}); gated Codex wake is off until you check Codex`,
+      key: `gate-${result.turnId}` }, this.env);
     return { ...result, detail: `${result.detail}. Its record did not show the approval gate (${verdict}); gated Codex ` +
       `wake is now off for this mailbox.${notified ? ` ${NOTIFIED_TEXT}` : ""}` };
   }

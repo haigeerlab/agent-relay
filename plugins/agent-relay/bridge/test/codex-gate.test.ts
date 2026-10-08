@@ -121,6 +121,8 @@ test("a turn whose record does not show the gate turns gated wake off, notifies 
     await d.flush();
     assert.ok(existsSync(join(dir, GATE_OFF_FILE)), "gate off");
     assert.equal(readFileSync(log, "utf8").trim().split("\n").length, 1);
+    // Found live: the gate-off notice is its own event, even when this message was already notified (offline earlier).
+    assert.ok(existsSync(join(dir, "notified", "gate-turn-x")), "keyed by the turn, not the message");
     assert.match(readFileSync(log, "utf8"), /gated Codex wake is off/);
     store.wakes.finish(store.wakes.forMessage(1)!, { state: "accepted", detail: "seen" });
     const second = store.send({ fromAgent: "s", toAgent: "cx", body: "second" });
@@ -130,6 +132,7 @@ test("a turn whose record does not show the gate turns gated wake off, notifies 
     const held = store.wakes.forMessage(second.id);
     assert.equal(held?.state, "held");
     assert.match(held?.detail ?? "", /codex-gate\.off/);
+    assert.match(readFileSync(log, "utf8").trim().split("\n").at(-1) ?? "", /delete codex-gate\.off/, "the held notice says what to do");
     await d.close();
     store.close();
   }
