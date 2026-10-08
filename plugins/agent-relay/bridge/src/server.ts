@@ -288,7 +288,7 @@ function main(): void {
         const recipient = store.getAgent(to);
         if (!duplicate && wake !== false && recipient?.host?.app === "codex" && !store.wakes.target(to)
             && notifyUndelivered(dbPath, { messageId: message.id, fromAgent: from, agent: to,
-              why: "its Codex session has no wake binding; the message waits" })) {
+              why: "its Codex session has no wake binding; the message waits", body })) {
           warnings.push(`${JSON.stringify(to)} is a Codex session without a wake binding. ${NOTIFIED_TEXT}`);
         }
         // agent-relay acceptance-030-gaps D72: with no binding and no recorded host nobody can be woken or notified.

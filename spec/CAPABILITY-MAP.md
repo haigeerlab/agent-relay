@@ -41,8 +41,9 @@ agent-relay 是从 Spec Guard 拆出的独立插件，让同一台 Mac 上的 Cl
 | delegation-sidecar-race | 委派库检查 SQLite 附属文件时，另一连接 COMMIT 删除 -journal 不再抛出 FileNotFoundError：附属文件消失视为不存在，不安全的附属文件（符号链接、非普通文件、属主或权限不对）仍拒绝；以确定性测试复现该时序，并在 Python 3.9、3.10、3.14 上验证。 | cross-host-delegation |
 | acceptance-030-gaps | 补上 0.3.0 验收与升级时发现的缺口：发给既没绑定唤醒、宿主也未知的收件方时，发件结果警告对方要自己查收件箱才会看到（E1，Claude 与 Codex 收件方都适用，不发桌面通知）；README 写明横幅不出现时给“脚本编辑器”开通知权限；runtime upgrade 的备份目录与前一次备份同一秒撞名时不再报错要求重试。 | mailbox-core, codex-gated-wake |
 | ci-macos | 在 GitHub Actions 的 macOS 上为每个 PR 和 main 跑 scripts/validate.sh（含 bridge 的 npm run check），覆盖 Python 3.9/3.14 与 Node 22/24 的代表组合；doctor 打印实际使用的 python 与 node 的路径和版本；是否设为 main 的必需检查留给用户在跑绿后决定。 | bridge-vendoring, ops-commands |
+| notify-channel | bridge 的桌面通知在 terminal-notifier 已安装（只认固定路径）时优先用它，否则退回 osascript；以参数数组调用、只用 -title/-subtitle/-group，正文走标准输入，对端可控的名字以“-”开头或含换行也不会被当成选项；通知默认显示消息开头的简短预览（notify-preview.off 关闭）；doctor 的 notifications 按实际会用的通道判断是否获准。 | codex-gated-wake, acceptance-030-gaps |
 
-Build order: acceptance-kit → mailbox-core → session-routing → cross-host-delegation → packaging → state-migration → delegation-fixes → test-isolation → bridge-vendoring → delivery-state-machine → durable-ordering → idempotency → identity-check → ops-commands → safe-uninstall → round2-fixes → acceptance-kit-round2 → adapter-node → cleanup-gaps → register-retired-hint → codex-gated-wake → delegation-sidecar-race → acceptance-030-gaps → ci-macos
+Build order: acceptance-kit → mailbox-core → session-routing → cross-host-delegation → packaging → state-migration → delegation-fixes → test-isolation → bridge-vendoring → delivery-state-machine → durable-ordering → idempotency → identity-check → ops-commands → safe-uninstall → round2-fixes → acceptance-kit-round2 → adapter-node → cleanup-gaps → register-retired-hint → codex-gated-wake → delegation-sidecar-race → acceptance-030-gaps → ci-macos → notify-channel
 
 <!-- Spec Guard 按严格串行推进。为兼容上游格式，逗号分组会按左到右顺序展开为单模块步骤，不代表并行授权。 -->
 <!-- 加固模块（test-isolation、delivery-state-machine、durable-ordering、idempotency、identity-check、ops-commands、

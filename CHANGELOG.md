@@ -4,8 +4,20 @@
 
 接口升到 **1.3**（`interface.json`）：`bridge_register` 的 `host`、`bridge_agents` 的 `waiting` 与 `host.verified` 都是
 1.x 内的兼容新增；Spec Guard 的探测范围 `>=1.0,<2.0` 不用改。其他通知渠道的评估（Codex App 自己的提示、弹窗、
-terminal-notifier）见 `spec/acceptance-030-gaps.md` D79，结论是不加，以等待列表为准。
+terminal-notifier）见 `spec/acceptance-030-gaps.md` D79；其中“terminal-notifier 未安装”一条已由 `notify-channel` 修正：
+装了就用它（见下）。等待列表仍是一定看得到的地方。
 
+- **doctor 按实际通道判断通知**（模块 `notify-channel`，D87）：找到合格的 terminal-notifier 时看它在通知中心的授权，否则看
+  脚本编辑器；脚本编辑器无法被允许（它从不申请），所以提示改为“装 terminal-notifier（你决定）或用等待列表”，不再让你去
+  设置里找它。`--test-notification` 走同一通道并写明用的哪个。
+- **通知改用 terminal-notifier（如果装了）**（模块 `notify-channel`，D83、D84、D86，E2 的根治）：脚本编辑器从未申请通知权限，
+  连“系统设置 → 通知”的列表里都没有它，`osascript` 发出的通知全被丢掉。现在只在 Homebrew 的固定路径（`/opt/homebrew/bin`、
+  `/usr/local/bin`，从不按 PATH 找）找到合格的 terminal-notifier 时用它：参数只有 `-title`、`-subtitle`、`-group`，正文走
+  标准输入，对端写的名字和内容都不会成为选项；2.0.0 与 3.1.0 实测一致。找不到时照旧用 `osascript`，失败也不补发第二条。
+- **通知说清是什么事**（模块 `notify-channel`，D89、D89a，用户确认推翻 D67 的“不含正文”）：标题 `agent-relay · <发件会话> →
+  Codex`，副标题 `#<编号> · <收件身份> · <原因>`（原因保留“该做什么”，最长 80 字），正文是消息开头最多 60 字的单行预览
+  （控制字符与换行变空格，超长加 `…`）。信箱目录放 `notify-preview.off` 恢复旧样式（不含正文）。预览会出现在锁屏和共享
+  屏幕上。
 - **CI**（模块 `ci-macos`，D80）：GitHub Actions 在 `macos-15` 上为每个 PR 和 `main` 跑 `scripts/validate.sh`（含 bridge 的
   `npm run check`，不允许跳过），Python 3.9（苹果命令行工具自带）/ 3.14 × Node 22 / 24 四个组合；actions 按 SHA 固定，令牌
   只读。是否设为必需检查由维护者决定（README“开发与 CI”）。

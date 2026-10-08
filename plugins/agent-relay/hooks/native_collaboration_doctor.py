@@ -14,6 +14,7 @@ import platform as python_platform
 from pathlib import Path
 import re
 import sqlite3
+import stat
 import subprocess
 import sys
 import tempfile
@@ -274,10 +275,30 @@ def _wake_bindings(database: Path, sessions_dir: Path, alive: Callable[[int], bo
 
 
 SCRIPT_EDITOR = "com.apple.ScriptEditor2"
+TERMINAL_NOTIFIER = "fr.julienxx.oss.terminal-notifier"  # 2.0.0 and 3.1.0 alike (measured 2026-10-08)
+NOTIFIER_CANDIDATES = ("/opt/homebrew/bin/terminal-notifier", "/usr/local/bin/terminal-notifier")  # never PATH
 NOTIFY_ALLOWED_FLAG = 0x2000000  # measured 2026-10-08, undocumented: set on every app here that shows notifications
 TEST_NOTIFICATION_TEXT = "agent-relay test notification"
-ALLOW_NOTIFICATIONS = ("System Settings → Notifications → Script Editor (脚本编辑器) → Allow Notifications, then "
-                       "`native_collaboration_runtime.py doctor --test-notification` to see one")
+ALLOW_NOTIFIER = ("System Settings → Notifications → terminal-notifier → Allow Notifications, then "
+                  "`native_collaboration_runtime.py doctor --test-notification` to see one")
+NO_CHANNEL = ("Script Editor (used by osascript) cannot be allowed until it asks, and it never does from the bridge: "
+              "install terminal-notifier (`brew install terminal-notifier`, your choice) to see banners, or rely on the "
+              "waiting list (doctor codex-waiting, or ask any session what is waiting for Codex)")
+
+
+def find_notifier(candidates: Iterable[str] = NOTIFIER_CANDIDATES) -> Path | None:
+    """notify-channel D83, as the bridge does: a fixed path resolving to a regular executable owned by this user or
+    root and not writable by group or others."""
+    for candidate in candidates:
+        try:
+            real = Path(candidate).resolve(strict=True)
+            info = real.stat()
+        except (OSError, RuntimeError):
+            continue
+        if (stat.S_ISREG(info.st_mode) and info.st_mode & 0o111 and not info.st_mode & 0o022
+                and info.st_uid in (0, os.getuid())):
+            return real
+    return None
 
 
 def read_notification_prefs() -> bytes | None:
@@ -289,42 +310,60 @@ def read_notification_prefs() -> bytes | None:
         return None
 
 
-def _notifications(mailbox: Path, prefs: Callable[[], bytes | None], platform: str) -> dict[str, str]:
-    """acceptance-030-gaps D78: can the bridge's osascript notices be seen? Best effort; the plist is undocumented."""
+def _allowed(entry: dict[str, Any]) -> bool:
+    return bool(entry.get("auth")) and bool(int(entry.get("flags") or 0) & NOTIFY_ALLOWED_FLAG)
+
+
+def _notifications(mailbox: Path, prefs: Callable[[], bytes | None], platform: str,
+                   candidates: Iterable[str] = NOTIFIER_CANDIDATES) -> dict[str, str]:
+    """acceptance-030-gaps D78, notify-channel D87: can the channel the bridge would use show its notices? Best effort;
+    the Notification Center plist is undocumented."""
     if (mailbox / "notify.off").exists() or os.environ.get("AGENT_RELAY_NOTIFY") == "off":
         return _check("notifications", "ok", "desktop notifications are off by choice (notify.off); "
                       "the waiting list (codex-waiting) still shows what waits for Codex")
     if platform != "darwin":
         return _check("notifications", "ok", "not macOS, no desktop notifications; use the waiting list")
+    notifier = find_notifier(candidates)
     try:
         data = prefs()
         apps = plistlib.loads(data)["apps"] if data else None
-        entry = next((app for app in apps if app.get("bundle-id") == SCRIPT_EDITOR), None) if apps is not None else None
+        bundle = TERMINAL_NOTIFIER if notifier else SCRIPT_EDITOR
+        entry = next((app for app in apps if app.get("bundle-id") == bundle), None) if apps is not None else None
     except (plistlib.InvalidFileException, ValueError, KeyError, TypeError, AttributeError):
         apps = None
+    channel = f"terminal-notifier ({notifier})" if notifier else "Script Editor (osascript)"
+    advice = ALLOW_NOTIFIER if notifier else NO_CHANNEL
     if apps is None:
-        return _check("notifications", "warn", "cannot read the notification settings, so whether banners show is "
-                      "unknown", ALLOW_NOTIFICATIONS)
+        return _check("notifications", "warn", f"cannot read the notification settings, so whether {channel} shows "
+                      "the bridge's notices is unknown", advice)
     if entry is None:
-        return _check("notifications", "warn", "Script Editor has never registered for notifications on this Mac, "
-                      "so the bridge's notices (sent with osascript) are not shown", ALLOW_NOTIFICATIONS)
-    if not entry.get("auth") or not int(entry.get("flags") or 0) & NOTIFY_ALLOWED_FLAG:
-        return _check("notifications", "warn", "Script Editor appears not allowed to notify, so the bridge's "
-                      "notices (sent with osascript) are dropped silently", ALLOW_NOTIFICATIONS)
-    return _check("notifications", "ok", "Script Editor appears allowed to notify (a Focus mode can still hide "
+        return _check("notifications", "warn", f"{channel} has never registered for notifications on this Mac, so "
+                      "the bridge's notices are not shown", advice)
+    if not _allowed(entry):
+        return _check("notifications", "warn", f"{channel} appears not allowed to notify, so the bridge's notices "
+                      "are dropped silently", advice)
+    return _check("notifications", "ok", f"{channel} appears allowed to notify (a Focus mode can still hide "
                   "banners; doctor cannot see Focus)")
 
 
-def send_test_notification(run: Callable[..., Any] = subprocess.run) -> dict[str, Any]:
-    """Show one notification through the bridge's own osascript call (only on explicit request)."""
+def send_test_notification(run: Callable[..., Any] = subprocess.run,
+                           candidates: Iterable[str] = NOTIFIER_CANDIDATES) -> dict[str, Any]:
+    """Show one notification through the channel the bridge would use (only on explicit request)."""
+    notifier = find_notifier(candidates)
     try:
-        run(["osascript", "-e", "on run argv", "-e",
-             'display notification (item 1 of argv) with title "agent-relay"', "-e", "end run",
-             TEST_NOTIFICATION_TEXT], check=False, capture_output=True, timeout=10)
+        if notifier:
+            run([str(notifier), "-title", "agent-relay", "-subtitle", "doctor --test-notification",
+                 "-group", "agent-relay-test"], input=TEST_NOTIFICATION_TEXT, text=True, check=False,
+                capture_output=True, timeout=10)
+        else:
+            run(["osascript", "-e", "on run argv", "-e",
+                 'display notification (item 1 of argv) with title "agent-relay"', "-e", "end run",
+                 TEST_NOTIFICATION_TEXT], check=False, capture_output=True, timeout=10)
         sent = True
     except (OSError, subprocess.TimeoutExpired):
         sent = False
     return {"sent": sent, "text": TEST_NOTIFICATION_TEXT,
+            "channel": f"terminal-notifier {notifier}" if notifier else "osascript (Script Editor)",
             "ask": "Did a banner appear? If not, see the notifications check."}
 
 
@@ -364,7 +403,9 @@ def _codex_waiting(database: Path) -> dict[str, str]:
             old = True
     parts = []
     for agent, items in grouped.items():
-        senders = list(dict.fromkeys(sender for sender, _ in items))
+        # Names are free text (notify-channel live check): one line, as the desktop notice shows them.
+        senders = list(dict.fromkeys(" ".join(re.sub(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]", " ", str(sender)).split())
+                                     for sender, _ in items))
         ids = ", ".join(f"#{message_id}" for _, message_id in items[:20])
         parts.append(f"{agent}: {len(items)} waiting from {', '.join(senders)} ({ids})")
     detail = "; ".join(parts)
@@ -401,7 +442,8 @@ def doctor(root: Path, *, home: Path | None = None, node: str | None = None, cod
            processes: Callable[[], Iterable[str]] = _ps, alive: Callable[[int], bool] = pid_alive,
            codex_app_version: Callable[[], str | None] = chatgpt_app_version,
            notification_prefs: Callable[[], bytes | None] = read_notification_prefs,
-           platform: str = sys.platform, node_selector: Callable[..., Any] = select_node) -> dict[str, Any]:
+           platform: str = sys.platform, node_selector: Callable[..., Any] = select_node,
+           notifier_candidates: Iterable[str] = NOTIFIER_CANDIDATES) -> dict[str, Any]:
     home = Path(home) if home else Path.home()
     codex_home = os.environ.get("CODEX_HOME", "").strip()
     codex_config = Path(codex_config) if codex_config else (Path(codex_home) if codex_home else home / ".codex") / "config.toml"
@@ -424,7 +466,7 @@ def doctor(root: Path, *, home: Path | None = None, node: str | None = None, cod
         if ready:
             checks.append(_wake_bindings(copy, claude_sessions, alive))
             checks.append(_codex_waiting(copy))
-    checks.append(_notifications(root / "mailbox", notification_prefs, platform))
+    checks.append(_notifications(root / "mailbox", notification_prefs, platform, notifier_candidates))
     checks.append(_old_bridges(processes()))
     states = {check["state"] for check in checks}
     overall = "fail" if "fail" in states else "warn" if "warn" in states else "ok"
