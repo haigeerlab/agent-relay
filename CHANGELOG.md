@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+- **委派库不再因并发提交偶发报错**（模块 `delegation-sidecar-race`，D71）：检查 SQLite 附属文件时，另一个连接 COMMIT
+  删掉了 `-journal`，原来会抛出 `FileNotFoundError`；现在按不存在处理。不安全的附属文件（符号链接、非普通文件、属主或
+  权限不对）照旧拒绝。
+
 ## [0.3.0] - 2026-10-08
 
 接口升到 **1.2**（`interface.json`）：自动审批（“帮我批准”）的 Codex 会话现在可以绑定唤醒，属于 1.x 内的兼容变化；

@@ -401,9 +401,11 @@ class DelegationStore:
     def _check_sidecars(self) -> None:
         for suffix in ("-journal", "-wal", "-shm"):
             path = Path(str(self.database) + suffix)
-            if not path.exists() and not path.is_symlink():
+            # A concurrent connection's COMMIT can delete its journal at any moment.
+            try:
+                metadata = path.lstat()
+            except FileNotFoundError:
                 continue
-            metadata = path.lstat()
             if (stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode)
                     or metadata.st_uid != os.getuid()
                     or stat.S_IMODE(metadata.st_mode) != 0o600):
