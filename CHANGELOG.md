@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-10-09
+
+接口仍为 **1.4**，信箱 schema 仍为 5，委派库结构仍为 2。这一版收尾 0.4.0 架构审核剩下的发现：状态迁移、委派的并发与
+首次建库、确认与唤醒任务的事务。只有 `ack-wake-atomic` 改了 bridge，要升级运行时才生效；其余都在插件的 hooks 里，
+更新插件即生效。
+
 - **确认与关闭唤醒任务一起完成**（模块 `ack-wake-atomic`，D130，0.4.0 架构审核）：`bridge_ack`（以及带确认的
   `bridge_wait`）以前先在自动提交里记下确认，再另开事务关闭对应的唤醒任务，多条消息也是逐条提交；中途出错或被杀会留下
   “消息已确认、唤醒任务还待发”，之后可能再提醒一次收件人。现在一次确认的全部消息与它们的唤醒任务在同一个事务里完成，
@@ -28,6 +34,33 @@
 - **`state_migration.py recover --confirm`**（模块 `state-migration-safety`，D120）：迁移半路被杀时，`detect` 报 `interrupted`、
   `migrate` 拒绝执行，这条命令按记录回到迁移前的样子（只回退、不补完），之后可以再迁移。接口文档 §13、README 与
   collaboration-ops 技能写明这些；`interface.json` 仍为 1.4（D121）。
+以上来自五个 PR：`state-migration-safety`（#41）、`delegation-claim`（#42）、`delegation-store-init`（#43、#44）、
+`ack-wake-atomic`（#45）。
+
+### 从 0.5.1 升级
+
+1. 两个宿主都更新插件：
+   - Claude Code（从 GitHub 装的）：先 `claude plugin marketplace update agent-relay-marketplace`，再
+     `claude plugin update agent-relay@agent-relay-marketplace`。
+   - Codex：把 `~/.codex/config.toml` 里 `[marketplaces.agent-relay-marketplace]` 的 `ref` 改成 `"v0.5.2"`（自己改，改前留一份
+     副本），再 `codex plugin marketplace upgrade`，最后 `codex plugin add agent-relay@agent-relay-marketplace`。
+   - 从本地克隆装的：把克隆更新到 v0.5.2 后，Claude 无需其他操作，Codex 再执行一次 `codex plugin add`。
+2. **关闭所有使用信箱的会话**（所有 Claude Code 会话和 ChatGPT 应用），在 macOS 自带的“终端”里确认
+   `pgrep -fl "agent-relay/runtime/dist/server.js"` 没有输出，再执行
+   `python3 -B <插件目录>/hooks/native_collaboration_runtime.py upgrade --confirm`。半路被打断时按 `status` 的提示执行
+   `recover --confirm`。宿主接入不用重做。
+3. `doctor`：`runtime`、`probe`（10 个工具）、`host-entries` 为 ok。
+4. 想退回 0.5.1：关掉所有会话后 `rollback --confirm`，并把两个宿主的插件也退回 v0.5.1（只回滚运行时也能用，但 doctor 的
+   `runtime` 会一直 warn “bridge is older than this plugin's” 并提示再升级）。
+
+从更早的版本升级：按对应版本的说明做完宿主那边的步骤，把 `ref` 换成 `"v0.5.2"` 更新插件，再做上面第 2–3 步。
+
+### 已知问题
+
+- 查看委派状态（`status`）不拿认领：它与一个正在进行的 `continue` 同时推进同一条记录时，其中一方可能得到
+  “invalid-state-transition” 错误；状态转换都在事务里并检查合法性，不会因此重复碰到宿主，再查一次 `status` 即可。
+- 0.5.1、0.5.0 列出的已知问题仍然存在，见下方各版本的“已知问题”。
+
 ## [0.5.1] - 2026-10-08
 
 接口仍为 **1.4**，信箱 schema 仍为 5。两处修正都来自 0.5.0 的真机复验：bridge 的 CLI 和 MCP 服务在没有指定信箱时，不再退回
