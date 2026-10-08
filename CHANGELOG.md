@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+- **委派一次只有一个调用能碰到宿主**（模块 `delegation-claim`，D122–D125，0.4.0 架构审核）：以前用同一个启动键并发创建时，
+  两个调用都会启动宿主会话（Codex 发两次 `thread/start`），并发追问会发出两轮，后到的那个在宿主已经动了之后才失败。现在
+  控制器在调用 Claude/Codex 适配器之前先认领这个委派（`~/.agent-relay/delegation/claims/<id>.lock` 上的 flock，进程死掉
+  自动释放）：另一个调用正在处理时返回 `prerequisite: operation-in-progress`，什么都不启动；上一次在半路被杀时，下一次调用
+  把记录记为 `unknown` 并返回 `previous-operation-interrupted`，绝不再启动一次。委派库结构不变（仍是 2），插件更新即生效，
+  不用升级运行时。session-delegation 技能与接口文档写明这两个结果（D126）。
 - **状态迁移一次只跑一个，失败了就换回去**（模块 `state-migration-safety`，D116–D119，0.4.0 架构审核 B6、C11）：
   `state_migration.py migrate --confirm` 以前没有互斥，也不检查 agent-relay 自己的信箱服务，却会删掉目标信箱文件再复制进去；
   中途出错或被杀会留下“目标信箱已有数据、永远不能重试”的半截状态。现在同一时间只允许一次迁移（对 `~/.agent-relay` 目录加
