@@ -80,6 +80,32 @@ class StoreInitTests(unittest.TestCase):
             tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         self.assertEqual(tables, {"something_else"}, "nothing was added to a foreign database")
 
+    def test_a_foreign_database_at_version_0_with_only_a_view_is_still_refused(self):
+        # Review of #43: counting only tables let a version-0 database holding a view, index or trigger look empty.
+        root = self.parent / "state"
+        root.mkdir(mode=0o700)
+        database = root / DATABASE_FILENAME
+        with sqlite3.connect(database) as connection:
+            connection.execute("CREATE VIEW foreign_view AS SELECT 1 AS x")
+        database.chmod(0o600)
+        with self.assertRaisesRegex(DelegationError, "schema is incomplete"):
+            DelegationStore(root)
+        with sqlite3.connect(database) as connection:
+            names = {row[0] for row in connection.execute("SELECT name FROM sqlite_master")}
+        self.assertEqual(names, {"foreign_view"}, "nothing was added to a foreign database")
+
+    def test_an_initialized_database_is_opened_without_the_write_lock(self):
+        # Review of #43: a store that is already at version 2 does not take BEGIN IMMEDIATE on every open.
+        root = self.parent / "state"
+        DelegationStore(root)
+        holder = sqlite3.connect(root / DATABASE_FILENAME, timeout=0, isolation_level=None)
+        self.addCleanup(holder.close)
+        holder.execute("BEGIN IMMEDIATE")  # another process holds the write lock
+        started = time.monotonic()
+        DelegationStore(root)
+        self.assertLess(time.monotonic() - started, 2, "opening waited for the write lock")
+        holder.execute("ROLLBACK")
+
     def missing_at_first(self, root):
         """Make the existence check miss `root` once, as when another process creates it right after the check."""
         real_exists, real_is_symlink = Path.exists, Path.is_symlink
