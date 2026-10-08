@@ -53,7 +53,7 @@ class CiWorkflowTests(unittest.TestCase):
         self.assertIn("npm ci", self.text)
         self.assertIn("toolchain", self.text)
         self.assertIn("bash scripts/validate.sh", self.text)
-        self.assertIn("ok    bridge: npm run check", self.text)
+        self.assertIn('ok    bridge: npm run check +[0-9]+$', self.text, "the bridge check must report a test count")
 
 
 if __name__ == "__main__":
