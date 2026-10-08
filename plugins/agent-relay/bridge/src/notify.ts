@@ -1,6 +1,6 @@
 // agent-relay codex-gated-wake D67: tell the user on this Mac when a Codex message cannot be delivered, once per message.
 import { execFile } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
 
 /** A Codex recipient that is merely busy is notified only after this long (the user's choice, 2026-10-08). */
@@ -64,6 +64,37 @@ export function noticeText(notice: UndeliveredNotice): string {
     `${JSON.stringify(notice.agent)} (${notice.why}).`;
 }
 
+// agent-relay notify-channel D83: Homebrew's terminal-notifier (Apple silicon, then Intel prefix), never found via PATH.
+export const NOTIFIER_CANDIDATES = ["/opt/homebrew/bin/terminal-notifier", "/usr/local/bin/terminal-notifier"];
+
+/**
+ * The first candidate that resolves to a regular, executable file owned by this user or root and not writable by group
+ * or others; the resolved path is what runs. Null when none qualifies.
+ */
+export function findNotifier(candidates: readonly string[] = NOTIFIER_CANDIDATES): string | null {
+  const uid = process.getuid?.();
+  for (const candidate of candidates) {
+    try {
+      const real = realpathSync(candidate);
+      const info = statSync(real);
+      if (!info.isFile() || (info.mode & 0o111) === 0 || (info.mode & 0o022) !== 0) continue;
+      if (info.uid !== 0 && info.uid !== uid) continue;
+      return real;
+    } catch { /* missing or unreadable: next */ }
+  }
+  return null;
+}
+
+export interface NoticeChannel {
+  candidates?: readonly string[];
+  osascript?: string;
+}
+
+/** The notice key as a file and group name: only `[A-Za-z0-9._-]`. */
+function safeKey(notice: UndeliveredNotice): string {
+  return (notice.key ?? String(notice.messageId)).replace(/[^A-Za-z0-9._-]/g, "_");
+}
+
 /**
  * Show one desktop notification for this message unless it was already shown by any bridge on this mailbox.
  * Off with `AGENT_RELAY_NOTIFY=off` or a `notify.off` file next to the mailbox; `AGENT_RELAY_NOTIFY_LOG` records the
@@ -71,7 +102,7 @@ export function noticeText(notice: UndeliveredNotice): string {
  * `notify-preview.off` is next to the mailbox. Returns true when this call notified.
  */
 export function notifyUndelivered(mailboxPath: string, notice: UndeliveredNotice,
-  env: NodeJS.ProcessEnv = process.env): boolean {
+  env: NodeJS.ProcessEnv = process.env, channel: NoticeChannel = {}): boolean {
   if (env.AGENT_RELAY_NOTIFY === "off" || !isAbsolute(mailboxPath)) return false;
   const dir = dirname(mailboxPath);
   if (existsSync(join(dir, "notify.off"))) return false;
@@ -80,7 +111,7 @@ export function notifyUndelivered(mailboxPath: string, notice: UndeliveredNotice
   try {
     const marks = join(dir, "notified");
     mkdirSync(marks, { recursive: true, mode: 0o700 });
-    writeFileSync(join(marks, notice.key ?? String(notice.messageId)), "", { flag: "wx", mode: 0o600 });
+    writeFileSync(join(marks, safeKey(notice)), "", { flag: "wx", mode: 0o600 });
   } catch {
     return false; // already notified (another bridge won the race), or the mark cannot be kept: never notify twice
   }
@@ -89,9 +120,21 @@ export function notifyUndelivered(mailboxPath: string, notice: UndeliveredNotice
     appendFileSync(log, `${fields.title} | ${fields.subtitle} | ${fields.body}\n`);
     return true;
   }
+  // notify-channel D84/D86: the preview goes on stdin, never as an argument; one group per notice. A failure is not
+  // retried through osascript, which could show the same notice twice.
+  const notifier = findNotifier(channel.candidates);
+  if (notifier) {
+    const child = execFile(notifier, ["-title", fields.title, "-subtitle", fields.subtitle, "-group", `agent-relay-${safeKey(notice)}`],
+      { timeout: 10_000 }, () => {});
+    child.stdin?.on("error", () => {});
+    child.stdin?.end(fields.body);
+    return true;
+  }
   // The texts are arguments, never part of the script.
-  execFile("osascript", ["-e", "on run argv", "-e",
+  const fallback = execFile(channel.osascript ?? "osascript", ["-e", "on run argv", "-e",
     "display notification (item 3 of argv) with title (item 1 of argv) subtitle (item 2 of argv)", "-e", "end run",
-    fields.title, fields.subtitle, fields.body], () => {});
+    fields.title, fields.subtitle, fields.body], { timeout: 10_000 }, () => {});
+  fallback.stdin?.on("error", () => {});
+  fallback.stdin?.end();
   return true;
 }

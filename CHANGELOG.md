@@ -6,6 +6,10 @@
 1.x 内的兼容新增；Spec Guard 的探测范围 `>=1.0,<2.0` 不用改。其他通知渠道的评估（Codex App 自己的提示、弹窗、
 terminal-notifier）见 `spec/acceptance-030-gaps.md` D79，结论是不加，以等待列表为准。
 
+- **通知改用 terminal-notifier（如果装了）**（模块 `notify-channel`，D83、D84、D86，E2 的根治）：脚本编辑器从未申请通知权限，
+  连“系统设置 → 通知”的列表里都没有它，`osascript` 发出的通知全被丢掉。现在只在 Homebrew 的固定路径（`/opt/homebrew/bin`、
+  `/usr/local/bin`，从不按 PATH 找）找到合格的 terminal-notifier 时用它：参数只有 `-title`、`-subtitle`、`-group`，正文走
+  标准输入，对端写的名字和内容都不会成为选项；2.0.0 与 3.1.0 实测一致。找不到时照旧用 `osascript`，失败也不补发第二条。
 - **通知说清是什么事**（模块 `notify-channel`，D89、D89a，用户确认推翻 D67 的“不含正文”）：标题 `agent-relay · <发件会话> →
   Codex`，副标题 `#<编号> · <收件身份> · <原因>`（原因保留“该做什么”，最长 80 字），正文是消息开头最多 60 字的单行预览
   （控制字符与换行变空格，超长加 `…`）。信箱目录放 `notify-preview.off` 恢复旧样式（不含正文）。预览会出现在锁屏和共享
