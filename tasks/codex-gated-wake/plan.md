@@ -28,7 +28,7 @@ On a Codex wake that ends `pending` offline, `held`, or a direct message to a Co
 (at once), or `pending` busy still undelivered after 10 minutes: one macOS notification per message (`osascript -e 'display notification …'`, sender and message id, no
 body), through an injectable notifier; an environment switch turns it off; never on non-macOS. The sender's
 `bridge_send` result (and wake status) says the user was notified. Tests with a fake notifier: once per message,
-busy silent before 10 minutes and notified once after, text without body, switch off, Claude recipients unaffected.
+busy silent before 10 minutes, notified once at 10 minutes, and never if delivered within 10 minutes; text without body, switch off, Claude recipients unaffected.
 
 ### Task 5: doctor `codex-approval` (D68)
 Accurate text (selector per turn, not in `config.toml`; peer turns gated), `ok` when gated; no instruction to edit
