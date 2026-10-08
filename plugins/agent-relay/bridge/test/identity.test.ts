@@ -159,7 +159,7 @@ test("bridge_sessions.whoami lists this session's host, project and identities",
     assert.equal(mine.project, "my-project");
     assert.equal(mine.sessionName, null, "no live Claude registry entry in this test");
     assert.deepEqual(mine.identities.map((x: any) => [x.name, x.provenHere]), [["alice", true]]);
-    assert.deepEqual(mine.identities[0].recordedHost, { app: "claude", sessionId: "claude-session-a" });
+    assert.deepEqual(mine.identities[0].recordedHost, { app: "claude", sessionId: "claude-session-a", verified: true });
     assert.equal(mine.identities[0].wake, null);
 
     const theirs = (await codex.call("bridge_sessions", {})).json().whoami;

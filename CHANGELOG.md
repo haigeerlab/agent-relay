@@ -5,6 +5,11 @@
 - **发给收不到提醒的身份时，发件方会得到警告**（模块 `acceptance-030-gaps`，D72，0.3.0 验收发现 E1）：收件方既没绑定唤醒、
   bridge 也不知道它在哪个宿主（例如以 `wake: null` 注册的 Codex 任务）时，`bridge_send` 的结果加一条警告，说明对方要自己查
   收件箱才会看到。广播、重复发送和 `wake: false` 不提示；不弹桌面通知，投递不变。
+- **Codex 不绑唤醒也能登记自己的宿主**（模块 `acceptance-030-gaps`，D75、D75a）：`bridge_register` 新增可选 `host:
+  {app: "codex", sessionId: <CODEX_THREAD_ID>}`，只记录宿主、不绑定唤醒；发给它的消息会尝试通知用户，并进入等待列表。
+  这只是任务自报，不授予任何权限：不建立绑定、不代替接管、不证明发件身份；从 Claude 会话、与 `wake` 不一致或别的 app 时拒绝。
+  `bridge_agents` 的 `host` 与 whoami 的 `recordedHost` 新增 `verified`（只有 Claude 宿主为 true）。collab skill 让 Codex
+  不绑唤醒时带上 `host`。
 - **升级不再因同一秒的备份撞名而失败**（模块 `acceptance-030-gaps`，D74）：`install-codex --approve-mailbox-tools` 后一秒内
   执行 `upgrade --confirm`，原来会报 “an upgrade with this timestamp already exists; retry in a second”；现在和宿主配置备份一样
   依次改用 `<时间>-1`、`<时间>-2`……，备份、暂存和 `runtime.previous-` 目录共用同一个后缀。
