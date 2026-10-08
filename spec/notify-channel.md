@@ -56,19 +56,19 @@ Readers: the user; the round-2 coordinator, who re-checks E1/E2 on the real host
   variable, so nothing outside the code can redirect it).
 - **D84 invocation.** Per assumption 2. A failing terminal-notifier run does not retry through `osascript` (that would
   notify twice when the first one did show); the mark stays, as today.
-- **D85 permission check: where.** Option **A (recommended)**: the bridge only checks that terminal-notifier is
+- **D85 permission check: where.** **A (chosen by the user 2026-10-08)**: the bridge only checks that terminal-notifier is
   present; doctor reports whether that channel appears allowed. Option B: the bridge also reads Notification Center
   prefs before every notice and falls back to `osascript` when terminal-notifier appears not allowed — more moving parts
   on the notice path, and on a Mac like this one the fallback is dropped anyway. With A, the map row's "且获准通知时"
   is corrected to "已安装（只认固定路径）时优先用它；doctor 判断它是否获准".
-- **D86 group.** Option **per event (recommended)**: `-group agent-relay-<key>`, so every notice stays in Notification
+- **D86 group.** **Per event (chosen by the user 2026-10-08)**: `-group agent-relay-<key>`, so every notice stays in Notification
   Center until dismissed. Option single: `-group agent-relay`, so only the latest notice is kept.
 - **D87 doctor.** `notifications` judges the channel the bridge would use: terminal-notifier's entry
   (`fr.julienxx.oss.terminal-notifier`) when it is found, else Script Editor's. When neither can show: warn, and the next
   step says Script Editor cannot be allowed until it asks, so either install terminal-notifier (`brew install
   terminal-notifier`, the user's choice) or rely on the waiting list. `--test-notification` uses the same channel and
   says which.
-- **D89 preview by default (reverses D67's "never the body"; needs the user's confirmation).** A notice about a
+- **D89 preview by default (reverses D67's "never the body"; confirmed by the user 2026-10-08).** A notice about a
   message shows: title `agent-relay · <sender> → Codex`; subtitle `#<id> · <recipient>`; body the first 60 characters
   (code points) of the message, with every control character (C0, C1, DEL, U+2028, U+2029) turned into a space, runs of
   whitespace collapsed to one, trimmed, and `…` appended when cut. Names in the title and subtitle get the same cleaning
@@ -118,5 +118,4 @@ list; doctor tells the truth about the channel in use.
 
 ## Open questions
 
-D85 (A recommended), D86 (per event recommended), and the user's confirmation of D89 (message preview by default,
-reversing D67's "never the body").
+None. Accepted by the user on 2026-10-08: assumptions 1–4, D83–D89 with D85 = A, D86 = per event, D89 confirmed.
