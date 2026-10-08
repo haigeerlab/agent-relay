@@ -10,6 +10,9 @@
   （agent-relay 总是指定信箱路径，用不到它）保持原样。
 - **doctor 去掉 `--claude-settings`**（模块 `legacy-cli-cleanup`，D97）：上个模块起 doctor 已不读 Claude 设置文件；卸载用的同名
   选项在 adapters 里，照旧保留。
+- **bridge 文档跟上**（模块 `legacy-cli-cleanup`，D98）：bridge 的 README、INSTRUCTIONS、BACKGROUND-WAKE 的安装、维护、存储与日常
+  维护改为 agent-relay 的 Python 命令和 `~/.agent-relay/runtime`；README 里残留的 Codex worker 斜杠命令一节（上个模块漏删）一并
+  去掉；channel 启动参数改为 `server:agent-relay`。
 - **删除 Codex 编排器**（模块 `orchestrator-removal`，D90、D91、D93）：bridge 不再注册 `ask_codex`、`review_with_codex`、
   `bridge_orchestrate_codex`、`bridge_continue_codex`、`bridge_orchestration_wait`、`bridge_orchestration_status` 和
   `bridge_retire`，MCP 服务只提供十个信箱工具。这七个工具在所有宿主上本来就是禁用的；委托 Codex 改由 delegate 插件负责。

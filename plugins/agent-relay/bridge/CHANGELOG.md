@@ -6,7 +6,10 @@ agent-relay removed the Codex workers from its vendored copy (module `orchestrat
 `review_with_codex`, `bridge_orchestrate_codex`, `bridge_continue_codex`, `bridge_orchestration_wait`,
 `bridge_orchestration_status` and the `bridge_retire` tool are gone, and so are run recovery, run-file pruning,
 `BRIDGE_WORKTREE_ROOT` and `npm run smoke:orchestrator`. The server registers only the ten mailbox tools; retiring
-stays the CLI `retire`. The orchestration tables stay in the schema, unread. The entries below are upstream history.
+stays the CLI `retire`. The orchestration tables stay in the schema, unread. Module `legacy-cli-cleanup` then cut the
+CLI down to `retire` and `help` (setup, doctor, status, demo, prune, backup, rollback and uninstall are gone; agent-relay's
+Python runtime does those) and renamed the package `agent-relay-bridge`; the server introduces itself as `agent-relay`.
+The entries below are upstream history.
 
 ## 0.4.0
 
