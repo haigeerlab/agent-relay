@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+- **升级中断后能恢复**（模块 `upgrade-recovery`，D104、D105、D109）：运行时的切换（升级、重装、回滚）在旁边写一份
+  `runtime-swap.json` 记录进行到哪一步。半路停下时 `status` 报 `interrupted`，`install`、`upgrade`、`uninstall` 拒绝执行；新命令
+  `recover --confirm` 一律回到切换前的运行时（不往前补完），信箱和数据搬回原处、核对行数，没换成的那份保留为
+  `.runtime-<类型>-failed-<时间>` 供查看。
 - **只有本人读取才算已读**（模块 `inbox-read-receipt`，D99、D100）：`bridge_inbox` 和不确认的 `bridge_wait` 只有在调用方就是该
   身份时才记已读、刷新活跃时间，`bridge_outbox` 同理只在本人查看时刷新活跃时间。以前任何会话读一眼别人的收件箱，消息就变成
   `accepted`，还在等待的唤醒任务也被关掉，真正的收件人从此不会被提醒。读取仍不鉴权；结果新增 `readRecorded`（总是有）和
