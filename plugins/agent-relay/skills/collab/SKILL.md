@@ -35,8 +35,9 @@ description: 加入本机 Claude Code／Codex 联调、查看联调消息与已�
 bridge 会核对身份：发送、ack 和自动确认的 `bridge_wait` 只接受本会话注册过的名字。被拒绝且报错说该名字
 未经本会话注册时（例如 bridge 重启后），用同一个名字重新 `bridge_register` 一次；Codex 要带上本任务环境里的
 `{app: "codex", sessionId: CODEX_THREAD_ID}`。报错说名字属于另一个会话时，换一个名字；只有用户在当前对话明确
-同意接管，才加 `takeover: true`。Codex 绑定唤醒被拒、说 Codex 处于自动批准时，如实告诉用户要把 Codex 审批选择
-改为“请求批准”后才能绑定，不要改配置，也不要换方式绕过。回复（`replyTo`）只能由原消息的收件人发出。
+同意接管，才加 `takeover: true`。Codex 处于“帮我批准”也可以绑定唤醒：被唤醒的那一轮由 bridge 单独改成用户
+审批、只读沙箱，动手前会弹审批卡。唤醒被挂起（held）时如实转述原因（ChatGPT 应用版本过旧，或门控被停用、要用户检查后
+删除 `codex-gate.off`），不要改配置，也不要换方式绕过。回复（`replyTo`）只能由原消息的收件人发出。
 
 用户问“有哪些会话”时，用下列格式展示实际已加入项：
 
