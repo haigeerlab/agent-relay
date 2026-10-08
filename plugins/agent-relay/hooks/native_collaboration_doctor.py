@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 import json
 import plistlib
 import os
+import platform as python_platform
 from pathlib import Path
 import re
 import sqlite3
@@ -82,14 +83,26 @@ def _probe(root: Path, probe: Callable[[Path], dict[str, Any]], used: str = "") 
     return _check("probe", "ok", f"the bridge starts{used} and lists {result.get('toolCount')} tools")
 
 
-def _probe_with_selected_node(root: Path, node: str | None, claude_json: Path, codex_config: Path) -> dict[str, str]:
+def _probe_with_selected_node(root: Path, node: str | None, claude_json: Path, codex_config: Path,
+                              selector: Callable[..., Any] = select_node) -> dict[str, str]:
     """Probe with the node the host entries pin, as the controller does (round2-fixes D50, round 2 R2-1)."""
     try:
-        selected = select_node(node, claude_json=claude_json, codex_config=codex_config)
+        selected = selector(node, claude_json=claude_json, codex_config=codex_config)
     except NodeSelectError as error:
         return _check("probe", "fail", error.detail, "install Node 22.5.0 or newer, or pass --node <path>")
     return _probe(root, lambda r: _probe_outside(r, str(selected.path)),
                   f" with node {selected.path} ({selected.version}, from {selected.source})")
+
+
+def _toolchain(node: str | None, claude_json: Path, codex_config: Path, selector: Callable[..., Any]) -> dict[str, str]:
+    """ci-macos D81: the Python running doctor and the node it would use, so a log or a report needs no guessing."""
+    python = f"python {sys.executable} ({python_platform.python_version()})"
+    try:
+        selected = selector(node, claude_json=claude_json, codex_config=codex_config)
+    except NodeSelectError as error:
+        return _check("toolchain", "warn", f"{python}; no usable node: {error.detail}",
+                      "install Node 22.5.0 or newer, or pass --node <path>")
+    return _check("toolchain", "ok", f"{python}; node {selected.path} ({selected.version}, from {selected.source})")
 
 
 def _mailbox(database: Path, original: Path | None = None) -> dict[str, str]:
@@ -388,7 +401,7 @@ def doctor(root: Path, *, home: Path | None = None, node: str | None = None, cod
            processes: Callable[[], Iterable[str]] = _ps, alive: Callable[[int], bool] = pid_alive,
            codex_app_version: Callable[[], str | None] = chatgpt_app_version,
            notification_prefs: Callable[[], bytes | None] = read_notification_prefs,
-           platform: str = sys.platform) -> dict[str, Any]:
+           platform: str = sys.platform, node_selector: Callable[..., Any] = select_node) -> dict[str, Any]:
     home = Path(home) if home else Path.home()
     codex_home = os.environ.get("CODEX_HOME", "").strip()
     codex_config = Path(codex_config) if codex_config else (Path(codex_home) if codex_home else home / ".codex") / "config.toml"
@@ -398,14 +411,14 @@ def doctor(root: Path, *, home: Path | None = None, node: str | None = None, cod
     root = Path(root)
     database = root / "mailbox" / "bridge.sqlite"
     runtime, ready = _runtime(root)
-    checks = [runtime]
+    checks = [runtime, _toolchain(node, claude_json, codex_config, node_selector)]
     # Opening a WAL mailbox, even read-only, touches its -shm next to it, so every read goes through a private copy
     # made by plain file reads (as state-migration does); the live mailbox and its -wal/-shm stay untouched.
     with tempfile.TemporaryDirectory(prefix="agent-relay-doctor-mailbox-") as scratch:
         copy = _snapshot(database, Path(scratch)) if database.exists() else database
         if ready:
             probed = (_probe(root, probe) if probe else
-                      _probe_with_selected_node(root, node, claude_json, codex_config))
+                      _probe_with_selected_node(root, node, claude_json, codex_config, node_selector))
             checks += [probed, _mailbox(copy, database)]
         checks += [_hosts(root, codex_config, claude_json, claude_settings), _codex_approval(codex_config, root / "mailbox", codex_app_version)]
         if ready:
