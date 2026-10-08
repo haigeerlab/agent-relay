@@ -6,6 +6,9 @@
 1.x 内的兼容新增；Spec Guard 的探测范围 `>=1.0,<2.0` 不用改。其他通知渠道的评估（Codex App 自己的提示、弹窗、
 terminal-notifier）见 `spec/acceptance-030-gaps.md` D79，结论是不加，以等待列表为准。
 
+- **doctor 按实际通道判断通知**（模块 `notify-channel`，D87）：找到合格的 terminal-notifier 时看它在通知中心的授权，否则看
+  脚本编辑器；脚本编辑器无法被允许（它从不申请），所以提示改为“装 terminal-notifier（你决定）或用等待列表”，不再让你去
+  设置里找它。`--test-notification` 走同一通道并写明用的哪个。
 - **通知改用 terminal-notifier（如果装了）**（模块 `notify-channel`，D83、D84、D86，E2 的根治）：脚本编辑器从未申请通知权限，
   连“系统设置 → 通知”的列表里都没有它，`osascript` 发出的通知全被丢掉。现在只在 Homebrew 的固定路径（`/opt/homebrew/bin`、
   `/usr/local/bin`，从不按 PATH 找）找到合格的 terminal-notifier 时用它：参数只有 `-title`、`-subtitle`、`-group`，正文走

@@ -21,6 +21,8 @@ SCRIPT_EDITOR = "com.apple.ScriptEditor2"
 # Measured on this Mac 2026-10-08: apps that show notifications have an auth value and flag 0x2000000.
 SCRIPT_EDITOR_ALLOWED = {"bundle-id": SCRIPT_EDITOR, "flags": 0x12802056, "auth": 7}
 SCRIPT_EDITOR_NEVER_ALLOWED = {"bundle-id": SCRIPT_EDITOR, "flags": 0x200e}  # the real entry when E2 was found
+TERMINAL_NOTIFIER = "fr.julienxx.oss.terminal-notifier"
+NOTIFIER_ALLOWED = {"bundle-id": TERMINAL_NOTIFIER, "flags": 0x1280204e, "auth": 7}  # this Mac, 3.1.0
 
 
 def prefs(*apps):
@@ -86,7 +88,8 @@ class DoctorTests(unittest.TestCase):
                        processes=lambda: self.processes, alive=lambda pid: pid in self.alive,
                        codex_app_version=lambda: "26.930.61225",
                        notification_prefs=lambda: prefs(SCRIPT_EDITOR_ALLOWED), platform="darwin",
-                       node_selector=lambda *a, **k: SelectedNode(NODE, "claude-entry", "v24.18.0"))
+                       node_selector=lambda *a, **k: SelectedNode(NODE, "claude-entry", "v24.18.0"),
+                       notifier_candidates=())
         options.update(overrides)
         return doctor(self.root, **options)
 
@@ -288,9 +291,9 @@ class DoctorTests(unittest.TestCase):
         for data, state, words in cases:
             check = self.find(self.run_doctor(notification_prefs=lambda data=data: data), "notifications")
             self.assertEqual((check["state"], words in check["detail"]), (state, True), check)
-            if state == "warn":
+            if state == "warn":  # notify-channel D87: Script Editor cannot be allowed; the ways out instead
                 self.assertIn("Script Editor", check["next"])
-                self.assertIn("--test-notification", check["next"])
+                self.assertIn("terminal-notifier", check["next"])
         self.assertIn("Focus", self.find(self.run_doctor(), "notifications")["detail"])
         check = self.find(self.run_doctor(platform="linux", notification_prefs=lambda: None), "notifications")
         self.assertEqual((check["state"], "not macOS" in check["detail"]), ("ok", True), check)
@@ -304,6 +307,59 @@ class DoctorTests(unittest.TestCase):
         self.addCleanup(os.environ.pop, "AGENT_RELAY_NOTIFY", None)
         check = self.find(self.run_doctor(notification_prefs=lambda: prefs()), "notifications")
         self.assertEqual(check["state"], "ok", check)
+
+    def fake_notifier(self, mode=0o755):
+        path = self.home / "bin" / "terminal-notifier"
+        path.parent.mkdir(exist_ok=True)
+        path.write_text("#!/bin/sh\nexit 0\n")
+        path.chmod(mode)
+        return path
+
+    def test_notifications_judge_terminal_notifier_when_it_is_found(self):
+        # notify-channel D87: the channel the bridge would use decides.
+        notifier = self.fake_notifier()
+        cases = [
+            (prefs(NOTIFIER_ALLOWED, SCRIPT_EDITOR_NEVER_ALLOWED), "ok", "terminal-notifier"),
+            (prefs({**NOTIFIER_ALLOWED, "flags": 0x200e}), "warn", "appears not allowed"),
+            (prefs({"bundle-id": TERMINAL_NOTIFIER, "flags": 0x1280204e}), "warn", "appears not allowed"),
+            (prefs(SCRIPT_EDITOR_ALLOWED), "warn", "never registered"),
+        ]
+        for data, state, words in cases:
+            check = self.find(self.run_doctor(notifier_candidates=(str(notifier),), notification_prefs=lambda data=data: data),
+                              "notifications")
+            self.assertEqual((check["state"], words in check["detail"]), (state, True), check)
+            self.assertIn(str(notifier), check["detail"], "names the channel")
+        # A candidate that is group-writable is not used: Script Editor decides, as the bridge would.
+        notifier.chmod(0o775)
+        check = self.find(self.run_doctor(notifier_candidates=(str(notifier),),
+                                          notification_prefs=lambda: prefs(NOTIFIER_ALLOWED, SCRIPT_EDITOR_NEVER_ALLOWED)),
+                          "notifications")
+        self.assertEqual(check["state"], "warn", check)
+        self.assertIn("Script Editor", check["detail"])
+
+    def test_without_terminal_notifier_the_next_step_offers_the_ways_out(self):
+        check = self.find(self.run_doctor(notification_prefs=lambda: prefs(SCRIPT_EDITOR_NEVER_ALLOWED)), "notifications")
+        self.assertEqual(check["state"], "warn", check)
+        self.assertIn("brew install terminal-notifier", check["next"])
+        self.assertIn("codex-waiting", check["next"])
+        self.assertIn("cannot be allowed until it asks", check["next"])
+
+    def test_test_notification_uses_terminal_notifier_with_the_text_on_stdin(self):
+        notifier = self.fake_notifier()
+        calls = []
+
+        def fake_run(command, **kwargs):
+            calls.append((command, kwargs.get("input")))
+            import subprocess
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        result = send_test_notification(run=fake_run, candidates=(str(notifier),))
+        self.assertEqual(len(calls), 1)
+        command, given = calls[0]
+        self.assertEqual(command, [str(notifier.resolve()), "-title", "agent-relay", "-subtitle", "doctor --test-notification",
+                                   "-group", "agent-relay-test"])
+        self.assertEqual(given, TEST_NOTIFICATION_TEXT)
+        self.assertEqual(result["channel"], f"terminal-notifier {notifier.resolve()}")
 
     def test_test_notification_runs_osascript_once_and_only_on_request(self):
         calls = []
@@ -319,12 +375,13 @@ class DoctorTests(unittest.TestCase):
             self.run_doctor(notification_prefs=lambda: prefs())
         self.assertFalse([c for c in calls if c and c[0] == "osascript"], "plain doctor never shows a notification")
         calls.clear()
-        result = send_test_notification(run=fake_run)
+        result = send_test_notification(run=fake_run, candidates=())
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][0], "osascript")
         self.assertEqual(calls[0][-1], TEST_NOTIFICATION_TEXT)
         self.assertEqual(TEST_NOTIFICATION_TEXT, "agent-relay test notification")
         self.assertIn("Did a banner appear?", result["ask"])
+        self.assertEqual(result["channel"], "osascript (Script Editor)")
 
     def test_toolchain_names_python_and_node(self):
         # ci-macos D81: a CI log or a user report says which Python and Node doctor ran with, runtime or not.
