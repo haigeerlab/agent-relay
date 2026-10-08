@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -90,6 +90,57 @@ test("retire through the CLI keeps its output, exit code and --keep-backlog", ()
   assert.equal(after.inbox("closed").length, 0);
   assert.equal(after.getAgent("kept")?.retiredBy, "operator");
   after.close();
+});
+
+/** Run the CLI from source with a private HOME and data home but no BRIDGE_DB_PATH, unless `dbPath` is given. */
+function cliWithoutDb(args: string[], home: string, dbPath?: string) {
+  const env: NodeJS.ProcessEnv = { PATH: process.env.PATH ?? "", HOME: home, XDG_DATA_HOME: join(home, "data") };
+  if (dbPath !== undefined) env.BRIDGE_DB_PATH = dbPath;
+  return spawnSync(process.execPath, ["--import", "tsx", "src/cli.ts", ...args], { cwd: projectRoot, env, encoding: "utf8" });
+}
+
+// agent-relay retire-cli-guard D111: retire never falls back to the upstream default database.
+test("retire without BRIDGE_DB_PATH refuses and leaves an existing default database untouched", () => {
+  const home = mkdtempSync(join(tmpdir(), "agent-relay-cli-"));
+  const fallback = defaultDbPath({ XDG_DATA_HOME: join(home, "data") }, home);
+  mkdirSync(dirname(fallback), { recursive: true });
+  const store = new BridgeStore(fallback);
+  store.register("planted");
+  store.close();
+  const bytes = readFileSync(fallback);
+  const past = new Date("2026-09-01T00:00:00Z");
+  utimesSync(fallback, past, past);
+  const before = readdirSync(dirname(fallback)).sort();
+
+  const result = cliWithoutDb(["retire", "planted"], home);
+  assert.equal(result.status, 2, result.stderr);
+  assert.match(result.stderr, /BRIDGE_DB_PATH/);
+  assert.match(result.stderr, /native_collaboration_retire\.py --name <agent> --confirm-retire/);
+  assert.equal(result.stdout, "");
+  assert.deepEqual(readFileSync(fallback), bytes, "the default database's bytes are unchanged");
+  assert.equal(statSync(fallback).mtimeMs, past.getTime(), "the default database's mtime is unchanged");
+  assert.deepEqual(readdirSync(dirname(fallback)).sort(), before, "no -wal or -shm file appeared");
+  const after = new BridgeStore(fallback);
+  assert.equal(after.getAgent("planted")?.retiredAt ?? null, null, "the agent is not retired");
+  after.close();
+});
+
+test("retire without BRIDGE_DB_PATH, or with a blank one, creates nothing", () => {
+  for (const dbPath of [undefined, "  "]) {
+    const home = mkdtempSync(join(tmpdir(), "agent-relay-cli-"));
+    const result = cliWithoutDb(["retire", "anyone"], home, dbPath);
+    assert.equal(result.status, 2, result.stderr);
+    assert.match(result.stderr, /native_collaboration_retire\.py/);
+    assert.deepEqual(readdirSync(home), [], `nothing created under HOME (BRIDGE_DB_PATH=${JSON.stringify(dbPath)})`);
+  }
+});
+
+test("help needs no BRIDGE_DB_PATH and says retire does", () => {
+  const home = mkdtempSync(join(tmpdir(), "agent-relay-cli-"));
+  const result = cliWithoutDb(["help"], home);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /needs BRIDGE_DB_PATH; run by native_collaboration_retire\.py/);
+  assert.deepEqual(readdirSync(home), []);
 });
 
 test("paths honour overrides and default to the per-user data directory", () => {

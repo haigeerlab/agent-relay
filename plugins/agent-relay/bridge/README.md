@@ -135,7 +135,8 @@ python3 hooks/native_collaboration_runtime.py uninstall --confirm # keeps mailbo
 ```
 
 The bridge's own CLI (`agent-relay-bridge`, not on `PATH`) keeps only `retire <agent> [--note TEXT] [--keep-backlog]`,
-which the retire script runs with `--keep-backlog`.
+which the retire script runs with `--keep-backlog`. Do not run `dist/cli.js` directly: without `BRIDGE_DB_PATH` it
+refuses (exit 2) instead of opening a default database (agent-relay retire-cli-guard D111).
 
 Retiring never deletes messages. Closed messages keep their history and a note saying why, recently active senders get one notice listing what was closed. The name stays retired: `bridge_register` refuses it unless the call passes `reactivate: true` (agent-relay change).
 

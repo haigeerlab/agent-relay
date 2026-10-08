@@ -126,7 +126,8 @@ python3 -B "$ROOT/hooks/native_collaboration_retire.py" \
   --name '<exact-name>' --confirm-retire
 ```
 
-Retirement refuses unacknowledged deliveries and keeps message history. Never infer that a registered identity
+Retirement refuses unacknowledged deliveries and keeps message history. Retire only through this script; do not run the
+runtime's `dist/cli.js` directly (without `BRIDGE_DB_PATH` it refuses). Never infer that a registered identity
 is stale solely from age or process state.
 
 The runtime is a local directory and free-text mailbox, not a project group, task dispatcher, Issue tracker,
