@@ -23,6 +23,7 @@ export async function session(dir: string, claude: string | null, extraEnv: Reco
       HOME: dir,
       BRIDGE_DB_PATH: join(dir, "bridge.sqlite"),
       BRIDGE_BACKUPS: "0",
+      AGENT_RELAY_NOTIFY: "off", // agent-relay codex-gated-wake: tests never show a desktop notification
       XDG_DATA_HOME: join(dir, "data"),
       ...(claude ? { CLAUDE_CODE_SESSION_ID: claude } : {}),
       ...extraEnv,

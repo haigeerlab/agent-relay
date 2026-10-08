@@ -38,7 +38,7 @@
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "build": "node scripts/build.mjs",
-    "test": "node --import tsx --test test/*.test.ts",
+    "test": "node --import tsx --import ./test/support/quiet.ts --test test/*.test.ts",
     "check": "npm run typecheck && npm run build && npm run test",
     "prepare": "npm run build",
     "prepack": "npm run check",

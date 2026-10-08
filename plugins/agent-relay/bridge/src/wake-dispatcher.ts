@@ -3,6 +3,7 @@ import { channelNotification, type ChannelNotification } from "./claude-channel.
 import { ClaudeWake } from "./claude-wake.js";
 import { codexApproval, codexAutoApprovalText } from "./codex-approval.js";
 import { wakeCodex } from "./codex-wake.js";
+import { BUSY_NOTIFY_AFTER_MS, NOTIFIED_TEXT, notifyUndelivered } from "./notify.js";
 import type { WakeJob, WakeResult } from "./wake-queue.js";
 
 /** Push path into the Claude session hosting this MCP process (opt-in). */
@@ -68,8 +69,21 @@ export class WakeDispatcher {
       } catch {
         result = { state: "unknown", detail: "Unexpected adapter failure; check the recipient before retrying" };
       }
+      if (job.target.app === "codex") result = this.noticeUndelivered(job, result);
       this.store.wakes.finish(job, result);
     }
+  }
+
+  /** agent-relay codex-gated-wake D67: held or offline at once, busy after ten minutes; once per message. */
+  private noticeUndelivered(job: WakeJob, result: WakeResult, now = Date.now()): WakeResult {
+    const why = result.state === "held" ? "Codex could not be woken safely; the message waits"
+      : result.state === "pending" && result.reason === "busy"
+        ? (now - job.createdAt >= BUSY_NOTIFY_AFTER_MS ? "Codex has been busy for ten minutes" : null)
+        : result.state === "pending" ? "Codex is not running; the message waits" : null;
+    if (!why) return result;
+    const notified = notifyUndelivered(job.mailboxPath,
+      { messageId: job.messageId, fromAgent: job.fromAgent, agent: job.agent, why }, this.env);
+    return notified ? { ...result, detail: `${result.detail} ${NOTIFIED_TEXT}` } : result;
   }
 
   private async dispatch(job: WakeJob): Promise<WakeResult> {

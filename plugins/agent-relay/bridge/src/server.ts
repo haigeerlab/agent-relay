@@ -6,6 +6,7 @@ import { basename } from "node:path";
 import { CallerIdentity } from "./identity.js";
 import type { MessageStatus } from "./bridge-store.js";
 import { codexApproval, codexAutoApprovalText } from "./codex-approval.js";
+import { NOTIFIED_TEXT, notifyUndelivered } from "./notify.js";
 import { randomUUID } from "node:crypto";
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -274,6 +275,13 @@ function main(): void {
       if (to !== "*") {
         const capWarning = pendingWarning(store.database, to);
         if (capWarning) warnings.push(capWarning);
+        // agent-relay codex-gated-wake D67: a recorded Codex recipient with no wake binding would never hear of it.
+        const recipient = store.getAgent(to);
+        if (!duplicate && wake !== false && recipient?.host?.app === "codex" && !store.wakes.target(to)
+            && notifyUndelivered(dbPath, { messageId: message.id, fromAgent: from, agent: to,
+              why: "its Codex session has no wake binding; the message waits" })) {
+          warnings.push(`${JSON.stringify(to)} is a Codex session without a wake binding. ${NOTIFIED_TEXT}`);
+        }
       }
       await dispatcher.flush();
       return jsonResult({
