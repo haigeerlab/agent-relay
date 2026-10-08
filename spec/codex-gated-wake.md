@@ -75,7 +75,7 @@ Confirmed by the user on 2026-10-08: gate every mode (assumption 1), visibility 
 
 - **D65 every Codex wake turn carries the approval gate, in every approval mode.** As assumption 1. Accepted on 2026-10-08.
 - **D66 auto-approval no longer blocks Codex wake.** As assumptions 2 and 4 (fail closed where the gate is unverified). Accepted on 2026-10-08.
-- **D67 visibility B.** The gated turn, plus a macOS notification when a Codex message cannot be delivered (not running, busy, no wake binding, held), naming the sending session and message id, never the body, at most once per message, switchable off; the sender's result says the user was notified. Accepted on 2026-10-08.
+- **D67 visibility B.** The gated turn, plus a macOS notification when a Codex message cannot be delivered (not running, no wake binding or held: at once; busy: only once it is still undelivered after 10 minutes, the user's choice on 2026-10-08), naming the sending session and message id, never the body, at most once per message, switchable off; the sender's result says the user was notified. Accepted on 2026-10-08.
 - **D68 doctor states the selector accurately.** As assumption 6. Accepted on 2026-10-08.
 - **D69 interface 1.2.** As assumption 7. Accepted on 2026-10-08.
 
