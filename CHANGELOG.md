@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.4.0] - 2026-10-08
 
 接口升到 **1.3**（`interface.json`）：`bridge_register` 的 `host`、`bridge_agents` 的 `waiting` 与 `host.verified` 都是
 1.x 内的兼容新增；Spec Guard 的探测范围 `>=1.0,<2.0` 不用改。其他通知渠道的评估（Codex App 自己的提示、弹窗、
@@ -52,6 +52,44 @@ terminal-notifier）见 `spec/acceptance-030-gaps.md` D79；其中“terminal-no
 - **委派库不再因并发提交偶发报错**（模块 `delegation-sidecar-race`，D71）：检查 SQLite 附属文件时，另一个连接 COMMIT
   删掉了 `-journal`，原来会抛出 `FileNotFoundError`；现在按不存在处理。不安全的附属文件（符号链接、非普通文件、属主或
   权限不对）照旧拒绝。
+
+以上 bridge 改动都要升级运行时才生效（见下）。四个模块：`acceptance-030-gaps`（0.3.0 验收发现的 E1、E2 与升级撞名）、
+`delegation-sidecar-race`、`ci-macos`、`notify-channel`。
+
+### 从 0.3.0 升级
+
+1. 两个宿主都更新插件：
+   - Claude Code（从 GitHub 装的）：先 `claude plugin marketplace update agent-relay-marketplace`，再
+     `claude plugin update agent-relay@agent-relay-marketplace`。
+   - Codex：marketplace 钉在 `--ref v0.3.0`（或更早的 tag），直接 `codex plugin add` 拿到的仍是旧版。先把
+     `~/.codex/config.toml` 里 `[marketplaces.agent-relay-marketplace]` 的 `ref` 改成 `"v0.4.0"`（自己改，改前留一份副本），
+     再 `codex plugin marketplace upgrade`，最后 `codex plugin add agent-relay@agent-relay-marketplace`。
+   - 从本地克隆装的：把克隆更新到 v0.4.0 后，Claude 无需其他操作，Codex 再执行一次 `codex plugin add`。
+2. **关闭所有使用信箱的会话**：所有 Claude Code 会话，以及 ChatGPT 应用（Codex 的 bridge 由它启动）。在 macOS 自带的
+   “终端”里（不要在会话里）确认 `pgrep -fl "agent-relay/runtime/dist/server.js"` 没有输出，再执行
+   `python3 -B <插件目录>/hooks/native_collaboration_runtime.py upgrade --confirm`。信箱先备份，历史保留，schema 仍为 5；
+   同一秒里已有别的备份时自动改用 `-1` 后缀，不再要求重试。信箱工具的预先批准没有变化，不用重做。
+3. `doctor`：`runtime` 为 ok；新的 `toolchain` 写明用的 Python 与 Node；`codex-waiting` 列出等 Codex 处理的消息；
+   `notifications` 看实际通道：装了 terminal-notifier 且已允许为 ok，否则 warn 并说明出路。preflight 显示
+   `runtime bridge current`、各插件副本 `current`。
+4. 想在 macOS 上看到通知横幅：`brew install terminal-notifier`（是否安装由你决定；脚本编辑器那条路在多数 Mac 上走不通），
+   第一次弹出时允许它，再跑 `doctor --test-notification` 确认。不装也行：在任一会话里问“有哪些等 Codex 处理的消息”，
+   或看 doctor 的 `codex-waiting`。
+5. 升级后的行为：
+   - 通知默认带消息开头 60 字的预览（锁屏、共享屏幕时也会显示）；不要预览就在 `~/.agent-relay/runtime/mailbox/` 放
+     `notify-preview.off`，完全不要通知放 `notify.off`。
+   - 重开会话后各自重新注册一次名字。Codex 不绑唤醒时 collab skill 会带上 `host`（本任务的 `CODEX_THREAD_ID`），之后发给
+     它的消息会尝试通知并进入等待列表；没带的，发件方会收到“对方要自己查收件箱”的警告。
+
+从更早的版本升级：先按各版本的说明把 `ref` 换成 `"v0.4.0"` 更新插件；从 0.2.x 来的还要先做 0.3.0 说明里的第 2 步
+（信箱工具的预先批准），再做上面第 2–5 步（一次 `upgrade --confirm` 即可）。
+
+### 已知问题
+
+- 专注模式可能挡住通知横幅，doctor 看不到专注模式；`notifications` 读的是未公开的通知中心设置格式，只能说“看起来”。
+- 不装 terminal-notifier 时，`osascript` 的通知在多数 Mac 上会被系统丢掉（脚本编辑器从不申请通知权限）；以等待列表为准。
+- 没带 `host` 注册、也没绑定唤醒的 Codex 身份，bridge 不知道它属于 Codex：发件方只收到警告，不会通知，也不进等待列表。
+- 0.2.0 列出的已知问题仍然存在，见下方 0.2.0 的“已知问题”。
 
 ## [0.3.0] - 2026-10-08
 
