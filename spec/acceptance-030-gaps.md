@@ -126,6 +126,16 @@ after this one.
   D67 path (notice attempted + sender warning); D72 stays the fallback when no host is known. The collab skill tells a
   Codex task to pass `host` with its own `CODEX_THREAD_ID` whenever it registers without wake; the refusal hint for a
   re-register without it names `host` as well as `wake`.
+- **D75a a claimed host grants nothing** (coordinator review, 2026-10-08). The `host` claim is the caller's own word,
+  not a verified host (identity-check): it is used only to decide and show the Codex notice (D67/D76) and the waiting
+  list (D77). It never creates or changes a wake binding, never satisfies `takeover`, never proves a name for sending,
+  acknowledging or replying (those still need the name registered through this bridge process, as today), and a later
+  `wake: "auto"` or wake-target registration of the same name goes through exactly the existing checks. It can only
+  add refusals: a name whose recorded host is another thread is refused without `takeover`, as a wake-claimed owner
+  is today. Provenance needs no new column: a Claude host is only ever recorded from the verified environment and a
+  Codex host only ever from a claim (wake target or `host`), so `bridge_agents` shows `recordedHost.verified` as
+  `app === "claude"`. Known limit, unchanged by this module: a Codex wake target is itself a claim, so a Codex task can
+  still bind wake to a thread id it names; the gate (D65) keeps such a turn from executing anything unapproved.
 - **D76 "attempted", not "notified".** `NOTIFIED_TEXT` and every use (wake detail, send warning) become: `A desktop
   notification was attempted on this Mac; macOS may not show it (Script Editor notifications off, or Focus). The user
   can list waiting messages with doctor or by asking any session.` The `notified/` marks keep deduplicating. README
@@ -159,6 +169,11 @@ after this one.
 7. Bridge tests, red first: register with `wake: null, host: {app: "codex", sessionId}` records the host and no binding;
    a send to it attempts a notice and warns with the D76 text; refusals for a Claude caller, `app: "claude"`, and a
    different `wake` target; a recipient with no host still gets D72.
+   D75a, red first where behaviour is new: a host claim creates no wake binding and no ping; another process
+   registering the claimed name with `wake: {app: "codex", sessionId: <another thread>}` or with a different `host`
+   is refused without `takeover`; the claiming process can send as the name, a different process cannot until it
+   registers it (existing proof rule); `bridge_agents` shows `recordedHost.verified: false` for the claim and `true`
+   for a Claude session.
 8. Bridge test: the D76 text replaces "The user was notified" in send warnings and wake details (existing D67 tests
    updated to the new text).
 9. Bridge test: `bridge_agents` `waiting` for a Codex-host recipient (count, senders, ids; acknowledged, failed and
