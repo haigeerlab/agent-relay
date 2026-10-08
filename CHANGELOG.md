@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.3.0] - 2026-10-08
 
 接口升到 **1.2**（`interface.json`）：自动审批（“帮我批准”）的 Codex 会话现在可以绑定唤醒，属于 1.x 内的兼容变化；
 Spec Guard 的探测范围 `>=1.0,<2.0` 不用改。
@@ -21,8 +21,41 @@ Spec Guard 的探测范围 `>=1.0,<2.0` 不用改。
 
 - **注册被拒时说明名字已退役**（模块 `register-retired-hint`，0.2.1 验收观察 O1）：另一个会话带 `reactivate: true` 注册
   一个已退役的名字时，拒绝信息除了归属冲突，还写明退役时间和退役人，并说明恢复需要同时带 `reactivate: true` 和
-  `takeover: true`。行为不变，接口仍为 1.1。改动在随插件附带的 bridge 里：更新插件后，关闭所有使用信箱的会话、退出
-  Codex，再执行 `native_collaboration_runtime.py upgrade --confirm` 才生效。
+  `takeover: true`。只改提示文字，行为不变。
+
+以上 bridge 改动都要升级运行时才生效（见下）。真实 App 上的端到端验收（审批卡、拒绝 / 允许一次、用户下一轮恢复原设置）
+在发版后进行。
+
+### 从 0.2.1 升级
+
+1. 两个宿主都更新插件：
+   - Claude Code（从 GitHub 装的）：先 `claude plugin marketplace update agent-relay-marketplace`，再
+     `claude plugin update agent-relay@agent-relay-marketplace`。
+   - Codex：marketplace 钉在 `--ref v0.2.1`（或更早的 tag），直接 `codex plugin add` 拿到的仍是旧版。先把
+     `~/.codex/config.toml` 里 `[marketplaces.agent-relay-marketplace]` 的 `ref` 改成 `"v0.3.0"`（自己改，改前留一份副本），
+     再 `codex plugin marketplace upgrade`，最后 `codex plugin add agent-relay@agent-relay-marketplace`。
+   - 从本地克隆装的：把克隆更新到 v0.3.0 后，Claude 无需其他操作，Codex 再执行一次 `codex plugin add`。
+2. 已接入 Codex 的，补上信箱工具的预先批准（会写 `~/.codex/config.toml`，先自动备份，只补缺的子表）：
+   `python3 -B <插件目录>/hooks/native_collaboration_adapters.py install-codex --approve-mailbox-tools`。不补也能用，只是
+   被唤醒的那一轮每次读信、回复、确认都会弹卡。
+3. **关闭所有使用信箱的会话**：所有 Claude Code 会话，以及 ChatGPT 应用（Codex 的 bridge 由它启动）。在 macOS 自带的
+   “终端”里（不要在会话里）确认 `pgrep -fl "agent-relay/runtime/dist/server.js"` 没有输出，再执行
+   `python3 -B <插件目录>/hooks/native_collaboration_runtime.py upgrade --confirm`。信箱先备份，历史保留，schema 仍为 5。
+4. `doctor`：`runtime` 为 ok；`codex-approval` 在 ChatGPT 应用 26.930 或更新时为 ok。preflight 显示
+   `runtime bridge current`、各插件副本 `current`。
+5. 升级后的行为：“帮我批准”的 Codex 会话也可以绑定唤醒。被叫醒的那一轮是只读的，读信、回复不弹卡（做过第 2 步），
+   写文件、执行会改东西的命令、联网都会弹审批卡等你点；你自己的下一轮恢复原设置。消息送不到时会弹 macOS 通知；
+   不想要通知，就在 `~/.agent-relay/runtime/mailbox/` 放一个空的 `notify.off` 文件。
+6. 如果 doctor 报 “gated Codex wake is off”（同目录出现 `codex-gate.off`）：说明有一轮唤醒没显示出门控。先在 Codex 里
+   看那一轮（文件里写着线程和轮次），确认没问题后删掉 `codex-gate.off`，门控唤醒就恢复。
+
+从 0.2.0 升级：先按 0.2.1 的说明把 `ref` 换成 `"v0.3.0"` 更新插件，再做上面第 2–6 步（一次 `upgrade --confirm` 即可）。
+
+### 已知问题
+
+- 门控唤醒需要 `/Applications/ChatGPT.app` 26.930 或更新；读不到版本时 Codex 唤醒一律挂起并通知用户。
+- 以 `wake: null` 注册、从未绑定过唤醒的 Codex 身份，bridge 记录不到它属于 Codex，发给它的消息送不到时不会通知。
+- 0.2.0 列出的已知问题仍然存在，见下方 0.2.0 的“已知问题”。
 
 ## [0.2.1] - 2026-10-08
 
