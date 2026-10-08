@@ -56,6 +56,17 @@ function legacyDatabase(path: string): void {
   db.close();
 }
 
+/** Read one dormant orchestration row directly (orchestrator-removal D93: the store no longer reads them). */
+function runRow(path: string, id: string): Record<string, unknown> | undefined {
+  const db = new DatabaseSync(path, { readOnly: true });
+  try {
+    const row = db.prepare("SELECT * FROM orchestration_runs WHERE id = ?").get(id) as Record<string, unknown> | undefined;
+    return row ? { ...row } : undefined;
+  } finally {
+    db.close();
+  }
+}
+
 test("an unversioned 0.3 mailbox is backed up, then migrated without losing data", () => {
   const dir = mkdtempSync(join(tmpdir(), "bridge-migrate-"));
   const path = join(dir, "bridge.sqlite");
@@ -74,9 +85,9 @@ test("an unversioned 0.3 mailbox is backed up, then migrated without losing data
   assert.deepEqual(store.inbox("claude-main").map((message) => message.body), ["still unread"]);
   assert.deepEqual(store.getAgent("claude-main")?.capabilities, ["review"]);
   assert.equal(store.getAgent("claude-main")?.retiredAt, null);
-  assert.equal(store.getRun("old-run")?.deliveredRound, 2, "pre-v2 runs were already returned to their coordinator");
   assert.equal(store.wakes.claimFailure(), null, "historical failures must not become a burst of new notices");
   store.close();
+  assert.equal(Number(runRow(path, "old-run")?.delivered_round), 2, "pre-v2 runs were already returned to their coordinator");
 
   const reopened = new BridgeStore(path, { backupDir });
   assert.deepEqual(reopened.migration, { from: SCHEMA_VERSION, to: SCHEMA_VERSION, newer: false });
@@ -110,11 +121,11 @@ test("bridge 0.3 processes keep working against a migrated mailbox", () => {
 
   const store = new BridgeStore(path);
   assert.deepEqual(store.inbox("claude-main").map((message) => message.body), ["from an old process"]);
-  const run = store.getRun("legacy-run");
-  assert.equal(run?.sandboxMode, "workspace-write");
-  assert.equal(run?.deliveredRound, 0);
-  assert.equal(store.undeliveredRuns(new Date(Date.now() + 60_000).toISOString()).length, 0, "old-owner runs are never re-delivered");
   store.close();
+  const run = runRow(path, "legacy-run");
+  assert.ok(run && "sandbox_mode" in run, "the v2 columns were added to the dormant table");
+  assert.equal(Number(run?.delivered_round), 0);
+  assert.equal(run?.owner_pid ?? null, null, "an old-owner run has no owner, so nothing could ever re-deliver it");
 });
 
 test("mailbox files are private to their owner", { skip: process.platform === "win32" }, () => {

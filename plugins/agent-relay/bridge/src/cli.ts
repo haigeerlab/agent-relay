@@ -29,7 +29,7 @@ import { ensurePrivateDirectory, modeString, restrictToOwner } from "./fs-safety
 import { waitForInbox } from "./inbox-waiter.js";
 import { findStaleAgents, retireAgent } from "./lifecycle.js";
 import { CLAUDE_HOLD_EXPLANATION } from "./notices.js";
-import { dataDir, defaultDbPath, runsDir, runtimePrefix } from "./paths.js";
+import { dataDir, defaultDbPath, runtimePrefix } from "./paths.js";
 import {
   activateVersion,
   currentPackageRoot,
@@ -451,7 +451,7 @@ async function doctor(parsed: ParsedCliCommand): Promise<number> {
     if ((report.schemaVersion ?? 0) < SCHEMA_VERSION) {
       add("info", "Mailbox schema", `v${report.schemaVersion}; the next bridge start backs it up and migrates it to v${SCHEMA_VERSION}`);
     }
-    const loose = [dbPath, `${dbPath}-wal`, `${dbPath}-shm`, dirname(dbPath), runsDir()].filter((path) => {
+    const loose = [dbPath, `${dbPath}-wal`, `${dbPath}-shm`, dirname(dbPath)].filter((path) => {
       const mode = modeString(path);
       return mode !== null && (parseInt(mode, 8) & 0o077) !== 0 && (path !== dirname(dbPath) || basename(path) === basename(dataDir()));
     });
@@ -474,8 +474,6 @@ async function doctor(parsed: ParsedCliCommand): Promise<number> {
     } else if (total > 0) add("ok", "Claude background pings", `${total} in the last 7 days, none held or expired`);
     const codexPings = report.wakeLastWeek.filter((row) => row.app === "codex");
     if (codexPings.length) add("info", "Codex background pings", codexPings.map((row) => `${row.state} ${row.count}`).join(", "));
-    const running = report.runs.running_codex ?? 0;
-    if (running) add("info", "Codex runs", `${running} running; stale ones are recovered automatically by any bridge process`);
   }
 
   console.log(`Claude Codex MCP Bridge ${VERSION} doctor\n`);
@@ -506,8 +504,6 @@ function status(): number {
       console.log(`- ${entry.agent}: ${entry.unread} (${state})`);
     }
   }
-  const runs = Object.entries(report.runs).map(([state, total]) => `${state} ${total}`).join(", ");
-  console.log(`\nCodex runs: ${runs || "none"}`);
   console.log(`Latest daily backup: ${report.latestDailyBackup ?? "none yet"}`);
   return 0;
 }
@@ -661,7 +657,7 @@ Usage:
 Commands:
   setup [--force] [--node PATH]   Install a verified runtime, register Claude and Codex, install skills
   doctor [--fix]                  Check installation, mailbox health and ping delivery
-  status                          Show mailbox size, backlog and runs
+  status                          Show mailbox size and backlog
   demo                            Run a real local send/wait/ack smoke test
   retire <agent> [--note TEXT] [--keep-backlog]
                                   Retire a finished agent and close its unhandled messages

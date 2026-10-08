@@ -2,7 +2,7 @@
   "name": "claude-codex-mcp-bridge",
   "version": "0.4.0",
   "type": "module",
-  "description": "Local MCP mailbox, background pings and sandboxed Codex workers for Claude Code and OpenAI Codex.",
+  "description": "Local MCP mailbox and background pings for Claude Code and OpenAI Codex.",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -17,7 +17,6 @@
     "claude-code",
     "codex",
     "multi-agent",
-    "orchestration",
     "sqlite"
   ],
   "files": [
@@ -42,7 +41,6 @@
     "check": "npm run typecheck && npm run build && npm run test",
     "prepare": "npm run build",
     "prepack": "npm run check",
-    "smoke:orchestrator": "node --import tsx scripts/smoke-orchestrator.ts",
     "typecheck": "tsc -p tsconfig.test.json"
   },
   "dependencies": {
