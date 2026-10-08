@@ -210,3 +210,34 @@ test("a retired name is refused, even with takeover, until reactivate: true; the
     await Promise.all([a.close(), b.close()]);
   }
 });
+
+// agent-relay register-retired-hint D64: an ownership refusal of a retired name says it is retired.
+test("another session's reactivate on a retired name is refused for ownership and names the retirement", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "agent-relay-identity-retired-hint-"));
+  const a = await session(dir, "claude-session-a");
+  const b = await session(dir, "claude-session-b");
+  try {
+    assert.ok((await a.call("bridge_register", { agent: "busy" })).ok);
+    const active = await b.call("bridge_register", { agent: "busy" });
+    assert.equal(active.ok, false);
+    assert.match(active.text, /registered by another claude session/);
+    assert.doesNotMatch(active.text, /retired/, "an active name's refusal is unchanged");
+
+    assert.ok((await a.call("bridge_register", { agent: "gone" })).ok);
+    const retired = await a.call("bridge_retire", { agent: "gone", note: "done" });
+    const retiredAt = retired.json().agent.retiredAt;
+    const refused = await b.call("bridge_register", { agent: "gone", reactivate: true });
+    assert.equal(refused.ok, false);
+    assert.match(refused.text, /registered by another claude session/);
+    assert.ok(refused.text.includes(`It was retired at ${retiredAt} by gone`), refused.text);
+    assert.match(refused.text, /reactivate: true together with takeover: true/);
+    const row = (await a.call("bridge_agents", { includeRetired: true })).json().agents.find((x: any) => x.name === "gone");
+    assert.equal(row.retiredAt, retiredAt, "the refusal changes nothing");
+
+    const back = await b.call("bridge_register", { agent: "gone", reactivate: true, takeover: true });
+    assert.ok(back.ok, back.text);
+    assert.equal(back.json().reactivated, true);
+  } finally {
+    await Promise.all([a.close(), b.close()]);
+  }
+});

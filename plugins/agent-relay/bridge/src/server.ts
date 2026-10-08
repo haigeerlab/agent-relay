@@ -201,9 +201,14 @@ function main(): void {
         const codexHint = !host && owner?.app === "codex"
           ? " If it is this Codex task's own name, register again with wake: {app: \"codex\", sessionId: \"<CODEX_THREAD_ID>\"}."
           : "";
+        // agent-relay register-retired-hint D64: with reactivate the retired check passed, so say it here (O1).
+        const retired = existing?.retiredAt
+          ? ` It was retired at ${existing.retiredAt}${existing.retiredBy ? ` by ${existing.retiredBy}` : ""}; bringing it ` +
+            "back here needs reactivate: true together with takeover: true, only after the user agrees."
+          : "";
         throw new Error(
           `"${agent}" is ${ownerConflict ? "registered by" : "bound to"} another ${other.app} session${running}.${codexHint} ` +
-            "Choose a different name, or pass takeover: true only after the user agrees to move it to this session.",
+            "Choose a different name, or pass takeover: true only after the user agrees to move it to this session." + retired,
         );
       }
       if (takeover && (ownerConflict || bindingConflict)) notes.push(`"${agent}" was taken over from another session.`);
