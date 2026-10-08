@@ -77,6 +77,15 @@ class MailboxApprovalTests(unittest.TestCase):
         self.assertEqual(code, 0, output)
         self.assertEqual(self.config.read_text(), BEFORE)
 
+    def test_uninstall_removes_approval_tables_left_for_removed_worker_tools(self):
+        # orchestrator-removal D92: whatever 始终允许 wrote under our server, including for a tool removed since, goes.
+        self.config.write_text(BEFORE)
+        self.assertEqual(self.cli("install-codex")[0], 0)
+        self.config.write_text(self.config.read_text() + "\n" + approval("ask_codex") + "\n" + approval("bridge_retire"))
+        code, output = self.cli("uninstall-codex", "--confirm-uninstall")
+        self.assertEqual(code, 0, output)
+        self.assertEqual(self.config.read_text(), BEFORE)
+
     def test_the_option_adds_only_missing_tables_to_a_matching_entry(self):
         # An entry from before this module, plus one table the user wrote with 始终允许.
         self.config.write_text(BEFORE + "\n" + codex_fragment(self.root, self.node) + "\n" + approval("bridge_inbox"))

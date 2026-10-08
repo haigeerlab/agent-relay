@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Print narrow, non-secret host fragments for the opt-in native mailbox.
 
-Printing does not install or merge user configuration. The Claude deny rules
-must be applied before its MCP server is enabled; a config fragment alone would
-expose upstream worker tools.
+Printing does not install or merge user configuration. The server offers only
+the ten mailbox tools, so no deny rules are needed (orchestrator-removal D92);
+uninstall-claude still removes the ones agent-relay 0.4.0 and earlier wrote.
 """
 from __future__ import annotations
 import argparse
@@ -19,7 +19,7 @@ from typing import Any, Sequence
 
 from host_backup import HostBackupError, backup_host_files, backup_message
 from host_config_removal import _differences, add_claude_server, remove_claude_server, remove_codex_table
-from native_collaboration_runtime import (DENIED_TOOLS, MAILBOX_TOOLS, NativeRuntimeError, StateHomeError,
+from native_collaboration_runtime import (LEGACY_WORKER_TOOLS, MAILBOX_TOOLS, NativeRuntimeError, StateHomeError,
                                           _servers_running, default_root, live_claude_sessions, status)
 
 
@@ -56,14 +56,13 @@ def codex_fragment(root: Path, node: Path) -> str:
 
 
 def claude_config(root: Path, node: Path) -> dict[str, Any]:
-    """Return the server entry and exact deny rules as separate, reviewable data."""
+    """Return the server entry as reviewable data."""
     executable, server, database, data_home = _paths(root, node)
     return {
         "mcpServers": {CLAUDE_SERVER_NAME: {
             "command": executable, "args": [server],
             "env": {"BRIDGE_DB_PATH": database, "XDG_DATA_HOME": data_home},
         }},
-        "denyRules": claude_deny_rules(),
     }
 
 
@@ -131,42 +130,16 @@ def install_codex_config(root: Path, node: Path, target: Path) -> None:
 
 
 def install_claude_config(root: Path, node: Path, settings: Path, claude_bin: str) -> None:
-    """Install exact deny rules before the user-scoped native MCP entry.
-
-    The deny rules are written first so the server never exists without them. If the name is
-    already registered, the rules stay: they only deny this server's own tools.
-    """
+    """Add the user-scoped native MCP entry; the settings file is left alone (orchestrator-removal D92)."""
     fragment = claude_config(root, node)
     name = CLAUDE_SERVER_NAME
-    settings = Path(settings)
-    current, mode = _existing_regular(settings)
-    try:
-        value = json.loads(current) if current else {}
-    except json.JSONDecodeError as error:
-        raise ValueError("Claude settings must be valid JSON") from error
-    if not isinstance(value, dict):
-        raise ValueError("Claude settings must be a JSON object")
-    permissions = value.setdefault("permissions", {})
-    if not isinstance(permissions, dict):
-        raise ValueError("Claude permissions must be a JSON object")
-    deny = permissions.setdefault("deny", [])
-    if not isinstance(deny, list) or not all(isinstance(rule, str) for rule in deny):
-        raise ValueError("Claude deny rules must be a string list")
-    deny.extend(rule for rule in fragment["denyRules"] if rule not in deny)
-    _atomic_write(settings, json.dumps(value, ensure_ascii=False, indent=2) + "\n", mode)
-
-    try:
-        add_claude_server(claude_bin, ["add-json", name, json.dumps(fragment["mcpServers"][name]),
-                                       "--scope", "user"], name)
-    except ValueError as error:
-        raise ValueError("Claude deny rules are installed, but MCP registration stopped: "
-                         + str(error)) from error
+    add_claude_server(claude_bin, ["add-json", name, json.dumps(fragment["mcpServers"][name]),
+                                   "--scope", "user"], name)
 
 
 def remove_claude_deny_rules(settings: Path) -> int:
-    """Remove exactly agent-relay's deny rules (safe-uninstall D46); return how many were removed.
-
-    install-claude writes them again before the server, so keeping them after an uninstall protects nothing.
+    """Remove exactly the deny rules agent-relay 0.4.0 and earlier wrote (safe-uninstall D46, orchestrator-removal
+    D92); return how many were removed.
     Everything else in the file is kept; nothing is written when there is nothing to remove.
     """
     settings = Path(settings)
@@ -181,7 +154,7 @@ def remove_claude_deny_rules(settings: Path) -> int:
     deny = permissions.get("deny") if isinstance(permissions, dict) else None
     if not isinstance(deny, list):
         return 0
-    ours = set(claude_deny_rules())
+    ours = set(legacy_deny_rules())
     kept = [rule for rule in deny if rule not in ours]
     if len(kept) == len(deny):
         return 0
@@ -218,8 +191,8 @@ def _uninstall_claude_command(args: argparse.Namespace) -> str:
     return " ".join(shlex.quote(part) for part in command)
 
 
-def claude_deny_rules() -> list[str]:
-    return [f"mcp__{CLAUDE_SERVER_NAME}__{tool}" for tool in DENIED_TOOLS]
+def legacy_deny_rules() -> list[str]:
+    return [f"mcp__{CLAUDE_SERVER_NAME}__{tool}" for tool in LEGACY_WORKER_TOOLS]
 
 
 def main(argv: Sequence[str] | None = None) -> int:

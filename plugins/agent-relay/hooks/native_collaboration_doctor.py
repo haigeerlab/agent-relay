@@ -23,7 +23,7 @@ from typing import Any, Callable, Iterable
 from native_collaboration_adapters import CLAUDE_SERVER_NAME, CODEX_SERVER_NAME
 from node_select import NodeSelectError, select_node, toml_table
 from state_migration import _snapshot
-from native_collaboration_runtime import (DENIED_TOOLS, MAILBOX_SCHEMA_VERSIONS, MAILBOX_TOOLS, live_claude_sessions,
+from native_collaboration_runtime import (MAILBOX_SCHEMA_VERSIONS, MAILBOX_TOOLS, live_claude_sessions,
                                           open_mailbox_read_only, pid_alive, probe_runtime, status)
 
 DEFAULT_MAX_PENDING = 100
@@ -148,7 +148,7 @@ def _mailbox(database: Path, original: Path | None = None) -> dict[str, str]:
     return _check("mailbox", "ok", f"schema {version}, quick_check ok, {size} bytes, {measured}")
 
 
-def _hosts(root: Path, codex_config: Path, claude_json: Path, claude_settings: Path) -> dict[str, str]:
+def _hosts(root: Path, codex_config: Path, claude_json: Path) -> dict[str, str]:
     server = str(root / "dist" / "server.js")
     database = str(root / "mailbox" / "bridge.sqlite")
     problems: list[str] = []
@@ -169,19 +169,14 @@ def _hosts(root: Path, codex_config: Path, claude_json: Path, claude_settings: P
                 problems.append("the Codex entry does not enable exactly the ten mailbox tools")
     try:
         claude = json.loads(claude_json.read_text(encoding="utf-8")) if claude_json.exists() else {}
-        settings = json.loads(claude_settings.read_text(encoding="utf-8")) if claude_settings.exists() else {}
     except (OSError, UnicodeError, ValueError):
-        claude, settings = {}, {}
+        claude = {}
         problems.append("the Claude settings cannot be read")
     entry = (claude.get("mcpServers") or {}).get(CLAUDE_SERVER_NAME) if isinstance(claude, dict) else None
     if isinstance(entry, dict):
         attached.append("Claude")
         if entry.get("args") != [server] or (entry.get("env") or {}).get("BRIDGE_DB_PATH") != database:
             problems.append("the Claude entry points at another runtime")
-        deny = ((settings.get("permissions") or {}).get("deny") or []) if isinstance(settings, dict) else []
-        missing = [tool for tool in DENIED_TOOLS if f"mcp__{CLAUDE_SERVER_NAME}__{tool}" not in deny]
-        if missing:
-            problems.append("Claude deny rules missing for " + ", ".join(missing))
     if problems:
         return _check("host-entries", "fail", "; ".join(problems),
                       "reinstall the host entry with native_collaboration_adapters.py after the user agrees")
@@ -462,7 +457,7 @@ def doctor(root: Path, *, home: Path | None = None, node: str | None = None, cod
             probed = (_probe(root, probe) if probe else
                       _probe_with_selected_node(root, node, claude_json, codex_config, node_selector))
             checks += [probed, _mailbox(copy, database)]
-        checks += [_hosts(root, codex_config, claude_json, claude_settings), _codex_approval(codex_config, root / "mailbox", codex_app_version)]
+        checks += [_hosts(root, codex_config, claude_json), _codex_approval(codex_config, root / "mailbox", codex_app_version)]
         if ready:
             checks.append(_wake_bindings(copy, claude_sessions, alive))
             checks.append(_codex_waiting(copy))

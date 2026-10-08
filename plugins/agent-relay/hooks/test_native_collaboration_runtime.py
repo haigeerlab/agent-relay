@@ -14,13 +14,16 @@ from native_collaboration_runtime import (BRIDGE_COMMIT, BRIDGE_SOURCE, NativeRu
 
 
 
-# 固定提交 8f12c880 的 server.ts 实际注册的 17 个工具（逐字写死，不从被测常量推导）。
-PINNED_TOOLS = [
-    "ask_codex", "bridge_ack", "bridge_agents", "bridge_continue_codex", "bridge_inbox",
-    "bridge_orchestrate_codex", "bridge_orchestration_status", "bridge_orchestration_wait",
-    "bridge_outbox", "bridge_register", "bridge_retire", "bridge_send", "bridge_sessions",
-    "bridge_thread", "bridge_wait", "bridge_wake_status", "review_with_codex",
+# The ten tools the bridge registers since orchestrator-removal (written out, not taken from the constant under test).
+SERVED_TOOLS = [
+    "bridge_ack", "bridge_agents", "bridge_inbox", "bridge_outbox", "bridge_register",
+    "bridge_send", "bridge_sessions", "bridge_thread", "bridge_wait", "bridge_wake_status",
 ]
+# The seven worker tools a 0.4.0 bridge registered and hosts were told to deny (written out, not taken from the
+# constant under test); orchestrator-removal removed them, and uninstall still cleans up what 0.4.0 wrote.
+LEGACY_NAMES = ("bridge_retire", "ask_codex", "review_with_codex", "bridge_orchestrate_codex",
+                "bridge_continue_codex", "bridge_orchestration_wait", "bridge_orchestration_status")
+
 
 class NativeCollaborationRuntimeTests(unittest.TestCase):
     def setUp(self):
@@ -168,11 +171,11 @@ class NativeCollaborationRuntimeTests(unittest.TestCase):
             self.assertTrue(kwargs["env"]["BRIDGE_DB_PATH"].startswith(str(self.root)))
             self.assertEqual(kwargs["env"]["BRIDGE_BACKUPS"], "0")
             self.assertIn('"method": "tools/list"', kwargs["input"])
-            return subprocess.CompletedProcess(command, 0, self.catalog(PINNED_TOOLS), "")
+            return subprocess.CompletedProcess(command, 0, self.catalog(SERVED_TOOLS), "")
 
         with patch("native_collaboration_runtime.subprocess.run", side_effect=fake_run):
             self.assertEqual(probe_runtime(self.root, node="node"),
-                             {"state": "ready", "toolCount": 17})
+                             {"state": "ready", "toolCount": 10})
         self.assertEqual(list(self.root.glob("native-probe-*")), [])
         self.assertFalse((self.root / "mailbox" / "bridge.sqlite").exists())
 
@@ -199,8 +202,9 @@ class NativeCollaborationRuntimeTests(unittest.TestCase):
             self.assertIn("TimeoutExpired", probe_runtime(self.root)["diagnostic"])
         with patch("native_collaboration_runtime.subprocess.run", return_value=
                    subprocess.CompletedProcess(["node"], 0, self.catalog(
-                       [tool for tool in PINNED_TOOLS if tool != "bridge_wait"]), "")):
-            self.assertIn("incomplete", probe_runtime(self.root)["diagnostic"])
+                       [tool for tool in SERVED_TOOLS if tool != "bridge_wait"]), "")):
+            self.assertEqual(probe_runtime(self.root)["diagnostic"],
+                             "native MCP mailbox tools are incomplete: missing bridge_wait")
 
     def test_probe_rejects_an_upstream_tool_nobody_reviewed(self):
         self.root.mkdir(mode=0o700)
@@ -212,10 +216,27 @@ class NativeCollaborationRuntimeTests(unittest.TestCase):
         (self.root / "manifest.json").write_text(json.dumps({"commit": BRIDGE_COMMIT}))
         with patch("native_collaboration_runtime.subprocess.run", return_value=
                    subprocess.CompletedProcess(["node"], 0, self.catalog(
-                       PINNED_TOOLS + ["bridge_run_shell"]), "")):
+                       SERVED_TOOLS + ["bridge_run_shell"]), "")):
             self.assertEqual(probe_runtime(self.root), {
                 "state": "invalid",
-                "diagnostic": "native MCP exposes unreviewed tools: bridge_run_shell"})
+                "diagnostic": "native MCP exposes tools beyond the ten mailbox tools: bridge_run_shell"})
+
+    def test_probe_rejects_a_removed_worker_tool_too(self):
+        # orchestrator-removal D91: the tool set is the server's job; a 0.4.0 runtime serving the worker tools fails.
+        self.root.mkdir(mode=0o700)
+        (self.root / "dist").mkdir()
+        for name in ("mailbox", "data"):
+            (self.root / name).mkdir(mode=0o700)
+        (self.root / "mailbox" / "backups").mkdir(mode=0o700)
+        (self.root / "dist" / "server.js").write_text("server\n")
+        (self.root / "manifest.json").write_text(json.dumps({"commit": BRIDGE_COMMIT}))
+        for extra in (["ask_codex"], list(LEGACY_NAMES)):
+            with patch("native_collaboration_runtime.subprocess.run", return_value=
+                       subprocess.CompletedProcess(["node"], 0, self.catalog(SERVED_TOOLS + extra), "")):
+                result = probe_runtime(self.root)
+            self.assertEqual(result["state"], "invalid", extra)
+            self.assertEqual(result["diagnostic"],
+                             "native MCP exposes tools beyond the ten mailbox tools: " + ", ".join(sorted(extra)))
 
     @staticmethod
     def catalog(names):

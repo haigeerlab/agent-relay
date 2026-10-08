@@ -8,6 +8,10 @@
   身份退役仍用 CLI 的 `retire`。`orchestrator.ts`、`simple-tools.ts`、`process-info.ts` 及其测试一并删除，tag `v0.4.0`
   保留最后一份。信箱里的编排表原样保留、不再读写；doctor 不再检查 Codex CLI，`status` 和 doctor 不再统计 Codex runs，
   `BRIDGE_WORKTREE_ROOT` 与 `smoke:orchestrator` 脚本一并去掉。
+- **工具集合由运行时探针强制**（模块 `orchestrator-removal`，D91、D92）：`probe` 要求 MCP 服务提供的工具与十个信箱工具
+  完全一致，多一个或少一个都判为 invalid 并写明是哪个。`install-claude` 不再往 Claude 设置里写拒绝规则（已没有可拒绝的
+  工具），也不再改动设置文件；0.4.0 写下的七条规则升级后留着无害，`uninstall-claude` 照旧识别并移除，doctor 不再要求它们。
+  Codex 那边“始终允许”留下的任何审批子表，卸载时照旧一并清掉。
 
 ## [0.4.0] - 2026-10-08
 
