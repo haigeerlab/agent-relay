@@ -29,7 +29,6 @@ import { ensurePrivateDirectory, modeString, restrictToOwner } from "./fs-safety
 import { waitForInbox } from "./inbox-waiter.js";
 import { findStaleAgents, retireAgent } from "./lifecycle.js";
 import { CLAUDE_HOLD_EXPLANATION } from "./notices.js";
-import { resolveCodexBinary } from "./orchestrator.js";
 import { dataDir, defaultDbPath, runsDir, runtimePrefix } from "./paths.js";
 import {
   activateVersion,
@@ -63,7 +62,7 @@ const stableRoot = currentPackageRoot(layout);
 const stableServer = serverPathFor(stableRoot);
 const dbPath = defaultDbPath();
 const SKILLS = ["ask-codex", "review-with-codex", "claude-codex-coordinator"];
-const REQUIRED_TOOLS = ["bridge_register", "bridge_send", "bridge_inbox", "bridge_outbox", "ask_codex", "bridge_orchestration_wait"];
+const REQUIRED_TOOLS = ["bridge_register", "bridge_send", "bridge_inbox", "bridge_outbox"];
 const DAY_MS = 24 * 3_600_000;
 
 interface CommandResult {
@@ -441,12 +440,8 @@ async function doctor(parsed: ParsedCliCommand): Promise<number> {
     const server = entry.args?.[0] ?? "unknown";
     add(server === stableServer ? "ok" : "warn", "Codex registration", server === stableServer ? "uses the stable runtime" : `runs ${server}; run setup to use the stable runtime`);
     const timeout = entry.toolTimeoutSec ?? 60;
-    add(timeout >= 290 ? "ok" : "warn", "Codex tool timeout", timeout >= 290 ? `${timeout}s` : `${timeout}s cuts bridge_wait and Codex runs short; run setup`);
+    add(timeout >= 290 ? "ok" : "warn", "Codex tool timeout", timeout >= 290 ? `${timeout}s` : `${timeout}s cuts bridge_wait short; run setup`);
   }
-
-  const codexBinary = resolveCodexBinary({ configuredBinary: process.env.CODEX_BIN });
-  const codexVersion = execute([codexBinary, "--version"]);
-  add(codexVersion.ok ? "ok" : "warn", "Codex CLI", codexVersion.ok ? `${codexVersion.output} (${codexBinary})` : `${codexBinary} is not runnable; set CODEX_BIN`);
 
   const report = inspectDatabase(dbPath);
   if (!report.exists) add("info", "Mailbox", `${dbPath} not created yet`);

@@ -5,7 +5,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
+import { BridgeStore } from "../src/bridge-store.js";
+import { retireAgent } from "../src/lifecycle.js";
 import { session } from "./support/session.js";
+
+/** Retire as the CLI `retire` does (orchestrator-removal D91: no MCP tool); returns when it was retired. */
+function retire(dir: string, agent: string, by: string): string {
+  const store = new BridgeStore(join(dir, "bridge.sqlite"));
+  try {
+    retireAgent(store, agent, { by, note: "done" });
+    return store.getAgent(agent)!.retiredAt!;
+  } finally {
+    store.close();
+  }
+}
 
 test("a send or acknowledgement is accepted only from the session that owns the name", async () => {
   const dir = mkdtempSync(join(tmpdir(), "agent-relay-identity-"));
@@ -184,9 +197,7 @@ test("a retired name is refused, even with takeover, until reactivate: true; the
   const b = await session(dir, "claude-session-b");
   try {
     assert.ok((await a.call("bridge_register", { agent: "alice" })).ok);
-    const retired = await a.call("bridge_retire", { agent: "alice", note: "done" });
-    assert.ok(retired.ok, retired.text);
-    const retiredAt = retired.json().agent.retiredAt;
+    const retiredAt = retire(dir, "alice", "alice");
 
     for (const [who, args] of [[a, {}], [b, { takeover: true }], [a, { wake: null }]] as const) {
       const refused = await who.call("bridge_register", { agent: "alice", ...args });
@@ -224,8 +235,7 @@ test("another session's reactivate on a retired name is refused for ownership an
     assert.doesNotMatch(active.text, /retired/, "an active name's refusal is unchanged");
 
     assert.ok((await a.call("bridge_register", { agent: "gone" })).ok);
-    const retired = await a.call("bridge_retire", { agent: "gone", note: "done" });
-    const retiredAt = retired.json().agent.retiredAt;
+    const retiredAt = retire(dir, "gone", "gone");
     const refused = await b.call("bridge_register", { agent: "gone", reactivate: true });
     assert.equal(refused.ok, false);
     assert.match(refused.text, /registered by another claude session/);

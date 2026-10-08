@@ -301,3 +301,30 @@ test("registration records the host it came from; a registration without one kee
   assert.deepEqual(store.register("a", undefined, { app: "codex", sessionId: "t-1" }).host, { app: "codex", sessionId: "t-1" });
   store.close();
 });
+
+// agent-relay orchestrator-removal D93: the orchestration tables stay in the schema, unread, with their rows.
+test("a v5 mailbox holding orchestration rows opens unchanged after the orchestrator was removed", () => {
+  const dir = mkdtempSync(join(tmpdir(), "bridge-dormant-runs-"));
+  const path = join(dir, "bridge.sqlite");
+  new BridgeStore(path).close();
+  const writer = new DatabaseSync(path);
+  const now = new Date().toISOString();
+  writer.prepare(`INSERT INTO orchestration_runs (id, coordinator_agent, project_path, worktree_path, thread_id, task,
+    status, round, max_rounds, codex_session_id, latest_response, created_at, updated_at)
+    VALUES ('kept-run', 'claude-main', '/repo', '/repo', 't', 'task', 'completed', 2, 6, NULL, NULL, ?, ?)`).run(now, now);
+  writer.prepare("INSERT INTO orchestration_events (run_id, event_type, payload, created_at) VALUES ('kept-run', 'done', '{}', ?)")
+    .run(now);
+  writer.close();
+
+  const store = new BridgeStore(path);
+  assert.deepEqual(store.migration, { from: SCHEMA_VERSION, to: SCHEMA_VERSION, newer: false });
+  store.close();
+  const reader = new DatabaseSync(path, { readOnly: true });
+  assert.equal(schemaVersion(reader), SCHEMA_VERSION);
+  assert.deepEqual(
+    { ...(reader.prepare("SELECT id, status, round FROM orchestration_runs").get() as object) },
+    { id: "kept-run", status: "completed", round: 2 },
+  );
+  assert.equal((reader.prepare("SELECT COUNT(*) AS n FROM orchestration_events").get() as { n: number }).n, 1);
+  reader.close();
+});

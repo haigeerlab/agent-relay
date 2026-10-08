@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+
+- **删除 Codex 编排器**（模块 `orchestrator-removal`，D90、D91、D93）：bridge 不再注册 `ask_codex`、`review_with_codex`、
+  `bridge_orchestrate_codex`、`bridge_continue_codex`、`bridge_orchestration_wait`、`bridge_orchestration_status` 和
+  `bridge_retire`，MCP 服务只提供十个信箱工具。这七个工具在所有宿主上本来就是禁用的；委托 Codex 改由 delegate 插件负责。
+  身份退役仍用 CLI 的 `retire`。`orchestrator.ts`、`simple-tools.ts`、`process-info.ts` 及其测试一并删除，tag `v0.4.0`
+  保留最后一份。信箱里的编排表原样保留、不再读写；doctor 不再检查 Codex CLI。
+
 ## [0.4.0] - 2026-10-08
 
 接口升到 **1.3**（`interface.json`）：`bridge_register` 的 `host`、`bridge_agents` 的 `waiting` 与 `host.verified` 都是

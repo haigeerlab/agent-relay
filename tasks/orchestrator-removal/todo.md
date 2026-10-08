@@ -1,6 +1,6 @@
 # Todo: orchestrator-removal
 
-- [ ] Task 1: the bridge serves exactly ten tools (D90, D91, D93)
+- [x] Task 1: the bridge serves exactly ten tools (D90, D91, D93) — `mcp-integration.test.ts` now expects exactly the ten mailbox tools: red (seventeen listed), green after `server.ts` dropped the six orchestration tools, `bridge_retire`, the orchestrator and the "Codex workers" paragraph (the mailbox paragraph no longer names "Codex results" or `bridge_retire`). Deleted `orchestrator.ts`, `simple-tools.ts`, `process-info.ts`, `orchestration.test.ts`, `simple-tools.test.ts` and `platform.test.ts` (it only tested orchestrator helpers). Pulled forward from Task 2 because deleting `orchestrator.ts` broke their imports: `Housekeeper` lost the orchestrator, reconcile and run-file pruning (and its test); the CLI's `REQUIRED_TOOLS` lost `ask_codex` / `bridge_orchestration_wait` and doctor's Codex CLI check (it existed only for the orchestrator). Retire tests in `mcp-integration` and `identity` now retire through `retireAgent` as the CLI does; assertions unchanged. New D93 schema test (v5 mailbox with orchestration rows opens unchanged). Bridge check 146/146; `scripts/validate.sh` pass (35 files, 566). `UPSTREAM.md` row, manifest (verified), CHANGELOG `[Unreleased]`
 - [ ] Task 2: no orchestrator left in the store, housekeeping and CLI (assumption 2)
 - [ ] Checkpoint (report): bridge `npm run check`, validate on one Python
 - [ ] Task 3: probe, install, uninstall, doctor (D91, D92)
