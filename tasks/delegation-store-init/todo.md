@@ -1,6 +1,6 @@
 # Todo: delegation-store-init
 
-- [ ] Task 1: concurrent first open, empty file, directory race (D127, D128)
+- [x] Task 1: concurrent first open, empty file, directory race (D127, D128) — new `test_delegation_store_init.py` (5): 8 rounds × 4 real processes opening one fresh state root behind a start-barrier file → every process succeeds and the database is at version 2; a 0-byte 0600 database → initialized to version 2; a version-0 database with an unrelated table → still `schema is incomplete`, nothing added; the state directory missed by the existence check once (another process created it meanwhile) → used when private, refused as a symbolic link. Red 4/5 (the foreign-database test passed before, as it should): `could not be created` ×2, `schema is incomplete` ×2. Green after `_prepare_root` (`FileExistsError` falls through to the one set of existing-path checks), `_prepare_database` (the `O_EXCL` loser falls through to the metadata check), `_initialize_if_empty` for every opener (`BEGIN IMMEDIATE`, version 0 and no tables, else `ROLLBACK`), the table definitions moved unchanged into `_SCHEMA_STATEMENTS` and run one by one (`executescript` COMMITs first on Python < 3.12, which would drop the write lock). The multi-process test passed 3 more runs in a row. 64 tests across the store-init, delegation, claim and recovery files
 - [ ] Task 2: docs (D129)
 - [ ] Checkpoint (report): validate on Python 3.9, 3.10, 3.14 + bridge `npm run check`
 - [ ] Checkpoint (gate): module review
