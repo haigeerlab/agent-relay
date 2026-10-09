@@ -41,6 +41,14 @@ record what appears under `~/.claude/plugins/cache/agent-relay-marketplace/agent
 local-scope entries change, and whether a reopened desktop Code-tab session loads the new skills (e.g. session-delegation
 mentions `prune`). If the local-scope entries stay on 0.1.0, find what clears them (e.g. `--scope local` per project) and
 document only what was measured. Doctor's new check is run before and after.
+Added by the round-2 coordinator's review of this plan (2026-10-10):
+- **Which copy a project with a local-scope entry loads.** In such a project (e.g. relay-integration: local entry →
+  cache `0.1.0`), open a desktop Code-tab session and record whether it loads the local `0.1.0`, the user-scope copy, or
+  `readFromFolder`. If it is `0.1.0`, desktop sessions in those projects have been running the oldest version, and the
+  doctor warning says so in plain words.
+- **Local entries left by deleted worktrees.** Removing them changes the user's plugin records and is a separate step from
+  the update commands: ask the user separately, naming every entry it would touch. Without that consent doctor only
+  reports them; nothing is cleaned.
 
 ### Checkpoint (report): local validation
 `scripts/validate.sh` green on Python 3.9, 3.10, 3.14 (Node 24 first on PATH); doctor's `claude-plugin` output on this Mac
