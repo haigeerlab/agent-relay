@@ -333,6 +333,22 @@ class ClaimAndStateTests(DelegationTestCase):
                 "a" * 40, "safe-review", friendly_name="另一个名字",
             )
 
+    def test_rebind_moves_only_the_exact_binding_of_a_turn_in_flight(self):
+        # claude-delegation-realhost D182: a resumed Claude session runs as a new background job.
+        store = self.store()
+        envelope = self.authorize(store, origin_host="codex", target_hosts=("claude",))
+        claim = store.claim_launch(
+            envelope.envelope_id, "claude-launch-1", "claude", self.project, "a" * 40, "safe-review")
+        store.bind_host(claim.delegation_id, "ce5b9501", "ce5b9501-old", "2.1.295", "dontAsk/safe-review")
+        with self.assertRaisesRegex(DelegationError, "host-binding-conflict"):
+            store.rebind_host(claim.delegation_id, "ce5b9501", "other-session", "6472d974", "6472d974-new")
+        moved = store.rebind_host(claim.delegation_id, "ce5b9501", "ce5b9501-old", "6472d974", "6472d974-new")
+        self.assertEqual((moved.state, moved.host_ref, moved.host_session_ref),
+                         ("created", "6472d974", "6472d974-new"))
+        store.advance(claim.delegation_id, "unknown", "host-result-unknown")
+        with self.assertRaisesRegex(DelegationError, "invalid-state-transition"):
+            store.rebind_host(claim.delegation_id, "6472d974", "6472d974-new", "aaaaaaaa", "aaaaaaaa-new")
+
     def test_exact_host_binding_and_authorized_follow_up_reuse_one_claim(self):
         store = self.store()
         envelope = self.authorize(store, origin_host="claude", target_hosts=("codex",))

@@ -17,6 +17,7 @@ from session_delegation_control import (
     ControlError,
     SessionDelegationController,
     default_state_root,
+    error_payload,
     main,
 )
 
@@ -564,6 +565,14 @@ class RecoveryTests(unittest.TestCase):
         result = controller.cancel_named("要取消")
         self.assertEqual(result.state, "cancelled")
         self.assertEqual([call[0] for call in adapter.calls], ["create", "cancel"])
+
+    def test_an_unknown_record_s_follow_up_error_names_cancel_then_create(self):
+        # claude-delegation-realhost D182.
+        from session_delegation_claude import ClaudeAdapterError
+        payload = error_payload(ClaudeAdapterError("delegation-state-unknown"))
+        self.assertEqual(payload["reason"], "delegation-state-unknown")
+        self.assertIn("Cancel it, then create", payload["detail"])
+        self.assertNotIn("detail", error_payload(ClaudeAdapterError("delegation-is-not-ready-for-follow-up")))
 
     def test_absent_list_is_empty_and_does_not_initialize_runtime(self):
         state_root = self.root / "absent-state"

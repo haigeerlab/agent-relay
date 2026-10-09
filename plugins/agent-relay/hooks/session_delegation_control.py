@@ -1036,14 +1036,26 @@ def main(argv: list[str] | None = None) -> int:
                          ensure_ascii=False, sort_keys=True))
         return 1
     except (ControlError, DelegationError, ValueError) as error:
-        reason = error.reason if isinstance(error, ControlError) else str(error)
-        payload = {"state": "error", "reason": reason}
-        if isinstance(error, ControlError) and error.candidates:
-            payload["candidates"] = list(error.candidates)
-        if isinstance(error, ControlError) and error.detail:
-            payload["detail"] = error.detail
-        print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+        print(json.dumps(error_payload(error), ensure_ascii=False, sort_keys=True))
         return 1
+
+
+# claude-delegation-realhost D182: an `unknown` record cannot take a follow-up; say what to do instead.
+STATE_UNKNOWN_DETAIL = (
+    "Nothing confirms where this delegation's session is, so it cannot take a follow-up. "
+    "Cancel it, then create the delegation again.")
+
+
+def error_payload(error: ValueError) -> dict[str, object]:
+    reason = error.reason if isinstance(error, ControlError) else str(error)
+    payload: dict[str, object] = {"state": "error", "reason": reason}
+    if isinstance(error, ControlError) and error.candidates:
+        payload["candidates"] = list(error.candidates)
+    if isinstance(error, ControlError) and error.detail:
+        payload["detail"] = error.detail
+    elif reason == "delegation-state-unknown":
+        payload["detail"] = STATE_UNKNOWN_DETAIL
+    return payload
 
 
 if __name__ == "__main__":

@@ -46,6 +46,17 @@ Readers: the user; the round-2 coordinator (acceptance after 0.6.2).
    registration, it stays `created` with `prerequisite: mailbox-registration-missing` instead, so the re-send path
    applies. A record that is `unknown` for any other reason keeps today's rules, and its error now names the next step:
    `cancel` it, then create again.
+3a. **Found while building (2026-10-10, listed separately in the PR).** (i) The prompt: mailbox tools arrive only
+   after a tool call, so a turn that ends without one never gets them; the first turn and the re-sent one both say "do
+   not end your turn: make one allowed Read of a file you may read for this task, then load them by name with
+   ToolSearch and register" (the coordinator asked for the same wording in both). A re-send by wake carries the same
+   envelope. (ii) Why the H2 record went `unknown`: `claude --bg --resume <session>` starts a new background job with
+   its own id and session id (d849dfa6 resumed as 6472d974), and the adapter required the old id. It now follows the
+   id its own resume printed, once that job is listed in the same project, and moves the record's binding to it
+   (`rebind_host`, only from the exact old binding, only while `created` or `running`). This is Claude Code's
+   resume, not a second session from the adapter. (iii) An `unknown` turn result put the turn ref in `hostStatus`;
+   it now says `unknown` with `host-result-unknown`, and a continue of an `unknown` record answers
+   `delegation-state-unknown` with "cancel it, then create again".
 4. **L1.** `prune --help` says `--confirm ID,...` cancels the listed ids.
 5. **Real checks on this Mac** before the PR: (a) a Codex-shaped Claude delegation (the adapter's own commands, scoped
    to `README.md`) is created, completed, stopped with `claude stop`, then continued through the adapter; the follow-up
