@@ -7,6 +7,7 @@
   - Consequence for D182 (found while building): `ToolSearch` alone may not keep the turn alive; the prompt must also say: if the mailbox tools are not listed yet, do not end the turn — start the task with the allowed read tools and register as soon as they appear. Real check (b) and a new (c) (a record left at `mailbox-registration-missing`, then `continue`: the re-send turn gets the tools) decide it.
 - [ ] Task 2: `done` is a stopped Claude session (D181)
 - [ ] Task 3: the delegated session can load its mailbox tools (D182)
+  - Coordinator, 2026-10-10: the re-send (D49) turn uses the same wording as the first — one allowed `Read` of an in-scope file first, then register. Real checks (b) three cold-start creates and (c) the re-send turn record, per attempt, whether it registered and how many seconds it took. The PR description lists this prompt change separately (added after the spec was approved).
 - [ ] Task 4: truthful prune help (D183)
 - [ ] Checkpoint (report): local validation and real checks
 - [ ] Task 5: PR and CI
