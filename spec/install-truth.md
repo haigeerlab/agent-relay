@@ -17,7 +17,7 @@ plugin copy is running, and what agents are told about tool arguments, must be t
 
 Readers: the user; the round-2 coordinator.
 
-## Assumptions (to be confirmed by the user)
+## Assumptions (accepted by the user 2026-10-10)
 
 1. **M1 docs.** README "升级" and the CHANGELOG upgrade steps say, for every install kind, that the Claude side needs
    `claude plugin marketplace update agent-relay-marketplace` and `claude plugin update agent-relay@agent-relay-marketplace`
@@ -66,4 +66,4 @@ Readers: the user; the round-2 coordinator.
 
 ## Open questions
 
-None beyond the assumptions above.
+None. Accepted by the user on 2026-10-10 (reviewed by the round-2 coordinator, 86dbbf7).

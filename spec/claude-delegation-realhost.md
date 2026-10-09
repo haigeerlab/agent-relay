@@ -31,7 +31,7 @@ Readers: the user; the round-2 coordinator (acceptance after 0.6.2).
   Claude record with a host id stops the host (existing path), but nothing tells the user that cancel-then-create is the
   next step.
 
-## Assumptions (to be confirmed by the user)
+## Assumptions (accepted by the user 2026-10-10)
 
 1. **H1.** A Claude session whose agents entry says `done` (no `pid`) is resumable exactly like `stopped`, `exited`,
    `failed`; the resume uses the 0.6.1 launch limits. A fixture taken verbatim from Claude Code 2.1.295's
@@ -84,4 +84,4 @@ Readers: the user; the round-2 coordinator (acceptance after 0.6.2).
 
 ## Open questions
 
-None beyond the assumptions above.
+None. Accepted by the user on 2026-10-10 (reviewed by the round-2 coordinator, 86dbbf7).
