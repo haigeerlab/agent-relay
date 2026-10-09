@@ -23,7 +23,7 @@ Readers: the user; people installing agent-relay from the README; the round-2 co
   (`native_collaboration_adapters.py:208`, `state_migration.py:498`), but `uninstall-claude` runs
   `remove_claude_deny_rules`, which removes the deny rules 0.4.0 wrote there.
 - **5d.** `session-routing/SKILL.md:19` shows `printf '%s' '<json>' | python3 …`; a name or title with an apostrophe
-  breaks the single quotes.
+  breaks the single quotes. The pipe itself is right (A7, guarded by `test_selector_json_is_piped_not_a_heredoc`).
 - **5h.** The 2.0 breaking-change summary in CHANGELOG does not list the removal of `--host-permission`.
 
 ## Assumptions (to be confirmed by the user)
@@ -40,10 +40,11 @@ Readers: the user; people installing agent-relay from the README; the round-2 co
    The collab skill tells the agent to resolve the hooks directory from its own skill location.
 4. **5c wording.** Both messages say what is true: agent-relay does not add allow rules to the user's settings; its
    uninstall removes only the deny rules 0.4.0 wrote.
-5. **5d.** The skill passes JSON without shell quoting of user text: write it with a quoted heredoc delimiter where
-   the host allows it, otherwise `printf '%s\n'` with the JSON produced by `python3 -c 'import json,sys;…'` from
-   arguments. The chosen form must still match the allow rules the skill already documents (checked by the existing
-   skill tests); if it cannot, the skill says which rule to add.
+5. **5d.** The skill never puts user text inside shell single quotes and never uses a heredoc (A7: a heredoc fails in
+   Codex's read-only sandbox, which is why 0.6.0 moved to a pipe). The JSON is built by `python3 -c` from arguments
+   (`json.dumps` of `sys.argv`), whose output is piped into the selector; the user's text reaches it only as separate
+   double-quoted arguments. The existing `test_selector_json_is_piped_not_a_heredoc` keeps guarding the pipe. The form
+   must still match the allow rules the skill already documents; if it cannot, the skill says which rule to add.
 6. **CHANGELOG.** `--host-permission` removal joins the 2.0 breaking list; a `[0.6.1]` entry lists the three modules,
    the upgrade from 0.6.0 (delegation store schema 2 → 3; runtime upgrade for `presence-polish`) and rollback (restore
    the delegation store copy).
@@ -58,7 +59,7 @@ Readers: the user; people installing agent-relay from the README; the round-2 co
 1. Red first: `install-codex` output names all ten tools and the table form; `--approve-mailbox-tools` names the ones
    it added.
 2. Red first (skill tests): collab mentions the Bypass hold and `crossSessionInbound`; session-routing has no
-   `'<json>'`; README has no `plugins/agent-relay/hooks/` command outside the developer section.
+   `'<json>'` and no heredoc (the existing heredoc guard stays green); README has no `plugins/agent-relay/hooks/` command outside the developer section.
 3. The two "never edits" messages corrected; CHANGELOG `[0.6.1]`.
 4. `scripts/validate.sh` green on Python 3.9, 3.10, 3.14; CI green.
 
