@@ -96,6 +96,10 @@ codex plugin add agent-relay@agent-relay-marketplace
   `approval_mode = "approve"`，所以读信、回复、确认不弹卡（已安装的用 `install-codex --approve-mailbox-tools` 补上）。
   执行时会列出写进 `~/.codex/config.toml` 的这 10 张审批表（`[mcp_servers.agent-relay.tools.<工具>]`），补的时候只列补上的。
   旧版本在信箱目录留下的 `codex-gate.off` 已不再使用，可以删掉（agent-relay 不会替你删）。
+- **Bypass 模式的 Claude 会话收不到唤醒**：Claude 会话处于 Bypass permissions 时，Claude Code 会把别的会话发来的提醒
+  扣下等你批准；桌面应用里没有批准入口，提醒会过期。绑定唤醒本身不受影响，但要真正唤醒，需要你自己把 Claude Code 的
+  `crossSessionInbound` 设为 `"accept"`，或换一个权限模式。详见
+  [BACKGROUND-WAKE.md](plugins/agent-relay/bridge/docs/BACKGROUND-WAKE.md)“Why Claude pings expire”。agent-relay 不会替你改。
 - **会话在等你授权时会告诉你**（`presence-and-approval`）：会话目录（`bridge_agents`，或问任意会话“有哪些会话”）会写明
   每个会话是运行中、已停止、等待授权、等待输入还是未知；给一个等授权或已停止的会话发消息时，发件方会收到提示。
   某个 Claude 会话卡在授权弹窗上、而发给它的消息还没处理时，这台 Mac 上会弹一条通知“某会话在等你授权”，同一次等待只

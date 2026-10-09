@@ -25,7 +25,11 @@ description: 加入本机 Claude Code／Codex 联调、查看联调消息与已�
 
 1. 从 Git 根目录（否则当前目录）取得项目简称；使用用户别名或“宿主＋项目”作为可读前缀，并追加短随机后缀。
 2. 调用 `bridge_register`，默认 `wake: null`。只有用户在当前对话明确要求“加入并允许唤醒”，才绑定当前会话；任何权限模式
-   （包括 Claude 的 auto 模式和 Codex 的“帮我批准”）都可以绑定：
+   （包括 Claude 的 auto 模式和 Codex 的“帮我批准”）都可以绑定。例外要说清楚：Claude 会话处于 **Bypass permissions**
+   时，Claude Code 会把别的会话发来的提醒扣下等用户批准，桌面应用没有批准入口，提醒会过期，所以绑定了也唤不醒；
+   要收到，需用户自己把 Claude Code 的 `crossSessionInbound` 设为 `"accept"`（见 bridge 的
+   `docs/BACKGROUND-WAKE.md`“Why Claude pings expire”），或换一个权限模式。只告诉用户，不替用户改这个设置。
+   绑定方式：
    Claude Code 先用 `bridge_sessions` 核对 `thisSession`，再用 `wake: "auto"`；Codex Desktop 只使用当前任务
    环境中的合法 `CODEX_THREAD_ID`，以 `{app: "codex", sessionId: 当前任务 ID}` 注册。
    Codex Desktop 不绑定唤醒时也带上 `host: {app: "codex", sessionId: 当前任务的 CODEX_THREAD_ID}`：它只记下宿主，

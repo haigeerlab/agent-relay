@@ -51,6 +51,12 @@ class CollabEntryContractTest(unittest.TestCase):
         for phrase in ('wake: "auto"', '{app: "codex", sessionId:', "任何权限模式", "自己的权限设置决定",
                        "不改、不降", "不构成任何授权", "不一定经过用户本人"):
             self.assertIn(phrase, text)
+        # install-docs-accuracy D179 (review item 3): binding works in Bypass, but Claude Code holds the pings there.
+        for phrase in ("Bypass", "crossSessionInbound", "BACKGROUND-WAKE.md", "不替用户改这个设置"):
+            self.assertIn(phrase, text)
+        readme = (PLUGIN_ROOT.parents[1] / "README.md").read_text(encoding="utf-8")
+        for phrase in ("Bypass", "crossSessionInbound", "BACKGROUND-WAKE.md"):
+            self.assertIn(phrase, readme)
 
     def test_directory_and_name_resolution_are_truthful(self):
         text = self.skill_text()
