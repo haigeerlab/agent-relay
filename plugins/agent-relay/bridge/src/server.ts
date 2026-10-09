@@ -317,8 +317,11 @@ function main(): void {
         }
       }
       await dispatcher.flush();
+      // agent-relay long-messages D150: the sender never gets its own body back, only its length.
+      const { body: _sentBody, ...stored } = message;
       return jsonResult({
-        ...message,
+        ...stored,
+        bodyLength: message.body.length,
         wake: store.wakes.forMessage(message.id),
         ...(duplicate ? { duplicate } : {}),
         ...(warnings.length ? { warnings } : {}),
