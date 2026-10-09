@@ -85,6 +85,37 @@ def resolve_alias(store: DelegationStore, friendly_name: str) -> list[dict[str, 
     return matches
 
 
+def claude_host_live(claim: DelegationClaim, sessions: Path | None = None) -> bool | None:
+    """Is the host session of a stuck record still there? False when it never started; None when it cannot be told."""
+    if not claim.host_ref:
+        return False
+    if claim.target_host != "claude":
+        return None  # a Codex thread cannot be checked cheaply from here
+    from native_collaboration_runtime import live_claude_sessions
+    live = live_claude_sessions(sessions or Path.home() / ".claude" / "sessions")
+    return any(ref in live for ref in (claim.host_session_ref, claim.host_ref) if ref)
+
+
+def prune_records(store: DelegationStore, *, alive=claude_host_live, confirm: bool = False,
+                  include_unknown_hosts: bool = False) -> dict[str, object]:
+    """delegation-hygiene D169: list (and with confirm, cancel) records stuck in creating/unknown for an hour."""
+    stale = []
+    pruned = []
+    for claim in store.stale_delegations():
+        live = alive(claim)
+        if live is True:
+            continue
+        entry = {"name": claim.friendly_name, "id": claim.delegation_id[:6], "state": claim.state,
+                 "host": "[Claude Code]" if claim.target_host == "claude" else "[Codex]",
+                 "hostLive": "unknown" if live is None else False}
+        stale.append(entry)
+        if confirm and (live is False or include_unknown_hosts):
+            store.prune_stale(claim.delegation_id)
+            pruned.append(entry)
+    return {"stale": [] if confirm else stale, **({"pruned": pruned} if confirm else {}),
+            "writesPerformed": bool(pruned)}
+
+
 def _with_scope(prompt: str, scope: tuple[str, ...]) -> str:
     if not scope:
         return prompt
@@ -803,6 +834,11 @@ def _parser() -> argparse.ArgumentParser:
     resolve = subparsers.add_parser(
         "resolve", help="read only: mailbox names of active delegated sessions with this friendly name (D168)")
     resolve.add_argument("--name", required=True)
+    prune = subparsers.add_parser(
+        "prune", help="list records stuck in creating/unknown for an hour; --confirm cancels them (D169)")
+    prune.add_argument("--confirm", action="store_true")
+    prune.add_argument("--include-unknown-hosts", action="store_true",
+                       help="also cancel records whose host session cannot be checked")
 
     permissions = subparsers.add_parser(
         "permissions", help="read-only Claude project permission preflight")
@@ -890,6 +926,10 @@ def main(argv: list[str] | None = None) -> int:
             payload = _permission_preflight(args)
         elif args.command == "list" and not args.state_root.exists():
             payload: object = []
+        elif args.command == "prune":
+            payload = (prune_records(DelegationStore(args.state_root), confirm=args.confirm,
+                                     include_unknown_hosts=args.include_unknown_hosts)
+                       if args.state_root.exists() else {"stale": [], "writesPerformed": False})
         elif args.command == "resolve":
             payload = {"name": args.name, "matches": resolve_alias(DelegationStore(args.state_root), args.name)
                        if args.state_root.exists() else []}

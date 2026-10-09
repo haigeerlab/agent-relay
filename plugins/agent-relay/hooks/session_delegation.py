@@ -861,6 +861,41 @@ class DelegationStore:
                     connection.execute("ROLLBACK")
                 raise
 
+    # delegation-hygiene D169: records stuck before any confirmed host state, unchanged for this long, may be pruned.
+    STALE_AFTER_SECONDS = 3600
+
+    def stale_delegations(self) -> tuple[DelegationClaim, ...]:
+        """Records in creating or unknown unchanged for STALE_AFTER_SECONDS (read only)."""
+        cutoff = int(self._now()) - self.STALE_AFTER_SECONDS
+        with self._connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM delegations WHERE state IN ('creating', 'unknown') AND updated_at <= ? "
+                "ORDER BY created_at, delegation_id", (cutoff,)).fetchall()
+        return tuple(self._claim(row) for row in rows)
+
+    def prune_stale(self, delegation_id: str) -> DelegationClaim:
+        """Cancel one stale record; checked again under the write lock. Touches no host and deletes nothing."""
+        with self._connection() as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                row = connection.execute(
+                    "SELECT * FROM delegations WHERE delegation_id = ?", (delegation_id,)).fetchone()
+                if row is None:
+                    raise DelegationError("delegation-not-found")
+                if (row["state"] not in ("creating", "unknown")
+                        or row["updated_at"] > int(self._now()) - self.STALE_AFTER_SECONDS):
+                    raise DelegationError("delegation-not-stale")
+                connection.execute("UPDATE delegations SET state = 'cancelled', updated_at = ? WHERE delegation_id = ?",
+                                   (int(self._now()), delegation_id))
+                updated = connection.execute(
+                    "SELECT * FROM delegations WHERE delegation_id = ?", (delegation_id,)).fetchone()
+                connection.execute("COMMIT")
+                return self._claim(updated)
+            except Exception:
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
+                raise
+
     def advance(self, delegation_id: str, new_state: str, evidence: str) -> DelegationClaim:
         if (not isinstance(new_state, str) or new_state not in DELEGATION_STATES
                 or new_state == "creating"):

@@ -220,6 +220,58 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual([m["agent"] for m in resolve_alias(self.store, "pwa-cx")], ["pwa-cx-" + live[1].host_ref[:8]])
         self.assertEqual(resolve_alias(self.store, "nobody"), [])
 
+    def test_prune_lists_stale_records_and_cancels_only_on_confirm(self):
+        # delegation-hygiene D169: creating/unknown, unchanged for an hour, no live host; never a host call.
+        from session_delegation_control import prune_records
+        controller, adapter = self.controller(["held", "unknown", "created", "created", "created"])
+        names = ("held-old", "unknown-old", "created-old", "codex-unknown", "unknown-new")
+        for name in names:
+            controller.authorize_and_create(self.request(key="prune-" + name), "prune-launch-" + name, name, "Review",
+                                            target_host="codex", permission_intent="safe-review")
+        by_name = {c.friendly_name: c for c in self.store.list_delegations()}
+        self.store.advance(by_name["codex-unknown"].delegation_id, "unknown", "host-result-unknown")
+        self.clock[0] = NOW + 7200
+        # Changed ten minutes ago: not stale yet.
+        self.clock[0] -= 600
+        self.store.advance(by_name["unknown-new"].delegation_id, "unknown", "host-result-unknown")
+        self.clock[0] += 600
+        calls = len(adapter.calls)
+
+        def alive(claim):
+            return None if claim.host_ref else False
+
+        preview = prune_records(self.store, alive=alive)
+        self.assertEqual(preview["writesPerformed"], False)
+        listed = {r["name"]: r["hostLive"] for r in preview["stale"]}
+        self.assertEqual(listed, {"held-old": False, "unknown-old": False, "codex-unknown": "unknown"})
+        states = {c.friendly_name: c.state for c in self.store.list_delegations()}
+        self.assertEqual(states["held-old"], "creating", "a preview changes nothing")
+
+        done = prune_records(self.store, alive=alive, confirm=True)
+        self.assertEqual(sorted(r["name"] for r in done["pruned"]), ["held-old", "unknown-old"])
+        self.assertTrue(done["writesPerformed"])
+        states = {c.friendly_name: c.state for c in self.store.list_delegations()}
+        self.assertEqual((states["held-old"], states["unknown-old"]), ("cancelled", "cancelled"))
+        self.assertEqual((states["codex-unknown"], states["unknown-new"], states["created-old"]),
+                         ("unknown", "unknown", "created"))
+        with_unknown = prune_records(self.store, alive=alive, confirm=True, include_unknown_hosts=True)
+        self.assertEqual([r["name"] for r in with_unknown["pruned"]], ["codex-unknown"])
+        self.assertEqual(prune_records(self.store, alive=alive)["stale"], [])
+        self.assertEqual(len(adapter.calls), calls, "no host is touched")
+
+    def test_host_liveness_for_pruning(self):
+        from dataclasses import replace
+        from session_delegation_control import claude_host_live
+        controller, _adapter = self.controller(["created"])
+        controller.authorize_and_create(self.request(key="liveness-key"), "liveness-launch", "活着吗", "Review",
+                                        target_host="codex", permission_intent="safe-review")
+        claim = self.store.list_delegations()[0]
+        sessions = self.root / "sessions"
+        sessions.mkdir()
+        self.assertIs(claude_host_live(replace(claim, host_ref=None), sessions), False, "never started")
+        self.assertIsNone(claude_host_live(claim, sessions), "a Codex thread cannot be checked here")
+        self.assertIs(claude_host_live(replace(claim, target_host="claude"), sessions), False, "no live session")
+
     def test_native_delivery_states_and_retry_keys_are_stable(self):
         for observed, state, expected in (
             (False, "created", "pending"),
