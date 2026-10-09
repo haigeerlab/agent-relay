@@ -47,9 +47,12 @@ Readers: the user; the round-2 coordinator (acceptance after 0.6.2).
    applies. A record that is `unknown` for any other reason keeps today's rules, and its error now names the next step:
    `cancel` it, then create again.
 4. **L1.** `prune --help` says `--confirm ID,...` cancels the listed ids.
-5. **Real check on this Mac** before the PR: a Codex-shaped Claude delegation (the adapter's own commands, scoped to
-   `README.md`) is created, completed, stopped with `claude stop`, then continued through the adapter; the follow-up
-   resumes and a read of a file outside the scope is denied.
+5. **Real checks on this Mac** before the PR: (a) a Codex-shaped Claude delegation (the adapter's own commands, scoped
+   to `README.md`) is created, completed, stopped with `claude stop`, then continued through the adapter; the follow-up
+   resumes and a read of a file outside the scope is denied. (b) Cold start, where H2 appeared: with every bridge
+   stopped (or right after `upgrade --confirm`), three creates in a row; all three register and report back. If any does
+   not, assumption 3's fallback must catch it — the record stays `created` with `mailbox-registration-missing` and the
+   re-send path completes it — and it must never go to `unknown`. Stopping the bridges needs the user's consent.
 
 ## Decisions
 
@@ -66,7 +69,7 @@ Readers: the user; the round-2 coordinator (acceptance after 0.6.2).
    `mailbox-registration-missing`, and a later `continue` re-sends the registration; an `unknown` record's continue error
    names `cancel` and create as the next step.
 4. `prune --help` text.
-5. The real check of assumption 5, recorded in the todo.
+5. The real checks of assumption 5 (resume through the adapter; three cold-start creates), recorded in the todo.
 6. `scripts/validate.sh` green on Python 3.9, 3.10, 3.14; CI green.
 
 ## Boundaries

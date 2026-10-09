@@ -22,11 +22,16 @@ Readers: the user; the round-2 coordinator.
 1. **M1 docs.** README "升级" and the CHANGELOG upgrade steps say, for every install kind, that the Claude side needs
    `claude plugin marketplace update agent-relay-marketplace` and `claude plugin update agent-relay@agent-relay-marketplace`
    and a restart of open Claude sessions (desktop Code tab included); the `[0.6.1]` section gets a correction note.
-   The exact commands are checked on this Mac before they are written.
-2. **M1 doctor.** `doctor` gains a read-only check `claude-plugin`: from `claude plugin list --json`, every enabled
-   agent-relay entry's loaded version (`installPath`'s version, or the folder's `plugin.json` for a `readFromFolder`
-   entry) compared with the plugin doctor runs from; a mismatch is `warn` with the two update commands as next step.
-   Unavailable `claude` → `skip`. Nothing is written.
+   Written only after a check on this Mac, run with the user's consent (it changes their Claude plugin install): after
+   the two commands, does a 0.6.x directory appear under Claude's plugin cache, and does a reopened desktop Code-tab
+   session load it? If not, the docs say what does work, as measured.
+2. **M1 doctor.** `doctor` gains a read-only check `claude-plugin`. Measured by the coordinator (2026-10-10): one
+   user-scope entry carried both `readFromFolder` = the clone (0.6.1) and `installPath` = the cache's 0.5.2 directory;
+   desktop Code-tab sessions loaded `installPath`, `claude --bg` sessions `readFromFolder`; the listing's own `version`
+   field (0.1.0 / 0.5.2) is not trustworthy. So for every enabled agent-relay entry the check reads the version from
+   `<installPath>/.claude-plugin/plugin.json` (and, when present, from the `readFromFolder` copy too), never the
+   listing's `version`; any copy that differs from the plugin doctor runs from is `warn`, naming which copy and giving
+   the two update commands and the restart as next step. Unavailable `claude` → `skip`. Nothing is written.
 3. **L2.** session-routing lists each selector field's allowed values, taken from `session_routing.py`, and a skill
    guard test fails when the code's set and the skill's list differ.
 4. **L3.** collab gives one literal `bridge_register` call per host (`{agent, wake}`; Codex with `host`).
@@ -41,8 +46,10 @@ Readers: the user; the round-2 coordinator.
 
 ## Requirements
 
-1. Red first: doctor's `claude-plugin` check on fixture listings — matching versions ok; a cache entry at 0.5.2 warns
-   with both commands; no `claude` binary skips; malformed JSON skips with a reason.
+1. Red first: doctor's `claude-plugin` check on fixture listings — every copy matching is ok; the measured shape
+   (`readFromFolder` 0.6.x, `installPath` 0.5.2, listing `version` 0.1.0) warns about the `installPath` copy with both
+   commands; a listing `version` that disagrees with the files is ignored; no `claude` binary skips; malformed JSON skips
+   with a reason.
 2. Red first (skill guards): selector field values match the code; collab has the two `bridge_register` examples and the
    rename-first advice; README and CHANGELOG name both Claude commands and the restart.
 3. `scripts/validate.sh` green on Python 3.9, 3.10, 3.14; CI green.
