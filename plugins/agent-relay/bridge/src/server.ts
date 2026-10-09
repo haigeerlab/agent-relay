@@ -525,12 +525,14 @@ function main(): void {
           : host.app === "claude" ? claudePresence(host.sessionId, claude)
             : codexPresence(await codexOwner(host.sessionId));
       const summaries = store.agentSummaries({ includeRetired });
-      const presences = await Promise.all(summaries.map((agent) => presenceOf(agent.host ?? store.wakes.target(agent.name))));
+      // presence-polish D176: a retired identity is never looked up, so a stuck host cannot slow the listing.
+      const presences = await Promise.all(summaries.map((agent) =>
+        agent.retiredAt ? null : presenceOf(agent.host ?? store.wakes.target(agent.name))));
       const agents = summaries.map((agent, index) => {
         const health = store.wakes.health(agent.name, 1)[0];
         return {
           ...agent,
-          presence: presences[index],
+          ...(presences[index] ? { presence: presences[index] } : {}),
           // agent-relay acceptance-030-gaps D75a: only a Claude host comes from a verified environment.
           host: agent.host ? { ...agent.host, verified: agent.host.app === "claude" } : null,
           wake: store.wakes.target(agent.name),

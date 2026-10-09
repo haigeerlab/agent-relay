@@ -180,3 +180,29 @@ test("the sender is told when the recipient waits for the user's approval or is 
   }
   store.close();
 });
+
+test("a retired identity is listed without asking its host", { skip: process.platform === "win32" }, async () => {
+  // agent-relay presence-polish D176 (review 5k): a stuck Codex app must not slow the listing for identities that
+  // are retired anyway, so they get no presence lookup at all.
+  const dir = mkdtempSync("/tmp/ar-retired-");
+  mkdirSync(join(dir, ".codex", "ipc"), { recursive: true });
+  let asked = 0;
+  const ipc = createServer((socket) => { asked += 1; socket.destroy(); });
+  await new Promise<void>((ok) => ipc.listen(join(dir, ".codex", "ipc", "ipc.sock"), ok));
+  const store = new BridgeStore(join(dir, "bridge.sqlite"));
+  store.register("cx-old", undefined, { app: "codex", sessionId: "thread-old" });
+  store.retire("cx-old", { by: "test" });
+  store.close();
+  const claude = await session(dir, "claude-lister");
+  try {
+    const listed = (await claude.call("bridge_agents", { includeRetired: true })).json();
+    const old = listed.agents.find((a: any) => a.name === "cx-old");
+    assert.ok(old.retiredAt, JSON.stringify(old));
+    assert.equal(old.presence, undefined, "no presence for a retired identity");
+    assert.equal(asked, 0, "the Codex app was not asked");
+  } finally {
+    await claude.close();
+    await new Promise((ok) => ipc.close(ok));
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
