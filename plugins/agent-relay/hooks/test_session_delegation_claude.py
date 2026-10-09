@@ -136,6 +136,30 @@ class InstallationAndPermissionTests(unittest.TestCase):
         self.assertNotIn("Edit", tools)
         self.assertEqual(command[-2:], ("--", "Review the diff"))
 
+    def test_the_user_environment_changes_only_sources_skills_and_the_skill_tool(self):
+        # delegation-user-context D163: the default launch is unchanged; the option loads the user layer and skills.
+        installation = ClaudeInstallation(Path("/opt/claude"), "2.1.295")
+        args = (installation, Path("/private/tmp/session.mcp.json"), "agent-relay-12345678", "Review", "safe-review",
+                "dontAsk")
+        default = build_create_command(*args)
+        tools = ",".join(("Read", "Grep", "Glob", *communication_rules("agent-relay")))
+        self.assertEqual(default, (
+            "/opt/claude", "--background", "--name", "agent-relay-12345678",
+            "--mcp-config", "/private/tmp/session.mcp.json", "--strict-mcp-config",
+            "--setting-sources", "project,local", "--permission-mode", "dontAsk",
+            "--permission-prompts", "none", "--disable-slash-commands", "--no-chrome",
+            "--tools", tools, "--", "Review"))
+        user = build_create_command(*args, "user-environment")
+        expected = list(default)
+        expected[expected.index("project,local")] = "user,project,local"
+        expected.remove("--disable-slash-commands")
+        expected[expected.index(tools)] = tools + ",Skill"
+        self.assertEqual(user, tuple(expected))
+        development = build_create_command(installation, Path("/private/tmp/s.json"), "n", "Implement",
+                                           "bounded-development", "dontAsk", "user-environment")
+        self.assertIn("Skill", development[development.index("--tools") + 1].split(","))
+        self.assertIn("Edit", development[development.index("--tools") + 1].split(","))
+
     def test_host_prompt_allows_control_envelope_after_maximum_user_body(self):
         prompt = _bounded_prompt(
             "x" * 20_800, "12345678-1234-1234-1234-123456789abc",

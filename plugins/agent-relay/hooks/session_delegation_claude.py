@@ -16,7 +16,7 @@ from uuid import UUID, uuid4
 
 from defect_guard import is_defect
 from native_collaboration_adapters import CLAUDE_SERVER_NAME
-from session_delegation import DelegationStore
+from session_delegation import USER_ENVIRONMENT, DelegationStore
 from session_delegation_codex import COMMUNICATION_TOOLS, SAFE_COMMUNICATION_TOOLS
 
 
@@ -197,10 +197,12 @@ def _permission_shape(intent: str, host_permission: str | None, server_name: str
     review = ("Read", "Grep", "Glob")
     development = review + ("Edit", "Write", "Bash")
     communication = communication_rules(server_name, communication_tools)
+    # delegation-user-context D163: the user's environment adds only the Skill tool.
+    skills = ("Skill",) if host_permission == USER_ENVIRONMENT else ()
     if intent == "safe-review":
-        return "dontAsk", review + communication, ()
+        return "dontAsk", review + communication + skills, ()
     if intent == "bounded-development":
-        return "dontAsk", development + communication, ("Edit", "Write", "Bash")
+        return "dontAsk", development + communication + skills, ("Edit", "Write", "Bash")
     if host_permission == "plan":
         return "plan", review + communication, ()
     if host_permission == "dontAsk":
@@ -296,16 +298,18 @@ def build_create_command(
         intent, host_permission, server_name, communication_tools)
     if permission_mode != expected_mode:
         raise ClaudeAdapterError("permission-mode-conflict")
+    # delegation-user-context D163: with the user's environment, load its settings layer and skills; nothing else moves.
+    user = host_permission == USER_ENVIRONMENT
     return (
         str(installation.binary),
         "--background",
         "--name", name,
         "--mcp-config", str(config_path),
         "--strict-mcp-config",
-        "--setting-sources", "project,local",
+        "--setting-sources", "user,project,local" if user else "project,local",
         "--permission-mode", permission_mode,
         "--permission-prompts", "none",
-        "--disable-slash-commands",
+        *(() if user else ("--disable-slash-commands",)),
         "--no-chrome",
         "--tools", ",".join(tools),
         "--",
