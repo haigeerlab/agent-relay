@@ -507,5 +507,30 @@ class RecoveryTests(unittest.TestCase):
         self.assertFalse(state_root.exists())
 
 
+    def test_permission_preflight_names_the_files_it_read_and_explains_a_global_allow(self):
+        # delegation-user-context D164.
+        from argparse import Namespace
+        from session_delegation_claude import COMMUNICATION_TOOLS, communication_rules
+        from session_delegation_control import _permission_preflight
+        config = self.root / "claude-config"
+        config.mkdir()
+        (config / "settings.json").write_text(json.dumps({"permissions": {"allow": [
+            *communication_rules("agent-relay"), "Skill"]}}), encoding="utf-8")
+        backend = SimpleNamespace(name="native", claude_server_name="agent-relay", claude_tools=COMMUNICATION_TOOLS)
+        with mock.patch("session_delegation_control._selected_backend", return_value=backend), \
+                mock.patch.dict("os.environ", {"CLAUDE_CONFIG_DIR": str(config)}):
+            default = _permission_preflight(Namespace(project=self.project, permission="safe-review",
+                                                      host_permission=None))
+            user = _permission_preflight(Namespace(project=self.project, permission="safe-review",
+                                                   host_permission="user-environment"))
+        self.assertFalse(default["ready"])
+        self.assertEqual(default["settings"], [".claude/settings.local.json", ".claude/settings.json"])
+        self.assertIn("does not apply to a default delegated session", default["note"])
+        self.assertTrue(user["ready"], user)
+        self.assertEqual(user["settings"][-1], str(config / "settings.json"))
+        self.assertNotIn("note", user)
+        self.assertIn("Skill", user["requiredAllow"])
+        self.assertFalse(default["writesPerformed"] or user["writesPerformed"])
+
 if __name__ == "__main__":
     unittest.main()

@@ -624,8 +624,10 @@ def _selected_backend(args: argparse.Namespace):
 
 def _permission_preflight(args: argparse.Namespace) -> dict[str, object]:
     from session_delegation_claude import (
+        GLOBAL_ALLOW_NOTE,
         inspect_project_permissions,
         required_project_allow,
+        settings_sources,
     )
 
     selected = _selected_backend(args)
@@ -636,7 +638,12 @@ def _permission_preflight(args: argparse.Namespace) -> dict[str, object]:
         server_name=selected.claude_server_name,
         communication_tools=selected.claude_tools,
     )
+    # delegation-user-context D164: name the files read; say why a global allow did not count.
+    note = ({"note": GLOBAL_ALLOW_NOTE}
+            if not readiness.ready and args.host_permission != USER_ENVIRONMENT
+            and readiness.prerequisite == "project-allow-rules" else {})
     return {
+        **note,
         "backend": selected.name,
         "ready": readiness.ready,
         "permissionMode": readiness.permission_mode,
@@ -647,7 +654,7 @@ def _permission_preflight(args: argparse.Namespace) -> dict[str, object]:
             server_name=selected.claude_server_name,
             communication_tools=selected.claude_tools,
         )),
-        "settings": [".claude/settings.local.json", ".claude/settings.json"],
+        "settings": settings_sources(args.host_permission),
         "writesPerformed": False,
     }
 

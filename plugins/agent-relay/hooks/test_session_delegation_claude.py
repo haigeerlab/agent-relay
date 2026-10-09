@@ -160,6 +160,39 @@ class InstallationAndPermissionTests(unittest.TestCase):
         self.assertIn("Skill", development[development.index("--tools") + 1].split(","))
         self.assertIn("Edit", development[development.index("--tools") + 1].split(","))
 
+    def test_the_preflight_reads_what_the_session_will_load(self):
+        # delegation-user-context D164: the user layer counts only with the option; its deny too.
+        from unittest import mock
+        from session_delegation_claude import GLOBAL_ALLOW_NOTE, settings_sources
+        config = self.root / "claude-config"
+        config.mkdir()
+        user_settings = config / "settings.json"
+        rules = (*communication_rules("agent-relay"), "Skill")
+        user_settings.write_text(json.dumps({"permissions": {"allow": list(rules)}}), encoding="utf-8")
+        with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(config)}):
+            default = inspect_project_permissions(self.project, "safe-review", None, server_name="agent-relay")
+            self.assertFalse(default.ready)
+            self.assertEqual(default.prerequisite, "project-allow-rules")
+            user = inspect_project_permissions(self.project, "safe-review", "user-environment",
+                                               server_name="agent-relay")
+            self.assertTrue(user.ready, user)
+            self.assertIn("Skill", required_project_allow("safe-review", "user-environment",
+                                                          server_name="agent-relay"))
+            self.assertNotIn("Skill", required_project_allow("safe-review", None, server_name="agent-relay"))
+            self.assertEqual(settings_sources(None), [".claude/settings.local.json", ".claude/settings.json"])
+            self.assertEqual(settings_sources("user-environment"),
+                             [".claude/settings.local.json", ".claude/settings.json", str(user_settings)])
+            self.assertIn("~/.claude/settings.json does not apply to a default delegated session", GLOBAL_ALLOW_NOTE)
+
+            user_settings.write_text(json.dumps({"permissions": {"allow": list(rules), "deny": ["Read"]}}),
+                                     encoding="utf-8")
+            self.write_permissions(rules)
+            self.assertTrue(inspect_project_permissions(self.project, "safe-review", None,
+                                                        server_name="agent-relay").ready, "the user deny is not read")
+            blocked = inspect_project_permissions(self.project, "safe-review", "user-environment",
+                                                  server_name="agent-relay")
+            self.assertEqual((blocked.ready, blocked.prerequisite), (False, "project-deny-rules"))
+
     def test_host_prompt_allows_control_envelope_after_maximum_user_body(self):
         prompt = _bounded_prompt(
             "x" * 20_800, "12345678-1234-1234-1234-123456789abc",
