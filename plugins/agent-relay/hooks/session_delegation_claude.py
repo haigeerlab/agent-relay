@@ -211,6 +211,9 @@ def _settings_rules(project: Path, include_user: bool = False) -> tuple[tuple[st
 def _matches_rule(rule: str, tool: str) -> bool:
     if rule == tool:
         return True
+    # delegation-continue-parity D174: a server-level rule (`mcp__<server>`) covers that server's tools, as in Claude Code.
+    if rule.startswith("mcp__") and "__" not in rule[len("mcp__"):] and tool.startswith(rule + "__"):
+        return True
     return rule.endswith("*") and tool.startswith(rule[:-1])
 
 
@@ -226,11 +229,8 @@ def _permission_shape(intent: str, host_permission: str | None, server_name: str
         return "dontAsk", review + communication + skills, skills
     if intent == "bounded-development":
         return "dontAsk", development + communication + skills, ("Edit", "Write", "Bash") + skills
-    if host_permission == "plan":
-        return "plan", review + communication, ()
-    if host_permission == "dontAsk":
-        return "dontAsk", development + communication, ("Edit", "Write", "Bash")
-    raise ClaudeAdapterError("host-native-permission-unsupported")
+    # delegation-continue-parity D174: host-native (and its plan/dontAsk shapes) went with delegation-cross-host D159.
+    raise ClaudeAdapterError("permission-intent-unsupported")
 
 
 def inspect_project_permissions(

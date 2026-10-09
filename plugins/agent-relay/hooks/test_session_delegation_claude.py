@@ -214,6 +214,26 @@ class InstallationAndPermissionTests(unittest.TestCase):
                                         "--scope", "docs"])
         self.assertEqual(json.loads(scoped[index + 1]).keys(), {"hooks"})
 
+    def test_a_server_level_allow_rule_covers_that_servers_tools_only(self):
+        # delegation-continue-parity D174: Claude Code honours `mcp__<server>`; pre-flight must agree.
+        from session_delegation_claude import _matches_rule
+        self.assertTrue(_matches_rule("mcp__agent-relay", "mcp__agent-relay__bridge_send"))
+        self.assertTrue(_matches_rule("mcp__agent-relay__*", "mcp__agent-relay__bridge_send"))
+        self.assertFalse(_matches_rule("mcp__agent-relay", "mcp__agent-relay-other__bridge_send"))
+        self.assertFalse(_matches_rule("mcp__agent", "mcp__agent-relay__bridge_send"))
+        self.assertFalse(_matches_rule("Read", "mcp__agent-relay__bridge_send"))
+        self.write_permissions(["mcp__agent-relay"])
+        readiness = inspect_project_permissions(self.project, "safe-review", None, server_name="agent-relay")
+        self.assertTrue(readiness.ready, readiness)
+
+    def test_only_the_two_cross_host_intents_have_a_launch_shape(self):
+        # delegation-continue-parity D174: the host-native branches are gone with host-native (0.6.0).
+        from session_delegation_claude import _permission_shape
+        for intent, host_permission in (("host-native", "plan"), ("host-native", "dontAsk"), ("other", None)):
+            with self.subTest(intent=intent, host_permission=host_permission):
+                with self.assertRaisesRegex(ClaudeAdapterError, "permission-intent-unsupported"):
+                    _permission_shape(intent, host_permission, "agent-relay")
+
     def test_resume_repeats_every_launch_limit_of_create(self):
         # delegation-continue-parity D171: the same limits, built by one function, for every launch shape.
         installation = ClaudeInstallation(Path("/opt/claude"), "2.1.295")
