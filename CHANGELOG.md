@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-10
+
+接口仍为 **2.0**（`interface.json` 不变，Spec Guard 0.56.0 或更新），信箱 schema 仍为 5，**委派库升到 schema 3**。这一版修复
+第二轮联调对 0.6.0 的事后审查发现的问题，最要紧的是：已停止的 Claude Code 委派会话续聊时会丢掉创建时的全部限制。
+`presence-polish` 和 `install-docs-accuracy` 改了 bridge，要升级运行时才生效；其余在插件的 hooks 和文档里，更新插件即生效。
+
 - **说明与实际一致**（模块 `install-docs-accuracy`，D178–D180，第二轮联调事后审查第 3、4 条和 5c、5d）：
   - `install-codex`（含 `--approve-mailbox-tools`）的输出列出写进 `~/.codex/config.toml` 的每一张审批表
     （`[mcp_servers.agent_relay.tools.<工具>] approval_mode = "approve"`），补的时候只列补上的；行为不变。
@@ -38,6 +44,42 @@
   - **范围钩子**：Glob 同时检查 `path` 和 `pattern` 实际指向的位置（`../x`、绝对路径）；生成的设置写入
     `"disableAllHooks": false`。实测项目设置 `disableAllHooks: true` 会让钩子失效，命令行设置能盖过它。
   - 删去 host-native 留下的 `plan`/`dontAsk` 分支；未知意图报 `permission-intent-unsupported`。
+
+以上来自三个模块的 PR：`delegation-continue-parity`（#64）、`presence-polish`（#66）、`install-docs-accuracy`（#68），
+spec 与计划见 #63、#65、#67，收尾 #69；三个模块 PR 都经第二轮联调审查。
+
+### 从 0.6.0 升级
+
+1. 两个宿主都更新插件：
+   - Claude Code（从 GitHub 装的）：先 `claude plugin marketplace update agent-relay-marketplace`，再
+     `claude plugin update agent-relay@agent-relay-marketplace`。
+   - Codex：把 `~/.codex/config.toml` 里 `[marketplaces.agent-relay-marketplace]` 的 `ref` 改成 `"v0.6.1"`（自己改，改前留一份
+     副本），再 `codex plugin marketplace upgrade`，最后 `codex plugin add agent-relay@agent-relay-marketplace`。
+   - 从本地克隆装的：**先把克隆更新到 v0.6.1**（`git -C <克隆> pull --ff-only`），Claude 无需其他操作，Codex 再执行一次
+     `codex plugin add`。克隆没更新时，下一步的 `upgrade` 会拿旧版 bridge 比较，报 `current` 而什么也不做。
+2. **升级运行时**：关闭所有使用信箱的会话（所有 Claude Code 会话和 ChatGPT 应用），或按 README“升级运行时”只结束 bridge；
+   在 macOS 自带的“终端”里确认 `pgrep -fl "agent-relay/runtime/dist/server.js"` 没有输出，再执行
+   `python3 -B <插件目录>/hooks/native_collaboration_runtime.py upgrade --confirm`（插件目录见 README“找到插件目录”）。
+   输出应为 `"state": "upgraded"`；半路被打断时按 `status` 的提示执行 `recover --confirm`。宿主接入不用重做。
+3. `doctor`：`runtime`、`probe`（10 个工具）、`host-entries` 为 ok。
+4. 委派库在第一次使用 0.6.1 的委派命令时**自动从 schema 2 升到 3**，升级前在 `~/.agent-relay/delegation/` 留一份
+   `delegation.schema2.sqlite`。不需要手动操作。
+
+### 想退回 0.6.0
+
+关掉所有会话后 `rollback --confirm` 退回运行时，并把两个宿主的插件也退回 v0.6.0。**委派库也要退回**：0.6.0 不认 schema 3，
+要用升级时留下的 `~/.agent-relay/delegation/delegation.schema2.sqlite` 替换 `delegation.sqlite`（替换前把当前文件另存一份；
+此后在 0.6.1 里新建或推进的委派记录不会保留）。信箱 schema 没变，不需要处理。
+
+### 已知问题
+
+- 0.6.1 之前创建的只读审查委派没有记录范围，续聊会报 `scope-unknown`，需要重新创建；开发类委派照常续聊。
+- Codex 侧的审查范围仍是软限制（每一轮都重复范围说明，但不能硬性拦截）。
+- 以下待真实宿主验收时核对：从 Codex 委派给 Claude Code 的审查续聊后仍保留权限与范围；Claude Code 自己是否已在会话等待授权
+  时通知（A2）；auto 模式的 Claude 被唤醒；Codex 第一次创建能否成功（B1）；转义多的长消息分段是否超过宿主输出上限；
+  文档里的 `printf … | python3` 能否命中现有放行规则；`--user-environment` 下 `Skill` 是否需要放行规则。
+- Codex 等待授权时在会话目录里仍显示为运行中。
+- 0.6.0 及更早版本列出的已知问题仍然存在，见下方各版本的“已知问题”。
 
 ## [0.6.0] - 2026-10-09
 
