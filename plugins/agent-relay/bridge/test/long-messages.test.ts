@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
+import { BridgeStore } from "../src/bridge-store.js";
 import { session } from "./support/session.js";
 
 /** About 160 000 UTF-8 bytes of Chinese text with numbered lines, so order and completeness can be checked. */
@@ -116,6 +117,34 @@ test("a long body is read whole, in order and in parts, by its recipient only (D
     const waited = (await a.call("bridge_wait", { agent: "bob", timeoutSeconds: 1, acknowledge: false })).json();
     assert.equal(waited.messages[0].bodyTruncated, true);
     assert.match(waited.continue[0], new RegExp(`bridge_inbox \\{agent: "bob", messageId: ${id}, bodyOffset: \\d+\\}`));
+  } finally {
+    await a.close();
+  }
+});
+
+test("an offset past the body is an error; an expired message read by id says it expired (D177)", async () => {
+  // agent-relay presence-polish D177 (review 5e).
+  const dir = mkdtempSync(join(tmpdir(), "agent-relay-offset-"));
+  const a = await session(dir, "claude-offset");
+  try {
+    for (const agent of ["alice", "bob"]) await a.call("bridge_register", { agent });
+    const id = (await a.call("bridge_send", { from: "alice", to: "bob", body: "short body" })).json().id;
+    const end = await a.call("bridge_inbox", { agent: "bob", messageId: id, bodyOffset: 10 });
+    assert.ok(end.ok, end.text);
+    assert.equal(end.json().message.body, "", "the offset equal to the length reads the empty rest");
+    const past = await a.call("bridge_inbox", { agent: "bob", messageId: id, bodyOffset: 11 });
+    assert.equal(past.ok, false);
+    assert.match(past.text, /bodyOffset 11 is past the end of message #\d+ \(10 characters\)/);
+
+    const stale = (await a.call("bridge_send", { from: "alice", to: "bob", body: "too late" })).json().id;
+    const store = new BridgeStore(join(dir, "bridge.sqlite"));
+    store.database.prepare("UPDATE messages SET expires_at = ? WHERE id = ?").run(Date.now() - 1, stale);
+    store.inbox("bob");  // expiry is applied on read
+    store.close();
+    const expired = await a.call("bridge_inbox", { agent: "bob", messageId: stale });
+    assert.ok(expired.ok, expired.text);
+    assert.equal(expired.json().message.body, "too late", "an explicit id is a history read");
+    assert.equal(expired.json().message.deliveryState, "expired");
   } finally {
     await a.close();
   }

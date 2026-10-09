@@ -1,6 +1,6 @@
 // agent-relay codex-gated-wake D67: tell the user on this Mac when a Codex message cannot be delivered, once per message.
 import { execFile } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
 
 /** A Codex recipient that is merely busy is notified only after this long (the user's choice, 2026-10-08). */
@@ -94,6 +94,32 @@ export function findNotifier(candidates: readonly string[] = NOTIFIER_CANDIDATES
 export interface NoticeChannel {
   candidates?: readonly string[];
   osascript?: string;
+}
+
+/**
+ * agent-relay presence-polish D175: when a waiting episode carries no start time of its own, the first bridge to see it
+ * records one next to the notice marks, so every bridge on the mailbox keys the episode alike; seeing the session not
+ * waiting ends the episode. Returns the episode start while waiting, null otherwise or when it cannot be kept.
+ */
+export function waitingEpisode(mailboxPath: string, sessionId: string, waiting: boolean,
+  now: () => number = Date.now): string | null {
+  if (!isAbsolute(mailboxPath)) return null;
+  const marks = join(dirname(mailboxPath), "notified");
+  const file = join(marks, `episode-${sessionId.replace(/[^A-Za-z0-9._-]/g, "_")}`);
+  try {
+    if (!waiting) {
+      rmSync(file, { force: true });
+      return null;
+    }
+    mkdirSync(marks, { recursive: true, mode: 0o700 });
+    try {
+      writeFileSync(file, String(now()), { flag: "wx", mode: 0o600 });
+    } catch { /* another bridge (or an earlier check) started this episode */ }
+    const start = readFileSync(file, "utf8").trim();
+    return /^\d+$/.test(start) ? start : null;
+  } catch {
+    return null;
+  }
 }
 
 /** The notice key as a file and group name: only `[A-Za-z0-9._-]`. */

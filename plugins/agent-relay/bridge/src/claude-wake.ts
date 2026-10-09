@@ -37,9 +37,20 @@ async function liveOwner(s: ClaudeSession): Promise<boolean> {
 }
 
 export async function claudeSessions(root = sessionRoot()): Promise<ClaudeSession[]> {
-  if (process.platform !== "darwin") return [];
+  return (await claudeSessionsOrNull(root)) ?? [];
+}
+
+/**
+ * agent-relay presence-polish D176: the live sessions, or null when the registry cannot be read here (off macOS, or a
+ * directory this process may not list); an absent directory holds no session. Presence uses this so "cannot read"
+ * shows as unknown; wake and liveness keep claudeSessions.
+ */
+export async function claudeSessionsOrNull(root = sessionRoot()): Promise<ClaudeSession[] | null> {
+  if (process.platform !== "darwin") return null;
   let files: string[];
-  try { files = await readdir(root); } catch { return []; }
+  try { files = await readdir(root); } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "ENOENT" ? [] : null;
+  }
   const sessions: ClaudeSession[] = [];
   for (const file of files.filter(name => /^\d+\.json$/.test(name))) {
     try {

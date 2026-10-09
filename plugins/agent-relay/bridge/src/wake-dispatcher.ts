@@ -1,8 +1,8 @@
 import type { BridgeStore } from "./bridge-store.js";
 import { channelNotification, type ChannelNotification } from "./claude-channel.js";
-import { ClaudeWake, claudeSessions } from "./claude-wake.js";
+import { ClaudeWake, claudeSessionsOrNull } from "./claude-wake.js";
 import { wakeCodex } from "./codex-wake.js";
-import { BUSY_NOTIFY_AFTER_MS, NOTIFIED_TEXT, notifyUndelivered } from "./notify.js";
+import { BUSY_NOTIFY_AFTER_MS, NOTIFIED_TEXT, notifyUndelivered, waitingEpisode } from "./notify.js";
 import { claudePresence, type Presence } from "./presence.js";
 import type { WakeJob, WakeResult } from "./wake-queue.js";
 
@@ -112,15 +112,20 @@ export class WakeDispatcher {
     const waiting = this.store.claudeWaiting();
     if (waiting.length === 0) return;
     const presenceOf = this.presenceOf ?? await (async () => {
-      const sessions = process.platform === "darwin" ? await claudeSessions() : null;
+      const sessions = await claudeSessionsOrNull();
       return async (sessionId: string) => claudePresence(sessionId, sessions);
     })();
     for (const entry of waiting) {
       const presence = await presenceOf(entry.sessionId);
-      if (presence.state !== "waiting-approval") continue;
+      const waiting = presence.state === "waiting-approval";
+      // presence-polish D175: without Claude Code's own status time, the episode is keyed by when a bridge first saw it
+      // and by the waiting message (nothing ends that episode once the message is handled and the session leaves this
+      // list, so a later message must not be hidden behind it).
+      const episode = presence.since ?? waitingEpisode(this.store.dbPath, entry.sessionId, waiting);
+      if (!waiting || episode === null) continue;
       notifyUndelivered(this.store.dbPath, { kind: "approval", messageId: entry.messageId, fromAgent: entry.fromAgent,
         agent: entry.agent, why: "waiting for your approval in its Claude session",
-        key: `approval-${entry.sessionId}-${presence.since ?? "unknown"}` }, this.env);
+        key: `approval-${entry.sessionId}-${presence.since ?? `${episode}-${entry.messageId}`}` }, this.env);
     }
   }
 

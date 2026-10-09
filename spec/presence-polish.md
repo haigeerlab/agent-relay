@@ -24,8 +24,11 @@ Readers: the user; the round-2 coordinator.
 
 ## Assumptions (accepted by the user 2026-10-09)
 
-1. **5a.** Without `since`, the de-duplication key uses the time the bridge first saw this waiting episode (kept in
-   memory per session; cleared when the session is seen not waiting), so each new episode notifies once.
+1. **5a.** Without `since`, the de-duplication key uses the time a bridge first saw this waiting episode, so each new
+   episode notifies once. *Changed while building (2026-10-10):* several bridges run on one mailbox, so the start is
+   kept next to the notice marks (`notified/episode-<session>`, written exclusively, removed when the session is seen
+   not waiting) instead of in each bridge's memory, which would notify once per bridge; and because a session leaves
+   the waiting list once its message is handled (nothing ends the episode then), that key also carries the message id.
 2. **5b.** The approval check looks only at agents with a Claude wake binding (`wake_targets`), the sessions the bridge
    already watches for wake. An unreadable registry directory gives `unknown` (no notice, `bridge_agents` says
    `unknown`), a readable one without the session still gives `stopped`.

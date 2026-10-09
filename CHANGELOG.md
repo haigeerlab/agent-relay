@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+- **在线状态与审批提醒的小修**（模块 `presence-polish`，D175–D177，第二轮联调事后审查 5a、5b、5e、5k）：bridge 改动，
+  升级运行时后生效。
+  - Claude Code 没给状态时间时，以前第一次审批提醒之后同一会话再也不会提醒；现在每次进入等待都会提醒一次。起始时间
+    记在信箱旁的 `notified/` 下，同一信箱上的多个 bridge 共用，不会重复提醒。
+  - 审批检查只看绑定了唤醒的 Claude 会话；会话登记目录读不到时显示“未知”，不再显示“已停止”。
+  - `bridge_agents` 不再查询已退役身份的在线状态（列表里照常有 `retiredAt`，没有 `presence`），ChatGPT 卡住时列表
+    不会被拖慢。
+  - `bridge_inbox` 的 `bodyOffset` 超过正文长度时报错并写明长度；按 id 读已过期的消息仍然可以，返回里标明
+    `deliveryState: "expired"`。
 - **续聊保留创建时的全部限制**（模块 `delegation-continue-parity`，D171–D174，第二轮联调对 0.6.0 的事后审查）：
   已停止的 Claude Code 委派会话续聊时，以前只执行 `claude --background --resume <会话> <正文>`。实测 `--resume` 只保留
   对话、不保留参数：续聊那一轮会丢掉 `dontAsk`、工具白名单、`--strict-mcp-config` 和审查范围钩子，拿到 Bash、
