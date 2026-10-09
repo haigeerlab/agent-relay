@@ -6,7 +6,7 @@ mailbox delivery is communication evidence, never delegation authority.
 """
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from dataclasses import dataclass
 import fcntl
 import hashlib
@@ -27,7 +27,10 @@ RESULT_KEY_PREFIX = "agent-relay-result:"
 
 
 DATABASE_FILENAME = "delegation.sqlite"
-SCHEMA_VERSION = 2
+# delegation-continue-parity D172: schema 3 adds the launch scope and the reason of the last state change.
+SCHEMA_VERSION = 3
+# The schema-2 database as it was before its first migration; restoring it is how 0.6.0 can be used again.
+SCHEMA_TWO_COPY = "delegation.schema2.sqlite"
 HORIZONS = frozenset(("task", "strict", "batch", "session"))
 HOSTS = frozenset(("claude", "codex"))
 # delegation-cross-host D159: host-native never produced a session (both adapters refused it) and is no longer accepted.
@@ -99,9 +102,18 @@ _SCHEMA_STATEMENTS = (
     actual_permission TEXT,
     last_turn_ref TEXT,
     created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
+    updated_at INTEGER NOT NULL,
+    scope TEXT,
+    state_reason TEXT
 )""",
 )
+_SCHEMA_THREE_COLUMNS = ("scope", "state_reason")
+
+
+def _add_schema_three_columns(connection: sqlite3.Connection) -> None:
+    """The 2 -> 3 migration: additive, nullable columns (NULL scope = recorded before schema 3, unknown)."""
+    for column in _SCHEMA_THREE_COLUMNS:
+        connection.execute("ALTER TABLE delegations ADD COLUMN %s TEXT" % column)
 
 
 class DelegationError(ValueError):
@@ -174,6 +186,9 @@ class DelegationClaim:
     host_version: str | None
     actual_permission: str | None
     last_turn_ref: str | None
+    # delegation-continue-parity D172: None = recorded before schema 3 (unknown); () = no scope.
+    scope: tuple[str, ...] | None = None
+    state_reason: str | None = None
 
 
 def _has_control_characters(value: str) -> bool:
@@ -356,7 +371,20 @@ def _delegation_row_is_valid(row: sqlite3.Row) -> bool:
              or all(value is not None for value in binding))
         and isinstance(row["created_at"], int)
         and isinstance(row["updated_at"], int)
+        and (row["scope"] is None or _stored_scope(row["scope"]) is not None)
+        and (row["state_reason"] is None or _valid_text(row["state_reason"], maximum=64))
     )
+
+
+def _stored_scope(raw: str) -> tuple[str, ...] | None:
+    """A stored scope: a JSON list of project-relative paths; None when it is not one."""
+    try:
+        value = json.loads(raw) if isinstance(raw, str) else None
+    except ValueError:
+        return None
+    if not isinstance(value, list) or any(not _valid_text(item, maximum=512) for item in value):
+        return None
+    return tuple(value)
 
 
 class DelegationStore:
@@ -422,6 +450,7 @@ class DelegationStore:
             # D128: every opener, not only the file's creator, completes an empty database; a process that saw the
             # creator's empty file used to fail, and a creator that died before its tables left it unusable.
             self._initialize_if_empty()
+            self._migrate_if_needed()
             self._validate_schema()
         except DelegationError:
             raise
@@ -483,7 +512,39 @@ class DelegationStore:
                 # Statement by statement: executescript() would COMMIT first and drop the write lock.
                 for statement in _SCHEMA_STATEMENTS:
                     connection.execute(statement)
-                connection.execute("PRAGMA user_version = 2")
+                connection.execute("PRAGMA user_version = %d" % SCHEMA_VERSION)
+                connection.execute("COMMIT")
+            except sqlite3.Error:
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
+                raise
+
+    def _migrate_if_needed(self) -> None:
+        """delegation-continue-parity D172: schema 2 -> 3 in place, under the write lock, after keeping a copy.
+
+        The copy is made once, before the first change, with SQLite's backup API (a consistent snapshot). The columns
+        and the version move in one transaction, so a migration that stops midway leaves schema 2 and simply runs again.
+        """
+        with self._connection() as connection:
+            if connection.execute("PRAGMA user_version").fetchone()[0] != 2:
+                return
+            copy = self.root / SCHEMA_TWO_COPY
+            if not (copy.exists() or copy.is_symlink()):
+                flags = os.O_CREAT | os.O_EXCL | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+                try:
+                    os.close(os.open(copy, flags, 0o600))
+                except FileExistsError:
+                    pass  # another process is keeping it
+                else:
+                    with closing(sqlite3.connect(str(copy))) as target:
+                        connection.backup(target)
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                if connection.execute("PRAGMA user_version").fetchone()[0] != 2:
+                    connection.execute("ROLLBACK")
+                    return
+                _add_schema_three_columns(connection)
+                connection.execute("PRAGMA user_version = 3")
                 connection.execute("COMMIT")
             except sqlite3.Error:
                 if connection.in_transaction:
@@ -503,6 +564,9 @@ class DelegationStore:
                     )
                 }
                 if version != SCHEMA_VERSION or not _EXPECTED_TABLES.issubset(tables):
+                    raise DelegationError("delegation database schema is incomplete")
+                columns = {row[1] for row in connection.execute("PRAGMA table_info(delegations)")}
+                if not set(_SCHEMA_THREE_COLUMNS).issubset(columns):
                     raise DelegationError("delegation database schema is incomplete")
                 if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
                     raise DelegationError("delegation database contents are invalid")
@@ -553,6 +617,8 @@ class DelegationStore:
             host_version=row["host_version"],
             actual_permission=row["actual_permission"],
             last_turn_ref=row["last_turn_ref"],
+            scope=None if row["scope"] is None else _stored_scope(row["scope"]),
+            state_reason=row["state_reason"],
         )
 
     def authorize(self, request: AuthorizationRequest) -> AuthorizationEnvelope:
@@ -638,9 +704,13 @@ class DelegationStore:
         self, envelope_id: str, launch_key: str, target_host: str,
         project_root: Path, baseline: str, permission_intent: str, *,
         confirmed: bool = False, friendly_name: str | None = None,
+        scope: tuple[str, ...] = (),
     ) -> DelegationClaim:
         if not isinstance(launch_key, str) or not _KEY.fullmatch(launch_key):
             raise DelegationError("launch-key")
+        stored_scope = json.dumps(list(scope))
+        if _stored_scope(stored_scope) is None:
+            raise DelegationError("scope")
         project = _canonical_project(project_root)
         selected_name = friendly_name or (
             "Claude Code session" if target_host == "claude" else "Codex session")
@@ -673,6 +743,12 @@ class DelegationStore:
                             or existing["permission_intent"] != permission_intent
                             or existing["friendly_name"] != selected_name):
                         raise DelegationError("launch-idempotency-conflict")
+                    # delegation-hygiene assumption 4: a held create retried by the user uses the scope of the retry.
+                    if existing["state"] == "creating" and existing["scope"] != stored_scope:
+                        connection.execute("UPDATE delegations SET scope = ? WHERE delegation_id = ?",
+                                           (stored_scope, existing["delegation_id"]))
+                        existing = connection.execute("SELECT * FROM delegations WHERE delegation_id = ?",
+                                                      (existing["delegation_id"],)).fetchone()
                     connection.execute("COMMIT")
                     return self._claim(existing)
                 count = connection.execute(
@@ -685,10 +761,10 @@ class DelegationStore:
                 connection.execute(
                     """INSERT INTO delegations (
                         delegation_id, envelope_id, launch_key, target_host, permission_intent,
-                        friendly_name, state, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, 'creating', ?, ?)""",
+                        friendly_name, state, created_at, updated_at, scope
+                    ) VALUES (?, ?, ?, ?, ?, ?, 'creating', ?, ?, ?)""",
                     (delegation_id, envelope_id, launch_key, target_host,
-                     permission_intent, selected_name, current, current),
+                     permission_intent, selected_name, current, current, stored_scope),
                 )
                 row = connection.execute(
                     "SELECT * FROM delegations WHERE delegation_id = ?", (delegation_id,)
@@ -756,7 +832,7 @@ class DelegationStore:
                 connection.execute(
                     """UPDATE delegations SET host_ref = ?, host_session_ref = ?,
                        host_version = ?, actual_permission = ?, state = 'created',
-                       updated_at = ? WHERE delegation_id = ?""",
+                       state_reason = 'host-created', updated_at = ? WHERE delegation_id = ?""",
                     (*values, int(self._now()), delegation_id),
                 )
                 updated = connection.execute(
@@ -787,7 +863,8 @@ class DelegationStore:
                     raise DelegationError("invalid-state-transition")
                 connection.execute(
                     "UPDATE delegations SET host_ref = COALESCE(host_ref, ?), "
-                    "state = 'unknown', updated_at = ? WHERE delegation_id = ?",
+                    "state = 'unknown', state_reason = 'host-result-unknown', updated_at = ? "
+                    "WHERE delegation_id = ?",
                     (host_ref, int(self._now()), delegation_id),
                 )
                 updated = connection.execute(
@@ -848,7 +925,7 @@ class DelegationStore:
                     raise DelegationError("invalid-state-transition")
                 connection.execute(
                     "UPDATE delegations SET state = 'running', last_turn_ref = ?, "
-                    "updated_at = ? WHERE delegation_id = ?",
+                    "state_reason = 'follow-up-started', updated_at = ? WHERE delegation_id = ?",
                     (turn_ref, int(self._now()), delegation_id),
                 )
                 updated = connection.execute(
@@ -885,7 +962,8 @@ class DelegationStore:
                 if (row["state"] not in ("creating", "unknown")
                         or row["updated_at"] > int(self._now()) - self.STALE_AFTER_SECONDS):
                     raise DelegationError("delegation-not-stale")
-                connection.execute("UPDATE delegations SET state = 'cancelled', updated_at = ? WHERE delegation_id = ?",
+                connection.execute("UPDATE delegations SET state = 'cancelled', state_reason = 'pruned-stale', "
+                                   "updated_at = ? WHERE delegation_id = ?",
                                    (int(self._now()), delegation_id))
                 updated = connection.execute(
                     "SELECT * FROM delegations WHERE delegation_id = ?", (delegation_id,)).fetchone()
@@ -920,8 +998,8 @@ class DelegationStore:
                 if new_state in ("running", "completed") and row["last_turn_ref"] is None:
                     raise DelegationError("turn-binding-required")
                 connection.execute(
-                    "UPDATE delegations SET state = ?, updated_at = ? WHERE delegation_id = ?",
-                    (new_state, int(self._now()), delegation_id),
+                    "UPDATE delegations SET state = ?, state_reason = ?, updated_at = ? WHERE delegation_id = ?",
+                    (new_state, evidence, int(self._now()), delegation_id),
                 )
                 updated = connection.execute(
                     "SELECT * FROM delegations WHERE delegation_id = ?", (delegation_id,)

@@ -77,7 +77,7 @@ class Fixture(unittest.TestCase):
             for index, (state, host_session) in enumerate(rows):
                 connection.execute(
                     "INSERT INTO delegations VALUES (?, ?, ?, 'codex', 'safe-review', 'name', ?, NULL, ?, NULL, "
-                    "NULL, NULL, 1, 1)",
+                    "NULL, NULL, 1, 1, NULL, NULL)",
                     (f"{index:02d}f0de1b-0d71-4068-b6f5-f17af11bd8ce", ENVELOPE, f"launch-{index:08d}", state,
                      host_session))
 

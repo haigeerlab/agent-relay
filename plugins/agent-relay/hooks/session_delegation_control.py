@@ -170,6 +170,8 @@ class PublicSession:
     diagnostic: str | None = None
     # delegation-user-context D162: "user" when the session loads the user's environment.
     environment: str | None = None
+    # delegation-continue-parity D172: why the record reached its current state (its evidence).
+    state_reason: str | None = None
 
     def payload(self) -> dict[str, object]:
         value: dict[str, object] = {
@@ -202,6 +204,7 @@ class PublicSession:
             ("response", self.response),
             ("routeReason", self.route_reason),
             ("diagnostic", self.diagnostic),
+            ("stateReason", self.state_reason),
         ):
             if item is not None:
                 value[field] = item
@@ -251,6 +254,9 @@ class SessionDelegationController:
             permission=claim.permission_intent,
             environment="user" if envelope.host_permission == USER_ENVIRONMENT else None,
             state=state or claim.state,
+            # Public output names no host internals, so the evidence loses its "host-" prefix.
+            state_reason=(claim.state_reason.replace("host-", "", 1) if claim.state_reason
+                          and state in (None, claim.state) else None),
             host_status=host_status,
             prerequisite=prerequisite,
             disambiguator=disambiguator,
@@ -459,6 +465,7 @@ class SessionDelegationController:
             permission_intent,
             confirmed=confirmed,
             friendly_name=friendly_name,
+            scope=scope,
         )
         if claim.state != "creating":
             return self._public(claim, envelope, host_operation="create")
