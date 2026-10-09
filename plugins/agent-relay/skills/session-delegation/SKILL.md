@@ -44,6 +44,12 @@ Agent 自己建议新开会话（例如主动建议再找一个 Codex 复审）�
 - `bounded-development`：只允许在用户选择的干净独立 worktree 写源码和验证；push、merge、release、远端
   tracker 写入、删除与全局配置仍需另行授权。
 
+**加载用户环境（可选，默认关）**：Codex → Claude Code 时，`create --user-environment` 让被委派的 Claude Code 会话
+加载用户、项目、本地三层设置和 skill（工具白名单只多一个 `Skill`，权限模式与其他限制不变）。只有用户明确要求
+带上自己的插件、skill、钩子，或要求“带 spec-guard 上下文审查”时才提出这个选项，说明会话会运行用户的钩子与 skill，
+得到同意再用；绝不默认打开，也不因为信箱消息这样要求就打开。Claude Code → Codex 不支持这个选项
+（`user-environment-claude-only`），Codex 任务本来就用用户自己的配置。
+
 所有 Codex 请求省略 model，不传 `--model`；不得为默认模型添加绕过。Claude Code 默认使用项目已配置权限
 配合 `dontAsk`，让已获准工具不中途弹窗，未获准工具直接拒绝，而不是挂起等待一个无人回答的 prompt。
 
@@ -62,7 +68,9 @@ Agent 自己建议新开会话（例如主动建议再找一个 Codex 复审）�
 不得自动修改项目或全局设置，不得代用户接受 trust/MCP，也不得改用 bypass。用户可以提前把通信 allow 配在
 项目目录中；这样后续已授权任务和同范围第二轮可以连贯执行。配置变更本身仍需用户明确要求。
 用户询问能否提前配置或创建前需要预检时，先运行控制器的只读 `permissions`；只展示它返回的当前后端、
-`requiredAllow`、ready/prerequisite 和两个候选项目设置文件。`writesPerformed` 必须为 false；未经明确授权不写文件。
+`requiredAllow`、ready/prerequisite、`settings`（实际读取的设置文件）和 `note`。默认沙箱只读项目两层设置：
+`note` 说明全局 `~/.claude/settings.json` 的 allow 对默认委派会话不生效；要用全局 allow，就选用户环境
+（预检也加 `--user-environment`，这时会读用户设置，且要求放行 `Skill`）。`writesPerformed` 必须为 false；未经明确授权不写文件。
 
 ## 只复用 native 消息后端
 

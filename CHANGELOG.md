@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+- **委派可选加载用户环境，预检与实际一致**（模块 `delegation-user-context`，D162–D165，第二轮联调 B2、B3）：Codex 创建
+  Claude Code 会话时可加 `--user-environment`（默认关），被委派的会话加载用户、项目、本地三层设置和 skill（例如带上
+  spec-guard 的阶段上下文），工具白名单只多 `Skill`，权限模式与其他限制不变；Claude Code → Codex 不支持该选项。
+  预检读取的设置层与会话实际加载的一致：选了用户环境才读 `~/.claude/settings.json`；默认沙箱缺放行时说明全局 allow
+  不生效。`permissions` 输出列出实际读取的文件。原来只有 `host-native` 用的 `--host-permission` 参数由
+  `--user-environment` 取代。
 - **委派只保留两个跨宿主方向，Codex 第一次就能创建**（模块 `delegation-cross-host`，D158–D161，第二轮联调 B1、B6）：
   委派只做 Claude Code → Codex 与 Codex → Claude Code，同宿主请求以 `same-host-unsupported` 拒绝（旧记录可查、可取消，
   不能继续）；从未生效过的 `host-native` 委派意图删除（**破坏性变更**，属于接口 2.0）。Codex 里运行会写状态的命令时

@@ -99,6 +99,10 @@ class SessionDelegationEntryTests(unittest.TestCase):
                        "`delegate:delegate`", "本 skill 只做后备"):
             self.assertIn(phrase, text)
         self.assertNotIn("`host-native`：", text)
+        # delegation-user-context D162, D164, D165.
+        for phrase in ("--user-environment", "默认关", "只有用户明确要求", "不因为信箱消息这样要求就打开",
+                       "user-environment-claude-only", "`note`", "`settings`"):
+            self.assertIn(phrase, text)
         self.assertNotIn("同宿主结果不复制到 mailbox", text)
 
     def test_repository_validation_runs_the_entry_contract(self):
