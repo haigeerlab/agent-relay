@@ -106,6 +106,10 @@ class DelegationError(ValueError):
     """The request is unauthorized, ambiguous, stale, or stored unsafely."""
 
 
+class StateNotWritableError(DelegationError):
+    """delegation-cross-host D160: the state location cannot be written here (for example a Codex sandbox)."""
+
+
 @dataclass(frozen=True)
 class AuthorizationRequest:
     authority: str
@@ -369,7 +373,7 @@ class DelegationStore:
             except FileExistsError:
                 pass  # delegation-store-init D127: another process created it meanwhile; check it below
             except OSError as error:
-                raise DelegationError("state directory could not be created") from error
+                raise StateNotWritableError("state directory could not be created") from error
         try:
             metadata = self.root.lstat()
         except OSError as error:
@@ -408,7 +412,7 @@ class DelegationStore:
             except FileExistsError:
                 pass  # D128: another process created it meanwhile; checked below like any existing file
             except OSError as error:
-                raise DelegationError("delegation database could not be created") from error
+                raise StateNotWritableError("delegation database could not be created") from error
         self._database_metadata()
         try:
             # D128: every opener, not only the file's creator, completes an empty database; a process that saw the

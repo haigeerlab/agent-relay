@@ -11,10 +11,12 @@ import os
 from pathlib import Path
 import re
 import shutil
+import sqlite3
 import sys
 from typing import Callable, Protocol
 
 from session_delegation import (
+    StateNotWritableError,
     AuthorizationEnvelope,
     AuthorizationRequest,
     DelegationClaim,
@@ -773,6 +775,21 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+# delegation-cross-host D160: what a session should do when the delegation state cannot be written here.
+STATE_NOT_WRITABLE_DETAIL = (
+    "The delegation state cannot be written from here, so nothing was created or changed. In a Codex sandbox, run "
+    "this command again with the sandbox escalation (write access outside the workspace) and let the user approve it "
+    "once.")
+
+
+def _state_not_writable(error: Exception) -> bool:
+    if isinstance(error, StateNotWritableError):
+        return True
+    text = str(error).lower()
+    return isinstance(error, sqlite3.OperationalError) and (
+        "readonly" in text or "read-only" in text or "unable to open database" in text)
+
+
 def _read_prompt() -> str:
     prompt = sys.stdin.read(20_001)
     if len(prompt) > 20_000 or not prompt.strip():
@@ -856,6 +873,12 @@ def main(argv: list[str] | None = None) -> int:
                     args.name, disambiguator=args.disambiguator).payload()
         print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
         return 0
+    except (StateNotWritableError, sqlite3.OperationalError) as error:
+        if not _state_not_writable(error):
+            raise
+        print(json.dumps({"state": "error", "reason": "state-not-writable", "detail": STATE_NOT_WRITABLE_DETAIL},
+                         ensure_ascii=False, sort_keys=True))
+        return 1
     except (ControlError, DelegationError, ValueError) as error:
         reason = error.reason if isinstance(error, ControlError) else str(error)
         payload = {"state": "error", "reason": reason}
