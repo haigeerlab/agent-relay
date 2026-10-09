@@ -136,6 +136,63 @@ class InstallationAndPermissionTests(unittest.TestCase):
         self.assertNotIn("Edit", tools)
         self.assertEqual(command[-2:], ("--", "Review the diff"))
 
+    def test_the_user_environment_changes_only_sources_skills_and_the_skill_tool(self):
+        # delegation-user-context D163: the default launch is unchanged; the option loads the user layer and skills.
+        installation = ClaudeInstallation(Path("/opt/claude"), "2.1.295")
+        args = (installation, Path("/private/tmp/session.mcp.json"), "agent-relay-12345678", "Review", "safe-review",
+                "dontAsk")
+        default = build_create_command(*args)
+        tools = ",".join(("Read", "Grep", "Glob", *communication_rules("agent-relay")))
+        self.assertEqual(default, (
+            "/opt/claude", "--background", "--name", "agent-relay-12345678",
+            "--mcp-config", "/private/tmp/session.mcp.json", "--strict-mcp-config",
+            "--setting-sources", "project,local", "--permission-mode", "dontAsk",
+            "--permission-prompts", "none", "--disable-slash-commands", "--no-chrome",
+            "--tools", tools, "--", "Review"))
+        user = build_create_command(*args, "user-environment")
+        expected = list(default)
+        expected[expected.index("project,local")] = "user,project,local"
+        expected.remove("--disable-slash-commands")
+        expected[expected.index(tools)] = tools + ",Skill"
+        self.assertEqual(user, tuple(expected))
+        development = build_create_command(installation, Path("/private/tmp/s.json"), "n", "Implement",
+                                           "bounded-development", "dontAsk", "user-environment")
+        self.assertIn("Skill", development[development.index("--tools") + 1].split(","))
+        self.assertIn("Edit", development[development.index("--tools") + 1].split(","))
+
+    def test_the_preflight_reads_what_the_session_will_load(self):
+        # delegation-user-context D164: the user layer counts only with the option; its deny too.
+        from unittest import mock
+        from session_delegation_claude import GLOBAL_ALLOW_NOTE, settings_sources
+        config = self.root / "claude-config"
+        config.mkdir()
+        user_settings = config / "settings.json"
+        rules = (*communication_rules("agent-relay"), "Skill")
+        user_settings.write_text(json.dumps({"permissions": {"allow": list(rules)}}), encoding="utf-8")
+        with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(config)}):
+            default = inspect_project_permissions(self.project, "safe-review", None, server_name="agent-relay")
+            self.assertFalse(default.ready)
+            self.assertEqual(default.prerequisite, "project-allow-rules")
+            user = inspect_project_permissions(self.project, "safe-review", "user-environment",
+                                               server_name="agent-relay")
+            self.assertTrue(user.ready, user)
+            self.assertIn("Skill", required_project_allow("safe-review", "user-environment",
+                                                          server_name="agent-relay"))
+            self.assertNotIn("Skill", required_project_allow("safe-review", None, server_name="agent-relay"))
+            self.assertEqual(settings_sources(None), [".claude/settings.local.json", ".claude/settings.json"])
+            self.assertEqual(settings_sources("user-environment"),
+                             [".claude/settings.local.json", ".claude/settings.json", str(user_settings)])
+            self.assertIn("~/.claude/settings.json does not apply to a default delegated session", GLOBAL_ALLOW_NOTE)
+
+            user_settings.write_text(json.dumps({"permissions": {"allow": list(rules), "deny": ["Read"]}}),
+                                     encoding="utf-8")
+            self.write_permissions(rules)
+            self.assertTrue(inspect_project_permissions(self.project, "safe-review", None,
+                                                        server_name="agent-relay").ready, "the user deny is not read")
+            blocked = inspect_project_permissions(self.project, "safe-review", "user-environment",
+                                                  server_name="agent-relay")
+            self.assertEqual((blocked.ready, blocked.prerequisite), (False, "project-deny-rules"))
+
     def test_host_prompt_allows_control_envelope_after_maximum_user_body(self):
         prompt = _bounded_prompt(
             "x" * 20_800, "12345678-1234-1234-1234-123456789abc",

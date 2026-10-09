@@ -169,6 +169,25 @@ class AuthorizationDecisionTests(DelegationTestCase):
                     self.request(origin_host=origin, target_hosts=(target,)), now=NOW)
                 self.assertEqual(decision.state, "authorized")
 
+    def test_the_user_environment_option_is_recorded_for_claude_targets_only(self):
+        # delegation-user-context D162.
+        from session_delegation import USER_ENVIRONMENT, _digest, _request_payload
+        self.assertEqual(USER_ENVIRONMENT, "user-environment")
+        accepted = evaluate_authorization(self.request(host_permission=USER_ENVIRONMENT), now=NOW)
+        self.assertEqual(accepted.state, "authorized")
+        to_codex = evaluate_authorization(
+            self.request(origin_host="claude", target_hosts=("codex",), host_permission=USER_ENVIRONMENT), now=NOW)
+        self.assertEqual((to_codex.state, to_codex.reason), ("rejected", "user-environment-claude-only"))
+        other = evaluate_authorization(self.request(host_permission="plan"), now=NOW)
+        self.assertEqual((other.state, other.reason), ("rejected", "host-permission-unexpected"))
+        self.assertNotEqual(_digest(_request_payload(self.request())),
+                            _digest(_request_payload(self.request(host_permission=USER_ENVIRONMENT))))
+        store = self.store()
+        envelope = self.authorize(store, host_permission=USER_ENVIRONMENT, idempotency_key="user-env-12345678")
+        self.assertEqual(envelope.host_permission, USER_ENVIRONMENT)
+        reopened = self.store().get_authorization(envelope.envelope_id)
+        self.assertEqual(reopened.host_permission, USER_ENVIRONMENT)
+
     def test_malformed_runtime_values_are_rejected_instead_of_crashing(self):
         malformed_targets = evaluate_authorization(
             self.request(target_hosts=({"host": "claude"},)), now=NOW

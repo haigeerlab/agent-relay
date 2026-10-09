@@ -16,6 +16,7 @@ import sys
 from typing import Callable, Protocol
 
 from session_delegation import (
+    USER_ENVIRONMENT,
     StateNotWritableError,
     AuthorizationEnvelope,
     AuthorizationRequest,
@@ -84,6 +85,8 @@ class PublicSession:
     response: str | None = None
     route_reason: str | None = None
     diagnostic: str | None = None
+    # delegation-user-context D162: "user" when the session loads the user's environment.
+    environment: str | None = None
 
     def payload(self) -> dict[str, object]:
         value: dict[str, object] = {
@@ -94,6 +97,8 @@ class PublicSession:
             "permission": self.permission,
             "state": self.state,
         }
+        if self.environment is not None:
+            value["environment"] = self.environment
         if self.host_status is not None:
             value["hostStatus"] = self.host_status
         if self.prerequisite is not None:
@@ -161,6 +166,7 @@ class SessionDelegationController:
             project=envelope.project_root.name or "project",
             baseline=envelope.baseline[:12],
             permission=claim.permission_intent,
+            environment="user" if envelope.host_permission == USER_ENVIRONMENT else None,
             state=state or claim.state,
             host_status=host_status,
             prerequisite=prerequisite,
@@ -618,8 +624,10 @@ def _selected_backend(args: argparse.Namespace):
 
 def _permission_preflight(args: argparse.Namespace) -> dict[str, object]:
     from session_delegation_claude import (
+        GLOBAL_ALLOW_NOTE,
         inspect_project_permissions,
         required_project_allow,
+        settings_sources,
     )
 
     selected = _selected_backend(args)
@@ -630,7 +638,12 @@ def _permission_preflight(args: argparse.Namespace) -> dict[str, object]:
         server_name=selected.claude_server_name,
         communication_tools=selected.claude_tools,
     )
+    # delegation-user-context D164: name the files read; say why a global allow did not count.
+    note = ({"note": GLOBAL_ALLOW_NOTE}
+            if not readiness.ready and args.host_permission != USER_ENVIRONMENT
+            and readiness.prerequisite == "project-allow-rules" else {})
     return {
+        **note,
         "backend": selected.name,
         "ready": readiness.ready,
         "permissionMode": readiness.permission_mode,
@@ -641,7 +654,7 @@ def _permission_preflight(args: argparse.Namespace) -> dict[str, object]:
             server_name=selected.claude_server_name,
             communication_tools=selected.claude_tools,
         )),
-        "settings": [".claude/settings.local.json", ".claude/settings.json"],
+        "settings": settings_sources(args.host_permission),
         "writesPerformed": False,
     }
 
@@ -739,7 +752,8 @@ def _parser() -> argparse.ArgumentParser:
     permissions.add_argument("--permission", choices=(
         "safe-review", "bounded-development"),
         default="safe-review")
-    permissions.add_argument("--host-permission")
+    permissions.add_argument("--user-environment", action="store_true",
+                             help="Claude Code target: preflight the user, project and local settings (D162)")
 
     create = subparsers.add_parser("create")
     create.add_argument("--authority", choices=("direct-user", "confirmed-user"),
@@ -753,7 +767,8 @@ def _parser() -> argparse.ArgumentParser:
     create.add_argument("--permission", choices=(
         "safe-review", "bounded-development"),
         default="safe-review")
-    create.add_argument("--host-permission")
+    create.add_argument("--user-environment", action="store_true",
+                        help="Claude Code target only: load the user's settings, plugins and skills (D162)")
     create.add_argument("--horizon", choices=("task", "strict", "batch", "session"),
                         default="task")
     create.add_argument("--max-sessions", type=int, default=1)
@@ -800,6 +815,7 @@ def _read_prompt() -> str:
 def main(argv: list[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
+    args.host_permission = USER_ENVIRONMENT if getattr(args, "user_environment", False) else None
     from native_collaboration_runtime import StateHomeError
 
     try:

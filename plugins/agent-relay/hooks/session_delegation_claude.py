@@ -16,7 +16,7 @@ from uuid import UUID, uuid4
 
 from defect_guard import is_defect
 from native_collaboration_adapters import CLAUDE_SERVER_NAME
-from session_delegation import DelegationStore
+from session_delegation import USER_ENVIRONMENT, DelegationStore
 from session_delegation_codex import COMMUNICATION_TOOLS, SAFE_COMMUNICATION_TOOLS
 
 
@@ -157,30 +157,51 @@ def discover_claude(
     return ClaudeInstallation(resolved, ".".join(match.groups()))
 
 
-def _settings_rules(project: Path) -> tuple[tuple[str, ...], tuple[str, ...]]:
+# delegation-user-context D164: what the preflight says when only a global allow exists.
+GLOBAL_ALLOW_NOTE = ("A global allow in ~/.claude/settings.json does not apply to a default delegated session; add the "
+                     "rules to the project, or create with the user environment.")
+
+
+def _user_settings_path() -> Path:
+    """Claude Code's user settings: CLAUDE_CONFIG_DIR/settings.json when set, else ~/.claude/settings.json."""
+    return Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "settings.json"
+
+
+def settings_sources(host_permission: str | None) -> list[str]:
+    """The settings files a delegated session loads, as the preflight reports them (D164)."""
+    sources = [".claude/settings.local.json", ".claude/settings.json"]
+    if host_permission == USER_ENVIRONMENT:
+        sources.append(str(_user_settings_path()))
+    return sources
+
+
+def _settings_rules(project: Path, include_user: bool = False) -> tuple[tuple[str, ...], tuple[str, ...]]:
     allow: list[str] = []
     deny: list[str] = []
-    for name in ("settings.json", "settings.local.json"):
-        path = project / ".claude" / name
+    files = [(project / ".claude" / name, "project-settings-invalid")
+             for name in ("settings.json", "settings.local.json")]
+    if include_user:
+        files.append((_user_settings_path(), "user-settings-invalid"))
+    for path, invalid in files:
         if not path.exists() and not path.is_symlink():
             continue
         try:
             metadata = path.lstat()
             if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
-                raise ClaudeAdapterError("project-settings-invalid")
+                raise ClaudeAdapterError(invalid)
             value = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as error:
-            raise ClaudeAdapterError("project-settings-invalid") from error
+            raise ClaudeAdapterError(invalid) from error
         permissions = value.get("permissions") if isinstance(value, dict) else None
         if permissions is None:
             continue
         if not isinstance(permissions, dict):
-            raise ClaudeAdapterError("project-settings-invalid")
+            raise ClaudeAdapterError(invalid)
         for key, destination in (("allow", allow), ("deny", deny)):
             rules = permissions.get(key, [])
             if (not isinstance(rules, list)
                     or any(not isinstance(rule, str) or not rule.strip() for rule in rules)):
-                raise ClaudeAdapterError("project-settings-invalid")
+                raise ClaudeAdapterError(invalid)
             destination.extend(rules)
     return tuple(allow), tuple(deny)
 
@@ -197,10 +218,12 @@ def _permission_shape(intent: str, host_permission: str | None, server_name: str
     review = ("Read", "Grep", "Glob")
     development = review + ("Edit", "Write", "Bash")
     communication = communication_rules(server_name, communication_tools)
+    # delegation-user-context D163: the user's environment adds only the Skill tool.
+    skills = ("Skill",) if host_permission == USER_ENVIRONMENT else ()
     if intent == "safe-review":
-        return "dontAsk", review + communication, ()
+        return "dontAsk", review + communication + skills, skills
     if intent == "bounded-development":
-        return "dontAsk", development + communication, ("Edit", "Write", "Bash")
+        return "dontAsk", development + communication + skills, ("Edit", "Write", "Bash") + skills
     if host_permission == "plan":
         return "plan", review + communication, ()
     if host_permission == "dontAsk":
@@ -214,7 +237,7 @@ def inspect_project_permissions(
     communication_tools: tuple[str, ...] = COMMUNICATION_TOOLS,
 ) -> PermissionReadiness:
     project = Path(project).resolve(strict=True)
-    allow, deny = _settings_rules(project)
+    allow, deny = _settings_rules(project, include_user=host_permission == USER_ENVIRONMENT)
     mode, tools, _prompt_allow = _permission_shape(
         intent, host_permission, server_name, communication_tools)
     for tool in tools:
@@ -296,16 +319,18 @@ def build_create_command(
         intent, host_permission, server_name, communication_tools)
     if permission_mode != expected_mode:
         raise ClaudeAdapterError("permission-mode-conflict")
+    # delegation-user-context D163: with the user's environment, load its settings layer and skills; nothing else moves.
+    user = host_permission == USER_ENVIRONMENT
     return (
         str(installation.binary),
         "--background",
         "--name", name,
         "--mcp-config", str(config_path),
         "--strict-mcp-config",
-        "--setting-sources", "project,local",
+        "--setting-sources", "user,project,local" if user else "project,local",
         "--permission-mode", permission_mode,
         "--permission-prompts", "none",
-        "--disable-slash-commands",
+        *(() if user else ("--disable-slash-commands",)),
         "--no-chrome",
         "--tools", ",".join(tools),
         "--",
