@@ -15,5 +15,5 @@
   - (b) user consented; `pkill` of all 12 bridges, then three creates in a row (rh-b1..b3), each session starting with `pendingMcpServers: ["agent-relay"]` and calling Read → ToolSearch → bridge_register → bridge_send: registered after 8.4 s / 7.5 s / 6.5 s, reported back, completed after 19.5 s / 18.5 s / 17.4 s. None went `unknown`.
   - (c) rh-c1 created then `claude stop` before it registered: `created / stopped / mailbox-registration-missing`; `continue` → `created / registration-resent`; registered within 7 s (running at +7 s), reported back at +10 s, completed at +18 s.
   - All check delegations cancelled afterwards. Bridge gap (takeover cannot rebind wake) left for a separate task. CHANGELOG `[Unreleased]`.
-- [ ] Task 5: PR and CI
-- [ ] Checkpoint (gate): module review
+- [x] Task 5: PR and CI — #73 (c90bd50), the four CI jobs green
+- [x] Checkpoint (gate): module review — the round-2 coordinator reviewed #73 (mergeable; non-blocking: the bridge should itself refuse takeover from a live holder, joined to the separate bridge takeover task); the user merged #73 (5d0751b)
