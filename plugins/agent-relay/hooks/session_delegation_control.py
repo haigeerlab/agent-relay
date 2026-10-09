@@ -616,7 +616,8 @@ class SessionDelegationController:
             claim, "continue",
             lambda: adapter.continue_turn(
                 claim.delegation_id,
-                self._with_result_route(prompt, route, turn_seed),
+                # delegation-continue-parity D171: the stored scope is repeated on every turn (Codex's only limit).
+                self._with_result_route(_with_scope(prompt, claim.scope or ()), route, turn_seed),
                 isolated_worktree=isolated_worktree,
             ),
         )

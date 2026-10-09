@@ -319,6 +319,48 @@ def build_create_command(
     scope: tuple[str, ...] = (),
     scope_root: Path | None = None,
 ) -> tuple[str, ...]:
+    return (
+        str(installation.binary),
+        "--background",
+        "--name", name,
+        *_launch_limits(config_path, intent, permission_mode, host_permission, server_name=server_name,
+                        communication_tools=communication_tools, scope=scope, scope_root=scope_root),
+        "--",
+        prompt,
+    )
+
+
+def build_resume_command(
+    installation: ClaudeInstallation,
+    config_path: Path,
+    session_ref: str,
+    prompt: str,
+    intent: str,
+    permission_mode: str,
+    host_permission: str | None = None,
+    *,
+    server_name: str = CLAUDE_SERVER_NAME,
+    communication_tools: tuple[str, ...] = COMMUNICATION_TOOLS,
+    scope: tuple[str, ...] = (),
+    scope_root: Path | None = None,
+) -> tuple[str, ...]:
+    """delegation-continue-parity D171: `--resume` keeps the conversation, not the limits (measured 2026-10-09), so a
+    resumed turn passes the same limits as its launch."""
+    return (
+        str(installation.binary),
+        "--background",
+        "--resume", session_ref,
+        *_launch_limits(config_path, intent, permission_mode, host_permission, server_name=server_name,
+                        communication_tools=communication_tools, scope=scope, scope_root=scope_root),
+        "--",
+        prompt,
+    )
+
+
+def _launch_limits(
+    config_path: Path, intent: str, permission_mode: str, host_permission: str | None, *,
+    server_name: str, communication_tools: tuple[str, ...], scope: tuple[str, ...], scope_root: Path | None,
+) -> tuple[str, ...]:
     expected_mode, tools, _builtins = _permission_shape(
         intent, host_permission, server_name, communication_tools)
     if permission_mode != expected_mode:
@@ -326,9 +368,6 @@ def build_create_command(
     # delegation-user-context D163: with the user's environment, load its settings layer and skills; nothing else moves.
     user = host_permission == USER_ENVIRONMENT
     return (
-        str(installation.binary),
-        "--background",
-        "--name", name,
         "--mcp-config", str(config_path),
         "--strict-mcp-config",
         "--setting-sources", "user,project,local" if user else "project,local",
@@ -338,8 +377,6 @@ def build_create_command(
         "--no-chrome",
         "--tools", ",".join(tools),
         *_scope_settings(scope, scope_root),
-        "--",
-        prompt,
     )
 
 
@@ -698,6 +735,9 @@ class ClaudeAdapter:
                       isolated_worktree: bool = False) -> ClaudeRunResult:
         claim, envelope, permission = self._scope(
             delegation_id, isolated_worktree=isolated_worktree)
+        # delegation-continue-parity D171: a review recorded before schema 3 has no known scope to repeat.
+        if claim.scope is None and claim.permission_intent == "safe-review":
+            raise ClaudeAdapterError("scope-unknown")
         claim, _late, problem = self._bind_late_entry(claim, envelope.project_root)
         if problem is not None:
             return ClaudeRunResult(
@@ -736,7 +776,7 @@ class ClaudeAdapter:
                 host_status=session.status, prerequisite="target-busy",
             )
         return self._deliver(
-            claim, envelope, session, prompt, "claude-turn-" + uuid4().hex,
+            claim, envelope, permission, session, prompt, "claude-turn-" + uuid4().hex,
             lambda turn_ref: self.store.begin_follow_up(delegation_id, turn_ref), "running")
 
     def _resend_registration(self, claim: object, envelope: object, permission: object, prompt: str
@@ -760,11 +800,12 @@ class ClaudeAdapter:
                 host_status=session.status, prerequisite="target-busy",
             )
         return self._deliver(
-            claim, envelope, session, prompt, resent,
+            claim, envelope, permission, session, prompt, resent,
             lambda turn_ref: self.store.set_turn_ref(claim.delegation_id, turn_ref), "created",
             prerequisite="registration-resent")
 
-    def _deliver(self, claim: object, envelope: object, session: ClaudeSession, prompt: str, turn_ref: str,
+    def _deliver(self, claim: object, envelope: object, permission: object, session: ClaudeSession, prompt: str,
+                 turn_ref: str,
                  begin: Callable[[str], object], state: str, *, prerequisite: str | None = None
                  ) -> ClaudeRunResult:
         """Send one turn to an idle or stopped target: wake it, or stop it and resume with the envelope."""
@@ -812,12 +853,19 @@ class ClaudeAdapter:
                 "held", claim.host_ref, claim.host_session_ref,
                 host_status=session.status, prerequisite="target-status-unknown",
             )
+        config = self._configs.get(delegation_id) or self._validate_config(self.config_factory(delegation_id))
+        self._configs[delegation_id] = config
         begin(turn_ref)
-        command = (
-            str(self.installation.binary), "--background", "--resume",
-            claim.host_session_ref, _bounded_prompt(
+        command = build_resume_command(
+            self.installation, config, claim.host_session_ref,
+            _bounded_prompt(
                 prompt, delegation_id, claim.friendly_name,
                 self.communication_tools, claim.permission_intent),
+            claim.permission_intent, permission.permission_mode, envelope.host_permission,
+            server_name=self.server_name,
+            communication_tools=self.communication_tools,
+            scope=claim.scope or (),
+            scope_root=envelope.project_root,
         )
         try:
             completed = self._run(command, envelope.project_root)

@@ -184,7 +184,7 @@ class RecoveryTests(unittest.TestCase):
         # delegation-hygiene D166.
         (self.project / "README.md").write_text("readme", encoding="utf-8")
         (self.project / "docs").mkdir()
-        controller, adapter = self.controller(["created"])
+        controller, adapter = self.controller(["created", "running"])
         for scope, intent, reason in ((("README.md",), "bounded-development", "scope-review-only"),
                                       (("../outside.md",), "safe-review", "scope-outside-project"),
                                       (("missing.md",), "safe-review", "scope-missing")):
@@ -202,6 +202,19 @@ class RecoveryTests(unittest.TestCase):
         self.assertIn("README.md, docs", prompt)
         self.assertIn("Files read:", prompt)
         self.assertEqual(adapter.scopes[-1], ("README.md", "docs"), "the adapter gets the scope (D167)")
+        # delegation-continue-parity D171: the stored scope is repeated on every follow-up turn (both hosts).
+        [claim] = self.store.list_delegations()
+        self.assertEqual(claim.scope, ("README.md", "docs"))
+        self.store.advance(claim.delegation_id, "registered", "host-registered")
+        self.store.set_turn_ref(claim.delegation_id, "turn-1")
+        self.store.advance(claim.delegation_id, "running", "host-running")
+        self.store.advance(claim.delegation_id, "completed", "host-completed")
+        controller.continue_named("范围", "And the license?")
+        self.assertEqual(adapter.calls[-1][0], "continue")
+        follow_up = adapter.calls[-1][2]
+        self.assertIn("And the license?", follow_up)
+        self.assertIn("<agent-relay-review-scope>", follow_up)
+        self.assertIn("README.md, docs", follow_up)
 
     def test_a_friendly_name_resolves_to_the_mailbox_names_of_active_delegations(self):
         # delegation-hygiene D168: read only; cancelled sessions and sessions with no mailbox name yet are left out.
