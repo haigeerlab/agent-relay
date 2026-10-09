@@ -31,9 +31,10 @@ class ManifestTests(unittest.TestCase):
         self.assertEqual([(p["name"], p["source"]) for p in marketplace["plugins"]],
                          [("agent-relay", "./plugins/agent-relay")])
 
-    def test_interface_marker_declares_version_one_and_a_status_command_in_the_plugin(self):
+    def test_interface_marker_declares_version_two_and_the_same_status_command(self):
         marker = load(PLUGIN / "interface.json")
-        self.assertEqual(marker["interface"], "1.4")  # cleanup-gaps D62, codex-gated-wake D69, acceptance-030-gaps, inbox-read-receipt D101
+        # delegation-hygiene D170: 2.0 for the round-2 batch; only the version string changed (Spec Guard >=1.0,<3.0).
+        self.assertEqual(marker, {"interface": "2.0", "status": ["python3", "-B", "hooks/relay_status.py"]})
         self.assertEqual(marker["status"][:2], ["python3", "-B"])
         self.assertTrue((PLUGIN / marker["status"][2]).is_file())
 

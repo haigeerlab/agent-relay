@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+**接口 2.0（破坏性变更）**：这一批（第二轮联调）改变了对外行为——`bridge_send` 不再回显正文（`long-messages`）、
+同宿主委派与 `host-native` 委派意图删除（`delegation-cross-host`）、被唤醒的 Codex 回合不再被强制降权
+（`wake-any-mode`）。`interface.json` 只改版本号为 `2.0`，`status` 命令和它的 `{ready, setup}` 输出不变；
+需要 Spec Guard 0.56.0 或更新（接受 `>=1.0,<3.0`）。
+
+- **委派的范围、名字与清理**（模块 `delegation-hygiene`，D166–D170，第二轮联调 B4、B5）：只读审查可用
+  `create --scope <路径>` 限定范围（开发类不支持），结果要求列出读过的文件；Claude Code 会话还用 PreToolUse 钩子硬性
+  拒绝范围外的 Read、Grep、Glob（本机实测：`dontAsk` 下只放行 `Read(README.md)` 拦不住，钩子能拦住），Codex 为软限制。
+  新增只读的 `resolve --name`，按你起的名字查到委派会话的信箱名；新增 `prune`，先列出一小时以上卡在
+  `creating`/`unknown` 的记录，`--confirm` 才标为取消（宿主是否还在无法确认的需加 `--include-unknown-hosts`），
+  不删除记录、不碰宿主。
 - **委派可选加载用户环境，预检与实际一致**（模块 `delegation-user-context`，D162–D165，第二轮联调 B2、B3）：Codex 创建
   Claude Code 会话时可加 `--user-environment`（默认关），被委派的会话加载用户、项目、本地三层设置和 skill（例如带上
   spec-guard 的阶段上下文），工具白名单只多 `Skill`，权限模式与其他限制不变；Claude Code → Codex 不支持该选项。

@@ -15,7 +15,7 @@ agent-relay 原来是 [Spec Guard](https://github.com/haigeerlab/spec-guard-plug
 |---|---|---|
 | 协作信箱 | 同一台 Mac 上的会话互相发消息、回复；跨宿主（Claude Code ↔ Codex）走一个私有的本机 bridge | `collab` skill；Claude Code 还有 `/agent-relay:collaboration` |
 | 会话路由 | 按会话名字联系另一个会话；同宿主优先用宿主自带的通信（Claude Code `SendMessage`、Codex App 线程），只有跨宿主才用信箱 | `session-routing` skill |
-| 跨宿主会话委派 | 一句话让当前 Claude Code 创建 Codex 审查会话，或让 Codex 创建 Claude Code 开发会话（只有这两个方向，不做同宿主委派）；默认一个任务、一个新会话的有限授权；Codex 创建 Claude Code 会话时可选“加载用户环境”（`--user-environment`，默认关），让它带上你的设置、插件和 skill。Claude Code 里装了 delegate 插件时，“派给 Codex”交给它，这里只做后备 | `session-delegation` skill |
+| 跨宿主会话委派 | 一句话让当前 Claude Code 创建 Codex 审查会话，或让 Codex 创建 Claude Code 开发会话（只有这两个方向，不做同宿主委派）；默认一个任务、一个新会话的有限授权；只读审查可用 `--scope` 限定范围（Claude Code 会话硬性拦截范围外的读取），按你起的名字就能联系委派会话，卡住的委派记录可用 `prune` 先预览再清理；Codex 创建 Claude Code 会话时可选“加载用户环境”（`--user-environment`，默认关），让它带上你的设置、插件和 skill。Claude Code 里装了 delegate 插件时，“派给 Codex”交给它，这里只做后备 | `session-delegation` skill |
 | 运行时管理 | 查看、在你同意后安装本机信箱运行时，接入或移除宿主配置，退役结束的身份 | `collaboration-ops` skill |
 
 ## 需要什么
