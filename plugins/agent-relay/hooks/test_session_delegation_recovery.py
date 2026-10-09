@@ -164,6 +164,20 @@ class RecoveryTests(unittest.TestCase):
             )
         self.assertEqual(tuple(self.store.list_delegations()), ())
 
+    def test_public_results_show_the_user_environment_only_when_chosen(self):
+        # delegation-user-context D162.
+        from dataclasses import replace
+        controller, _adapter = self.controller(["created", "created"])
+        base = replace(self.request(key="user-env-request", target_host="claude"), origin_host="codex")
+        chosen = controller.authorize_and_create(
+            replace(base, host_permission="user-environment"), "user-env-launch", "用户环境", "Review",
+            target_host="claude", permission_intent="safe-review").payload()
+        self.assertEqual(chosen["environment"], "user")
+        plain = controller.authorize_and_create(
+            replace(base, idempotency_key="plain-request"), "plain-launch", "默认沙箱", "Review",
+            target_host="claude", permission_intent="safe-review").payload()
+        self.assertNotIn("environment", plain)
+
     def test_native_delivery_states_and_retry_keys_are_stable(self):
         for observed, state, expected in (
             (False, "created", "pending"),

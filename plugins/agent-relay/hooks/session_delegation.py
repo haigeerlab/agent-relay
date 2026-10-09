@@ -34,6 +34,8 @@ HOSTS = frozenset(("claude", "codex"))
 PERMISSION_INTENTS = frozenset(("safe-review", "bounded-development"))
 # Rows an older version stored may still carry it; they stay readable.
 STORED_PERMISSION_INTENTS = PERMISSION_INTENTS | {"host-native"}
+# delegation-user-context D162: the only host permission a new request may carry; Claude Code targets only.
+USER_ENVIRONMENT = "user-environment"
 AUTHORITIES = frozenset(("direct-user", "confirmed-user", "agent-proposed", "mailbox"))
 AUTHORIZATION_STATES = frozenset(("authorized", "cancelled", "expired"))
 DELEGATION_STATES = frozenset(
@@ -235,8 +237,10 @@ def evaluate_authorization(request: AuthorizationRequest, *, now: int | None = N
     if (not isinstance(request.permission_intent, str)
             or request.permission_intent not in PERMISSION_INTENTS):
         return AuthorizationDecision("rejected", reason="permission-intent")
-    if request.host_permission is not None:
+    if request.host_permission not in (None, USER_ENVIRONMENT):
         return AuthorizationDecision("rejected", reason="host-permission-unexpected")
+    if request.host_permission == USER_ENVIRONMENT and "codex" in request.target_hosts:
+        return AuthorizationDecision("rejected", reason="user-environment-claude-only")
     if (not isinstance(request.max_sessions, int) or isinstance(request.max_sessions, bool)
             or request.max_sessions < 1):
         return AuthorizationDecision("rejected", reason="session-limit")
@@ -320,7 +324,7 @@ def _authorization_row_is_valid(row: sqlite3.Row) -> bool:
         and ((row["permission_intent"] == "host-native"
               and _valid_text(row["host_permission"], maximum=128))
              or (row["permission_intent"] != "host-native"
-                 and row["host_permission"] is None))
+                 and row["host_permission"] in (None, USER_ENVIRONMENT)))
         and isinstance(row["max_sessions"], int) and row["max_sessions"] >= 1
         and isinstance(row["expires_at"], int)
         and row["depth"] == 0
