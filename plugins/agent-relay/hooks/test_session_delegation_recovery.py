@@ -260,16 +260,29 @@ class RecoveryTests(unittest.TestCase):
         states = {c.friendly_name: c.state for c in self.store.list_delegations()}
         self.assertEqual(states["held-old"], "creating", "a preview changes nothing")
 
-        done = prune_records(self.store, alive=alive, confirm=True)
+        ids = {r["name"]: r["id"] for r in preview["stale"]}
+        # delegation-continue-parity D173: a record that turns stale after the preview is not in the confirmed ids.
+        self.clock[0] += 3600
+        self.assertIn("unknown-new", [r["name"] for r in prune_records(self.store, alive=alive)["stale"]])
+        done = prune_records(self.store, alive=alive,
+                             confirm_ids=(ids["held-old"], ids["unknown-old"], ids["codex-unknown"], "ffffff"))
         self.assertEqual(sorted(r["name"] for r in done["pruned"]), ["held-old", "unknown-old"])
+        self.assertEqual({s["id"]: s["reason"] for s in done["skipped"]},
+                         {ids["codex-unknown"]: "host-unknown", "ffffff": "not-found"})
         self.assertTrue(done["writesPerformed"])
-        states = {c.friendly_name: c.state for c in self.store.list_delegations()}
-        self.assertEqual((states["held-old"], states["unknown-old"]), ("cancelled", "cancelled"))
-        self.assertEqual((states["codex-unknown"], states["unknown-new"], states["created-old"]),
-                         ("unknown", "unknown", "created"))
-        with_unknown = prune_records(self.store, alive=alive, confirm=True, include_unknown_hosts=True)
+        claims = {c.friendly_name: c for c in self.store.list_delegations()}
+        self.assertEqual((claims["held-old"].state, claims["unknown-old"].state), ("cancelled", "cancelled"))
+        self.assertEqual(claims["held-old"].state_reason, "pruned-stale")
+        self.assertEqual((claims["codex-unknown"].state, claims["unknown-new"].state, claims["created-old"].state),
+                         ("unknown", "unknown", "created"), "never confirmed, never cancelled")
+        again = prune_records(self.store, alive=alive, confirm_ids=(ids["held-old"],))
+        self.assertEqual((again["pruned"], again["skipped"]), ([], [{"id": ids["held-old"], "reason": "not-stale"}]))
+        with_unknown = prune_records(self.store, alive=alive, confirm_ids=(ids["codex-unknown"],),
+                                     include_unknown_hosts=True)
         self.assertEqual([r["name"] for r in with_unknown["pruned"]], ["codex-unknown"])
-        self.assertEqual(prune_records(self.store, alive=alive)["stale"], [])
+        with self.assertRaisesRegex(ControlError, "prune-ids-required"):
+            prune_records(self.store, alive=alive, confirm_ids=())
+        self.assertEqual([r["name"] for r in prune_records(self.store, alive=alive)["stale"]], ["unknown-new"])
         self.assertEqual(len(adapter.calls), calls, "no host is touched")
 
     def test_host_liveness_for_pruning(self):
