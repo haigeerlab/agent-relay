@@ -15,7 +15,8 @@ import tempfile
 import unittest
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
-SKILLS = [PLUGIN_ROOT / "skills" / name / "SKILL.md" for name in ("collaboration-ops", "session-delegation",
+# install-docs-accuracy D179: collab runs a script too (claude-allow-rules), so it carries the block as well.
+SKILLS = [PLUGIN_ROOT / "skills" / name / "SKILL.md" for name in ("collab", "collaboration-ops", "session-delegation",
                                                                   "session-routing")]
 BLOCK = re.compile(r"<!-- agent-relay-root -->\n```bash\n(.*?)```\n<!-- /agent-relay-root -->", re.S)
 
@@ -77,7 +78,7 @@ class PluginRootTests(unittest.TestCase):
                 self.assertNotIn("ROOT=", done.stdout)
 
     def test_claude_runs_the_selector_with_the_literal_path_the_allow_rule_names(self):
-        text = SKILLS[2].read_text(encoding="utf-8")
+        text = (PLUGIN_ROOT / "skills" / "session-routing" / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("python3 -B ${CLAUDE_PLUGIN_ROOT}/hooks/session_routing.py select", text)
 
 
