@@ -5,5 +5,5 @@
 - [x] Task 3: retired identities are not looked up (D176) — test first (`presence.test.ts`, red: the retired Codex identity was looked up): with a listening fake Codex IPC socket under the test HOME, `bridge_agents {includeRetired: true}` lists the retired `cx-old` with `retiredAt`, no `presence`, and the socket is never connected to. Green after skipping `presenceOf` for retired summaries
 - [x] Task 4: offset errors, expired reads labelled (D177) — test first (`long-messages.test.ts`, red: an offset past the end returned an empty part): offset 10 of a 10-character body reads the empty rest; offset 11 fails `bodyOffset 11 is past the end of message #N (10 characters)`; an expired message read by its id returns its body with `deliveryState: "expired"` (already so — found while building — now pinned). Green after the check in the `bridge_inbox` handler before `recordRead`
 - [x] Checkpoint (report): local validation — `scripts/validate.sh` pass on Python 3.9.6 (Apple), 3.10.7 and 3.14.3: 47 files / 706 tests each, "ok bridge: npm run check 170"; UPSTREAM rows and manifest in every bridge commit; CHANGELOG `[Unreleased]`
-- [ ] Task 5: PR and CI
-- [ ] Checkpoint (gate): module review
+- [x] Task 5: PR and CI — #66 merged as c5b17db (2026-10-10) after the coordinator's review (9c89d17 + spec dc5efad: D175 deviation accepted); CI pass on all four required checks. Two low leftovers moved to `install-docs-accuracy` (D180)
+- [x] Checkpoint (gate): module review — reviewed by the round-2 coordinator, merged by the user (2026-10-10)

@@ -51,10 +51,16 @@ Readers: the user; people installing agent-relay from the README; the round-2 co
    the upgrade from 0.6.0 (delegation store schema 2 → 3; runtime upgrade for `presence-polish`) and rollback (restore
    the delegation store copy).
 
+7. **Leftovers from the review of #66** (added 2026-10-10, low, bridge): (a) `notified/episode-<session>` files of
+   sessions whose message was handled are never removed (the session leaves the waiting list, so nothing sees it stop
+   waiting); the Housekeeper removes episode files of sessions that have nothing waiting in `claudeWaiting`. (b) The
+   `bodyOffset` error names the same length the check used (`bodyLength ?? body.length`), never "undefined".
+
 ## Decisions
 
 - **D178 install states the approvals it writes.** Assumption 1 (user decision (2), 2026-10-09).
 - **D179 documentation matches behaviour.** Assumptions 2–6.
+- **D180 presence-polish leftovers.** Assumption 7 (bridge; runtime upgrade needed).
 
 ## Requirements
 
@@ -65,7 +71,9 @@ Readers: the user; people installing agent-relay from the README; the round-2 co
    name and body containing `'`, `$(…)`, backticks and `$HOME`, run under both `bash` and `zsh`, hands the selector
    exactly the original text (nothing expanded or executed); README has no `plugins/agent-relay/hooks/` command outside the developer section.
 3. The two "never edits" messages corrected; CHANGELOG `[0.6.1]`.
-4. `scripts/validate.sh` green on Python 3.9, 3.10, 3.14; CI green.
+4. Red first (bridge): a Housekeeper tick removes the episode file of a session with nothing waiting and keeps
+   the one of a session still waiting; the offset error never says "undefined". `UPSTREAM.md` and manifest updated.
+5. `scripts/validate.sh` green on Python 3.9, 3.10, 3.14; CI green.
 
 ## Boundaries
 
