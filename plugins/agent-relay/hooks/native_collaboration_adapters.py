@@ -213,7 +213,8 @@ def print_claude_allow_rules() -> int:
     """Print the one-time approval lines; write nothing. Adding them is the user's choice."""
     rules = claude_allow_rules()
     print("To stop Claude Code asking about each mailbox tool, the user may add these %d rules to "
-          "permissions.allow in ~/.claude/settings.json (agent-relay never edits that file):" % len(rules))
+          "permissions.allow in ~/.claude/settings.json (agent-relay adds no allow rules there; its "
+          "uninstall-claude only removes the deny rules agent-relay 0.4.0 or earlier wrote):" % len(rules))
     print(json.dumps({"permissions": {"allow": rules}}, indent=2))
     return 0
 

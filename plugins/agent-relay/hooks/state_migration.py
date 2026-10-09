@@ -495,7 +495,8 @@ def host_next_steps(report: Report) -> list[str]:
         steps.append("After the new entries work, remove the old entries with Spec Guard's own uninstall "
                      "(it installed them and removes them by exact match).")
     steps.append("Rename project allow rules from mcp__spec-guard-native-collaboration__bridge_* to "
-                 "mcp__agent-relay__bridge_* by hand; agent-relay never edits permission files.")
+                 "mcp__agent-relay__bridge_* by hand; agent-relay adds no allow rules (its uninstall-claude only "
+                 "removes the deny rules agent-relay 0.4.0 or earlier wrote).")
     steps.append("~/.spec-guard/native-collaboration and ~/.spec-guard/session-delegation were not changed; remove "
                  "them yourself once you are satisfied (the backup above holds their data).")
     return steps

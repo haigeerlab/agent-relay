@@ -48,6 +48,12 @@ class NativeCollaborationAdaptersTests(unittest.TestCase):
         snippet = json.loads(text[text.index("{"):])
         self.assertEqual(snippet, {"permissions": {"allow": expected}})
         self.assertIn("~/.claude/settings.json", text)
+        # install-docs-accuracy D179 (review 5c): uninstall does edit that file (the 0.4.0 deny rules), so say so.
+        self.assertNotIn("never edits", text)
+        self.assertIn("agent-relay adds no allow rules", text)
+        self.assertIn("only removes the deny rules agent-relay 0.4.0 or earlier wrote", text)
+        migration = (Path(__file__).with_name("state_migration.py")).read_text(encoding="utf-8")
+        self.assertNotIn("never edits", migration)
         self.assertFalse(settings.exists())
         self.assertFalse(settings.parent.exists())
 
