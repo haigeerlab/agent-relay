@@ -25,15 +25,36 @@ description: 加入本机 Claude Code／Codex 联调、查看联调消息与已�
 
 1. 从 Git 根目录（否则当前目录）取得项目简称；使用用户别名或“宿主＋项目”作为可读前缀，并追加短随机后缀。
 2. 调用 `bridge_register`，默认 `wake: null`。只有用户在当前对话明确要求“加入并允许唤醒”，才绑定当前会话；任何权限模式
-   （包括 Claude 的 auto 模式和 Codex 的“帮我批准”）都可以绑定：
+   （包括 Claude 的 auto 模式和 Codex 的“帮我批准”）都可以绑定。例外要说清楚：Claude 会话处于 **Bypass permissions**
+   时，Claude Code 会把别的会话发来的提醒扣下等用户批准，桌面应用没有批准入口，提醒会过期，所以绑定了也唤不醒；
+   要收到，需用户自己把 Claude Code 的 `crossSessionInbound` 设为 `"accept"`（见 bridge 的
+   `docs/BACKGROUND-WAKE.md`“Why Claude pings expire”），或换一个权限模式。只告诉用户，不替用户改这个设置。
+   绑定方式：
    Claude Code 先用 `bridge_sessions` 核对 `thisSession`，再用 `wake: "auto"`；Codex Desktop 只使用当前任务
    环境中的合法 `CODEX_THREAD_ID`，以 `{app: "codex", sessionId: 当前任务 ID}` 注册。
    Codex Desktop 不绑定唤醒时也带上 `host: {app: "codex", sessionId: 当前任务的 CODEX_THREAD_ID}`：它只记下宿主，
    让发来的消息能提醒用户、出现在等待列表里，不绑定唤醒也不授予任何权限；只能填本任务自己的 ID，环境里没有就省略。
 3. 注册后调用 `bridge_inbox` 和 `bridge_agents`，只报告可读名称、宿主、项目简称和真实状态。
 4. Claude Code 会话第一次加入时，告诉用户：可以一次性放行 10 个信箱工具，免得每个工具都弹一次确认；
-   `native_collaboration_adapters.py claude-allow-rules` 会打印要加进 `~/.claude/settings.json` 的精确规则。
-   加不加由用户决定，不要替用户改这个文件。
+   `python3 -B "$ROOT/hooks/native_collaboration_adapters.py" claude-allow-rules` 会打印要加进 `~/.claude/settings.json`
+   的精确规则（`$ROOT` 用下面这段解析，与命令在同一个 shell 里执行）。加不加由用户决定，不要替用户改这个文件。
+
+<!-- agent-relay-root -->
+```bash
+ROOT="${CLAUDE_PLUGIN_ROOT}"
+if [ ! -f "$ROOT/hooks/native_collaboration_runtime.py" ]; then
+  ROOT="$(codex plugin list --json 2>/dev/null </dev/null | python3 -c '
+import json, sys
+try:
+    plugins = json.load(sys.stdin).get("installed", [])
+except (AttributeError, ValueError):
+    plugins = []
+print(next((p["source"]["path"] for p in plugins if isinstance(p, dict) and p.get("name") == "agent-relay"
+            and p.get("enabled") and isinstance(p.get("source"), dict) and p["source"].get("path")), ""))')"
+fi
+[ -f "$ROOT/hooks/native_collaboration_runtime.py" ] || { echo "cannot locate the agent-relay plugin root: Claude did not fill in CLAUDE_PLUGIN_ROOT and codex plugin list names no enabled agent-relay" >&2; exit 2; }
+```
+<!-- /agent-relay-root -->
 
 同一会话始终复用首次成功的身份；不能替另一个会话注册、绑定唤醒或接管同名身份。无法确认当前会话 ID 时，
 停止唤醒绑定，不猜窗口标题、进程或最近活动。

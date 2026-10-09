@@ -12,7 +12,7 @@ Readers: the user; people installing agent-relay from the README; the round-2 co
 ## What exists today (main 835304b, v0.6.0)
 
 - **Approvals.** `install-codex` prints only "Native Codex MCP configuration installed; restart Codex to load it.";
-  `--approve-mailbox-tools` adds missing approvals; neither lists the ten `[mcp_servers.agent-relay.tools.<tool>]`
+  `--approve-mailbox-tools` adds missing approvals; neither lists the ten `[mcp_servers.agent_relay.tools.<tool>]`
   tables it writes.
 - **Item 3.** `collab/SKILL.md:27` says any permission mode can bind wake, while `BACKGROUND-WAKE.md` ("Why Claude pings
   expire") says a Bypass-permissions Claude session holds cross-session messages for approval and, in the desktop app,

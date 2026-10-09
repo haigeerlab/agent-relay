@@ -50,6 +50,36 @@ class SessionRoutingEntryTests(unittest.TestCase):
         self.assertIn("不要用 heredoc", text)
         self.assertNotIn("heredoc 或管道", text)
 
+    def test_user_text_is_single_quoted_by_the_shlex_rule(self):
+        # install-docs-accuracy D179 (review 5d, then the coordinator's review of the spec): user text goes in single
+        # quotes with every ' written as '\'' (shlex.quote), never in double quotes, which expand $(...).
+        text = ROUTING.read_text(encoding="utf-8")
+        for phrase in ("shlex.quote", "'\\''", "不用双引号", "$(…)"):
+            self.assertIn(phrase, text)
+
+    def test_the_quoting_rule_hands_hostile_text_over_verbatim_in_bash_and_zsh(self):
+        import json
+        import shlex
+        import shutil
+        import subprocess
+        import sys
+        import tempfile
+        name = "it's $(touch PWNED) `touch PWNED2` $HOME !x"
+        facts = json.dumps({"target": name, "body": "a'b\"c $(id) `id`"}, ensure_ascii=False)
+        # Stands in for the selector and resolve: prints what it received on stdin and in argv.
+        echo = "import json,sys; print(json.dumps({'stdin': sys.stdin.read(), 'argv': sys.argv[1:]}))"
+        command = ("printf '%s' " + shlex.quote(facts) + " | " + shlex.quote(sys.executable) + " -c "
+                   + shlex.quote(echo) + " resolve --name " + shlex.quote(name))
+        for shell in ("bash", "zsh"):
+            if shutil.which(shell) is None:
+                continue
+            with self.subTest(shell=shell), tempfile.TemporaryDirectory() as cwd:
+                done = subprocess.run([shell, "-c", command], cwd=cwd, capture_output=True, text=True, timeout=30)
+                self.assertEqual(done.returncode, 0, done.stderr)
+                got = json.loads(done.stdout)
+                self.assertEqual(got, {"stdin": facts, "argv": ["resolve", "--name", name]})
+                self.assertEqual(list(Path(cwd).iterdir()), [], "nothing was executed")
+
     def test_a_friendly_name_is_resolved_through_the_delegation_controller(self):
         # delegation-hygiene D168.
         text = ROUTING.read_text(encoding="utf-8")

@@ -17,7 +17,7 @@ single quotes twice (`'<json>'` and `resolve --name '<名字>'`). The two "never
 
 ### Task 1: install states the approvals it writes (D178)
 Red first (`test_native_collaboration_adapters.py`): `install-codex` output names all ten tools and shows the table
-form `[mcp_servers.agent-relay.tools.<tool>] approval_mode = "approve"`; `--approve-mailbox-tools` names the tables it
+form `[mcp_servers.agent_relay.tools.<tool>] approval_mode = "approve"`; `--approve-mailbox-tools` names the tables it
 added (or says none were missing). README install section and collaboration-ops upgrade steps say the same.
 Behaviour unchanged (existing tests stay green).
 

@@ -103,6 +103,24 @@ class MailboxApprovalTests(unittest.TestCase):
         self.assertEqual(code, 0, output)
         self.assertEqual(self.config.read_text().strip(), BEFORE.strip())
 
+    def test_install_says_exactly_which_approvals_it_writes(self):
+        # install-docs-accuracy D178 (the user's decision, 2026-10-09): the behaviour stays, the output names it.
+        code, output = self.cli("install-codex")
+        self.assertEqual(code, 0, output)
+        self.assertIn('approval_mode = "approve"', output)
+        self.assertIn(str(self.config), output)
+        for tool in MAILBOX_TOOLS:
+            self.assertIn(f"[mcp_servers.{CODEX_SERVER_NAME}.tools.{tool}]", output)
+        self.assertIn("restart Codex", output)
+
+    def test_adding_missing_approvals_names_the_ones_added(self):
+        self.config.write_text(BEFORE + "\n" + codex_fragment(self.root, self.node) + "\n" + approval("bridge_inbox"))
+        code, output = self.cli("install-codex", "--approve-mailbox-tools")
+        self.assertEqual(code, 0, output)
+        self.assertIn('approval_mode = "approve"', output)
+        self.assertIn(f"[mcp_servers.{CODEX_SERVER_NAME}.tools.bridge_send]", output)
+        self.assertNotIn(f"[mcp_servers.{CODEX_SERVER_NAME}.tools.bridge_inbox]", output, "already there, not added")
+
     def test_the_option_refuses_without_a_matching_entry(self):
         self.config.write_text(BEFORE)
         before = self.config.read_bytes()

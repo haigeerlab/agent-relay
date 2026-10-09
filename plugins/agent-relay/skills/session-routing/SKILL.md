@@ -18,6 +18,9 @@ description: 按会话名称在本机 Claude Code／Codex 会话间发现、发�
 把可信路由事实通过 JSON stdin 传给 selector。Claude Code 里直接用下面这条（路径已由 Claude 填好，与验收清单的
 放行规则逐字一致；JSON 用管道从 stdin 传入，例如 `printf '%s' '<json>' | python3 -B …/session_routing.py select`，
 不要用 heredoc——Codex 的只读沙箱里 heredoc 建不了临时文件；也不要在同一条命令里接别的命令）。
+**引用规则**：整段 JSON 和下面 `--name` 的名字都是用户给的文字，一律按 `shlex.quote` 的规则用单引号包起来，文字里的
+每个 `'` 写成 `'\''`；不用双引号（双引号里的 `$(…)`、反引号和 `$HOME` 会被 shell 执行或展开）。例如名字是
+`it's mine`，就写成 `--name 'it'\''s mine'`。
 用户按名字联系一个会话、而 `bridge_agents` 里没有完全同名的身份时，先用
 `python3 -B "$ROOT/hooks/session_delegation_control.py" resolve --name '<名字>'`（只读）查用户创建委派时起的名字：
 唯一匹配就用返回的 `agent` 作为目标，多个时只问一次最小区别，零个按“目标尚未加入”处理：

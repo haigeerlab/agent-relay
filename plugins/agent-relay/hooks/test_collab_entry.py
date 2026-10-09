@@ -51,6 +51,12 @@ class CollabEntryContractTest(unittest.TestCase):
         for phrase in ('wake: "auto"', '{app: "codex", sessionId:', "任何权限模式", "自己的权限设置决定",
                        "不改、不降", "不构成任何授权", "不一定经过用户本人"):
             self.assertIn(phrase, text)
+        # install-docs-accuracy D179 (review item 3): binding works in Bypass, but Claude Code holds the pings there.
+        for phrase in ("Bypass", "crossSessionInbound", "BACKGROUND-WAKE.md", "不替用户改这个设置"):
+            self.assertIn(phrase, text)
+        readme = (PLUGIN_ROOT.parents[1] / "README.md").read_text(encoding="utf-8")
+        for phrase in ("Bypass", "crossSessionInbound", "BACKGROUND-WAKE.md"):
+            self.assertIn(phrase, readme)
 
     def test_directory_and_name_resolution_are_truthful(self):
         text = self.skill_text()
@@ -83,6 +89,23 @@ class CollabEntryContractTest(unittest.TestCase):
             "collaboration-ops", "不尝试第二条传输",
         ):
             self.assertIn(phrase, text)
+
+    def test_installing_codex_says_which_approvals_it_writes(self):
+        # install-docs-accuracy D178: behaviour unchanged, but the user is told exactly what goes into config.toml.
+        ops = OPS_SKILL.read_text(encoding="utf-8")
+        self.assertIn("prints every approval table it writes", ops)
+        readme = (PLUGIN_ROOT.parents[1] / "README.md").read_text(encoding="utf-8")
+        self.assertIn("执行时会列出写进 `~/.codex/config.toml` 的这 10 张审批表", readme)
+
+    def test_readme_commands_use_the_installed_plugin_directory(self):
+        # install-docs-accuracy D179 (review item 4): a user who installed the plugin has no plugins/agent-relay/.
+        readme = (PLUGIN_ROOT.parents[1] / "README.md").read_text(encoding="utf-8")
+        user_part = readme.split("## 开发与 CI", 1)[0]
+        self.assertNotIn("plugins/agent-relay/hooks/", user_part)
+        self.assertIn("### 找到插件目录", user_part)
+        self.assertIn("<插件目录>/hooks/state_migration.py", user_part)
+        self.assertIn("claude plugin list --json", user_part)
+        self.assertIn("codex plugin list --json", user_part)
 
     def test_operator_surfaces_are_explicit_and_history_preserving(self):
         for path in (OPS_SKILL, OPS_COMMAND):

@@ -135,6 +135,7 @@ test("an offset past the body is an error; an expired message read by id says it
     const past = await a.call("bridge_inbox", { agent: "bob", messageId: id, bodyOffset: 11 });
     assert.equal(past.ok, false);
     assert.match(past.text, /bodyOffset 11 is past the end of message #\d+ \(10 characters\)/);
+    assert.doesNotMatch(past.text, /undefined/);
 
     const stale = (await a.call("bridge_send", { from: "alice", to: "bob", body: "too late" })).json().id;
     const store = new BridgeStore(join(dir, "bridge.sqlite"));

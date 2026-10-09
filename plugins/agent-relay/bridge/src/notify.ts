@@ -1,6 +1,6 @@
 // agent-relay codex-gated-wake D67: tell the user on this Mac when a Codex message cannot be delivered, once per message.
 import { execFile } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
 
 /** A Codex recipient that is merely busy is notified only after this long (the user's choice, 2026-10-08). */
@@ -105,7 +105,7 @@ export function waitingEpisode(mailboxPath: string, sessionId: string, waiting: 
   now: () => number = Date.now): string | null {
   if (!isAbsolute(mailboxPath)) return null;
   const marks = join(dirname(mailboxPath), "notified");
-  const file = join(marks, `episode-${sessionId.replace(/[^A-Za-z0-9._-]/g, "_")}`);
+  const file = join(marks, episodeFile(sessionId));
   try {
     if (!waiting) {
       rmSync(file, { force: true });
@@ -119,6 +119,27 @@ export function waitingEpisode(mailboxPath: string, sessionId: string, waiting: 
     return /^\d+$/.test(start) ? start : null;
   } catch {
     return null;
+  }
+}
+
+const episodeFile = (sessionId: string) => `episode-${sessionId.replace(/[^A-Za-z0-9._-]/g, "_")}`;
+
+/**
+ * agent-relay install-docs-accuracy D180: a session whose message was handled leaves the waiting list, so nothing sees
+ * its episode end; remove the episode marks of every session not in `waiting` (the sessions that still have one).
+ * Marks younger than ten minutes stay: another bridge may have just started one for a message this list missed.
+ */
+export function pruneWaitingEpisodes(mailboxPath: string, waiting: Iterable<string>, now = Date.now()): void {
+  if (!isAbsolute(mailboxPath)) return;
+  const marks = join(dirname(mailboxPath), "notified");
+  const keep = new Set([...waiting].map(episodeFile));
+  let names: string[];
+  try { names = readdirSync(marks); } catch { return; }
+  for (const name of names) {
+    if (!name.startsWith("episode-") || keep.has(name)) continue;
+    try {
+      if (now - statSync(join(marks, name)).mtimeMs >= 10 * 60_000) rmSync(join(marks, name), { force: true });
+    } catch { /* removed meanwhile */ }
   }
 }
 

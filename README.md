@@ -54,6 +54,19 @@ codex plugin add agent-relay@agent-relay-marketplace
 2. 接入宿主：给 Claude Code 注册用户级 MCP 服务 `agent-relay`，或在 Codex 配置里追加 `[mcp_servers.agent_relay]`。
    已经打开的会话需要重启才能看到。
 
+### 找到插件目录
+
+下文的命令都写成 `<插件目录>/hooks/…`。插件目录是宿主实际加载的那份插件（从 GitHub 装的在宿主的插件缓存里，从本地克隆
+装的就是克隆里的 `plugins/agent-relay`），可以这样查：
+
+```bash
+claude plugin list --json | python3 -c 'import json,sys; ps=[p for p in json.load(sys.stdin) if p.get("id","").startswith("agent-relay@") and p.get("enabled")]; p=next((p for p in ps if p.get("scope")=="user"), ps[0] if ps else {}); print(p.get("readFromFolder") or p.get("installPath") or "")'
+codex plugin list --json | python3 -c 'import json,sys; print(next((p["source"]["path"] for p in json.load(sys.stdin).get("installed",[]) if p.get("name")=="agent-relay" and p.get("enabled") and (p.get("source") or {}).get("path")), ""))'
+```
+
+第一条用于 Claude Code，第二条用于 Codex；两个都装了时，任选一个打印出来的目录即可。让 agent 去做时不用管这一步，
+技能会自己找到插件目录。
+
 ### 换一个状态目录
 
 运行时、邮箱、委派记录和迁移备份默认都在 `~/.agent-relay/`。设置环境变量 `AGENT_RELAY_HOME`（必须是绝对路径，
@@ -75,7 +88,7 @@ codex plugin add agent-relay@agent-relay-marketplace
 - “刚才那条消息怎么样了”“等它回复” → 按消息编号查状态，或一直等到它被确认、回复、失败或过期
   （`bridge_wake_status` / `bridge_wait` 带 `messageId`，等待时不替谁确认消息）。
 - 第一次在 Claude Code 里用，每个信箱工具都会弹一次确认（`mailbox-polish`）：想一次性放行，运行
-  `python3 -B plugins/agent-relay/hooks/native_collaboration_adapters.py claude-allow-rules`，把它打印的 10 条精确规则加进
+  `python3 -B <插件目录>/hooks/native_collaboration_adapters.py claude-allow-rules`（见“找到插件目录”），把它打印的 10 条精确规则加进
   `~/.claude/settings.json` 的 `permissions.allow`（加不加由你决定，agent-relay 不会改这个文件；Codex 已在安装时预先放行）。
   另外，Claude Code 第一次打开一个项目时的信任弹窗**默认选中的是 “No, exit”**，直接回车会退出，要先选到 “Yes”。
 - 长消息（`long-messages`）：发送结果只回编号和长度，不回显正文；收件方一页读不完时，结果里的 `continue` 行写明下一次
@@ -94,7 +107,12 @@ codex plugin add agent-relay@agent-relay-marketplace
   内容，不构成任何授权。**风险**：Codex 用“帮我批准”、Claude 用 auto 模式时，被唤醒那一轮的操作由该会话的自动审查或
   分类器来批，不一定经过你本人——这是你给那个会话选的模式。`install-codex` 给 10 个信箱工具写了
   `approval_mode = "approve"`，所以读信、回复、确认不弹卡（已安装的用 `install-codex --approve-mailbox-tools` 补上）。
+  执行时会列出写进 `~/.codex/config.toml` 的这 10 张审批表（`[mcp_servers.agent_relay.tools.<工具>]`），补的时候只列补上的。
   旧版本在信箱目录留下的 `codex-gate.off` 已不再使用，可以删掉（agent-relay 不会替你删）。
+- **Bypass 模式的 Claude 会话收不到唤醒**：Claude 会话处于 Bypass permissions 时，Claude Code 会把别的会话发来的提醒
+  扣下等你批准；桌面应用里没有批准入口，提醒会过期。绑定唤醒本身不受影响，但要真正唤醒，需要你自己把 Claude Code 的
+  `crossSessionInbound` 设为 `"accept"`，或换一个权限模式。详见
+  [BACKGROUND-WAKE.md](plugins/agent-relay/bridge/docs/BACKGROUND-WAKE.md)“Why Claude pings expire”。agent-relay 不会替你改。
 - **会话在等你授权时会告诉你**（`presence-and-approval`）：会话目录（`bridge_agents`，或问任意会话“有哪些会话”）会写明
   每个会话是运行中、已停止、等待授权、等待输入还是未知；给一个等授权或已停止的会话发消息时，发件方会收到提示。
   某个 Claude 会话卡在授权弹窗上、而发给它的消息还没处理时，这台 Mac 上会弹一条通知“某会话在等你授权”，同一次等待只
@@ -157,8 +175,8 @@ skill 名使用协作；未安装时 Spec Guard 的工作流照常运行，只�
 让 agent 走 `collaboration-ops` 的迁移步骤，或自己运行：
 
 ```bash
-python3 -B plugins/agent-relay/hooks/state_migration.py detect
-python3 -B plugins/agent-relay/hooks/state_migration.py migrate --confirm
+python3 -B <插件目录>/hooks/state_migration.py detect
+python3 -B <插件目录>/hooks/state_migration.py migrate --confirm
 ```
 
 - `detect` 只读，列出旧数据的数量和挡住迁移的原因：还没结束的委派、仍在运行的旧信箱服务（先关掉或重启那些会话）、
@@ -177,7 +195,7 @@ python3 -B plugins/agent-relay/hooks/state_migration.py migrate --confirm
 ## 升级运行时
 
 插件更新带来新版 bridge 时，`status` 会报告 `bridge.current: false`。agent 会先问你，在你关掉所有正在用信箱的
-会话后再执行 `native_collaboration_runtime.py upgrade --confirm`：先把邮箱备份到 `~/.agent-relay/backups/<时间>/`，
+会话后再执行 `<插件目录>/hooks/native_collaboration_runtime.py upgrade --confirm`：先把邮箱备份到 `~/.agent-relay/backups/<时间>/`，
 在旁边装好新版，把 `mailbox/` 和 `data/` 挪过去再整体替换，核对通过才算完成，失败会自动换回。旧目录
 `runtime.previous-<时间>` 保留，确认无误后由你删除；宿主接入不用动。新版 bridge 会把邮箱升级到 schema 5（从 schema 2 一次升到位，升级前自动备份）：
 回到旧运行时还能打开它，但旧版 agent-relay 插件只认 schema 2（到 4），所以回滚时要连插件一起回滚，或者用备份恢复邮箱
@@ -190,10 +208,10 @@ python3 -B plugins/agent-relay/hooks/state_migration.py migrate --confirm
   自己）。升级完成后，Claude Code 会话重开即可；ChatGPT 应用要 ⌘Q 完全退出再打开，否则已经打开的 Codex 线程会一直报
   “Transport closed”。
 
-- **回滚**：同样关掉所有会话后执行 `native_collaboration_runtime.py rollback --confirm`，回到最新的
+- **回滚**：同样关掉所有会话后执行 `<插件目录>/hooks/native_collaboration_runtime.py rollback --confirm`，回到最新的
   `runtime.previous-<时间>`，信箱和数据一起带过去；先备份信箱，当前版本保留为 `runtime.rolled-back-<时间>`。
 - **中途被打断**：升级、重装或回滚半路停下（进程被杀、断电），`~/.agent-relay/runtime-swap.json` 会留下记录，`status` 报
-  `interrupted`，doctor 判为 fail，其他命令拒绝执行。关掉所有会话后执行 `native_collaboration_runtime.py recover --confirm`：
+  `interrupted`，doctor 判为 fail，其他命令拒绝执行。关掉所有会话后执行 `<插件目录>/hooks/native_collaboration_runtime.py recover --confirm`：
   一律回到切换前的运行时（不往前补完），没换成的那份保留为 `.runtime-<类型>-failed-<时间>`。之后可以再升级一次。
 - `runtime.previous-*`、`runtime.rolled-back-*`、`.runtime-*-failed-*` 都不会自动删除，确认无误后由你删。
 
@@ -202,8 +220,8 @@ python3 -B plugins/agent-relay/hooks/state_migration.py migrate --confirm
 完整卸载按下面的顺序做（`collaboration-ops` skill 会逐步先问你），消息历史默认保留：
 
 1. 关掉所有正在用信箱的会话（Claude 这一步要关掉**所有** Claude Code 会话，见第 3 步）。
-2. `native_collaboration_runtime.py doctor`：看清当前接入了哪些宿主。
-3. 移除宿主配置：`native_collaboration_adapters.py uninstall-codex --confirm-uninstall` 和
+2. `<插件目录>/hooks/native_collaboration_runtime.py doctor`：看清当前接入了哪些宿主。
+3. 移除宿主配置：`<插件目录>/hooks/native_collaboration_adapters.py uninstall-codex --confirm-uninstall` 和
    `uninstall-claude --confirm-uninstall`。
    - 每次写宿主配置（安装和卸载都算）之前，都会先把要改的文件复制到
      `~/.agent-relay/backups/<UTC 时间>/host-config/`，并打印路径。这些副本可能含 MCP 的 API key 等凭据，
@@ -215,7 +233,7 @@ python3 -B plugins/agent-relay/hooks/state_migration.py migrate --confirm
      时，只移除条目、保留 7 条规则：开着的旧版会话会按新设置重新过滤它缓存的工具列表，规则一删就会露出已删除的
      worker 工具。所以这一步由你在**关掉所有 Claude Code 会话之后、在终端里**执行；从任何 Claude
      会话里跑（包括让 agent 代跑）都会保留规则，并打印可以照抄的终端命令。
-4. 移除运行时：`native_collaboration_runtime.py uninstall --confirm`。只删构建产物，`mailbox/`（消息历史和备份）
+4. 移除运行时：`<插件目录>/hooks/native_collaboration_runtime.py uninstall --confirm`。只删构建产物，`mailbox/`（消息历史和备份）
    和 `data/` 保留；以后再 `install` 会围绕它们重建。
 5. 卸载插件：`claude plugin uninstall agent-relay@agent-relay-marketplace`；
    `codex plugin remove agent-relay@agent-relay-marketplace`。

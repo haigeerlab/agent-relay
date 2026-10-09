@@ -114,7 +114,15 @@ def approve_mailbox_tools(root: Path, node: Path, target: Path) -> str:
     if not missing:
         return "All mailbox tools are already approved for Codex; nothing changed."
     _atomic_write(target, existing.rstrip() + "\n\n" + mailbox_approvals(missing), mode)
-    return "%d mailbox tool approval(s) added for Codex; restart Codex to load them." % len(missing)
+    return ("%d mailbox tool approval(s) added for Codex; restart Codex to load them.\n%s"
+            % (len(missing), approvals_written(target, missing)))
+
+
+def approvals_written(target: Path, tools=MAILBOX_TOOLS) -> str:
+    """install-docs-accuracy D178: name exactly the approval tables written, where, and what they allow."""
+    return ("Written to %s: these mailbox tools run without an approval card in Codex (they only read and write the "
+            "mailbox; anything else follows the task's own settings):\n%s"
+            % (target, mailbox_approvals(tools).rstrip()))
 
 
 def install_codex_config(root: Path, node: Path, target: Path) -> None:
@@ -205,7 +213,8 @@ def print_claude_allow_rules() -> int:
     """Print the one-time approval lines; write nothing. Adding them is the user's choice."""
     rules = claude_allow_rules()
     print("To stop Claude Code asking about each mailbox tool, the user may add these %d rules to "
-          "permissions.allow in ~/.claude/settings.json (agent-relay never edits that file):" % len(rules))
+          "permissions.allow in ~/.claude/settings.json (agent-relay adds no allow rules there; its "
+          "uninstall-claude only removes the deny rules agent-relay 0.4.0 or earlier wrote):" % len(rules))
     print(json.dumps({"permissions": {"allow": rules}}, indent=2))
     return 0
 
@@ -287,7 +296,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             result = approve_mailbox_tools(args.root, args.node, args.codex_config)
         elif args.host == "install-codex":
             install_codex_config(args.root, args.node, args.codex_config)
-            result = "Native Codex MCP configuration installed; restart Codex to load it."
+            result = ("Native Codex MCP configuration installed; restart Codex to load it.\n"
+                      + approvals_written(args.codex_config))
         elif args.host == "uninstall-codex":
             state = remove_codex_table(args.codex_config, codex_fragment(args.root, args.node),
                                        CODEX_SERVER_NAME)
