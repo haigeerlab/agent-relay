@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -55,6 +56,9 @@ def _targets(tool: str, tool_input: dict, root: Path) -> list[Path] | None:
     # the path (`../x`) or name an absolute place.
     pattern = tool_input.get("pattern")
     if not isinstance(pattern, str):
+        return None
+    # Review of #64: a `..` after a wildcard (`**/../../x`) is not in the directory part checked below; refuse any.
+    if ".." in re.split(r"[/\\]", pattern):
         return None
     part = _glob_base(os.path.expanduser(pattern))
     reach = (Path(part) if os.path.isabs(part) else base / part).resolve()

@@ -71,6 +71,11 @@ class ScopeHookTests(unittest.TestCase):
             with self.subTest(event=event["tool_input"]):
                 self.assertEqual(self.decide(event), "allow")
         self.assertEqual(self.decide(self.event("Glob", path="docs", pattern=7)), "deny")
+        # Review of #64: a `..` after a wildcard is outside what the directory part shows, so any `..` is refused.
+        for pattern in ("**/../../other.txt", "*/../../other.txt", "docs/**/../x.md", "..\\other.txt"):
+            with self.subTest(pattern=pattern):
+                self.assertEqual(self.decide(self.event("Glob", path="docs", pattern=pattern)), "deny")
+                self.assertEqual(self.decide(self.event("Glob", pattern=pattern), scope=(".",)), "deny")
 
     def test_a_scope_of_the_project_root_allows_project_wide_search(self):
         self.assertEqual(self.decide(self.event("Grep", pattern="x"), scope=(".",)), "allow")

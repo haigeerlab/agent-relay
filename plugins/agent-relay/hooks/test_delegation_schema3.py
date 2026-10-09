@@ -74,6 +74,28 @@ class SchemaThreeTests(DelegationTestCase):
         self.assertEqual(copy.stat().st_mtime_ns, before, "a second open is a no-op")
         self.assertEqual(self.version(database), 3)
 
+    def test_a_copy_left_broken_by_a_crash_is_made_again(self):
+        # Review of #64: a crash after creating the copy but before the backup finished must not leave a bad copy that
+        # later opens trust. The copy is written under a temporary name and renamed when complete; an existing copy
+        # that is not a sound schema-2 database is replaced.
+        import shutil
+        copy = self.root / session_delegation.SCHEMA_TWO_COPY
+        for broken in (b"", b"not a database"):
+            with self.subTest(broken=broken):
+                shutil.rmtree(self.root, ignore_errors=True)
+                self.schema_two_store()
+                copy.write_bytes(broken)
+                copy.chmod(0o600)
+                self.store()
+                self.assertEqual(self.version(copy), 2)
+                with sqlite3.connect(copy) as connection:
+                    self.assertEqual(connection.execute("PRAGMA quick_check").fetchone()[0], "ok")
+                    self.assertEqual(connection.execute("SELECT friendly_name FROM delegations").fetchall(),
+                                     [("pwa-cc",)])
+                self.assertEqual(stat.S_IMODE(copy.stat().st_mode), 0o600)
+        self.assertEqual(sorted(p.name for p in self.root.iterdir() if "schema2" in p.name),
+                         [session_delegation.SCHEMA_TWO_COPY], "no temporary copy is left behind")
+
     def test_an_interrupted_migration_leaves_schema_two_and_reruns(self):
         database = self.schema_two_store()
         original = session_delegation._add_schema_three_columns

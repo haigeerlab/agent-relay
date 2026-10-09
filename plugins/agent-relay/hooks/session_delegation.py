@@ -376,6 +376,20 @@ def _delegation_row_is_valid(row: sqlite3.Row) -> bool:
     )
 
 
+def _sound_schema_two_copy(path: Path) -> bool:
+    """The pre-migration copy exists as a private regular file holding an intact schema-2 database."""
+    try:
+        metadata = path.lstat()
+        if (stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode)
+                or metadata.st_uid != os.getuid() or stat.S_IMODE(metadata.st_mode) != 0o600):
+            return False
+        with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)) as copy:
+            return (copy.execute("PRAGMA user_version").fetchone()[0] == 2
+                    and copy.execute("PRAGMA quick_check").fetchone()[0] == "ok")
+    except (OSError, sqlite3.Error):
+        return False
+
+
 def _stored_scope(raw: str) -> tuple[str, ...] | None:
     """A stored scope: a JSON list of project-relative paths; None when it is not one."""
     try:
@@ -529,15 +543,23 @@ class DelegationStore:
             if connection.execute("PRAGMA user_version").fetchone()[0] != 2:
                 return
             copy = self.root / SCHEMA_TWO_COPY
-            if not (copy.exists() or copy.is_symlink()):
+            if not _sound_schema_two_copy(copy):
+                # Review of #64: written under a temporary name and renamed only when complete, so a crash midway
+                # never leaves a copy that looks finished; a broken one from an older crash is replaced.
+                partial = self.root / ("%s.partial-%d" % (SCHEMA_TWO_COPY, os.getpid()))
                 flags = os.O_CREAT | os.O_EXCL | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
                 try:
-                    os.close(os.open(copy, flags, 0o600))
-                except FileExistsError:
-                    pass  # another process is keeping it
-                else:
-                    with closing(sqlite3.connect(str(copy))) as target:
+                    partial.unlink()
+                except FileNotFoundError:
+                    pass
+                os.close(os.open(partial, flags, 0o600))
+                try:
+                    with closing(sqlite3.connect(str(partial))) as target:
                         connection.backup(target)
+                    os.replace(partial, copy)
+                finally:
+                    if partial.exists():
+                        partial.unlink()
             try:
                 connection.execute("BEGIN IMMEDIATE")
                 if connection.execute("PRAGMA user_version").fetchone()[0] != 2:
