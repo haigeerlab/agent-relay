@@ -19,7 +19,7 @@ class NativeCollabEntryTests(unittest.TestCase):
     def test_current_session_wake_binding_is_verified(self):
         text = self.text()
         for phrase in (
-            "默认 `wake: null`", "明确要求", "自动批准", "bridge_sessions",
+            "默认 `wake: null`", "明确要求", "任何权限模式", "bridge_sessions",
             "thisSession", "CODEX_THREAD_ID", "不能替另一个会话注册",
         ):
             self.assertIn(phrase, text)

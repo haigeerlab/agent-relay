@@ -87,12 +87,12 @@ run `recover --confirm`, which always returns to the runtime from before the swa
 by hand and never delete `runtime.previous-*`, `runtime.rolled-back-*` or `.runtime-*-failed-*` yourself.
 After an upgrade that brings `identity-check`, tell the user: each session must register its name once more before it
 sends (that records its host; from then on a Claude session keeps its names across bridge restarts, while a Codex
-session re-registers with its own thread id after each restart). After an upgrade that brings `codex-gated-wake`, an
-auto-approved Codex session (帮我批准) can bind wake: every woken turn runs with the user as approver, on-request and
-a read-only sandbox, and asks before acting. Existing Codex entries get the mailbox-tool approvals (read and reply
-without a card) with `native_collaboration_adapters.py install-codex --approve-mailbox-tools` after the user agrees.
-Codex pings are held when the ChatGPT app is older than 26.930 or `mailbox/codex-gate.off` exists (a woken turn did not
-show the gate); the user checks Codex and deletes that file. Never edit `~/.codex/config.toml`.
+session re-registers with its own thread id after each restart). After an upgrade that brings `wake-any-mode`, a
+session in any permission mode can bind wake, and a woken turn runs under that session's own settings: the bridge no
+longer switches woken Codex turns to user approval and a read-only sandbox. Existing Codex entries get the mailbox-tool
+approvals (read and reply without a card) with `native_collaboration_adapters.py install-codex --approve-mailbox-tools`
+after the user agrees. A `mailbox/codex-gate.off` left by an older bridge is no longer used; tell the user they may
+delete it, and never delete it yourself. Never edit `~/.codex/config.toml`.
 
 ```bash
 python3 -B "$ROOT/hooks/native_collaboration_runtime.py" install

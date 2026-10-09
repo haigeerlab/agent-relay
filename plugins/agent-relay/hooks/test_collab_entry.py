@@ -43,11 +43,13 @@ class CollabEntryContractTest(unittest.TestCase):
         ):
             self.assertIn(phrase, text)
 
-    def test_wake_requires_opt_in_and_auto_approval_never_binds(self):
+    def test_wake_requires_opt_in_and_binds_in_any_permission_mode(self):
+        # wake-any-mode D142, D143: opt-in still required; any mode binds; the session's own settings govern the turn.
         text = self.skill_text()
         self.assertLess(text.index("默认 `wake: null`"), text.index("明确要求"))
-        self.assertIn("自动批准", text)
-        for phrase in ('wake: "auto"', '{app: "codex", sessionId:'):
+        self.assertNotIn("未开启自动批准", text)
+        for phrase in ('wake: "auto"', '{app: "codex", sessionId:', "任何权限模式", "自己的权限设置决定",
+                       "不改、不降", "不构成任何授权", "不一定经过用户本人"):
             self.assertIn(phrase, text)
 
     def test_directory_and_name_resolution_are_truthful(self):
