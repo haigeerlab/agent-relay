@@ -106,3 +106,41 @@ test("the approval notice names the session and the sender and offers no action"
     assert.doesNotMatch(fields.body, /approve|allow|click/i);
   }
 });
+
+test("without statusUpdatedAt each waiting episode is still told once, across every bridge on the mailbox", async () => {
+  // agent-relay presence-polish D175: Claude Code may not write statusUpdatedAt; the episode then starts when a bridge
+  // first sees the session waiting, recorded next to the notice marks so every bridge uses the same key.
+  const { store, lines, env } = setup();
+  let presence: Presence = { state: "waiting-approval", detail: "permission prompt" };
+  const options = { env, deliver: async () => ({ state: "unknown" as const, detail: "test" }),
+    presenceOf: async () => presence };
+  const first = new WakeDispatcher(store, options);
+  const second = new WakeDispatcher(store, options);
+  store.send({ fromAgent: "sender", toAgent: "cc", body: "please review" });
+
+  await first.checkApprovals();
+  await second.checkApprovals();
+  await first.checkApprovals();
+  assert.equal(lines().length, 1, "one episode, two bridges: one notice");
+
+  presence = { state: "running" };
+  await second.checkApprovals();
+  presence = { state: "waiting-approval", detail: "permission prompt" };
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  await first.checkApprovals();
+  await second.checkApprovals();
+  assert.equal(lines().length, 2, "a new episode is told again");
+
+  // The session leaves the list once its message is handled, so nothing ends the episode there; a later message that
+  // waits is still told.
+  const [waitingNow] = store.claudeWaiting();
+  store.ack("cc", [waitingNow.messageId]);
+  await first.checkApprovals();
+  store.send({ fromAgent: "sender", toAgent: "cc", body: "one more" });
+  await first.checkApprovals();
+  await second.checkApprovals();
+  assert.equal(lines().length, 3, "a new message waiting is told once");
+  await first.close();
+  await second.close();
+  store.close();
+});
