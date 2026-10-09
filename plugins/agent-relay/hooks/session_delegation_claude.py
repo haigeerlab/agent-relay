@@ -62,6 +62,18 @@ _IDLE_STATES = frozenset(("blocked", "done", "running", "active", "working"))
 def _host_idle(session: "ClaudeSession") -> bool:
     """The one rule for "this Claude target is idle", shared by status and continue."""
     return session.status == "idle" and session.state in _IDLE_STATES
+
+
+# Statuses a stopped target reports; resuming it is the only way to give it a turn.
+_STOPPED_STATUSES = frozenset(("stopped", "exited", "failed", "done"))
+
+
+def _host_stopped(session: "ClaudeSession") -> bool:
+    """claude-delegation-realhost D181: the one rule for "this Claude target is stopped". Claude Code 2.1.295 lists a
+    session it stopped as state "done" with no status and no pid (measured 2026-10-10); a "done" entry with a live pid
+    is an idle session, which `_host_idle` covers."""
+    return (session.state in ("stopped", "exited", "failed")
+            or (session.state == "done" and session.pid is None))
 _ANSI = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\)|[78])")
 
 
@@ -748,8 +760,9 @@ class ClaudeAdapter:
         if claim.state in ("created", "running"):
             observed = self.status(delegation_id)
             claim = self.store.get_delegation(delegation_id)
+            # D181: a stopped target gets the re-send too, by resume (an idle one by wake).
             if (claim.state == "created" and observed.prerequisite == "mailbox-registration-missing"
-                    and observed.host_status == "idle"):
+                    and (observed.host_status == "idle" or observed.host_status in _STOPPED_STATUSES)):
                 return self._resend_registration(claim, envelope, permission, prompt)
             if claim.state != "completed":
                 return ClaudeRunResult(
@@ -795,7 +808,7 @@ class ClaudeAdapter:
                 "held", claim.host_ref, claim.host_session_ref,
                 prerequisite="target-status-unknown",
             )
-        if not _host_idle(session):
+        if not (_host_idle(session) or _host_stopped(session)):
             return ClaudeRunResult(
                 "held", claim.host_ref, claim.host_session_ref,
                 host_status=session.status, prerequisite="target-busy",
@@ -849,7 +862,7 @@ class ClaudeAdapter:
                     "unknown", claim.host_ref, claim.host_session_ref, turn_ref)
             session = ClaudeSession(
                 session.host_ref, session.session_ref, "stopped", "stopped", None)
-        if session.state not in ("stopped", "exited", "failed"):
+        if not _host_stopped(session):
             return ClaudeRunResult(
                 "held", claim.host_ref, claim.host_session_ref,
                 host_status=session.status, prerequisite="target-status-unknown",

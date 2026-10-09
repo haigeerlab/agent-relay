@@ -1043,6 +1043,44 @@ class AdapterTests(unittest.TestCase):
         self.assertIn("ToolSearch", control)
         self.assertIn("Do not answer before", control)
 
+    def done_entry(self):
+        """claude-delegation-realhost D181: Claude Code 2.1.295's `agents --json --all` entry after `claude stop`,
+        verbatim in shape (the coordinator, 2026-10-10): state "done", no status, no pid."""
+        return {"id": "ce5b9501", "cwd": str(self.project.resolve()), "kind": "background",
+                "startedAt": 1791567882687, "sessionId": "ce5b9501-0817-479d-886e-772bafbbee6f",
+                "name": "agent-relay-" + self.claim.delegation_id[:8], "state": "done"}
+
+    def test_a_done_session_without_a_pid_is_resumed_with_its_launch_limits(self):
+        self.complete_claim()
+        runner = ScriptedRunner([
+            completed(json.dumps([self.done_entry()])),
+            completed("backgrounded · ce5b9501 · test\n"),
+            completed(json.dumps([self.entry(state="running", status="working")])),
+        ])
+        result = self.adapter(runner).continue_turn(self.claim.delegation_id, "Check again")
+        self.assertEqual(result.state, "running", result)
+        resume = runner.calls[1][0]
+        self.assertEqual(resume[:4], [str(self.installation.binary), "--background", "--resume",
+                                      "ce5b9501-0817-479d-886e-772bafbbee6f"])
+        self.assertIn("--permission-mode", resume)
+
+    def test_a_done_unregistered_target_gets_the_registration_resent_by_resume(self):
+        self.adapter(self.runner_for_create()).create(self.claim.delegation_id, "Review")
+        done = completed(json.dumps([self.done_entry()]))
+        runner = ScriptedRunner([
+            done,  # status: exact entry
+            done,  # continue: exact entry
+            completed("backgrounded · ce5b9501 · test\n"),
+            completed(json.dumps([self.entry(state="running", status="working")])),
+        ])
+        result = self.adapter(runner, registration_probe=lambda *_args: False).continue_turn(
+            self.claim.delegation_id, "Again")
+        self.assertEqual((result.state, result.prerequisite), ("created", "registration-resent"), result)
+        resume = runner.calls[2][0]
+        self.assertEqual(resume[:3], [str(self.installation.binary), "--background", "--resume"])
+        self.assertIn("call bridge_register", resume[-1])
+        self.assertFalse(any(command[1:2] == ["stop"] for command, _ in runner.calls), "already stopped")
+
     def test_continue_resends_the_envelope_once_to_an_idle_unregistered_target(self):
         idle = self.unregistered_created_claim()
         runner = ScriptedRunner([
