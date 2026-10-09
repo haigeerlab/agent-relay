@@ -213,13 +213,10 @@ test("names are cleaned and cut at 40 characters, and the title and subtitle nev
   assert.doesNotMatch(fields.title + fields.subtitle, /[\u0000-\u001f]/);
 });
 
-test("notify-preview.off restores the D67 form with no message content; the gate-off notice keeps its text", async () => {
+test("notify-preview.off restores the D67 form with no message content", async () => {
   const off = noticeFields({ ...base, body: "secret body" }, { preview: false });
   assert.deepEqual(off, { title: "agent-relay", subtitle: "",
     body: '"sender" gave Codex work: message #7 to "cx" (Codex is not running; the message waits).' });
-  const gate = noticeFields({ ...base, key: "gate-t1", event: "gate-off", why: "gated Codex wake is off" }, { preview: true });
-  assert.equal(gate.title, "agent-relay · gated Codex wake off");
-  assert.equal(gate.body, '"sender" gave Codex work: message #7 to "cx" (gated Codex wake is off).');
 
   const { dir, store, log, lines } = setup();
   writeFileSync(join(dir, "notify-preview.off"), "");
@@ -235,10 +232,10 @@ test("notify-preview.off restores the D67 form with no message content; the gate
 
 test("the reason stays in the subtitle, cut at 80 characters (D89a)", () => {
   assert.equal(REASON_CHARS, 80);
-  const act = "gated Codex wake is off; check Codex, then delete codex-gate.off next to the mailbox";
+  const act = "Codex has been busy for ten minutes; the message still waits in the mailbox for its next turn";
+  assert.ok(Array.from(act).length > 80);
   const fields = noticeFields({ ...base, why: act, body: "work" }, { preview: true });
   assert.equal(fields.subtitle, `#7 · cx · ${Array.from(act).slice(0, 80).join("").trimEnd()}…`);
-  assert.match(fields.subtitle, /delete codex-gate\.off/, "the instruction survives the cut");
-  const gate = noticeFields({ ...base, event: "gate-off", why: "w", body: "work" }, { preview: true });
-  assert.equal(gate.subtitle, "#7 · cx");
+  const short = noticeFields({ ...base, why: "w", body: undefined }, { preview: true });
+  assert.equal(short.subtitle, "#7 · cx");
 });

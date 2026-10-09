@@ -1,8 +1,8 @@
 """install-codex pre-approves the mailbox tools for Codex (codex-gated-wake D70).
 
-A woken Codex turn runs under the user's approval gate (D65); the ten mailbox tools only read and write the mailbox,
-so their `approval_mode = "approve"` subtables let Codex read and reply without a card, while any execution still
-meets the read-only sandbox. Existing installs add them with `--approve-mailbox-tools`. Nothing goes to ~/.codex/rules.
+The ten mailbox tools only read and write the mailbox, so their `approval_mode = "approve"` subtables let Codex read
+and reply without a card; anything else a woken turn does follows the task's own settings (wake-any-mode D140).
+Existing installs add them with `--approve-mailbox-tools`. Nothing goes to ~/.codex/rules.
 """
 import io
 import json

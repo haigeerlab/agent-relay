@@ -26,8 +26,6 @@ export interface WakeResult {
   state: "pending" | "accepted" | "held" | "refused" | "unknown";
   detail: string;
   reason?: PendingReason;
-  /** agent-relay codex-gated-wake D66: the turn Codex started, for the after-turn check. */
-  turnId?: string;
 }
 export interface WakeJob {
   id: number;

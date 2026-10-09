@@ -85,7 +85,6 @@ class DoctorTests(unittest.TestCase):
                        claude_sessions=self.sessions,
                        probe=lambda _root: {"state": "ready", "toolCount": 17},
                        processes=lambda: self.processes, alive=lambda pid: pid in self.alive,
-                       codex_app_version=lambda: "26.930.61225",
                        notification_prefs=lambda: prefs(SCRIPT_EDITOR_ALLOWED), platform="darwin",
                        node_selector=lambda *a, **k: SelectedNode(NODE, "claude-entry", "v24.18.0"),
                        notifier_candidates=())
@@ -122,25 +121,25 @@ class DoctorTests(unittest.TestCase):
         self.assertIn("reviewer: 1", self.find(report, "mailbox")["detail"], "uncheckpointed WAL rows are seen")
         self.assertEqual({path: (path.stat().st_mtime_ns, path.read_bytes()) for path in files}, before)
 
-    def test_an_old_chatgpt_app_or_a_turned_off_gate_warns(self):
-        # codex-gated-wake D66/D68.
+    def test_woken_codex_turns_run_under_their_own_settings(self):
+        # wake-any-mode D144 (replaces codex-gated-wake D68): no version threshold, and a codex-gate.off left by an
+        # older bridge is reported as unused, not as a warning.
         self.codex_config.write_text(codex_fragment(self.root, NODE))
-        for version in ("26.929.1", None):
-            with self.subTest(version=version):
-                check = self.find(self.run_doctor(codex_app_version=lambda: version), "codex-approval")
-                self.assertEqual(check["state"], "warn")
-                self.assertIn("26.930 or later", check["detail"])
-                self.assertIn("update the ChatGPT app", check["next"])
+        check = self.find(self.run_doctor(), "codex-approval")
+        self.assertEqual(check["state"], "ok", check)
+        self.assertIn("Woken peer turns run under the task's own approval and sandbox settings", check["detail"])
+        self.assertNotIn("26.930", check["detail"] + check["next"])
         off = self.root / "mailbox" / "codex-gate.off"
         off.write_text("turn t of thread: missing\n")
         check = self.find(self.run_doctor(), "codex-approval")
-        self.assertEqual(check["state"], "warn")
-        self.assertIn("gated Codex wake is off", check["detail"])
-        self.assertIn(str(off), check["next"])
+        self.assertEqual(check["state"], "ok", check)
+        self.assertIn("no longer used", check["detail"])
+        self.assertIn(str(off), check["detail"])
+        self.assertTrue(off.exists(), "doctor never deletes it")
 
-    def test_no_codex_entry_means_no_version_warning(self):
+    def test_no_codex_entry_is_ok(self):
         self.codex_config.write_text("")
-        check = self.find(self.run_doctor(codex_app_version=lambda: None), "codex-approval")
+        check = self.find(self.run_doctor(), "codex-approval")
         self.assertEqual(check["state"], "ok", check)
 
     def test_warnings_name_the_problem_and_the_next_step(self):
@@ -154,7 +153,7 @@ class DoctorTests(unittest.TestCase):
         approval = self.find(report, "codex-approval")
         self.assertEqual(approval["state"], "ok", approval)
         self.assertIn("applies per turn and is not stored in config.toml", approval["detail"])
-        self.assertIn("Woken peer turns run read-only", approval["detail"])
+        self.assertIn("Woken peer turns run under the task's own approval and sandbox settings", approval["detail"])
         self.assertNotIn("请求批准", approval["detail"] + approval["next"])
         self.assertEqual(states["wake-bindings"], "warn")
         self.assertIn("waiting", self.find(report, "wake-bindings")["detail"])
@@ -403,7 +402,7 @@ class DoctorTests(unittest.TestCase):
             report = doctor(root, home=self.home, codex_config=self.codex_config, claude_json=self.claude_json,
                             claude_sessions=self.sessions,
                             probe=lambda _root: {"state": "ready", "toolCount": 17}, processes=lambda: [],
-                            alive=lambda pid: False, codex_app_version=lambda: "26.930",
+                            alive=lambda pid: False,
                             notification_prefs=lambda: None, platform="linux",
                             node_selector=lambda *a, **k: chosen)
             check = self.find(report, "toolchain")

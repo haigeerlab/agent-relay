@@ -193,7 +193,7 @@ function main(): void {
         throw new Error(`This session can bind wake only to this session (${caller.host.app}); it cannot bind another session.`);
       }
       // agent-relay codex-gated-wake D66 (replaces identity-check D38): an auto-approved Codex session may bind wake;
-      // every woken turn carries the approval gate (D65).
+      // since wake-any-mode D140 the woken turn runs under the task's own settings.
       // agent-relay acceptance-030-gaps D75/D75a: a Codex task may name its host without binding wake. The claim is
       // only recorded (for the D67 notice and the D77 waiting list); it never binds, proves or takes over anything.
       if (claimed && caller.host) {
