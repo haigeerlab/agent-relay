@@ -245,7 +245,7 @@ function main(): void {
         );
       }
       if (takeover && (ownerConflict || bindingConflict)) notes.push(`"${agent}" was taken over from another session.`);
-      if (wake !== undefined) store.wakes.bind(agent, target ?? null);
+      if (wake !== undefined) store.wakes.bind(agent, target ?? null, { replace: !!takeover && bindingConflict });
       const registered = store.register(agent, capabilities, takeover && ownerConflict ? host : host ?? undefined);
       caller.prove(agent);
       localAgents.splice(0, localAgents.length, ...localAgents.filter((name) => name !== agent), agent);
