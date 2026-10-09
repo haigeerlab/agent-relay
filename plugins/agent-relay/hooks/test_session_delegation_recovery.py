@@ -203,6 +203,23 @@ class RecoveryTests(unittest.TestCase):
         self.assertIn("Files read:", prompt)
         self.assertEqual(adapter.scopes[-1], ("README.md", "docs"), "the adapter gets the scope (D167)")
 
+    def test_a_friendly_name_resolves_to_the_mailbox_names_of_active_delegations(self):
+        # delegation-hygiene D168: read only; cancelled sessions and sessions with no mailbox name yet are left out.
+        from session_delegation_control import resolve_alias
+        controller, _adapter = self.controller(["created", "created", "created", "held"])
+        for key, name in (("alias-key-1", "pwa-cx"), ("alias-key-2", "pwa-cx"), ("alias-key-3", "other"), ("alias-key-4", "pwa-cx")):
+            controller.authorize_and_create(self.request(key=key), key + "-launch", name, "Review",
+                                            target_host="codex", permission_intent="safe-review")
+        live = [c for c in self.store.list_delegations() if c.friendly_name == "pwa-cx" and c.host_ref]
+        self.assertEqual(len(live), 2)
+        expected = sorted("pwa-cx-" + c.host_ref[:8] for c in live)
+        matches = resolve_alias(self.store, "pwa-cx")
+        self.assertEqual(sorted(m["agent"] for m in matches), expected, "the held one has no mailbox name yet")
+        self.assertTrue(all(m["host"] == "[Codex]" for m in matches))
+        self.store.advance(live[0].delegation_id, "cancelled", "host-cancelled")
+        self.assertEqual([m["agent"] for m in resolve_alias(self.store, "pwa-cx")], ["pwa-cx-" + live[1].host_ref[:8]])
+        self.assertEqual(resolve_alias(self.store, "nobody"), [])
+
     def test_native_delivery_states_and_retry_keys_are_stable(self):
         for observed, state, expected in (
             (False, "created", "pending"),

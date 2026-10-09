@@ -61,6 +61,30 @@ def review_scope(project: Path, scope: tuple[str, ...], permission_intent: str) 
     return tuple(normalized)
 
 
+def resolve_alias(store: DelegationStore, friendly_name: str) -> list[dict[str, str]]:
+    """delegation-hygiene D168: mailbox names of the non-cancelled delegations the user named `friendly_name`.
+
+    Read only. A Claude Code session registers `<name>-<delegation id[:8]>`, a Codex one `<name>-<thread id[:8]>`
+    (none until its thread exists), so only sessions with a known mailbox name are listed.
+    """
+    from session_delegation_claude import _internal_name as claude_name
+    from session_delegation_codex import _internal_name as codex_name
+
+    matches: list[dict[str, str]] = []
+    for claim in store.list_delegations():
+        if claim.friendly_name != friendly_name or claim.state == "cancelled":
+            continue
+        if claim.target_host == "claude":
+            agent = claude_name(claim.friendly_name, claim.delegation_id)
+        elif claim.host_ref:
+            agent = codex_name(claim.friendly_name, claim.host_ref)
+        else:
+            continue
+        matches.append({"agent": agent, "host": "[Claude Code]" if claim.target_host == "claude" else "[Codex]",
+                        "state": claim.state})
+    return matches
+
+
 def _with_scope(prompt: str, scope: tuple[str, ...]) -> str:
     if not scope:
         return prompt
@@ -776,6 +800,9 @@ def _parser() -> argparse.ArgumentParser:
     _add_runtime_arguments(parser)
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("list", help="list only delegated sessions using public facts")
+    resolve = subparsers.add_parser(
+        "resolve", help="read only: mailbox names of active delegated sessions with this friendly name (D168)")
+    resolve.add_argument("--name", required=True)
 
     permissions = subparsers.add_parser(
         "permissions", help="read-only Claude project permission preflight")
@@ -863,6 +890,9 @@ def main(argv: list[str] | None = None) -> int:
             payload = _permission_preflight(args)
         elif args.command == "list" and not args.state_root.exists():
             payload: object = []
+        elif args.command == "resolve":
+            payload = {"name": args.name, "matches": resolve_alias(DelegationStore(args.state_root), args.name)
+                       if args.state_root.exists() else []}
         elif args.command == "list":
             controller = SessionDelegationController(
                 DelegationStore(args.state_root),
