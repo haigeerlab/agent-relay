@@ -17,6 +17,17 @@
   - 未确认的一轮返回 `hostStatus: "unknown"` 和 `host-result-unknown`（以前把轮次编号填进了 `hostStatus`）；对
     `unknown` 记录续聊报 `delegation-state-unknown`，并说明下一步：先 cancel，再重新 create。
   - `prune --help` 写明 `--confirm ID,...` 只取消列出的 id。
+- **说清楚 Claude 实际用的是哪一份插件**（模块 `install-truth`，D184–D185，第二轮联调对 0.6.1 的真实验收 M1、L2、
+  L3、L5）：
+  - **实测（2026-10-10）**：Claude Code 新会话（桌面应用自带的 2.1.293 和命令行 2.1.295 都一样）加载克隆目录
+    （`readFromFolder`），没有它时才用缓存里的 `installPath`；`claude plugin list` 显示的版本号不代表实际加载的那份。
+    会话一直用它启动时那份，恢复（resume）的会话也是，所以更新后要**新开会话**。`claude plugin update` 不带
+    `--scope` 只更新当前目录那条项目级记录，用户级安装要用
+    `claude plugin update --scope user agent-relay@agent-relay-marketplace`。README 新增“更新插件”一节。
+  - **doctor 新增 `claude-plugin`**：只读，核对每个启用条目新会话会加载的那份副本的 `plugin.json` 版本，不一致时报 warn
+    并给出命令；没被加载的旧缓存副本只顺带列出（含已删除文件夹的项目记录，不替你清理）；没有 `claude` 时 skip。
+  - session-routing 列出每个选路字段允许的取值（与代码一致，有守护测试）；collab 给出 Claude 和 Codex 各一条可照抄的
+    `bridge_register` 调用；名字被已停止的会话占着时默认建议换名，只有用户要原名才 takeover。
 - **takeover 能换掉另一会话的唤醒绑定**（模块 `takeover-wake-rebind`，D186，2026-10-10 实测发现）：bridge 改动，
   **要用 `upgrade --confirm` 升级运行时才生效**（升级前先关掉所有会话，见 README 的升级说明）。
   - 以前名字已经绑定到另一个会话的唤醒时，`bridge_register` 带 `takeover: true` 和新的 `wake`（`"auto"` 或
@@ -82,6 +93,8 @@ spec 与计划见 #63、#65、#67，收尾 #69；三个模块 PR 都经第二轮
      副本），再 `codex plugin marketplace upgrade`，最后 `codex plugin add agent-relay@agent-relay-marketplace`。
    - 从本地克隆装的：**先把克隆更新到 v0.6.1**（`git -C <克隆> pull --ff-only`），Claude 无需其他操作，Codex 再执行一次
      `codex plugin add`。克隆没更新时，下一步的 `upgrade` 会拿旧版 bridge 比较，报 `current` 而什么也不做。
+   - **更正（0.6.2）**：Claude 这边还要**新开会话**才会用上新版，已经开着的、关掉应用重开的、恢复的会话都还用旧的那份；
+     从 GitHub 装的，`claude plugin update` 要加 `--scope user`，不加只更新当前目录那条项目级记录。见 README“更新插件”。
 2. **升级运行时**：关闭所有使用信箱的会话（所有 Claude Code 会话和 ChatGPT 应用），或按 README“升级运行时”只结束 bridge；
    在 macOS 自带的“终端”里确认 `pgrep -fl "agent-relay/runtime/dist/server.js"` 没有输出，再执行
    `python3 -B <插件目录>/hooks/native_collaboration_runtime.py upgrade --confirm`（插件目录见 README“找到插件目录”）。

@@ -160,5 +160,21 @@ class ExactArgumentTests(unittest.TestCase):
         self.assertIn("只有用户就是要这个原名", text)
 
 
+    def test_readme_and_changelog_say_how_the_claude_side_is_updated(self):
+        # install-truth D184 (measured 2026-10-10): a new session loads the clone itself for a clone install; a GitHub
+        # install needs both commands, `--scope user` for the user entry; open sessions keep their copy until restarted.
+        readme = (PLUGIN_ROOT.parents[1] / "README.md").read_text(encoding="utf-8")
+        section = readme[readme.index("## 更新插件"):readme.index("## 升级运行时")]
+        for text in ("claude plugin marketplace update agent-relay-marketplace",
+                     "claude plugin update --scope user agent-relay@agent-relay-marketplace",
+                     "桌面应用的 Code 标签页", "新开", "恢复", "doctor", "claude-plugin"):
+            self.assertIn(text, section)
+        changelog = (PLUGIN_ROOT.parents[1] / "CHANGELOG.md").read_text(encoding="utf-8")
+        unreleased = changelog[changelog.index("## [Unreleased]"):changelog.index("## [0.6.1]")]
+        self.assertIn("claude plugin update --scope user agent-relay@agent-relay-marketplace", unreleased)
+        released = changelog[changelog.index("## [0.6.1]"):changelog.index("## [0.6.0]")]
+        self.assertIn("更正（0.6.2）", released)
+
+
 if __name__ == "__main__":
     unittest.main()

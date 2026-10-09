@@ -531,7 +531,7 @@ class ClaudePluginCopyTests(unittest.TestCase):
     def test_every_loaded_copy_matching_is_ok_whatever_the_listing_version_says(self):
         result = self.check(self.listed(self.entry(self.clone, folder=self.clone, version="0.1.0")))
         self.assertEqual(result["state"], "ok", result)
-        self.assertIn("restart", result["detail"])
+        self.assertIn("even when resumed; only new sessions load the update", result["detail"])
 
     def test_with_read_from_folder_the_install_path_copy_is_not_loaded_and_only_noted(self):
         # Measured 2026-10-10 (Claude Code 2.1.293 desktop and 2.1.295 CLI, with and without a local-scope entry): a new
@@ -548,7 +548,7 @@ class ClaudePluginCopyTests(unittest.TestCase):
         self.assertEqual(result["state"], "warn", result)
         self.assertIn(str(self.cache_052) + " is 0.5.2 (user scope)", result["detail"])
         for text in ("claude plugin marketplace update agent-relay-marketplace",
-                     "claude plugin update --scope user agent-relay@agent-relay-marketplace", "restart"):
+                     "claude plugin update --scope user agent-relay@agent-relay-marketplace", "open new Claude sessions"):
             self.assertIn(text, result["next"])
 
     def test_local_scope_entries_sharing_a_loaded_copy_are_one_line_naming_their_projects(self):

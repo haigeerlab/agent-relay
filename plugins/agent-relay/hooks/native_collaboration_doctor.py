@@ -423,7 +423,10 @@ def _probe_outside(root: Path, node: str) -> dict[str, Any]:
 
 CLAUDE_PLUGIN_ID = "agent-relay@agent-relay-marketplace"
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
-RESTART = "restart open Claude sessions (the desktop Code tab included)"
+# The round-2 coordinator observed (2026-10-10) a session resumed after quitting and reopening the app still loading
+# the copy it first started with, so only a new session picks up an update.
+RESTART = "open new Claude sessions (the desktop Code tab included; quitting and reopening the app or resuming an old " \
+          "session keeps the copy that session started with)"
 
 
 def _copy_version(root: Path) -> str | None:
@@ -502,7 +505,7 @@ def _claude_plugin(listing: Callable[[], tuple[int, str] | None], expected: str 
         if version != expected:
             notes.append("%s (%s, %s) is not loaded while readFromFolder is set" % (
                 path, version or "unreadable", _plugin_users(using)))
-    restart = "sessions started before an update keep their copy until restarted"
+    restart = "a session started before an update keeps its copy, even when resumed; only new sessions load the update"
     if not stale:
         detail = f"every agent-relay copy Claude Code loads is {expected}; {restart}"
         return _check("claude-plugin", "ok", detail + ("; " + "; ".join(notes) if notes else ""))

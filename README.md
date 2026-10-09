@@ -192,6 +192,22 @@ python3 -B <插件目录>/hooks/state_migration.py migrate --confirm
 - 旧目录、宿主配置和权限文件一律不动；迁移后按提示接入新的宿主条目、用 Spec Guard 自己的卸载删掉旧条目，
   并把项目权限规则手动改成 `mcp__agent-relay__bridge_*`。旧目录确认无误后由你自己删除。
 
+## 更新插件
+
+Claude Code 会话在**启动时**定下用哪一份插件，之后一直用这一份：已经开着的会话、关掉应用后重新打开、恢复
+（resume）原来的会话，都还是旧的那份。更新插件后要**新开一个会话**（包括桌面应用的 Code 标签页）才会用上新版。
+（2026-10-10 在本机实测新会话加载的副本；“恢复的会话仍用旧副本”是协调方观测到的一例。）
+
+- **从本地克隆装的**：Claude 新会话直接读克隆目录，`git -C <克隆> pull --ff-only` 之后新开会话即可；Codex 再执行一次
+  `codex plugin add agent-relay@agent-relay-marketplace`。
+- **从 GitHub 装的**：先 `claude plugin marketplace update agent-relay-marketplace`，再
+  `claude plugin update --scope user agent-relay@agent-relay-marketplace`。不带 `--scope` 时这条命令只更新“当前目录”
+  那条项目级记录，不更新用户级安装（本机实测）。之后新开会话。
+
+`python3 -B <插件目录>/hooks/native_collaboration_runtime.py doctor` 的 `claude-plugin` 一项会核对新会话会加载的那份
+副本的版本（读副本里的 `plugin.json`，不看 `claude plugin list` 显示的版本），不一致时给出要执行的命令；
+没被加载的旧缓存副本只顺带列出。插件里带了新版 bridge 时，还要按下一节升级运行时。
+
 ## 升级运行时
 
 插件更新带来新版 bridge 时，`status` 会报告 `bridge.current: false`。agent 会先问你，在你关掉所有正在用信箱的
