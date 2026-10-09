@@ -88,7 +88,7 @@ class DoctorTests(unittest.TestCase):
                        processes=lambda: self.processes, alive=lambda pid: pid in self.alive,
                        notification_prefs=lambda: prefs(SCRIPT_EDITOR_ALLOWED), platform="darwin",
                        node_selector=lambda *a, **k: SelectedNode(NODE, "claude-entry", "v24.18.0"),
-                       notifier_candidates=())
+                       notifier_candidates=(), claude_plugins=lambda: (0, "[]"))
         options.update(overrides)
         return doctor(self.root, **options)
 
@@ -491,3 +491,96 @@ class DoctorTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ClaudePluginCopyTests(unittest.TestCase):
+    """install-truth D184: the version of every agent-relay copy Claude loads, read from its files."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="ar-claude-plugin-")
+        self.addCleanup(temporary.cleanup)
+        self.base = Path(temporary.name)
+        self.clone = self.copy("clone", "0.6.2")
+        self.cache_052 = self.copy("cache/0.5.2", "0.5.2")
+        self.cache_010 = self.copy("cache/0.1.0", "0.1.0")
+        self.project = self.base / "project"
+        self.project.mkdir()
+
+    def copy(self, name, version):
+        root = self.base / name
+        (root / ".claude-plugin").mkdir(parents=True)
+        (root / ".claude-plugin" / "plugin.json").write_text(json.dumps({"name": "agent-relay", "version": version}))
+        return root
+
+    def entry(self, install, *, scope="user", folder=None, version="0.1.0", enabled=True, project=None,
+              plugin="agent-relay@agent-relay-marketplace"):
+        item = {"id": plugin, "version": version, "scope": scope, "enabled": enabled, "installPath": str(install)}
+        if folder is not None:
+            item["readFromFolder"] = str(folder)
+        if project is not None:
+            item["projectPath"] = str(project)
+        return item
+
+    def check(self, listing, version="0.6.2"):
+        from native_collaboration_doctor import _claude_plugin
+        return _claude_plugin(lambda: listing, version)
+
+    def listed(self, *entries):
+        return (0, json.dumps(list(entries)))
+
+    def test_every_copy_matching_is_ok_whatever_the_listing_version_says(self):
+        result = self.check(self.listed(self.entry(self.clone, folder=self.clone, version="0.1.0")))
+        self.assertEqual(result["state"], "ok", result)
+
+    def test_the_measured_shape_warns_about_the_install_path_copy_with_both_commands(self):
+        result = self.check(self.listed(self.entry(self.cache_052, folder=self.clone, version="0.1.0")))
+        self.assertEqual(result["state"], "warn", result)
+        self.assertIn(str(self.cache_052) + " is 0.5.2", result["detail"])
+        self.assertNotIn(str(self.clone), result["detail"])
+        for text in ("claude plugin marketplace update agent-relay-marketplace",
+                     "claude plugin update agent-relay@agent-relay-marketplace", "restart"):
+            self.assertIn(text, result["next"])
+
+    def test_local_scope_entries_sharing_a_copy_are_one_line_naming_their_projects(self):
+        gone = self.base / "deleted-worktree"
+        result = self.check(self.listed(
+            self.entry(self.clone, folder=self.clone),
+            self.entry(self.cache_010, scope="local", folder=self.clone, project=self.project),
+            self.entry(self.cache_010, scope="local", folder=self.clone, project=gone)))
+        self.assertEqual(result["state"], "warn", result)
+        self.assertEqual(result["detail"].count(str(self.cache_010)), 1, result)
+        self.assertIn("local scope in 2 projects", result["detail"])
+        self.assertIn(str(self.project), result["detail"])
+        self.assertIn(str(gone) + " (folder gone)", result["detail"])
+
+    def test_a_copy_without_a_readable_version_warns(self):
+        missing = self.base / "cache" / "missing"
+        result = self.check(self.listed(self.entry(missing, folder=self.clone)))
+        self.assertEqual(result["state"], "warn", result)
+        self.assertIn(str(missing) + " has no readable version", result["detail"])
+
+    def test_disabled_entries_and_other_plugins_are_ignored(self):
+        result = self.check(self.listed(
+            self.entry(self.cache_010, enabled=False),
+            self.entry(self.cache_010, plugin="other@agent-relay-marketplace"),
+            self.entry(self.clone)))
+        self.assertEqual(result["state"], "ok", result)
+
+    def test_no_agent_relay_entry_is_ok_and_says_so(self):
+        result = self.check(self.listed())
+        self.assertEqual(result["state"], "ok", result)
+        self.assertIn("no enabled agent-relay", result["detail"])
+
+    def test_no_claude_or_an_unusable_listing_skips_with_the_reason(self):
+        for listing, reason in ((None, "claude not found"), ((1, ""), "exit 1"), ((0, "not json"), "not JSON"),
+                                ((0, "{}"), "not a list")):
+            with self.subTest(reason=reason):
+                result = self.check(listing)
+                self.assertEqual(result["state"], "skip", result)
+                self.assertIn(reason, result["detail"])
+
+    def test_a_skipped_check_does_not_change_the_overall_state(self):
+        from native_collaboration_doctor import _overall
+        self.assertEqual(_overall([{"state": "ok"}, {"state": "skip"}]), "ok")
+        self.assertEqual(_overall([{"state": "warn"}, {"state": "skip"}]), "warn")
+

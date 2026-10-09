@@ -13,6 +13,7 @@ import os
 import platform as python_platform
 from pathlib import Path
 import re
+import shutil
 import sqlite3
 import stat
 import subprocess
@@ -420,13 +421,99 @@ def _probe_outside(root: Path, node: str) -> dict[str, Any]:
         return probe_runtime(root, node=node, scratch=Path(scratch))
 
 
+CLAUDE_PLUGIN_ID = "agent-relay@agent-relay-marketplace"
+PLUGIN_ROOT = Path(__file__).resolve().parent.parent
+CLAUDE_UPDATE_STEPS = ("run `claude plugin marketplace update agent-relay-marketplace` and "
+                       "`claude plugin update agent-relay@agent-relay-marketplace`, then restart open Claude sessions "
+                       "(the desktop Code tab included)")
+
+
+def _copy_version(root: Path) -> str | None:
+    try:
+        version = json.loads((Path(root) / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))["version"]
+    except (OSError, ValueError, TypeError, KeyError):
+        return None
+    return version if isinstance(version, str) and version else None
+
+
+def _claude_plugin_list() -> tuple[int, str] | None:
+    binary = shutil.which("claude")
+    if binary is None:
+        return None
+    try:
+        completed = subprocess.run([binary, "plugin", "list", "--json"], capture_output=True, text=True, timeout=30,
+                                   stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.TimeoutExpired):
+        return (-1, "")
+    return completed.returncode, completed.stdout
+
+
+def _claude_plugin(listing: Callable[[], tuple[int, str] | None], expected: str | None) -> dict[str, str]:
+    """install-truth D184: Claude Code loads `installPath` (desktop Code tab) or `readFromFolder` (`claude --bg`), and
+    the listing's own `version` is not what those folders hold, so read every enabled copy's plugin.json."""
+    result = listing()
+    if result is None:
+        return _check("claude-plugin", "skip", "claude not found")
+    returncode, stdout = result
+    if returncode != 0:
+        return _check("claude-plugin", "skip", f"claude plugin list --json: exit {returncode}")
+    try:
+        entries = json.loads(stdout)
+    except ValueError:
+        return _check("claude-plugin", "skip", "claude plugin list --json: not JSON")
+    if not isinstance(entries, list):
+        return _check("claude-plugin", "skip", "claude plugin list --json: not a list")
+    users: dict[str, list[str]] = {}
+    for entry in entries:
+        if not (isinstance(entry, dict) and entry.get("id") == CLAUDE_PLUGIN_ID and entry.get("enabled") is True):
+            continue
+        scope = entry.get("scope") if isinstance(entry.get("scope"), str) else "unknown"
+        project = entry.get("projectPath")
+        user = scope + (":" + project if isinstance(project, str) and project else "")
+        for key in ("installPath", "readFromFolder"):
+            path = entry.get(key)
+            if isinstance(path, str) and path and user not in users.setdefault(path, []):
+                users[path].append(user)
+    if not users:
+        return _check("claude-plugin", "ok", "no enabled agent-relay plugin in Claude Code")
+    stale = []
+    for path, using in users.items():
+        version = _copy_version(Path(path))
+        if version is not None and version == expected:
+            continue
+        stale.append(("%s is %s" % (path, version) if version else path + " has no readable version")
+                     + " (" + _plugin_users(using) + ")")
+    if not stale:
+        return _check("claude-plugin", "ok", f"every enabled agent-relay copy Claude Code loads is {expected}")
+    return _check("claude-plugin", "warn", f"this plugin is {expected}; " + "; ".join(stale),
+                  CLAUDE_UPDATE_STEPS)
+
+
+def _plugin_users(using: list[str]) -> str:
+    scopes = sorted({user.split(":", 1)[0] for user in using if ":" not in user})
+    projects = [user.split(":", 1)[1] for user in using if ":" in user]
+    parts = [scope + " scope" for scope in scopes]
+    if projects:
+        named = [project + ("" if Path(project).exists() else " (folder gone)") for project in sorted(projects)]
+        scope = sorted({user.split(":", 1)[0] for user in using if ":" in user})
+        parts.append("%s scope in %d project%s: %s" % ("/".join(scope), len(projects),
+                                                       "" if len(projects) == 1 else "s", ", ".join(named)))
+    return "; ".join(parts)
+
+
+def _overall(checks: Iterable[dict[str, str]]) -> str:
+    states = {check["state"] for check in checks}
+    return "fail" if "fail" in states else "warn" if "warn" in states else "ok"
+
+
 def doctor(root: Path, *, home: Path | None = None, node: str | None = None, codex_config: Path | None = None,
            claude_json: Path | None = None, claude_sessions: Path | None = None,
            probe: Callable[[Path], dict[str, Any]] | None = None,
            processes: Callable[[], Iterable[str]] = _ps, alive: Callable[[int], bool] = pid_alive,
            notification_prefs: Callable[[], bytes | None] = read_notification_prefs,
            platform: str = sys.platform, node_selector: Callable[..., Any] = select_node,
-           notifier_candidates: Iterable[str] = NOTIFIER_CANDIDATES) -> dict[str, Any]:
+           notifier_candidates: Iterable[str] = NOTIFIER_CANDIDATES,
+           claude_plugins: Callable[[], tuple[int, str] | None] = _claude_plugin_list) -> dict[str, Any]:
     home = Path(home) if home else Path.home()
     codex_home = os.environ.get("CODEX_HOME", "").strip()
     codex_config = Path(codex_config) if codex_config else (Path(codex_home) if codex_home else home / ".codex") / "config.toml"
@@ -450,6 +537,5 @@ def doctor(root: Path, *, home: Path | None = None, node: str | None = None, cod
             checks.append(_codex_waiting(copy))
     checks.append(_notifications(root / "mailbox", notification_prefs, platform, notifier_candidates))
     checks.append(_old_bridges(processes()))
-    states = {check["state"] for check in checks}
-    overall = "fail" if "fail" in states else "warn" if "warn" in states else "ok"
-    return {"state": overall, "root": str(root), "checks": checks}
+    checks.append(_claude_plugin(claude_plugins, _copy_version(PLUGIN_ROOT)))
+    return {"state": _overall(checks), "root": str(root), "checks": checks}
