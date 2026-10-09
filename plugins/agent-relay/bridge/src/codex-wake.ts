@@ -10,12 +10,9 @@ export function codexTurn(job: WakeJob) {
   return {
     conversationId: job.target.sessionId,
     turnStart: {
-      // agent-relay codex-gated-wake D65: in every approval mode the woken turn runs read-only and asks the user
-      // before any write or network access; it applies to this turn only (the user's next own turn restores theirs).
-      request: {
-        threadId: job.target.sessionId, input: [], approvalsReviewer: "user", approvalPolicy: "on-request",
-        sandboxPolicy: { type: "readOnly", networkAccess: false },
-      },
+      // agent-relay wake-any-mode D140 (supersedes codex-gated-wake D65): the woken turn runs under the task's own
+      // approval and sandbox settings; the bridge sets neither.
+      request: { threadId: job.target.sessionId, input: [] },
       context: {
         responseItems: [
           { type: "function_call", call_id: callId, name: "untrusted_input", arguments: "{}" },
@@ -27,8 +24,7 @@ export function codexTurn(job: WakeJob) {
   };
 }
 
-export async function wakeCodex(job: WakeJob, ready: () => string | null = () => null,
-  path = join(homedir(), ".codex", "ipc", "ipc.sock")): Promise<WakeResult> {
+export async function wakeCodex(job: WakeJob, path = join(homedir(), ".codex", "ipc", "ipc.sock")): Promise<WakeResult> {
   if (process.platform === "win32") return { state: "refused", detail: "Native desktop wake adapter requires Unix local sockets" };
   const ipc = new CodexIpc();
   let submitted = false;
@@ -42,16 +38,13 @@ export async function wakeCodex(job: WakeJob, ready: () => string | null = () =>
     if (owner.result?.supportsUntrustedAppInput !== true) {
       return { state: "refused", detail: "Codex owner does not support peer content; update the app" };
     }
-    // agent-relay codex-gated-wake D66a: only where the per-turn gate is known to work.
-    const unverified = ready();
-    if (unverified) return { state: "held", detail: `Gated Codex wake not sent: ${unverified}.` };
     submitted = true;
     const reply = await ipc.request("thread-follower-start-turn", codexTurn(job), 2, owner.handledByClientId);
     if (reply.resultType === "success") {
       if (typeof reply.result?.result?.turn?.id !== "string") {
         return { state: "unknown", detail: "Codex returned an unfamiliar receipt; check the task before retrying" };
       }
-      return { state: "accepted", detail: "Codex confirmed a new turn", turnId: reply.result.result.turn.id };
+      return { state: "accepted", detail: "Codex confirmed a new turn" };
     }
     // This exact native guard runs before context injection or turn creation.
     if (reply.error === "App context must wait until the current turn finishes") {

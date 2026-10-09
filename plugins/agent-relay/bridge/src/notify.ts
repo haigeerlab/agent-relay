@@ -15,8 +15,6 @@ export interface UndeliveredNotice {
   key?: string;
   /** The message text, for the preview (notify-channel D89). */
   body?: string;
-  /** A notice about an event rather than a waiting message. */
-  event?: "gate-off";
 }
 
 // agent-relay notify-channel D89 (reverses codex-gated-wake D67's "never the body", confirmed by the user 2026-10-08):
@@ -44,10 +42,7 @@ export interface NoticeFields {
 export function noticeFields(notice: UndeliveredNotice, { preview }: { preview: boolean }): NoticeFields {
   if (!preview) return { title: "agent-relay", subtitle: "", body: noticeText(notice) };
   const subtitle = `#${notice.messageId} · ${oneLine(notice.agent, NAME_CHARS)}`;
-  if (notice.event === "gate-off" || notice.body === undefined) {
-    return { title: notice.event === "gate-off" ? "agent-relay · gated Codex wake off" : "agent-relay", subtitle,
-      body: noticeText(notice) };
-  }
+  if (notice.body === undefined) return { title: "agent-relay", subtitle, body: noticeText(notice) };
   return {
     title: `agent-relay · ${oneLine(notice.fromAgent ?? "a peer", NAME_CHARS) || "a peer"} → Codex`,
     subtitle: `${subtitle} · ${oneLine(notice.why, REASON_CHARS)}`,

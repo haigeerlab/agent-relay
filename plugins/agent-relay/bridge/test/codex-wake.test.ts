@@ -12,7 +12,7 @@ const job: WakeJob = { id: 1, messageId: 7, mailboxPath: "/test/bridge.sqlite", 
   attempts: 1, retryAt: 0, createdAt: 0, detail: "" };
 
 test("real framed IPC respects discovery, exact task, untrusted content and an accepted turn receipt", { skip: process.platform === "win32" }, async () => {
-  for (const mode of ["success", "busy", "old", "ambiguous", "disconnect", "unverified"] as const) {
+  for (const mode of ["success", "busy", "old", "ambiguous", "disconnect"] as const) {
     const dir = mkdtempSync(join(tmpdir(), "wake-codex-"));
     const path = join(dir, "ipc.sock");
     const requests: any[] = [];
@@ -44,12 +44,10 @@ test("real framed IPC respects discovery, exact task, untrusted content and an a
     await new Promise<void>(ok => server.listen(path, ok));
     chmodSync(path, 0o600);
     try {
-      // agent-relay codex-gated-wake D66a: an unverified gate holds the ping before any turn is started.
-      const result = await wakeCodex(job, () => (mode === "unverified" ? "the app is too old" : null), path);
-      assert.equal(result.state, { success: "accepted", busy: "pending", old: "refused", ambiguous: "unknown", disconnect: "unknown", unverified: "held" }[mode]);
+      const result = await wakeCodex(job, path);
+      assert.equal(result.state, { success: "accepted", busy: "pending", old: "refused", ambiguous: "unknown", disconnect: "unknown" }[mode]);
       const start = requests.find(r => r.method === "thread-follower-start-turn");
-      if (mode === "old" || mode === "unverified") { assert.equal(start, undefined); continue; }
-      if (mode === "success") assert.equal(result.turnId, "new-turn");
+      if (mode === "old") { assert.equal(start, undefined); continue; }
       assert.equal(start.version, 2);
       assert.equal(start.targetClientId, "owner");
       assert.equal(start.params.conversationId, "exact-task");
@@ -62,11 +60,9 @@ test("real framed IPC respects discovery, exact task, untrusted content and an a
       assert.ok(items[1].output[0].text.includes("/test/bridge.sqlite"));
       assert.equal(JSON.stringify(start).includes("developer"), false);
       assert.equal("permissions" in start.params.turnStart.request, false);
-      // agent-relay codex-gated-wake D65: every woken turn asks the user before acting, in every approval mode.
-      assert.deepEqual(start.params.turnStart.request, {
-        threadId: "exact-task", input: [], approvalsReviewer: "user", approvalPolicy: "on-request",
-        sandboxPolicy: { type: "readOnly", networkAccess: false },
-      });
+      // agent-relay wake-any-mode D140 (supersedes codex-gated-wake D65): the woken turn runs under the task's own
+      // approval and sandbox settings; the bridge sets neither.
+      assert.deepEqual(start.params.turnStart.request, { threadId: "exact-task", input: [] });
     } finally {
       await new Promise<void>(ok => server.close(() => ok()));
       rmSync(dir, { recursive: true, force: true });
