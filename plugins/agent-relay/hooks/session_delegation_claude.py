@@ -7,8 +7,10 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import stat
 import subprocess
+import sys
 import tempfile
 import time
 from typing import Callable, Mapping, Sequence
@@ -314,6 +316,8 @@ def build_create_command(
     *,
     server_name: str = CLAUDE_SERVER_NAME,
     communication_tools: tuple[str, ...] = COMMUNICATION_TOOLS,
+    scope: tuple[str, ...] = (),
+    scope_root: Path | None = None,
 ) -> tuple[str, ...]:
     expected_mode, tools, _builtins = _permission_shape(
         intent, host_permission, server_name, communication_tools)
@@ -333,9 +337,26 @@ def build_create_command(
         *(() if user else ("--disable-slash-commands",)),
         "--no-chrome",
         "--tools", ",".join(tools),
+        *_scope_settings(scope, scope_root),
         "--",
         prompt,
     )
+
+
+SCOPE_HOOK = Path(__file__).resolve().with_name("delegation_scope_hook.py")
+
+
+def _scope_settings(scope: tuple[str, ...], root: Path | None) -> tuple[str, ...]:
+    """delegation-hygiene D167: a scoped review gets a PreToolUse hook that denies file tools outside the scope."""
+    if not scope:
+        return ()
+    if root is None:
+        raise ClaudeAdapterError("scope-root-required")
+    command = [sys.executable, "-B", str(SCOPE_HOOK), "--root", str(Path(root).resolve())]
+    for item in scope:
+        command += ["--scope", item]
+    hook = {"matcher": "Read|Grep|Glob", "hooks": [{"type": "command", "command": shlex.join(command)}]}
+    return ("--settings", json.dumps({"hooks": {"PreToolUse": [hook]}}))
 
 
 _PATH = re.compile(r"(?:~|/)[^\s'\"]*")
@@ -578,7 +599,7 @@ class ClaudeAdapter:
         return path
 
     def create(self, delegation_id: str, prompt: str, *,
-               isolated_worktree: bool = False) -> ClaudeRunResult:
+               isolated_worktree: bool = False, scope: tuple[str, ...] = ()) -> ClaudeRunResult:
         claim, envelope, permission = self._scope(
             delegation_id, isolated_worktree=isolated_worktree)
         if claim.state == "unknown":
@@ -599,6 +620,8 @@ class ClaudeAdapter:
             envelope.host_permission,
             server_name=self.server_name,
             communication_tools=self.communication_tools,
+            scope=scope,
+            scope_root=envelope.project_root,
         )
         try:
             completed = self._run(command, envelope.project_root)

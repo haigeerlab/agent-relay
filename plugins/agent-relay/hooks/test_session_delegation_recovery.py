@@ -29,9 +29,11 @@ class FakeAdapter:
         self.store = store
         self.results = results
         self.calls = []
+        self.scopes = []
 
-    def create(self, delegation_id, prompt, isolated_worktree=False):
+    def create(self, delegation_id, prompt, isolated_worktree=False, scope=()):
         self.calls.append(("create", delegation_id, prompt, isolated_worktree))
+        self.scopes.append(scope)
         result = self.results.pop(0)
         if result.state == "created":
             self.store.bind_host(
@@ -177,6 +179,98 @@ class RecoveryTests(unittest.TestCase):
             replace(base, idempotency_key="plain-request"), "plain-launch", "默认沙箱", "Review",
             target_host="claude", permission_intent="safe-review").payload()
         self.assertNotIn("environment", plain)
+
+    def test_a_review_scope_is_checked_and_written_into_the_envelope(self):
+        # delegation-hygiene D166.
+        (self.project / "README.md").write_text("readme", encoding="utf-8")
+        (self.project / "docs").mkdir()
+        controller, adapter = self.controller(["created"])
+        for scope, intent, reason in ((("README.md",), "bounded-development", "scope-review-only"),
+                                      (("../outside.md",), "safe-review", "scope-outside-project"),
+                                      (("missing.md",), "safe-review", "scope-missing")):
+            with self.subTest(reason=reason), self.assertRaisesRegex(ControlError, reason):
+                controller.authorize_and_create(
+                    self.request(key="scope-" + reason), "scope-launch-" + reason, "范围", "Review",
+                    target_host="codex", permission_intent=intent, scope=scope)
+        self.assertEqual(tuple(self.store.list_delegations()), (), "nothing stored for a refused scope")
+        controller.authorize_and_create(
+            self.request(key="scope-ok"), "scope-launch-ok", "范围", "Review the readme",
+            target_host="codex", permission_intent="safe-review", scope=("README.md", "./docs/"))
+        prompt = adapter.calls[0][2]
+        self.assertIn("Review the readme", prompt)
+        self.assertIn("<agent-relay-review-scope>", prompt)
+        self.assertIn("README.md, docs", prompt)
+        self.assertIn("Files read:", prompt)
+        self.assertEqual(adapter.scopes[-1], ("README.md", "docs"), "the adapter gets the scope (D167)")
+
+    def test_a_friendly_name_resolves_to_the_mailbox_names_of_active_delegations(self):
+        # delegation-hygiene D168: read only; cancelled sessions and sessions with no mailbox name yet are left out.
+        from session_delegation_control import resolve_alias
+        controller, _adapter = self.controller(["created", "created", "created", "held"])
+        for key, name in (("alias-key-1", "pwa-cx"), ("alias-key-2", "pwa-cx"), ("alias-key-3", "other"), ("alias-key-4", "pwa-cx")):
+            controller.authorize_and_create(self.request(key=key), key + "-launch", name, "Review",
+                                            target_host="codex", permission_intent="safe-review")
+        live = [c for c in self.store.list_delegations() if c.friendly_name == "pwa-cx" and c.host_ref]
+        self.assertEqual(len(live), 2)
+        expected = sorted("pwa-cx-" + c.host_ref[:8] for c in live)
+        matches = resolve_alias(self.store, "pwa-cx")
+        self.assertEqual(sorted(m["agent"] for m in matches), expected, "the held one has no mailbox name yet")
+        self.assertTrue(all(m["host"] == "[Codex]" for m in matches))
+        self.store.advance(live[0].delegation_id, "cancelled", "host-cancelled")
+        self.assertEqual([m["agent"] for m in resolve_alias(self.store, "pwa-cx")], ["pwa-cx-" + live[1].host_ref[:8]])
+        self.assertEqual(resolve_alias(self.store, "nobody"), [])
+
+    def test_prune_lists_stale_records_and_cancels_only_on_confirm(self):
+        # delegation-hygiene D169: creating/unknown, unchanged for an hour, no live host; never a host call.
+        from session_delegation_control import prune_records
+        controller, adapter = self.controller(["held", "unknown", "created", "created", "created"])
+        names = ("held-old", "unknown-old", "created-old", "codex-unknown", "unknown-new")
+        for name in names:
+            controller.authorize_and_create(self.request(key="prune-" + name), "prune-launch-" + name, name, "Review",
+                                            target_host="codex", permission_intent="safe-review")
+        by_name = {c.friendly_name: c for c in self.store.list_delegations()}
+        self.store.advance(by_name["codex-unknown"].delegation_id, "unknown", "host-result-unknown")
+        self.clock[0] = NOW + 7200
+        # Changed ten minutes ago: not stale yet.
+        self.clock[0] -= 600
+        self.store.advance(by_name["unknown-new"].delegation_id, "unknown", "host-result-unknown")
+        self.clock[0] += 600
+        calls = len(adapter.calls)
+
+        def alive(claim):
+            return None if claim.host_ref else False
+
+        preview = prune_records(self.store, alive=alive)
+        self.assertEqual(preview["writesPerformed"], False)
+        listed = {r["name"]: r["hostLive"] for r in preview["stale"]}
+        self.assertEqual(listed, {"held-old": False, "unknown-old": False, "codex-unknown": "unknown"})
+        states = {c.friendly_name: c.state for c in self.store.list_delegations()}
+        self.assertEqual(states["held-old"], "creating", "a preview changes nothing")
+
+        done = prune_records(self.store, alive=alive, confirm=True)
+        self.assertEqual(sorted(r["name"] for r in done["pruned"]), ["held-old", "unknown-old"])
+        self.assertTrue(done["writesPerformed"])
+        states = {c.friendly_name: c.state for c in self.store.list_delegations()}
+        self.assertEqual((states["held-old"], states["unknown-old"]), ("cancelled", "cancelled"))
+        self.assertEqual((states["codex-unknown"], states["unknown-new"], states["created-old"]),
+                         ("unknown", "unknown", "created"))
+        with_unknown = prune_records(self.store, alive=alive, confirm=True, include_unknown_hosts=True)
+        self.assertEqual([r["name"] for r in with_unknown["pruned"]], ["codex-unknown"])
+        self.assertEqual(prune_records(self.store, alive=alive)["stale"], [])
+        self.assertEqual(len(adapter.calls), calls, "no host is touched")
+
+    def test_host_liveness_for_pruning(self):
+        from dataclasses import replace
+        from session_delegation_control import claude_host_live
+        controller, _adapter = self.controller(["created"])
+        controller.authorize_and_create(self.request(key="liveness-key"), "liveness-launch", "活着吗", "Review",
+                                        target_host="codex", permission_intent="safe-review")
+        claim = self.store.list_delegations()[0]
+        sessions = self.root / "sessions"
+        sessions.mkdir()
+        self.assertIs(claude_host_live(replace(claim, host_ref=None), sessions), False, "never started")
+        self.assertIsNone(claude_host_live(claim, sessions), "a Codex thread cannot be checked here")
+        self.assertIs(claude_host_live(replace(claim, target_host="claude"), sessions), False, "no live session")
 
     def test_native_delivery_states_and_retry_keys_are_stable(self):
         for observed, state, expected in (

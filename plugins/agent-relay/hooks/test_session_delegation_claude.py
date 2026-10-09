@@ -193,6 +193,26 @@ class InstallationAndPermissionTests(unittest.TestCase):
                                                   server_name="agent-relay")
             self.assertEqual((blocked.ready, blocked.prerequisite), (False, "project-deny-rules"))
 
+    def test_a_scoped_review_launch_carries_the_scope_hook(self):
+        # delegation-hygiene D167: one --settings with the PreToolUse hook; nothing else moves.
+        import shlex
+        installation = ClaudeInstallation(Path("/opt/claude"), "2.1.295")
+        args = (installation, Path("/private/tmp/session.mcp.json"), "agent-relay-12345678", "Review", "safe-review",
+                "dontAsk")
+        plain = build_create_command(*args)
+        scoped = build_create_command(*args, scope=("README.md", "docs"), scope_root=self.project)
+        self.assertEqual(scoped.count("--settings"), 1)
+        index = scoped.index("--settings")
+        self.assertEqual(scoped[:index] + scoped[index + 2:], plain)
+        hooks = json.loads(scoped[index + 1])["hooks"]["PreToolUse"]
+        self.assertEqual(len(hooks), 1)
+        self.assertEqual(hooks[0]["matcher"], "Read|Grep|Glob")
+        command = shlex.split(hooks[0]["hooks"][0]["command"])
+        self.assertTrue(command[-7].endswith("delegation_scope_hook.py"), command)
+        self.assertEqual(command[-6:], ["--root", str(self.project.resolve()), "--scope", "README.md",
+                                        "--scope", "docs"])
+        self.assertEqual(json.loads(scoped[index + 1]).keys(), {"hooks"})
+
     def test_host_prompt_allows_control_envelope_after_maximum_user_body(self):
         prompt = _bounded_prompt(
             "x" * 20_800, "12345678-1234-1234-1234-123456789abc",

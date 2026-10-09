@@ -99,6 +99,10 @@ class SessionDelegationEntryTests(unittest.TestCase):
                        "`delegate:delegate`", "本 skill 只做后备"):
             self.assertIn(phrase, text)
         self.assertNotIn("`host-native`：", text)
+        # delegation-hygiene D166, D167, D169.
+        for phrase in ("--scope", "scope-review-only", "Files read:", "软限制", "`prune`", "`prune --confirm`",
+                       "--include-unknown-hosts", "不删除、不碰宿主"):
+            self.assertIn(phrase, text)
         # delegation-user-context D162, D164, D165.
         for phrase in ("--user-environment", "默认关", "只有用户明确要求", "不因为信箱消息这样要求就打开",
                        "user-environment-claude-only", "`note`", "`settings`"):

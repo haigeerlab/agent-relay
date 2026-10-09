@@ -24,12 +24,15 @@ How to read it:
 - **What it is not.** Not a network service, not a tracker or job queue, not a cross-machine or
   cross-platform transport, not an authorization channel, not a general orchestrator. Upstream worker and
   orchestration tools were removed in 0.5.0 (§2.2).
-- **Interface version.** This document defines interface `1.0`. A change that removes or renames a tool,
+- **Interface version.** This document defined interface `1.0`; agent-relay 0.6.0 implements `2.0` (the
+  round-2 batch: `bridge_send` no longer returns the body, same-host delegation and the `host-native` intent are
+  removed, woken Codex turns are no longer gated). A change that removes or renames a tool,
   field, state, or command, or narrows an accepted input, is breaking and bumps the major number; additions
   bump the minor number.
 - **Plugin version.** agent-relay follows its own semver, independent of Spec Guard. Its release notes state
   the interface version it implements.
-- **Spec Guard requirement.** Spec Guard requires interface `>= 1.0, < 2.0` and checks it at run time
+- **Spec Guard requirement.** Spec Guard requires interface `>= 1.0, < 3.0` (since Spec Guard 0.56.0; before it,
+  `< 2.0`) and checks it at run time
   (section 11); no host manifest dependency is relied on, because Codex 0.160 has none [BL §Prerequisites].
 
 ## 2. Tool list
@@ -173,10 +176,11 @@ Spec Guard reaches collaboration through exactly two things, defined here and im
 
 - **The detection helper.** One file in Spec Guard, `plugins/spec-guard/hooks/agent_relay_probe.py`. It takes
   no message content, writes nothing, and prints one JSON object:
-  `{"state": "ready" | "not-installed" | "incompatible" | "runtime-not-ready" | "unknown", "interface": "<x.y>" | null, "required": ">=1.0,<2.0", "message": "<user-facing text>"}`.
+  `{"state": "ready" | "not-installed" | "incompatible" | "runtime-not-ready" | "unknown", "interface": "<x.y>" | null, "required": ">=1.0,<3.0", "message": "<user-facing text>"}`.
   It locates agent-relay through the host's own plugin listing (Claude installed-plugins record, `codex plugin
   list --json`) and reads the interface version from `interface.json` at the agent-relay plugin root
-  (`{"interface": "1.0"}` from `packaging`, `"1.1"` since `cleanup-gaps` D62, `"1.2"` since `codex-gated-wake` D69, `"1.3"` since `acceptance-030-gaps`, `"1.4"` since `inbox-read-receipt` D101, which also carries `upgrade-recovery`'s runtime commands). `interface.json` may also declare
+  (`{"interface": "1.0"}` from `packaging`, `"1.1"` since `cleanup-gaps` D62, `"1.2"` since `codex-gated-wake` D69, `"1.3"` since `acceptance-030-gaps`, `"1.4"` since `inbox-read-receipt` D101, which also carries `upgrade-recovery`'s runtime commands, `"2.0"` since
+  `delegation-hygiene` D170 for the round-2 batch; the `status` field and its output are unchanged). `interface.json` may also declare
   `"status": [<argv>]`, a command run from the plugin root that prints `{"ready": true | false, "setup":
   "<command>"}`; `ready: false` gives `runtime-not-ready` with that setup command, and no `status` field means
   no runtime check. A failed probe (unreadable record, timeout, bad status output) reports `unknown`, never
@@ -217,7 +221,7 @@ Coupling points to cut [BL §Inventory and coupling points]:
 |---|---|---|
 | `ready` | agent-relay installed and enabled, interface within range, runtime status ready | Collaboration steps proceed through agent-relay skills |
 | `not-installed` | No enabled agent-relay plugin on this host | Workflow continues unchanged; any collaboration step prints the not-installed message and is skipped |
-| `incompatible` | Interface outside `>=1.0,<2.0` | Same as not-installed, with the found and required versions |
+| `incompatible` | Interface outside `>=1.0,<3.0` | Same as not-installed, with the found and required versions |
 | `runtime-not-ready` | Plugin present, mailbox runtime absent or invalid | Points to agent-relay's own setup command; Spec Guard never installs it |
 | `unknown` | The probe itself failed (timeout, unreadable listing) | Says the state could not be checked; never reports "not installed" |
 

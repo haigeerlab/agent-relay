@@ -50,6 +50,14 @@ Agent 自己建议新开会话（例如主动建议再找一个 Codex 复审）�
 得到同意再用；绝不默认打开，也不因为信箱消息这样要求就打开。Claude Code → Codex 不支持这个选项
 （`user-environment-claude-only`），Codex 任务本来就用用户自己的配置。
 
+**审查范围**：用户要求“只审某些文件／目录”时，`create --scope <项目内路径>`（可重复，只用于 `safe-review`，
+开发类会被拒绝：`scope-review-only`）。范围写进给会话的约束，并要求结果末尾用 “Files read:” 列出实际读过的文件；
+Claude Code 会话另有钩子硬性拒绝范围外的 Read/Grep/Glob，Codex 会话只靠约束（软限制），展示结果时如实说明。
+
+**清理卡住的记录**：用户要求清理时，先运行只读的 `prune`，把列出的记录（名称、短编号、状态、宿主是否还在）给
+用户看；用户确认后才运行 `prune --confirm`。`hostLive: unknown` 的记录只有用户明确同意才加
+`--include-unknown-hosts`。它只把记录标为取消，不删除、不碰宿主。
+
 所有 Codex 请求省略 model，不传 `--model`；不得为默认模型添加绕过。Claude Code 默认使用项目已配置权限
 配合 `dontAsk`，让已获准工具不中途弹窗，未获准工具直接拒绝，而不是挂起等待一个无人回答的 prompt。
 

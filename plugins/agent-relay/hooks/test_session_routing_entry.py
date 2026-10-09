@@ -50,6 +50,12 @@ class SessionRoutingEntryTests(unittest.TestCase):
         self.assertIn("不要用 heredoc", text)
         self.assertNotIn("heredoc 或管道", text)
 
+    def test_a_friendly_name_is_resolved_through_the_delegation_controller(self):
+        # delegation-hygiene D168.
+        text = ROUTING.read_text(encoding="utf-8")
+        self.assertIn("resolve --name", text)
+        self.assertIn("唯一匹配就用返回的 `agent`", text)
+
     def test_claude_same_host_uses_only_supported_native_primitives(self):
         text = self.routing_text()
         for phrase in (
