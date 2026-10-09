@@ -56,7 +56,8 @@ Readers: the user; the round-2 coordinator.
 
 ## Boundaries
 
-- Never: run `claude plugin update` or edit Claude's plugin cache for the user; doctor only reads.
+- Ask first: running `claude plugin marketplace update` / `claude plugin update` on this Mac for the assumption-1 check.
+- Never: edit Claude's plugin cache by hand; doctor only reads.
 
 ## Acceptance (coordinator, after 0.6.2)
 
