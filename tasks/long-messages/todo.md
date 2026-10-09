@@ -1,7 +1,7 @@
 # Todo: long-messages
 
 - [x] Task 1: the send result carries no body (D150) — new `test/long-messages.test.ts`: a 160 000-byte Chinese `bodyFile`, sent twice with one idempotency key, returns no `body`, `bodyLength` equal to the body's length and a result under 2 000 characters both times: red (the body came back), green after `bridge_send` drops `body` and adds `bodyLength`. `mcp-integration.test.ts` pinned the echoed body; now checks `bodyLength`. Bridge `npm run check` 161 green
-- [ ] Task 2: budgets in token-safe units (D151)
+- [x] Task 2: budgets in token-safe units (D151) — test first in `long-messages.test.ts`: `textCost` (ASCII 1, Chinese 4 each, an emoji one code point = 4); a 60 000-character English body still shortens to exactly 47 680 characters; a 60 000-character Chinese body shortens to at most 47 680 units and at least 11 000 characters; five 5 000-character Chinese messages fit two per page; an all-emoji body never ends inside a surrogate pair. Red (`textCost` missing), green after `textCost`, `prefixWithin` and `fitMessages` measuring in units; `lifecycle.test.ts` budget and preview cases still pass (12 green)
 - [ ] Task 3: read a long body in parts, and say how (D152, D153)
 - [ ] Task 4: skill, tool descriptions, README, CHANGELOG
 - [ ] Checkpoint (report): local validation

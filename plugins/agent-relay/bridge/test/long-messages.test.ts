@@ -41,3 +41,29 @@ test("bridge_send returns no body, only its length, even for a 160 000-byte mess
     await a.close();
   }
 });
+
+test("page budgets count other scripts as about one token per character (D151)", async () => {
+  const { fitMessages, textCost, DEFAULT_PAGE_CHARS } = await import("../src/paging.js");
+  const message = (id: number, body: string) => ({ id, fromAgent: "a", toAgent: "b", body, threadId: null,
+    replyTo: null, createdAt: "2026-10-09T00:00:00.000Z", deliveryState: "queued" as const }) as any;
+  assert.equal(textCost("abc"), 3);
+  assert.equal(textCost("中文"), 8);
+  assert.equal(textCost("🙂"), 4, "one code point, not two");
+
+  const english = fitMessages([message(1, "x".repeat(60_000))]);
+  assert.equal(english.messages[0].body.length, DEFAULT_PAGE_CHARS - 320, "English pages are unchanged");
+
+  const chinese = fitMessages([message(1, "中".repeat(60_000))]);
+  assert.equal(chinese.messages[0].bodyTruncated, true);
+  assert.ok(textCost(chinese.messages[0].body) <= DEFAULT_PAGE_CHARS - 320);
+  assert.ok(chinese.messages[0].body.length >= 11_000, `${chinese.messages[0].body.length} characters`);
+
+  const several = fitMessages([1, 2, 3, 4, 5].map((id) => message(id, "文".repeat(5_000))));
+  assert.equal(several.messages.length, 2);
+  assert.equal(several.omitted, 3);
+
+  const emoji = fitMessages([message(1, "🙂".repeat(20_000))]).messages[0].body;
+  const last = emoji.charCodeAt(emoji.length - 1);
+  assert.ok(!(last >= 0xd800 && last <= 0xdbff), "never ends inside a surrogate pair");
+  assert.equal(emoji.length % 2, 0);
+});
