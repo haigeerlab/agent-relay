@@ -94,6 +94,7 @@ codex plugin add agent-relay@agent-relay-marketplace
   内容，不构成任何授权。**风险**：Codex 用“帮我批准”、Claude 用 auto 模式时，被唤醒那一轮的操作由该会话的自动审查或
   分类器来批，不一定经过你本人——这是你给那个会话选的模式。`install-codex` 给 10 个信箱工具写了
   `approval_mode = "approve"`，所以读信、回复、确认不弹卡（已安装的用 `install-codex --approve-mailbox-tools` 补上）。
+  执行时会列出写进 `~/.codex/config.toml` 的这 10 张审批表（`[mcp_servers.agent-relay.tools.<工具>]`），补的时候只列补上的。
   旧版本在信箱目录留下的 `codex-gate.off` 已不再使用，可以删掉（agent-relay 不会替你删）。
 - **会话在等你授权时会告诉你**（`presence-and-approval`）：会话目录（`bridge_agents`，或问任意会话“有哪些会话”）会写明
   每个会话是运行中、已停止、等待授权、等待输入还是未知；给一个等授权或已停止的会话发消息时，发件方会收到提示。

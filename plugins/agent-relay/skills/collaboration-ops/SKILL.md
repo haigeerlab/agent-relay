@@ -91,7 +91,8 @@ session re-registers with its own thread id after each restart). After an upgrad
 session in any permission mode can bind wake, and a woken turn runs under that session's own settings: the bridge no
 longer switches woken Codex turns to user approval and a read-only sandbox. Existing Codex entries get the mailbox-tool
 approvals (read and reply without a card) with `native_collaboration_adapters.py install-codex --approve-mailbox-tools`
-after the user agrees. A `mailbox/codex-gate.off` left by an older bridge is no longer used; tell the user they may
+after the user agrees. Each of `install-codex` and that option prints every approval table it writes
+(`[mcp_servers.agent-relay.tools.<tool>] approval_mode = "approve"`); show that list to the user. A `mailbox/codex-gate.off` left by an older bridge is no longer used; tell the user they may
 delete it, and never delete it yourself. Never edit `~/.codex/config.toml`.
 
 ```bash

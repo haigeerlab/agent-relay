@@ -84,6 +84,13 @@ class CollabEntryContractTest(unittest.TestCase):
         ):
             self.assertIn(phrase, text)
 
+    def test_installing_codex_says_which_approvals_it_writes(self):
+        # install-docs-accuracy D178: behaviour unchanged, but the user is told exactly what goes into config.toml.
+        ops = OPS_SKILL.read_text(encoding="utf-8")
+        self.assertIn("prints every approval table it writes", ops)
+        readme = (PLUGIN_ROOT.parents[1] / "README.md").read_text(encoding="utf-8")
+        self.assertIn("执行时会列出写进 `~/.codex/config.toml` 的这 10 张审批表", readme)
+
     def test_operator_surfaces_are_explicit_and_history_preserving(self):
         for path in (OPS_SKILL, OPS_COMMAND):
             text = path.read_text(encoding="utf-8")
