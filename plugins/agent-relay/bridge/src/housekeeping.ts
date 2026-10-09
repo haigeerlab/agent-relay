@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { BridgeStore } from "./bridge-store.js";
 import { ensurePrivateDirectory } from "./fs-safety.js";
 import { sweepDeliveryFailures } from "./notices.js";
+import { pruneWaitingEpisodes } from "./notify.js";
 
 const DAY_MS = 24 * 3_600_000;
 export const DAILY_BACKUPS_KEPT = 7;
@@ -54,6 +55,8 @@ export class Housekeeper {
     this.busy = true;
     try {
       sweepDeliveryFailures(this.store, now);
+      // install-docs-accuracy D180: about once a minute, drop episode marks of sessions with nothing waiting.
+      if (this.ticks % 12 === 0) pruneWaitingEpisodes(this.store.dbPath, this.store.claudeWaiting().map((w) => w.sessionId));
       if (this.ticks % 120 === 0) {
         const backup = dailyBackup(this.store, now);
         if (backup) this.options.log?.(`daily backup written to ${backup}`);

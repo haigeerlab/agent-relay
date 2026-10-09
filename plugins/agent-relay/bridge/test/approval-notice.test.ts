@@ -148,3 +148,25 @@ test("without statusUpdatedAt each waiting episode is still told once, across ev
   await second.close();
   store.close();
 });
+
+test("housekeeping removes the episode marks of sessions with nothing waiting", async () => {
+  // agent-relay install-docs-accuracy D180 (review of #66): a handled message takes its session off the waiting list,
+  // so nothing saw that episode end; the Housekeeper clears such marks and keeps the ones still waiting.
+  const { Housekeeper } = await import("../src/housekeeping.js");
+  const { writeFileSync, mkdirSync, readdirSync } = await import("node:fs");
+  const { dir, store } = setup();
+  store.send({ fromAgent: "sender", toAgent: "cc", body: "still waiting" });
+  const marks = join(dir, "notified");
+  mkdirSync(marks, { recursive: true });
+  const { utimesSync } = await import("node:fs");
+  const old = new Date(Date.now() - 11 * 60_000);
+  for (const name of ["episode-host-cc", "episode-gone-session", "approval-host-cc-1-2"]) {
+    writeFileSync(join(marks, name), "1");
+    utimesSync(join(marks, name), old, old);
+  }
+  // Just written by a bridge that saw a new message the Housekeeper's list did not have yet: left alone.
+  writeFileSync(join(marks, "episode-just-started"), "1");
+  await new Housekeeper(store).tick();
+  assert.deepEqual(readdirSync(marks).sort(), ["approval-host-cc-1-2", "episode-host-cc", "episode-just-started"]);
+  store.close();
+});
