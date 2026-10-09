@@ -393,6 +393,11 @@ function main(): void {
       if (messageId !== undefined) {
         const message = store.messagePart(agent, messageId, { bodyOffset, maxChars });
         if (!message) throw new Error(`Message #${messageId} is not in ${JSON.stringify(agent)}'s inbox.`);
+        // presence-polish D177: an offset past the end is a mistake to report, not an empty part.
+        if (bodyOffset !== undefined && bodyOffset > (message.bodyLength ?? message.body.length)) {
+          throw new Error(`bodyOffset ${bodyOffset} is past the end of message #${messageId} ` +
+            `(${message.bodyLength} characters).`);
+        }
         if (recorded) {
           store.wakes.recordRead(agent, [message.id]);
           store.touch(agent);
