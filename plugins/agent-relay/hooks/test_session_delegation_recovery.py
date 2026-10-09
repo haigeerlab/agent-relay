@@ -574,6 +574,15 @@ class RecoveryTests(unittest.TestCase):
         self.assertIn("Cancel it, then create", payload["detail"])
         self.assertNotIn("detail", error_payload(ClaudeAdapterError("delegation-is-not-ready-for-follow-up")))
 
+    def test_prune_help_says_confirm_cancels_only_the_listed_ids(self):
+        # claude-delegation-realhost D183.
+        output = io.StringIO()
+        with redirect_stdout(output), self.assertRaises(SystemExit):
+            main(["prune", "--help"])
+        text = " ".join(output.getvalue().split())
+        self.assertIn("--confirm ID,... cancels only the listed ids", text)
+        self.assertNotIn("--confirm cancels them", text)
+
     def test_absent_list_is_empty_and_does_not_initialize_runtime(self):
         state_root = self.root / "absent-state"
         output = io.StringIO()

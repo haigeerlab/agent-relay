@@ -9,7 +9,7 @@
 - [x] Task 3: the delegated session can load its mailbox tools (D182)
   - Coordinator, 2026-10-10: the re-send (D49) turn uses the same wording as the first — one allowed `Read` of an in-scope file first, then register. Real checks (b) three cold-start creates and (c) the re-send turn record, per attempt, whether it registered and how many seconds it took. The PR description lists this prompt change separately (added after the spec was approved).
   - Done, tests first (all red before): `ToolSearch` in every launch shape's `--tools`; both registration turns say "do not end your turn … one allowed Read … ToolSearch"; a re-send by wake carries the envelope. The `unknown` cause, from the real agents list: `claude --bg --resume d849dfa6-…` started job 6472d974 with a new session id, and `_deliver` required the printed id to be the old one. Now the adapter waits for the printed job in the project and moves the binding (`DelegationStore.rebind_host`, exact old binding, `created`/`running` only); a re-sent registration then completes on the new session id (the safe-review probe compares the wake target's session). Every unconfirmed turn returns `hostStatus: unknown` + `host-result-unknown` (was the turn ref by position). Continue of an `unknown` record: `delegation-state-unknown`, and the controller adds "Cancel it, then create the delegation again." Spec assumption 3a records this.
-- [ ] Task 4: truthful prune help (D183)
+- [x] Task 4: truthful prune help (D183) — test first (red on the old "--confirm cancels them"); `prune --help` now says "--confirm ID,... cancels only the listed ids" and the option has its own help
 - [ ] Checkpoint (report): local validation and real checks
 - [ ] Task 5: PR and CI
 - [ ] Checkpoint (gate): module review

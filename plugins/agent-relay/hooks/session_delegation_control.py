@@ -868,11 +868,14 @@ def _parser() -> argparse.ArgumentParser:
     resolve = subparsers.add_parser(
         "resolve", help="read only: mailbox names of active delegated sessions with this friendly name (D168)")
     resolve.add_argument("--name", required=True)
-    prune = subparsers.add_parser(
-        "prune", help="list records stuck in creating/unknown for an hour; --confirm cancels them (D169)")
+    # claude-delegation-realhost D183: the help says what --confirm does since D173.
+    prune_help = ("list records stuck in creating/unknown for an hour; "
+                  "--confirm ID,... cancels only the listed ids (D169, D173)")
+    prune = subparsers.add_parser("prune", help=prune_help, description=prune_help)
     # delegation-continue-parity D173: --confirm names the ids the preview printed (comma-separated).
     prune.add_argument("--confirm", metavar="ID,...", type=lambda value: tuple(
-        item.strip() for item in value.split(",") if item.strip()))
+        item.strip() for item in value.split(",") if item.strip()),
+        help="cancel only these ids, as printed by the preview")
     prune.add_argument("--include-unknown-hosts", action="store_true",
                        help="also cancel records whose host session cannot be checked")
 
