@@ -82,7 +82,10 @@ Readers: the user; the round-2 coordinator, who runs the real-project acceptance
   turns run under the session's own approval settings; when `codex-gate.off` exists it says the file is no longer used
   and may be deleted (`ok`, not `warn`); the version threshold check goes. README, collab and collaboration-ops lose the
   gate, threshold and `codex-gate.off` text and state the risk below.
-- **D145 interface 2.0.** `interface.json` and `relay_status.py`'s history note move to 2.0 (breaking batch, 0.6.0).
+- **D145 interface 2.0, bumped last.** The batch is breaking, so the interface becomes 2.0 for 0.6.0; but Spec Guard's
+  probe accepts only `>=1.0,<2.0` (`agent_relay_probe.py:22`, interface doc §1, §11). Amended while building
+  (2026-10-09, the user's choice): Spec Guard widens its range first, and `interface.json` moves to 2.0 in the batch's
+  last module (`delegation-hygiene`), so main keeps declaring 1.4 until the whole batch is in.
 
 ## Risk (stated in README and the collab skill)
 
@@ -101,7 +104,7 @@ session; agent-relay no longer adds a person in the loop for woken turns.
 3. `codex-gate.ts` and its test are deleted; remaining tests updated; `scripts/validate.sh` green on Python 3.9, 3.10
    and 3.14 locally and the four CI jobs green.
 4. Skill text: collab binds in any mode (D142) and keeps the floor (D143); collaboration-ops drops the gate paragraph.
-5. README, CHANGELOG `[Unreleased]`, `interface.json` 2.0 (D145).
+5. README, CHANGELOG `[Unreleased]`; `interface.json` stays 1.4 here (D145: 2.0 in the batch's last module).
 6. Acceptance (coordinator, real projects, after the batch): a Claude session in auto mode joins with wake bound and is
    woken by a Codex peer; a Codex task under 帮我批准 is woken by a Claude peer and its turn runs under 帮我批准 (no
    forced approval card for a read); peer content still cannot make either side contact a third party on its own.
