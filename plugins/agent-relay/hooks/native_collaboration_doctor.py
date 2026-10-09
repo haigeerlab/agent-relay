@@ -437,6 +437,12 @@ def _copy_version(root: Path) -> str | None:
     return version if isinstance(version, str) and version else None
 
 
+def _version_key(version: str | None) -> tuple[int, ...] | None:
+    if version is None or not re.fullmatch(r"\d+(\.\d+)*", version):
+        return None
+    return tuple(int(part) for part in version.split("."))
+
+
 def _claude_plugin_list() -> tuple[int, str] | None:
     binary = shutil.which("claude")
     if binary is None:
@@ -485,21 +491,32 @@ def _claude_plugin(listing: Callable[[], tuple[int, str] | None], expected: str 
             unused[install].append(user)
     if not loaded:
         return _check("claude-plugin", "ok", "no enabled agent-relay plugin in Claude Code")
-    stale, steps = [], []
+    stale, steps, notes = [], [], []
     for (kind, path), using in loaded.items():
         version = _copy_version(Path(path))
         if version is not None and version == expected:
+            continue
+        have, want = _version_key(version), _version_key(expected)
+        if have is not None and want is not None and have > want:
+            # Doctor itself runs from an older copy; telling the user to update the newer one would send them back.
+            notes.append(f"{path} is {version}, newer than this plugin ({expected})")
             continue
         stale.append(("%s is %s" % (path, version) if version else path + " has no readable version")
                      + " (" + _plugin_users(using) + ")")
         if kind == "folder":
             steps.append(f"update {path} (git pull in that clone)")
         else:
-            steps.append("run `claude plugin marketplace update agent-relay-marketplace`")
+            updates = []
             for scope in sorted({user.split(":", 1)[0] for user in using}):
-                steps.append(f"`claude plugin update --scope {scope} agent-relay@agent-relay-marketplace`"
-                             + (" inside each listed project" if scope in ("local", "project") else ""))
-    notes = []
+                projects = [user.split(":", 1)[1] for user in using if user.startswith(scope + ":")]
+                if projects and not any(Path(project).exists() for project in projects):
+                    continue
+                updates.append(f"`claude plugin update --scope {scope} agent-relay@agent-relay-marketplace`"
+                               + (" inside each listed project that still exists" if projects else ""))
+            if updates:
+                steps += ["run `claude plugin marketplace update agent-relay-marketplace`"] + updates
+            if any(":" in user and not Path(user.split(":", 1)[1]).exists() for user in using):
+                steps.append("entries whose folder is gone can be ignored or removed by you")
     for path, using in unused.items():
         version = _copy_version(Path(path))
         if version != expected:
