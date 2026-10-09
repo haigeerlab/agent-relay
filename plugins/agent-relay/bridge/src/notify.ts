@@ -15,6 +15,8 @@ export interface UndeliveredNotice {
   key?: string;
   /** The message text, for the preview (notify-channel D89). */
   body?: string;
+  /** presence-and-approval D148: a Claude session waiting for the user's approval, not undelivered Codex work. */
+  kind?: "approval";
 }
 
 // agent-relay notify-channel D89 (reverses codex-gated-wake D67's "never the body", confirmed by the user 2026-10-08):
@@ -40,6 +42,11 @@ export interface NoticeFields {
 
 /** What the desktop notice shows. Title and subtitle always start with a fixed prefix, never with a dash. */
 export function noticeFields(notice: UndeliveredNotice, { preview }: { preview: boolean }): NoticeFields {
+  if (notice.kind === "approval") {
+    const agent = oneLine(notice.agent, NAME_CHARS);
+    return { title: preview ? `agent-relay · ${agent} waits for you` : "agent-relay",
+      subtitle: preview ? `#${notice.messageId} · ${agent}` : "", body: noticeText(notice) };
+  }
   if (!preview) return { title: "agent-relay", subtitle: "", body: noticeText(notice) };
   const subtitle = `#${notice.messageId} · ${oneLine(notice.agent, NAME_CHARS)}`;
   if (notice.body === undefined) return { title: "agent-relay", subtitle, body: noticeText(notice) };
@@ -55,6 +62,10 @@ export const NOTIFIED_TEXT = "A desktop notification was attempted on this Mac; 
   "(notifications not allowed for the app that shows them, or Focus). The user can list waiting messages with doctor or by asking any session.";
 
 export function noticeText(notice: UndeliveredNotice): string {
+  if (notice.kind === "approval") {
+    return `${oneLine(notice.agent, NAME_CHARS)} is ${notice.why}; message #${notice.messageId} from ` +
+      `${JSON.stringify(notice.fromAgent ?? "a peer")} waits until you answer it there.`;
+  }
   return `${JSON.stringify(notice.fromAgent ?? "a peer")} gave Codex work: message #${notice.messageId} to ` +
     `${JSON.stringify(notice.agent)} (${notice.why}).`;
 }
