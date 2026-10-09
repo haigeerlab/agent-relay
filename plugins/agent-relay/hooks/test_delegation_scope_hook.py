@@ -57,6 +57,26 @@ class ScopeHookTests(unittest.TestCase):
             with self.subTest(event=event["tool_input"]):
                 self.assertEqual(self.decide(event), "deny")
 
+    def test_glob_checks_its_pattern_as_well_as_its_path(self):
+        # delegation-continue-parity D174 (review 5i): the pattern can leave the path.
+        for event in (self.event("Glob", path="docs", pattern="../other.txt"),
+                      self.event("Glob", path="docs", pattern="../*.txt"),
+                      self.event("Glob", path="docs", pattern=str(self.root / "other.txt")),
+                      self.event("Glob", path=str(self.root.parent), pattern="project/docs/*.md")):
+            with self.subTest(event=event["tool_input"]):
+                self.assertEqual(self.decide(event), "deny")
+        for event in (self.event("Glob", path="docs", pattern="**/*.md"),
+                      self.event("Glob", pattern="docs/*.md"),
+                      self.event("Glob", path="docs", pattern=str(self.root / "docs") + "/*.md")):
+            with self.subTest(event=event["tool_input"]):
+                self.assertEqual(self.decide(event), "allow")
+        self.assertEqual(self.decide(self.event("Glob", path="docs", pattern=7)), "deny")
+        # Review of #64: a `..` after a wildcard is outside what the directory part shows, so any `..` is refused.
+        for pattern in ("**/../../other.txt", "*/../../other.txt", "docs/**/../x.md", "..\\other.txt"):
+            with self.subTest(pattern=pattern):
+                self.assertEqual(self.decide(self.event("Glob", path="docs", pattern=pattern)), "deny")
+                self.assertEqual(self.decide(self.event("Glob", pattern=pattern), scope=(".",)), "deny")
+
     def test_a_scope_of_the_project_root_allows_project_wide_search(self):
         self.assertEqual(self.decide(self.event("Grep", pattern="x"), scope=(".",)), "allow")
         self.assertEqual(self.decide(self.event("Read", file_path=str(self.root.parent / "x")), scope=(".",)), "deny")

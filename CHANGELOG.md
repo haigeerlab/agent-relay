@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+- **续聊保留创建时的全部限制**（模块 `delegation-continue-parity`，D171–D174，第二轮联调对 0.6.0 的事后审查）：
+  已停止的 Claude Code 委派会话续聊时，以前只执行 `claude --background --resume <会话> <正文>`。实测 `--resume` 只保留
+  对话、不保留参数：续聊那一轮会丢掉 `dontAsk`、工具白名单、`--strict-mcp-config` 和审查范围钩子，拿到 Bash、
+  Write 和你自己的 MCP，范围外的文件也读得到。现在续聊和创建用同一个函数拼这些限制，每一轮都带上；范围也随
+  每一轮重复（Codex 只有这份文字约束）。还在运行的会话照旧走原进程唤醒，限制本来就在。
+  - **委派库升到 schema 3**：新增 `scope`（范围）和 `state_reason`（状态原因）两列，打开时原地迁移；迁移前在同一
+    目录留一份 `delegation.schema2.sqlite`（0600）。迁移在一个事务里完成，中途失败就保持 schema 2，下次再迁。
+    0.6.1 之前创建的只读审查没有记录范围，续聊会报 `scope-unknown`，需要重新创建；开发类委派照常续聊。
+    `status` 等输出新增 `stateReason`。
+  - **`prune --confirm <短编号,…>`**：只取消预览时列出、现在仍然卡住且宿主不在的记录；预览之后才卡住的不会被顺带
+    取消；找不到、有歧义、宿主仍在或无法确认的列在 `skipped` 里并写明原因；不带编号报 `prune-ids-required`。
+    （0.6.0 的 `prune --confirm` 不带编号，会取消确认时扫描到的全部记录。）
+  - **预检认服务器级规则**：`mcp__agent-relay` 这样的规则覆盖该服务器的全部工具，与 Claude Code 一致。
+  - **范围钩子**：Glob 同时检查 `path` 和 `pattern` 实际指向的位置（`../x`、绝对路径）；生成的设置写入
+    `"disableAllHooks": false`。实测项目设置 `disableAllHooks: true` 会让钩子失效，命令行设置能盖过它。
+  - 删去 host-native 留下的 `plan`/`dontAsk` 分支；未知意图报 `permission-intent-unsupported`。
+
 ## [0.6.0] - 2026-10-09
 
 信箱 schema 仍为 5，委派库结构仍为 2。

@@ -96,24 +96,50 @@ def claude_host_live(claim: DelegationClaim, sessions: Path | None = None) -> bo
     return any(ref in live for ref in (claim.host_session_ref, claim.host_ref) if ref)
 
 
-def prune_records(store: DelegationStore, *, alive=claude_host_live, confirm: bool = False,
+def prune_records(store: DelegationStore, *, alive=claude_host_live, confirm_ids: tuple[str, ...] | None = None,
                   include_unknown_hosts: bool = False) -> dict[str, object]:
-    """delegation-hygiene D169: list (and with confirm, cancel) records stuck in creating/unknown for an hour."""
-    stale = []
-    pruned = []
-    for claim in store.stale_delegations():
-        live = alive(claim)
-        if live is True:
+    """delegation-hygiene D169: list records stuck in creating/unknown for an hour.
+
+    delegation-continue-parity D173: with confirm_ids (the ids the preview printed), cancel exactly those that are still
+    stale and not live; anything else is reported as skipped, so a record that turned stale after the preview stays.
+    """
+    def entry(claim, live):
+        return {"name": claim.friendly_name, "id": claim.delegation_id[:6], "state": claim.state,
+                "host": "[Claude Code]" if claim.target_host == "claude" else "[Codex]",
+                "hostLive": "unknown" if live is None else False}
+
+    if confirm_ids is None:
+        stale = []
+        for claim in store.stale_delegations():
+            live = alive(claim)
+            if live is not True:
+                stale.append(entry(claim, live))
+        return {"stale": stale, "writesPerformed": False}
+    if not confirm_ids:
+        raise ControlError("prune-ids-required")
+    stale = {claim.delegation_id: claim for claim in store.stale_delegations()}
+    every = store.list_delegations()
+    pruned, skipped = [], []
+    for short in dict.fromkeys(confirm_ids):
+        matches = [claim for claim in every if claim.delegation_id.startswith(short)] if short else []
+        if len(matches) != 1:
+            skipped.append({"id": short, "reason": "ambiguous" if matches else "not-found"})
             continue
-        entry = {"name": claim.friendly_name, "id": claim.delegation_id[:6], "state": claim.state,
-                 "host": "[Claude Code]" if claim.target_host == "claude" else "[Codex]",
-                 "hostLive": "unknown" if live is None else False}
-        stale.append(entry)
-        if confirm and (live is False or include_unknown_hosts):
+        claim = stale.get(matches[0].delegation_id)
+        if claim is None:
+            skipped.append({"id": short, "reason": "not-stale"})
+            continue
+        live = alive(claim)
+        if live is True or (live is None and not include_unknown_hosts):
+            skipped.append({"id": short, "reason": "host-live" if live else "host-unknown"})
+            continue
+        try:
             store.prune_stale(claim.delegation_id)
-            pruned.append(entry)
-    return {"stale": [] if confirm else stale, **({"pruned": pruned} if confirm else {}),
-            "writesPerformed": bool(pruned)}
+        except DelegationError:
+            skipped.append({"id": short, "reason": "not-stale"})
+            continue
+        pruned.append(entry(claim, live))
+    return {"pruned": pruned, "skipped": skipped, "writesPerformed": bool(pruned)}
 
 
 def _with_scope(prompt: str, scope: tuple[str, ...]) -> str:
@@ -170,6 +196,8 @@ class PublicSession:
     diagnostic: str | None = None
     # delegation-user-context D162: "user" when the session loads the user's environment.
     environment: str | None = None
+    # delegation-continue-parity D172: why the record reached its current state (its evidence).
+    state_reason: str | None = None
 
     def payload(self) -> dict[str, object]:
         value: dict[str, object] = {
@@ -202,6 +230,7 @@ class PublicSession:
             ("response", self.response),
             ("routeReason", self.route_reason),
             ("diagnostic", self.diagnostic),
+            ("stateReason", self.state_reason),
         ):
             if item is not None:
                 value[field] = item
@@ -251,6 +280,9 @@ class SessionDelegationController:
             permission=claim.permission_intent,
             environment="user" if envelope.host_permission == USER_ENVIRONMENT else None,
             state=state or claim.state,
+            # Public output names no host internals, so the evidence loses its "host-" prefix.
+            state_reason=(claim.state_reason.replace("host-", "", 1) if claim.state_reason
+                          and state in (None, claim.state) else None),
             host_status=host_status,
             prerequisite=prerequisite,
             disambiguator=disambiguator,
@@ -459,6 +491,7 @@ class SessionDelegationController:
             permission_intent,
             confirmed=confirmed,
             friendly_name=friendly_name,
+            scope=scope,
         )
         if claim.state != "creating":
             return self._public(claim, envelope, host_operation="create")
@@ -609,7 +642,8 @@ class SessionDelegationController:
             claim, "continue",
             lambda: adapter.continue_turn(
                 claim.delegation_id,
-                self._with_result_route(prompt, route, turn_seed),
+                # delegation-continue-parity D171: the stored scope is repeated on every turn (Codex's only limit).
+                self._with_result_route(_with_scope(prompt, claim.scope or ()), route, turn_seed),
                 isolated_worktree=isolated_worktree,
             ),
         )
@@ -836,7 +870,9 @@ def _parser() -> argparse.ArgumentParser:
     resolve.add_argument("--name", required=True)
     prune = subparsers.add_parser(
         "prune", help="list records stuck in creating/unknown for an hour; --confirm cancels them (D169)")
-    prune.add_argument("--confirm", action="store_true")
+    # delegation-continue-parity D173: --confirm names the ids the preview printed (comma-separated).
+    prune.add_argument("--confirm", metavar="ID,...", type=lambda value: tuple(
+        item.strip() for item in value.split(",") if item.strip()))
     prune.add_argument("--include-unknown-hosts", action="store_true",
                        help="also cancel records whose host session cannot be checked")
 
@@ -927,7 +963,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "list" and not args.state_root.exists():
             payload: object = []
         elif args.command == "prune":
-            payload = (prune_records(DelegationStore(args.state_root), confirm=args.confirm,
+            payload = (prune_records(DelegationStore(args.state_root), confirm_ids=args.confirm,
                                      include_unknown_hosts=args.include_unknown_hosts)
                        if args.state_root.exists() else {"stale": [], "writesPerformed": False})
         elif args.command == "resolve":

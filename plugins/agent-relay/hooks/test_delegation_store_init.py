@@ -12,7 +12,7 @@ import time
 import unittest
 from unittest import mock
 
-from session_delegation import DATABASE_FILENAME, DelegationError, DelegationStore
+from session_delegation import DATABASE_FILENAME, SCHEMA_VERSION, DelegationError, DelegationStore
 
 HOOKS = Path(__file__).resolve().parent
 
@@ -56,7 +56,7 @@ class StoreInitTests(unittest.TestCase):
                 if process.returncode != 0 or out.strip() != "ok":
                     failures.append((round_number, out.strip(), err.strip()[-200:]))
             if not failures:
-                self.assertEqual(self.version(root), 2)
+                self.assertEqual(self.version(root), SCHEMA_VERSION)
         self.assertEqual(failures, [])
 
     def test_an_empty_database_left_by_a_dead_creator_is_initialized(self):
@@ -65,7 +65,7 @@ class StoreInitTests(unittest.TestCase):
         database = root / DATABASE_FILENAME
         os.close(os.open(database, os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600))
         DelegationStore(root)
-        self.assertEqual(self.version(root), 2)
+        self.assertEqual(self.version(root), SCHEMA_VERSION)
 
     def test_a_foreign_database_at_version_0_is_still_refused(self):
         root = self.parent / "state"
@@ -126,7 +126,7 @@ class StoreInitTests(unittest.TestCase):
         root.mkdir(mode=0o700)
         with self.missing_at_first(root):
             DelegationStore(root)
-        self.assertEqual(self.version(root), 2)
+        self.assertEqual(self.version(root), SCHEMA_VERSION)
 
     def test_a_symlink_created_meanwhile_is_still_refused(self):
         target = self.parent / "elsewhere"

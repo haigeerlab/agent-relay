@@ -19,6 +19,7 @@ from session_delegation_claude import (
     ClaudeInstallation,
     _bounded_prompt,
     build_create_command,
+    build_resume_command,
     communication_rules,
     discover_claude,
     inspect_project_permissions,
@@ -211,7 +212,55 @@ class InstallationAndPermissionTests(unittest.TestCase):
         self.assertTrue(command[-7].endswith("delegation_scope_hook.py"), command)
         self.assertEqual(command[-6:], ["--root", str(self.project.resolve()), "--scope", "README.md",
                                         "--scope", "docs"])
-        self.assertEqual(json.loads(scoped[index + 1]).keys(), {"hooks"})
+        # delegation-continue-parity D174: a project's disableAllHooks cannot switch the hook off (measured 2026-10-09:
+        # flag settings override the project's `true`).
+        self.assertEqual(json.loads(scoped[index + 1]).keys(), {"hooks", "disableAllHooks"})
+        self.assertIs(json.loads(scoped[index + 1])["disableAllHooks"], False)
+
+    def test_a_server_level_allow_rule_covers_that_servers_tools_only(self):
+        # delegation-continue-parity D174: Claude Code honours `mcp__<server>`; pre-flight must agree.
+        from session_delegation_claude import _matches_rule
+        self.assertTrue(_matches_rule("mcp__agent-relay", "mcp__agent-relay__bridge_send"))
+        self.assertTrue(_matches_rule("mcp__agent-relay__*", "mcp__agent-relay__bridge_send"))
+        self.assertFalse(_matches_rule("mcp__agent-relay", "mcp__agent-relay-other__bridge_send"))
+        self.assertFalse(_matches_rule("mcp__agent", "mcp__agent-relay__bridge_send"))
+        self.assertFalse(_matches_rule("Read", "mcp__agent-relay__bridge_send"))
+        self.write_permissions(["mcp__agent-relay"])
+        readiness = inspect_project_permissions(self.project, "safe-review", None, server_name="agent-relay")
+        self.assertTrue(readiness.ready, readiness)
+
+    def test_only_the_two_cross_host_intents_have_a_launch_shape(self):
+        # delegation-continue-parity D174: the host-native branches are gone with host-native (0.6.0).
+        from session_delegation_claude import _permission_shape
+        for intent, host_permission in (("host-native", "plan"), ("host-native", "dontAsk"), ("other", None)):
+            with self.subTest(intent=intent, host_permission=host_permission):
+                with self.assertRaisesRegex(ClaudeAdapterError, "permission-intent-unsupported"):
+                    _permission_shape(intent, host_permission, "agent-relay")
+
+    def test_resume_repeats_every_launch_limit_of_create(self):
+        # delegation-continue-parity D171: the same limits, built by one function, for every launch shape.
+        installation = ClaudeInstallation(Path("/opt/claude"), "2.1.295")
+        config = Path("/private/tmp/session.mcp.json")
+        for intent in ("safe-review", "bounded-development"):
+            for host_permission in (None, "user-environment"):
+                for scope in ((), ("README.md",)):
+                    if scope and intent != "safe-review":
+                        continue
+                    with self.subTest(intent=intent, environment=host_permission, scope=scope):
+                        create = list(build_create_command(
+                            installation, config, "agent-relay-12345678", "Go", intent, "dontAsk", host_permission,
+                            scope=scope, scope_root=self.project))
+                        resume = list(build_resume_command(
+                            installation, config, "session-uuid", "Go", intent, "dontAsk", host_permission,
+                            scope=scope, scope_root=self.project))
+                        name = create.index("--name")
+                        expected = create[:name] + create[name + 2:]
+                        expected[2:2] = ["--resume", "session-uuid"]
+                        self.assertEqual(resume, expected)
+                        for flag in ("--strict-mcp-config", "--permission-mode", "--tools", "--setting-sources",
+                                     "--permission-prompts", "--no-chrome"):
+                            self.assertIn(flag, resume)
+                        self.assertEqual("--settings" in resume, bool(scope))
 
     def test_host_prompt_allows_control_envelope_after_maximum_user_body(self):
         prompt = _bounded_prompt(
@@ -720,10 +769,68 @@ class AdapterTests(unittest.TestCase):
             str(self.installation.binary), "--background", "--resume",
             "ce5b9501-0817-479d-886e-772bafbbee6f",
         ])
-        for forbidden in (
-            "--name", "--mcp-config", "--permission-mode", "--tools", "--model",
-        ):
+        # delegation-continue-parity D171: --resume keeps the conversation, not the limits (measured 2026-10-09), so
+        # a resumed turn repeats the launch limits; only --name stays create-only.
+        self.assertEqual(resume[:-1], list(build_resume_command(
+            self.installation, self.config, "ce5b9501-0817-479d-886e-772bafbbee6f", "x", "safe-review", "dontAsk",
+            scope=(), scope_root=self.project))[:-1])
+        for forbidden in ("--name", "--model", "--settings"):
             self.assertNotIn(forbidden, resume)
+
+    def scoped_claim(self, scope):
+        self.store = DelegationStore(self.root / "state", now=lambda: NOW)
+        request = AuthorizationRequest(
+            authority="direct-user", horizon="task", origin_host="codex", origin_session="origin-session",
+            project_root=self.project, repo_identity="git:example/project", baseline="a" * 40, dirty=False,
+            target_hosts=("claude",), permission_intent="safe-review", host_permission=None, max_sessions=1,
+            expires_at=NOW + 600, depth=0, idempotency_key="claude-scoped-123", summary="Review README")
+        envelope = self.store.authorize(request)
+        self.claim = self.store.claim_launch(envelope.envelope_id, "claude-scoped-launch", "claude", self.project,
+                                             "a" * 40, "safe-review", scope=scope)
+        self.complete_claim()
+
+    def test_a_stopped_scoped_review_resumes_with_its_scope_hook(self):
+        (self.project / "README.md").write_text("readme", encoding="utf-8")
+        self.scoped_claim(("README.md",))
+        runner = ScriptedRunner([
+            completed(json.dumps([self.entry(state="stopped", status="stopped")])),
+            completed("backgrounded · ce5b9501 · test\n"),
+            completed(json.dumps([self.entry(state="running", status="working")])),
+        ])
+        self.adapter(runner).continue_turn(self.claim.delegation_id, "And the license?")
+        resume = runner.calls[1][0]
+        self.assertEqual(resume.count("--settings"), 1)
+        hook = json.loads(resume[resume.index("--settings") + 1])["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+        self.assertTrue(hook.endswith("--scope README.md"), hook)
+
+    def test_a_review_recorded_before_schema_three_is_not_continued(self):
+        import sqlite3
+        self.complete_claim()
+        with sqlite3.connect(self.store.database) as connection:
+            connection.execute("UPDATE delegations SET scope = NULL")
+        runner = ScriptedRunner([])
+        with self.assertRaisesRegex(ClaudeAdapterError, "scope-unknown"):
+            self.adapter(runner).continue_turn(self.claim.delegation_id, "Again")
+        self.assertEqual(runner.calls, [], "no host is touched")
+
+    def test_development_recorded_before_schema_three_still_continues(self):
+        import sqlite3
+        self.envelope, self.claim = self.make_claim(permission="bounded-development", key="claude-dev-12345")
+        result = self.adapter(self.runner_for_create()).create(self.claim.delegation_id, "Go", isolated_worktree=True)
+        self.store.set_turn_ref(self.claim.delegation_id, result.host_session_ref)
+        for state in ("registered", "running", "completed"):
+            self.store.advance(self.claim.delegation_id, state, "host-" + state)
+        with sqlite3.connect(self.store.database) as connection:
+            connection.execute("UPDATE delegations SET scope = NULL")
+        runner = ScriptedRunner([
+            completed(json.dumps([self.entry(state="stopped", status="stopped")])),
+            completed("backgrounded · ce5b9501 · test\n"),
+            completed(json.dumps([self.entry(state="running", status="working")])),
+        ])
+        self.adapter(runner).continue_turn(self.claim.delegation_id, "Next step", isolated_worktree=True)
+        resume = runner.calls[1][0]
+        self.assertIn("--permission-mode", resume)
+        self.assertNotIn("--settings", resume)
 
     def test_stopped_follow_up_retries_transient_post_resume_metadata(self):
         self.complete_claim()

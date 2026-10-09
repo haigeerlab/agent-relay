@@ -497,6 +497,27 @@ class AdapterTests(unittest.TestCase):
             "thread/read", {"threadId": "thread-1", "includeTurns": False},
         ))
 
+    def test_a_follow_up_keeps_the_threads_sandbox_and_approval(self):
+        # delegation-continue-parity assumption 9: Codex resume re-sends the launch permission and checks the
+        # effective one exactly as create does, so a follow-up cannot run wider than the thread was started.
+        created = self.successful_client()
+        self.adapter([created]).create(self.claim.delegation_id, "Review")
+        start = dict(created.calls)["thread/start"]
+        resumed = ScriptedClient([
+            ("thread/resume", self.thread_result()),
+            ("mcpServerStatus/list", self.catalog()),
+            ("turn/start", {"turn": {"id": "turn-2", "status": "inProgress"}}),
+        ], TurnOutcome("completed", False, "done"))
+        self.adapter([resumed]).continue_turn(self.claim.delegation_id, "Again")
+        resume = dict(resumed.calls)["thread/resume"]
+        self.assertEqual((resume["approvalPolicy"], resume["sandbox"]), (start["approvalPolicy"], start["sandbox"]))
+        for wider in ({"type": "dangerFullAccess"}, {"type": "readOnly", "networkAccess": True}):
+            with self.subTest(sandbox=wider):
+                widened = ScriptedClient([("thread/resume", self.thread_result(wider))])
+                with self.assertRaisesRegex(CodexAdapterError, "effective-permission-expanded"):
+                    self.adapter([widened]).continue_turn(self.claim.delegation_id, "Again")
+                self.assertNotIn("turn/start", [method for method, _ in widened.calls])
+
     def test_uncertain_follow_up_turn_is_not_retried_automatically(self):
         self.adapter([self.successful_client()]).create(self.claim.delegation_id, "Review")
         resumed = ScriptedClient([
