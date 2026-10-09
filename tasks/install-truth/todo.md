@@ -7,3 +7,5 @@
 - [ ] Checkpoint (report): local validation
 - [ ] Task 5: PR and CI
 - [ ] Checkpoint (gate): module review
+
+Queued after this module (the user, 2026-10-10; relayed by the "修复 bridge 接管时无法换绑 wake" session from coord-r2's review of #74): a bridge module, next decision D187 — `bridge_register` with `takeover` refuses with `holder-still-running` when the holder (owner or current wake binding) is a Claude session that `isClaudeSessionLive` reports live (an unreadable registry counts as not live, as today); Codex holders unchanged; `reactivate` + `takeover` follows the same rule; the 0.6.2 envelope's takeover of its own stopped session stays allowed (tested). Done after install-truth, before the 0.6.2 release; spec, capability-map insert and plan go through the usual gates.
