@@ -1,4 +1,6 @@
 # agent-relay ci-macos (D80, D80a): the local validation on macOS, for every pull request and every push to main.
+# ci-on-demand (D135-D139): skipped when only exempt paths changed (scripts/ci_scope.py); always full weekly and
+# when run by hand.
 name: CI
 
 on:
@@ -6,6 +8,8 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  schedule:
+    - cron: '0 3 * * 1'
 
 permissions:
   contents: read
@@ -31,28 +35,41 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
+
+      # The four jobs always run and report, so the required checks never wait (D136); in skip mode every later step
+      # is skipped. Event data reaches the script through the environment, never the shell command line.
+      - name: Scope
+        id: scope
+        env:
+          CI_EVENT: ${{ github.event_name }}
+          CI_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          CI_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python3 -B scripts/ci_scope.py
 
       # Python 3.9 is Apple's, from the Command Line Tools: the one macOS users run (setup-python has no current
       # 3.9 build for arm64).
       - name: Python 3.9 (Apple Command Line Tools)
-        if: matrix.python == '3.9'
+        if: steps.scope.outputs.scope != 'skip' && matrix.python == '3.9'
         run: |
           mkdir -p "$RUNNER_TEMP/py39"
           ln -s /usr/bin/python3 "$RUNNER_TEMP/py39/python3"
           echo "$RUNNER_TEMP/py39" >> "$GITHUB_PATH"
       - name: Python 3.14
-        if: matrix.python == '3.14'
+        if: steps.scope.outputs.scope != 'skip' && matrix.python == '3.14'
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.14'
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: steps.scope.outputs.scope != 'skip'
         with:
           node-version: ${{ matrix.node }}
           cache: npm
           cache-dependency-path: plugins/agent-relay/bridge/package-lock.json
 
       - name: Check the toolchain is the one asked for
+        if: steps.scope.outputs.scope != 'skip'
         env:
           WANT_PYTHON: ${{ matrix.python }}
           WANT_NODE: ${{ matrix.node }}
@@ -61,15 +78,18 @@ jobs:
           node -e 'console.log(process.execPath, process.versions.node); process.exit(process.versions.node.split(".")[0] === process.env.WANT_NODE ? 0 : 1)'
 
       - name: Bridge dependencies
+        if: steps.scope.outputs.scope != 'skip'
         working-directory: plugins/agent-relay/bridge
         run: npm ci
 
       - name: doctor toolchain
+        if: steps.scope.outputs.scope != 'skip'
         run: |
           python3 -B plugins/agent-relay/hooks/native_collaboration_runtime.py doctor --node "$(command -v node)" > "$RUNNER_TEMP/doctor.json" || true
           python3 -c 'import json, sys; c = next(c for c in json.load(open(sys.argv[1]))["checks"] if c["check"] == "toolchain"); print("toolchain:", c["state"], c["detail"])' "$RUNNER_TEMP/doctor.json"
 
       - name: Validate
+        if: steps.scope.outputs.scope != 'skip'
         run: |
           bash scripts/validate.sh | tee "$RUNNER_TEMP/validate.txt"
           grep -qE "ok    bridge: npm run check +[0-9]+$" "$RUNNER_TEMP/validate.txt" || { echo "the bridge check did not run or ran no counted tests"; exit 1; }

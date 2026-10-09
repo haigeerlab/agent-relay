@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+- **CI 按改动决定跑不跑**（模块 `ci-on-demand`，D135–D139）：只改 `CLAUDE.md`、`AGENTS.md`、`spec/`、`tasks/`、`.agent/` 的 PR
+  和推送，四个必需检查直接通过、不跑测试；其余改动照常跑 Python 3.9/3.14 × Node 22/24 全矩阵。判断在每个任务内部做
+  （`scripts/ci_scope.py`），不用路径过滤，所以必需检查不会卡在“等待中”；拿不准时一律全量。新增守护测试，测试跑到的代码
+  一旦引用这些路径就变红。每周一 03:00 UTC 定时全量跑一次。只改 CI，不影响插件与运行时。
 - **升级说明写清楚怎么停 bridge**（模块 `upgrade-restart-note`，D132–D134，0.5.2 E1 验收发现 F2）：README“升级运行时”与
   collaboration-ops 技能写明两种方式——退出应用后重开；或用 `pkill -TERM -f "[a]gent-relay/runtime/dist/server.js"` 只结束
   bridge（方括号让它不会结束执行它的 shell），这时 ChatGPT 应用要 ⌘Q 完全退出再打开，否则已打开的 Codex 线程会一直报

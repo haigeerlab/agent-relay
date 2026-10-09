@@ -229,6 +229,12 @@ python3 -B plugins/agent-relay/hooks/state_migration.py migrate --confirm
 仓库 Settings → Branches（或 Rules → Rulesets）→ 为 `main` 勾选 “Require status checks to pass”，选上四个
 `Python … / Node …` 检查。是否这样设由维护者决定。
 
+按改动决定跑不跑（`ci-on-demand`）：一个 PR（或推到 `main` 的提交）如果只改了 `CLAUDE.md`、`AGENTS.md`、`spec/`、`tasks/`、
+`.agent/` 下的文件，四个检查只打印原因就通过，不跑测试；只要有一个文件不在这几处，就照常跑完整矩阵。名单定义在
+[`scripts/ci_scope.py`](scripts/ci_scope.py)，`hooks/test_ci_exempt_guard.py` 保证测试跑到的代码都不读这些路径。每周一 03:00 UTC
+在 `main` 上定时全量跑一次，及早发现运行环境里 Python 或 Node 升级带来的问题；随时想全量跑，在 Actions 页面对 CI 点
+“Run workflow”。
+
 ## 许可与致谢
 
 agent-relay 以 [MIT 许可](LICENSE) 发布。

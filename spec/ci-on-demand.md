@@ -47,7 +47,8 @@ Readers: the user, who merges; reviewers of every later PR.
   (all zeros) or unreachable, an empty or unreadable change list, and any change list with one non-exempt path.
   When in doubt the answer is `full`.
 - **D136 skip inside the job, not a path filter.** The workflow keeps triggering on every PR and push. Each matrix job
-  checks out, decides the scope, and in `skip` mode stops after printing why, so the four required checks still report
+  checks out, decides the scope, and in `skip` mode skips every later step after printing why, so the four required
+  checks still report
   (as success) under their names. A workflow-level `paths-ignore` is not used: it would leave a docs-only PR waiting on
   four checks that never report. The decision is made by a small stdlib Python script, `scripts/ci_scope.py`, given the
   event and the base and head commits through environment variables (never interpolated into shell), which reads the
@@ -71,7 +72,8 @@ Readers: the user, who merges; reviewers of every later PR.
    a base it cannot diff against. The reason it prints names the first non-exempt path, or the event.
 2. Red first, the guard of D137, run by `validate.sh`; a deliberately planted reference to `spec/` makes it fail.
 3. `ci.yml` per D136/D138: checkout with enough history to diff the PR base or the push's `before`; a `scope` step;
-   every later step runs only when the scope is `full`; the `schedule` trigger. `test_ci_workflow.py` is extended to
+   every later step runs unless the scope is `skip` (`!= 'skip'`, so a missing output runs the tests: amended while
+   building, 2026-10-09); the `schedule` trigger. `test_ci_workflow.py` is extended to
    assert the schedule, the scope step, and that `validate.sh` and `npm ci` are conditioned on `full`, and keeps every
    existing assertion.
 4. This module's own PR changes `ci.yml` and scripts, so its CI must run `full` and be green in all four jobs.
