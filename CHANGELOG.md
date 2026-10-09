@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+- **委派只保留两个跨宿主方向，Codex 第一次就能创建**（模块 `delegation-cross-host`，D158–D161，第二轮联调 B1、B6）：
+  委派只做 Claude Code → Codex 与 Codex → Claude Code，同宿主请求以 `same-host-unsupported` 拒绝（旧记录可查、可取消，
+  不能继续）；从未生效过的 `host-native` 委派意图删除（**破坏性变更**，属于接口 2.0）。Codex 里运行会写状态的命令时
+  一开始就申请沙箱外写入，不再先失败再重试；写不进去时控制器返回 `state-not-writable` 和下一步，不再抛报错堆栈。
+  Claude Code 里装了 delegate 插件时，“派给 Codex”交给它，agent-relay 的委派只做后备。
 - **信箱的几处小修**（模块 `mailbox-polish`，D154–D157，第二轮联调 A5–A7）：收件箱与等待返回本次读取之后的投递状态，
   收件方用 `replyTo` 回复原消息也算送达证据，送达并回复过的消息不再停在 `unknown`；新增只读命令
   `native_collaboration_adapters.py claude-allow-rules`，打印 Claude Code 一次性放行 10 个信箱工具的精确规则（不改你的

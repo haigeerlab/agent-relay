@@ -89,8 +89,17 @@ class SessionDelegationEntryTests(unittest.TestCase):
         ):
             self.assertIn(phrase, text)
         self.assertIn("不能把 create/cancel 说成消息已送达", text)
-        self.assertIn("同宿主结果不复制到 mailbox", text)
         self.assertIn("status 不从旧轮次补造 transport", text)
+
+    def test_cross_host_only_codex_escalates_first_and_delegate_goes_first(self):
+        # delegation-cross-host D158-D161.
+        text = self.delegation_text()
+        for phrase in ("Claude Code → Codex", "Codex → Claude Code", "same-host-unsupported", "不能 `continue`",
+                       "第一次运行就申请沙箱外写入", "state-not-writable", "复用同一组 key",
+                       "`delegate:delegate`", "本 skill 只做后备"):
+            self.assertIn(phrase, text)
+        self.assertNotIn("`host-native`：", text)
+        self.assertNotIn("同宿主结果不复制到 mailbox", text)
 
     def test_repository_validation_runs_the_entry_contract(self):
         validation = VALIDATE.read_text(encoding="utf-8")

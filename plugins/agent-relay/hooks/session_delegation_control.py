@@ -11,10 +11,12 @@ import os
 from pathlib import Path
 import re
 import shutil
+import sqlite3
 import sys
 from typing import Callable, Protocol
 
 from session_delegation import (
+    StateNotWritableError,
     AuthorizationEnvelope,
     AuthorizationRequest,
     DelegationClaim,
@@ -503,6 +505,9 @@ class SessionDelegationController:
     ) -> PublicSession:
         claim, envelope = self._resolve(
             friendly_name, disambiguator=disambiguator)
+        # delegation-cross-host D158: a same-host session an older version created is never continued.
+        if envelope.origin_host == claim.target_host:
+            raise ControlError("same-host-unsupported")
         self._require_active(envelope)
         turn_seed = claim.last_turn_ref or "initial"
         route = self._turn_route(
@@ -732,7 +737,7 @@ def _parser() -> argparse.ArgumentParser:
         "permissions", help="read-only Claude project permission preflight")
     permissions.add_argument("--project", type=Path, required=True)
     permissions.add_argument("--permission", choices=(
-        "safe-review", "bounded-development", "host-native"),
+        "safe-review", "bounded-development"),
         default="safe-review")
     permissions.add_argument("--host-permission")
 
@@ -746,7 +751,7 @@ def _parser() -> argparse.ArgumentParser:
     create.add_argument("--baseline", required=True)
     create.add_argument("--dirty", action="store_true")
     create.add_argument("--permission", choices=(
-        "safe-review", "bounded-development", "host-native"),
+        "safe-review", "bounded-development"),
         default="safe-review")
     create.add_argument("--host-permission")
     create.add_argument("--horizon", choices=("task", "strict", "batch", "session"),
@@ -768,6 +773,21 @@ def _parser() -> argparse.ArgumentParser:
         if command == "continue":
             action.add_argument("--isolated-worktree", action="store_true")
     return parser
+
+
+# delegation-cross-host D160: what a session should do when the delegation state cannot be written here.
+STATE_NOT_WRITABLE_DETAIL = (
+    "The delegation state cannot be written from here, so nothing was created or changed. In a Codex sandbox, run "
+    "this command again with the sandbox escalation (write access outside the workspace) and let the user approve it "
+    "once.")
+
+
+def _state_not_writable(error: Exception) -> bool:
+    if isinstance(error, StateNotWritableError):
+        return True
+    text = str(error).lower()
+    return isinstance(error, sqlite3.OperationalError) and (
+        "readonly" in text or "read-only" in text or "unable to open database" in text)
 
 
 def _read_prompt() -> str:
@@ -853,6 +873,12 @@ def main(argv: list[str] | None = None) -> int:
                     args.name, disambiguator=args.disambiguator).payload()
         print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
         return 0
+    except (StateNotWritableError, sqlite3.OperationalError) as error:
+        if not _state_not_writable(error):
+            raise
+        print(json.dumps({"state": "error", "reason": "state-not-writable", "detail": STATE_NOT_WRITABLE_DETAIL},
+                         ensure_ascii=False, sort_keys=True))
+        return 1
     except (ControlError, DelegationError, ValueError) as error:
         reason = error.reason if isinstance(error, ControlError) else str(error)
         payload = {"state": "error", "reason": reason}
