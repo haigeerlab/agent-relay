@@ -157,6 +157,57 @@ test("a Claude session binds wake only to itself", async () => {
   }
 });
 
+// agent-relay takeover-wake-rebind D186: takeover with a new wake replaces another session's binding.
+test("takeover: true with a new wake replaces another session's wake binding and cancels its pending pings", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "agent-relay-identity-rebind-"));
+  const a = await session(dir, "claude-session-a");
+  const b = await session(dir, "claude-session-b");
+  const c = await session(dir, "claude-session-c");
+  const codex = await session(dir, null);
+  const jobs = (agent: string) => {
+    const store = new BridgeStore(join(dir, "bridge.sqlite"));
+    try {
+      return store.wakes.list(agent).map((job) => ({ state: job.state, sessionId: job.target.sessionId }));
+    } finally {
+      store.close();
+    }
+  };
+  try {
+    const bound = { app: "claude", sessionId: "claude-session-a" };
+    assert.deepEqual((await a.call("bridge_register", { agent: "alice", wake: "auto" })).json().wake, bound);
+    assert.deepEqual((await a.call("bridge_register", { agent: "alice", wake: "auto" })).json().wake, bound, "same session again");
+    assert.ok((await codex.call("bridge_register", { agent: "carol" })).ok);
+    assert.ok((await codex.call("bridge_send", { from: "carol", to: "alice", body: "while a was bound" })).ok);
+    assert.deepEqual(jobs("alice"), [{ state: "pending", sessionId: "claude-session-a" }]);
+
+    const refused = await b.call("bridge_register", { agent: "alice", wake: "auto" });
+    assert.equal(refused.ok, false);
+    assert.match(refused.text, /takeover: true/);
+    const kept = await b.call("bridge_register", { agent: "bob" });
+    assert.ok(kept.ok, kept.text);
+    assert.deepEqual(jobs("alice"), [{ state: "pending", sessionId: "claude-session-a" }], "a refusal changes nothing");
+
+    const moved = await b.call("bridge_register", { agent: "alice", takeover: true, wake: "auto" });
+    assert.ok(moved.ok, moved.text);
+    assert.deepEqual(moved.json().wake, { app: "claude", sessionId: "claude-session-b" });
+    assert.equal(moved.json().host.sessionId, "claude-session-b");
+    assert.match(moved.json().notes.join(" "), /taken over/);
+    assert.equal(moved.json().unread, 1, "the message waits in the inbox");
+    assert.deepEqual(jobs("alice"), [{ state: "cancelled", sessionId: "claude-session-a" }]);
+
+    const explicit = await c.call("bridge_register",
+      { agent: "alice", takeover: true, wake: { app: "claude", sessionId: "claude-session-c" } });
+    assert.ok(explicit.ok, explicit.text);
+    assert.deepEqual(explicit.json().wake, { app: "claude", sessionId: "claude-session-c" });
+
+    const noWake = await b.call("bridge_register", { agent: "alice", takeover: true });
+    assert.ok(noWake.ok, noWake.text);
+    assert.deepEqual(noWake.json().wake, { app: "claude", sessionId: "claude-session-c" }, "omitted wake keeps the binding");
+  } finally {
+    await Promise.all([a.close(), b.close(), c.close(), codex.close()]);
+  }
+});
+
 // agent-relay ops-commands: whoami (assumption 3).
 test("bridge_sessions.whoami lists this session's host, project and identities", async () => {
   const dir = mkdtempSync(join(tmpdir(), "agent-relay-whoami-"));
