@@ -8,7 +8,7 @@
   - Update: `claude plugin marketplace update agent-relay-marketplace` ok (local directory marketplace = the main clone at v0.6.1); `claude plugin update agent-relay@agent-relay-marketplace` updated **only the local entry of the current folder** (main repo, 0.1.0 → 0.6.1, new cache dir `0.6.1`); `--scope user` updated the user entry 0.5.2 → 0.6.1. Left: local entries on cache 0.1.0 (7, four folders gone) and 0.5.2 (2) — not touched (the user).
   - Doctor rule changed with the user (spec 2a): compare only the copy a new session loads; tests rewritten first (5 red), then green. On this Mac after the update: `ok`, with the unused cache copies noted.
 - [x] Task 3: README and CHANGELOG, from Task 4's measurement — guard test first (red: no "## 更新插件"): README "更新插件" (per install kind; a session keeps the copy it started with, also when resumed — the coordinator's observation of 87c0b7f5, re-opened after quitting the app and still on 0.5.2 — so open a new session; `--scope user`; doctor's `claude-plugin`), CHANGELOG `[Unreleased]` and a `[0.6.1]` correction note. Doctor's wording changed with it ("open new Claude sessions …; quitting and reopening the app or resuming keeps the copy"). The resume case was not reproduced here (it would need another change to the user's plugin install), so it is written as the coordinator's observation
-- [ ] Checkpoint (report): local validation
+- [x] Checkpoint (report): local validation — `scripts/validate.sh` pass on Python 3.9.6, 3.10.7, 3.14.3 (Node 24 first on PATH): 47 files / 742 tests each. Doctor on this Mac after the update: `claude-plugin` ok ("every agent-relay copy Claude Code loads is 0.6.1 …", unused cache copies noted)
 - [ ] Task 5: PR and CI
 - [ ] Checkpoint (gate): module review
 
