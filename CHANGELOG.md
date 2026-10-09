@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+- **会话目录看得出谁在、谁在等你**（模块 `presence-and-approval`，D146–D149，第二轮联调 A2、A4）：`bridge_agents` 每个
+  身份新增 `presence`（运行中、等待授权、等待输入、已停止、未知），Claude 读 Claude Code 自己的会话登记，Codex 问 ChatGPT
+  应用这个任务是否打开；给等授权或已停止的会话发消息时，发件方会收到提示；Claude 会话卡在授权弹窗、发给它的消息还没
+  处理时，本机通知你一次，只通知、不代批；doctor 与目录用同一套状态词。bridge 改动，升级运行时后生效。
 - **任何权限模式都能绑定唤醒，被唤醒的回合按会话自己的设置运行**（模块 `wake-any-mode`，D140–D145，第二轮联调 A1）：
   Claude 的 auto 模式、Codex 的“帮我批准”下都可以加入并绑定唤醒。bridge 不再把被唤醒的 Codex 回合改成“用户审批 +
   只读沙箱”（撤销 codex-gated-wake D65，用户 2026-10-09 确认），连带删除 ChatGPT 26.930 版本门槛、唤醒后读记录核对和

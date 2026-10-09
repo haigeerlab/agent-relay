@@ -58,6 +58,8 @@ class CollabEntryContractTest(unittest.TestCase):
             "[Claude Code]", "[Codex]", "registered", "wakeable", "wake-held",
             "unread", "不等于在线", "唯一匹配才发送", "零匹配", "多匹配",
             "完整内部 ID",
+            # presence-and-approval D146: presence words, and the user answers prompts themselves.
+            "presence.state", "等待授权", "已停止", "不替用户回答",
         ):
             self.assertIn(phrase, text)
 
