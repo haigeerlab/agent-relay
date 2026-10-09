@@ -41,6 +41,34 @@ class ControlError(ValueError):
         self.detail = detail
 
 
+def review_scope(project: Path, scope: tuple[str, ...], permission_intent: str) -> tuple[str, ...]:
+    """delegation-hygiene D166: project-relative paths a safe review is limited to, normalized; () means no scope."""
+    if not scope:
+        return ()
+    if permission_intent != "safe-review":
+        raise ControlError("scope-review-only")
+    root = Path(project).resolve(strict=True)
+    normalized: list[str] = []
+    for item in scope:
+        candidate = (root / item).resolve()
+        if candidate != root and root not in candidate.parents:
+            raise ControlError("scope-outside-project", detail=str(item))
+        if not candidate.exists():
+            raise ControlError("scope-missing", detail=str(item))
+        relative = candidate.relative_to(root).as_posix() if candidate != root else "."
+        if relative not in normalized:
+            normalized.append(relative)
+    return tuple(normalized)
+
+
+def _with_scope(prompt: str, scope: tuple[str, ...]) -> str:
+    if not scope:
+        return prompt
+    return (prompt.rstrip() + "\n\n<agent-relay-review-scope>\nReview only these paths in the project: "
+            + ", ".join(scope) + ". Do not read any other file. End your result with a line \"Files read:\" "
+            "followed by every file you actually read.\n</agent-relay-review-scope>")
+
+
 class HostAdapter(Protocol):
     def create(self, delegation_id: str, prompt: str, *,
                isolated_worktree: bool = False) -> object: ...
@@ -363,7 +391,9 @@ class SessionDelegationController:
         permission_intent: str,
         confirmed: bool = False,
         isolated_worktree: bool = False,
+        scope: tuple[str, ...] = (),
     ) -> PublicSession:
+        scope = review_scope(request.project_root, scope, permission_intent)
         envelope = self.store.authorize(request)
         claim = self.store.claim_launch(
             envelope.envelope_id,
@@ -385,7 +415,7 @@ class SessionDelegationController:
             claim, "create",
             lambda: adapter.create(
                 claim.delegation_id,
-                self._with_result_route(prompt, route, turn_seed),
+                self._with_result_route(_with_scope(prompt, scope), route, turn_seed),
                 isolated_worktree=isolated_worktree,
             ),
             still=lambda current: current.state == "creating",
@@ -780,6 +810,8 @@ def _parser() -> argparse.ArgumentParser:
     create.add_argument("--summary", required=True)
     create.add_argument("--confirmed", action="store_true")
     create.add_argument("--isolated-worktree", action="store_true")
+    create.add_argument("--scope", action="append", default=[],
+                        help="safe-review only: a project path the review is limited to (repeatable, D166)")
 
     for command in ("continue", "status", "cancel"):
         action = subparsers.add_parser(command)
@@ -874,6 +906,7 @@ def main(argv: list[str] | None = None) -> int:
                     permission_intent=args.permission,
                     confirmed=args.confirmed,
                     isolated_worktree=args.isolated_worktree,
+                    scope=tuple(args.scope),
                 ).payload()
             elif args.command == "continue":
                 payload = controller.continue_named(

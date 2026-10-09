@@ -178,6 +178,28 @@ class RecoveryTests(unittest.TestCase):
             target_host="claude", permission_intent="safe-review").payload()
         self.assertNotIn("environment", plain)
 
+    def test_a_review_scope_is_checked_and_written_into_the_envelope(self):
+        # delegation-hygiene D166.
+        (self.project / "README.md").write_text("readme", encoding="utf-8")
+        (self.project / "docs").mkdir()
+        controller, adapter = self.controller(["created"])
+        for scope, intent, reason in ((("README.md",), "bounded-development", "scope-review-only"),
+                                      (("../outside.md",), "safe-review", "scope-outside-project"),
+                                      (("missing.md",), "safe-review", "scope-missing")):
+            with self.subTest(reason=reason), self.assertRaisesRegex(ControlError, reason):
+                controller.authorize_and_create(
+                    self.request(key="scope-" + reason), "scope-launch-" + reason, "范围", "Review",
+                    target_host="codex", permission_intent=intent, scope=scope)
+        self.assertEqual(tuple(self.store.list_delegations()), (), "nothing stored for a refused scope")
+        controller.authorize_and_create(
+            self.request(key="scope-ok"), "scope-launch-ok", "范围", "Review the readme",
+            target_host="codex", permission_intent="safe-review", scope=("README.md", "./docs/"))
+        prompt = adapter.calls[0][2]
+        self.assertIn("Review the readme", prompt)
+        self.assertIn("<agent-relay-review-scope>", prompt)
+        self.assertIn("README.md, docs", prompt)
+        self.assertIn("Files read:", prompt)
+
     def test_native_delivery_states_and_retry_keys_are_stable(self):
         for observed, state, expected in (
             (False, "created", "pending"),
