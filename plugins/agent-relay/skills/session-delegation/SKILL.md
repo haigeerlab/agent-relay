@@ -1,12 +1,18 @@
 ---
 name: session-delegation
-description: 在同一台 Mac 上按自然语言创建、继续、查看或取消受限的 Claude Code／Codex 审查与开发会话。用户说“创建一个 Codex 审查”“让 Claude Code 去这个项目开发”“继续刚才的会话”等时使用。
+description: 在同一台 Mac 上按自然语言跨宿主创建、继续、查看或取消受限的审查与开发会话：Claude Code 创建 Codex 会话，或 Codex 创建 Claude Code 会话。用户说“创建一个 Codex 审查”“让 Claude Code 去这个项目开发”“继续刚才的会话”等时使用；Claude Code 里装了 delegate 插件（有 delegate:delegate）时，“派给 Codex 审查／执行”交给它，本 skill 只做后备。
 ---
 
 # Session delegation
 
-本 skill 负责有授权边界的跨宿主会话创建，不是普通自由文本信箱。第一版只支持同一台 Mac；不跨机器，
+本 skill 负责有授权边界的跨宿主会话创建，不是普通自由文本信箱。只有两个方向：Claude Code → Codex、
+Codex → Claude Code；同宿主委派（Claude → Claude、Codex → Codex）不提供，控制器会以 `same-host-unsupported`
+拒绝，此时告诉用户在同宿主内直接开新会话。只支持同一台 Mac；不跨机器，
 不提供常驻 worker pool，不选择模型，不自动合并、发布、写远端 Issue/MR，也不让被创建的会话继续创建后代。
+
+**与 delegate 插件的分工**：在 Claude Code 里，当前会话有 `delegate:delegate` skill（delegate 插件已安装）时，
+“派给 Codex 审查／执行／排查”这类请求交给它，本 skill 不启动；没有时由本 skill 接手。Codex 一侧没有 delegate
+插件，Codex → Claude Code 的委派始终由本 skill 处理。
 
 用户只是要求联系、回复、等待或查看一个已有会话时，转交 `session-routing`；不得为了传话创建新会话。
 只有用户明确要求创建、继续受控任务或取消本 skill 创建的会话时，才进入下面的委派生命周期。
@@ -37,7 +43,6 @@ Agent 自己建议新开会话（例如主动建议再找一个 Codex 复审）�
 - 默认 `safe-review`：仅允许读所选项目、diff 与本地只读验证；不能改源码、Git、配置或远端系统。
 - `bounded-development`：只允许在用户选择的干净独立 worktree 写源码和验证；push、merge、release、远端
   tracker 写入、删除与全局配置仍需另行授权。
-- `host-native`：只接受用户点名的宿主权限模式，并显示实际结果；宿主给出的权限比授权更宽时拒绝。
 
 所有 Codex 请求省略 model，不传 `--model`；不得为默认模型添加绕过。Claude Code 默认使用项目已配置权限
 配合 `dontAsk`，让已获准工具不中途弹窗，未获准工具直接拒绝，而不是挂起等待一个无人回答的 prompt。
@@ -114,6 +119,10 @@ fi
 repository identity、精确 baseline 和 dirty 状态，并在当前调用中生成一次 idempotency key 与 launch key；
 响应丢失后的重试必须复用这两个 key，不能换 key 重建。origin session 只由控制器从当前宿主可信环境读取，绝不让
 用户输入。任务正文只从 stdin 传入，不放进 argv、日志或控制数据库。
+**在 Codex 里**，`create`、`continue`、`cancel` 会写 `~/.agent-relay` 下的委派状态，而它在工作区之外，默认沙箱不让写：
+第一次运行就申请沙箱外写入（宿主提供的提权／escalation，并说明是写 agent-relay 的委派状态），由用户批准一次，不要
+先在沙箱里试一次再失败。`permissions`、`list`、`status` 只读，在沙箱里运行。控制器返回 `state-not-writable` 时，
+说明还没有创建或改动任何东西，照它的 `detail` 申请提权后重跑同一条命令（复用同一组 key）。
 `create --expires-at` 写带时区的 ISO 8601，例如 `2026-10-08T18:00:00+08:00` 或 `2026-10-08T10:00:00Z`（也接受整数
 epoch 秒）；不带时区的时间会被拒绝（退出码 2）。
 
@@ -148,12 +157,10 @@ Codex 记录拿到了线程 id、却从未发出过一轮（启动在发出第�
 permission intent、真实状态和未验证边界。完整内部 ID、完整路径、PID、token、数据库位置和原始宿主日志不输出。
 `hostOperation` 单独说明本轮是 `create`、`continue`、`status` 或 `cancel`；`transport` 只说明本轮实际消息／
 结果路径，并与 `dispatch`、`wake`、`receipt`、`response` 独立展示。不能把 create/cancel 说成消息已送达，
-也不能从进程退出推断已读或回复。native mailbox 对外统一为 `agent-relay-bridge`，不与
-`host-native-claude`/`host-native-codex` 混淆。
+也不能从进程退出推断已读或回复。native mailbox 对外统一为 `agent-relay-bridge`。
 
-同宿主结果不复制到 mailbox：Codex 的精确 turn final text 可作为 `host-native-codex` response；Claude
-没有实际入站回复时保持 pending/unknown。跨宿主结果继续使用唯一 `agent-relay-bridge` route，并保留
-`resultDelivery`。status 不从旧轮次补造 transport 或 `resultDelivery`，只返回本次宿主状态事实。
+结果经唯一的 `agent-relay-bridge` route 回到发起方信箱，并保留 `resultDelivery`。旧版本留下的同宿主委派记录
+仍可 `list`、`status`、`cancel`，但不能 `continue`（`same-host-unsupported`）。status 不从旧轮次补造 transport 或 `resultDelivery`，只返回本次宿主状态事实。
 `resultDelivery=enqueued` 只表示精确 mailbox 行已写入，不表示发起方已经读取或验证内容；`pending`、`missing`、
 `unverified` 与 `recipient-unavailable` 必须原样区分。同步取得的宿主最终回复可以在 `result` 中返回，但要先
 移除完整内部 ID 和绝对私有路径；异步 Claude 结果不得通过原始 terminal logs 补造公开结果。
