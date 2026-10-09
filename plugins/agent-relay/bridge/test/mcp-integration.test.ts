@@ -82,7 +82,9 @@ test("two independent MCP clients exchange and acknowledge a message", async () 
         arguments: { from: "claude", to: "codex", body: "Please verify the implementation", threadId: "integration-test" },
       }),
     );
-    assert.equal(sent.body, "Please verify the implementation");
+    // agent-relay long-messages D150: the send result carries the length, not the body.
+    assert.equal("body" in sent, false);
+    assert.equal(sent.bodyLength, "Please verify the implementation".length);
     // agent-relay acceptance-030-gaps D72: "codex" registered without wake and without a known host.
     assert.deepEqual(sent.warnings,
       ['"codex" has no wake binding and no known host; it sees this message only when it reads its inbox.']);

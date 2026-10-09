@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+- **长消息不再撑爆上下文**（模块 `long-messages`，D150–D153，第二轮联调 A3）：`bridge_send` 的结果只给编号、状态、
+  `bodyLength` 和警告，不再回显正文（**破坏性变更**，属于接口 2.0）；分页预算按接近 token 的份数计算（ASCII 算 1、其他
+  字符算 4），中文一页约 1.2 万字，不再超过宿主上限；`bridge_inbox` 新增 `messageId` 与 `bodyOffset`，可以一段段读完
+  一条长消息，不需要 Bash；任何被截断的正文都附 `nextOffset` 和写明下一次调用的 `continue` 行。bridge 改动，升级运行时后生效。
 - **会话目录看得出谁在、谁在等你**（模块 `presence-and-approval`，D146–D149，第二轮联调 A2、A4）：`bridge_agents` 每个
   身份新增 `presence`（运行中、等待授权、等待输入、已停止、未知），Claude 读 Claude Code 自己的会话登记，Codex 问 ChatGPT
   应用这个任务是否打开；给等授权或已停止的会话发消息时，发件方会收到提示；Claude 会话卡在授权弹窗、发给它的消息还没

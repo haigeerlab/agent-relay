@@ -6,7 +6,7 @@ import { mkdirSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
 import { DATA_DIR_NAME, ensurePrivateDirectory, restrictToOwner } from "./fs-safety.js";
-import { clampLimit, fitMessages, type FitOptions, type MessageView } from "./paging.js";
+import { bodyPart, clampLimit, fitMessages, type FitOptions, type MessageView } from "./paging.js";
 import { migrate, SCHEMA_VERSION, type MigrationResult } from "./schema.js";
 
 /** A message as stored and returned by the bridge. */
@@ -468,6 +468,16 @@ export class BridgeStore {
       nextAfterId: hasMore && last ? last.id : null,
       messages: fitted.messages,
     };
+  }
+
+  /**
+   * agent-relay long-messages D152: one message delivered to `agent`, with the part of its body from `bodyOffset` that
+   * fits a page. Undefined when the message is not in that agent's inbox (same rule as inbox()).
+   */
+  messagePart(agent: string, messageId: number, options: { bodyOffset?: number; maxChars?: number } = {}): MessageView | undefined {
+    const row = this.db.prepare(`SELECT m.* FROM messages m WHERE m.id = ? AND ${DELIVERED_TO("?")}`)
+      .get(messageId, ...deliveredParams(agent)) as unknown as MessageRow | undefined;
+    return row ? bodyPart(this.toMessage(row), options.bodyOffset ?? 0, options.maxChars) : undefined;
   }
 
   /**

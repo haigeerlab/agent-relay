@@ -19,7 +19,7 @@ import { claudePresence, codexOwner, codexPresence, type Presence } from "./pres
 import { Housekeeper } from "./housekeeping.js";
 import { waitForInbox } from "./inbox-waiter.js";
 import { BRIDGE_AGENT, CLAUDE_HOLD_EXPLANATION } from "./notices.js";
-import { clampLimit, fitMessages } from "./paging.js";
+import { clampLimit, continueLines, fitMessages } from "./paging.js";
 import { VERSION } from "./version.js";
 import { WakeDispatcher } from "./wake-dispatcher.js";
 import type { WakeTarget } from "./wake-queue.js";
@@ -154,7 +154,7 @@ function main(): void {
 
   const pagingInput = {
     limit: z.number().int().min(1).max(200).optional().describe("Maximum messages to return. Defaults to 25 (30 for threads)."),
-    maxChars: z.number().int().min(1000).max(400000).optional().describe("Character budget for the whole result. Defaults to 48000 so MCP hosts never truncate it."),
+    maxChars: z.number().int().min(1000).max(400000).optional().describe("Budget for the whole result in units: an ASCII character counts 1, any other character 4 (about a token each). Defaults to 48000 so MCP hosts never truncate it."),
     maxBodyChars: z.number().int().min(0).max(400000).optional().describe("Preview mode: shorten every body to this many characters."),
   };
 
@@ -262,7 +262,7 @@ function main(): void {
     {
       title: "Send a message",
       description:
-        "Save a message, then ping its bound recipient in the background. The recipient must be registered (use allowUnregistered only when it will register later). The result carries warnings when the recipient is unlikely to pick the message up. Broadcasts and wake:false sends do not ping anyone. A direct message reports deliveryState: queued, sending, accepted, failed, unknown or expired. Exactly-once is not promised: an unconfirmed ping is reported unknown and never re-sent, and a message still queued after its timeout (default 24 h) expires and is never delivered. Pings to one recipient go out one at a time in message order; a recipient holding BRIDGE_MAX_PENDING_PER_RECIPIENT (default 100) undelivered messages refuses new sends.",
+        "Save a message, then ping its bound recipient in the background. The result gives the message id and bodyLength, never the body back. The recipient must be registered (use allowUnregistered only when it will register later). The result carries warnings when the recipient is unlikely to pick the message up. Broadcasts and wake:false sends do not ping anyone. A direct message reports deliveryState: queued, sending, accepted, failed, unknown or expired. Exactly-once is not promised: an unconfirmed ping is reported unknown and never re-sent, and a message still queued after its timeout (default 24 h) expires and is never delivered. Pings to one recipient go out one at a time in message order; a recipient holding BRIDGE_MAX_PENDING_PER_RECIPIENT (default 100) undelivered messages refuses new sends.",
       inputSchema: {
         wake: z.boolean().optional().describe("Ping a bound direct recipient. Defaults true. False saves silently."),
         from: z.string().min(1).describe("Sender agent name."),
@@ -317,8 +317,11 @@ function main(): void {
         }
       }
       await dispatcher.flush();
+      // agent-relay long-messages D150: the sender never gets its own body back, only its length.
+      const { body: _sentBody, ...stored } = message;
       return jsonResult({
-        ...message,
+        ...stored,
+        bodyLength: message.body.length,
         wake: store.wakes.forMessage(message.id),
         ...(duplicate ? { duplicate } : {}),
         ...(warnings.length ? { warnings } : {}),
@@ -374,17 +377,31 @@ function main(): void {
         afterId: z.number().int().min(0).optional().describe("Only messages with a larger id (paging cursor)."),
         includeExpired: z.boolean().optional().describe(
           "Also list messages that expired before delivery. They are history: never act on them."),
+        messageId: z.number().int().min(1).optional().describe(
+          "Read just this message, from bodyOffset: for a long body, keep calling with the returned nextOffset until it is absent."),
+        bodyOffset: z.number().int().min(0).optional().describe("With messageId: where in the body to start (default 0)."),
         ...pagingInput,
       },
     },
-    async ({ agent, includeAcknowledged, fromAgent, threadId, afterId, includeExpired, limit, maxChars, maxBodyChars }) => {
-      const page = store.inboxPage(agent, { includeAcknowledged, fromAgent, threadId, afterId, includeExpired, limit, maxChars, maxBodyChars });
+    async ({ agent, includeAcknowledged, fromAgent, threadId, afterId, includeExpired, messageId, bodyOffset, limit, maxChars, maxBodyChars }) => {
       const recorded = ownRead(agent);
+      // agent-relay long-messages D152: one message, one part of its body.
+      if (messageId !== undefined) {
+        const message = store.messagePart(agent, messageId, { bodyOffset, maxChars });
+        if (!message) throw new Error(`Message #${messageId} is not in ${JSON.stringify(agent)}'s inbox.`);
+        if (recorded) {
+          store.wakes.recordRead(agent, [message.id]);
+          store.touch(agent);
+        }
+        return jsonResult({ agent, message, ...readReceipt(agent, recorded) });
+      }
+      const page = store.inboxPage(agent, { includeAcknowledged, fromAgent, threadId, afterId, includeExpired, limit, maxChars, maxBodyChars });
       if (recorded) {
         store.wakes.recordRead(agent, page.messages.map((message) => message.id));
         store.touch(agent);
       }
-      return jsonResult({ agent, ...page, ...readReceipt(agent, recorded) });
+      const more = continueLines(page.messages, agent);
+      return jsonResult({ agent, ...page, ...(more.length ? { continue: more } : {}), ...readReceipt(agent, recorded) });
     },
   );
 
@@ -439,6 +456,7 @@ function main(): void {
         acknowledged,
         hasMore: result.messages.length > max || fitted.omitted > 0,
         messages: fitted.messages,
+        ...(continueLines(fitted.messages, agent).length ? { continue: continueLines(fitted.messages, agent) } : {}),
         nextAction: result.timedOut
           ? "If the coordination thread is still active, call bridge_wait again."
           : "Handle these messages, reply with bridge_send, then call bridge_wait again before ending the turn.",
@@ -477,8 +495,11 @@ function main(): void {
         ...pagingInput,
       },
     },
-    async ({ threadId, beforeId, afterId, limit, maxChars, maxBodyChars }) =>
-      jsonResult(store.threadPage(threadId, { beforeId, afterId, limit, maxChars, maxBodyChars })),
+    async ({ threadId, beforeId, afterId, limit, maxChars, maxBodyChars }) => {
+      const page = store.threadPage(threadId, { beforeId, afterId, limit, maxChars, maxBodyChars });
+      const more = continueLines(page.messages, null);
+      return jsonResult({ ...page, ...(more.length ? { continue: more } : {}) });
+    },
   );
 
   server.registerTool(
