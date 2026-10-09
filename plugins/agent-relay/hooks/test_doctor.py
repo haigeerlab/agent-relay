@@ -76,9 +76,10 @@ class DoctorTests(unittest.TestCase):
             """)
         self.database.chmod(0o600)
 
-    def session(self, session_id, status, pid=4242):
+    def session(self, session_id, status, pid=4242, waiting_for=None):
         (self.sessions / f"{pid}.json").write_text(json.dumps(
-            {"pid": pid, "sessionId": session_id, "status": status, "name": "review", "cwd": "/work/p"}))
+            {"pid": pid, "sessionId": session_id, "status": status, "name": "review", "cwd": "/work/p",
+             **({"waitingFor": waiting_for} if waiting_for else {})}))
 
     def run_doctor(self, **overrides):
         options = dict(home=self.home, codex_config=self.codex_config, claude_json=self.claude_json,
@@ -161,6 +162,23 @@ class DoctorTests(unittest.TestCase):
         for check in report["checks"]:
             if check["state"] != "ok":
                 self.assertTrue(check["next"], check)
+
+    def test_wake_bindings_use_the_directory_words(self):
+        # presence-and-approval D149: the same states as bridge_agents presence.
+        cases = (("idle", None, "ok", "reviewer: running"),
+                 ("waiting", "permission prompt", "warn", "reviewer: waiting-approval"),
+                 ("waiting", "user input", "warn", "reviewer: waiting-input"))
+        for status, waiting_for, state, phrase in cases:
+            with self.subTest(status=status, waiting_for=waiting_for):
+                self.session("claude-live", status, waiting_for=waiting_for)
+                check = self.find(self.run_doctor(), "wake-bindings")
+                self.assertEqual(check["state"], state, check)
+                self.assertIn(phrase, check["detail"])
+                self.assertIn("codex-one: unknown", check["detail"])
+        check = self.find(self.run_doctor(), "wake-bindings")
+        self.assertIn("answer the prompt in that session yourself", check["next"])
+        self.alive.clear()
+        self.assertIn("reviewer: stopped", self.find(self.run_doctor(), "wake-bindings")["detail"])
 
     def test_a_binding_to_a_closed_session_warns(self):
         self.alive.clear()

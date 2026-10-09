@@ -12,6 +12,8 @@ const execute = promisify(execFile);
 export interface ClaudeSession {
   pid: number; sessionId: string; bridgeSessionId?: string; cwd: string; name: string;
   messagingSocketPath: string; procStart: string; version: string; peerProtocol: number;
+  /** agent-relay presence-and-approval D146: what Claude Code says the session is doing, when it says so. */
+  status?: string; statusUpdatedAt?: number; waitingFor?: string;
 }
 const sessionRoot = () => join(homedir(), ".claude", "sessions");
 
@@ -52,6 +54,9 @@ export async function claudeSessions(root = sessionRoot()): Promise<ClaudeSessio
         pid: raw.pid, sessionId: raw.sessionId, bridgeSessionId: raw.bridgeSessionId,
         cwd: raw.cwd, name: raw.name, messagingSocketPath: raw.messagingSocketPath,
         procStart: raw.procStart, version: raw.version, peerProtocol: raw.peerProtocol,
+        ...(typeof raw.status === "string" ? { status: raw.status } : {}),
+        ...(Number.isFinite(raw.statusUpdatedAt) ? { statusUpdatedAt: raw.statusUpdatedAt } : {}),
+        ...(typeof raw.waitingFor === "string" ? { waitingFor: raw.waitingFor } : {}),
       };
       await privatePath(session.messagingSocketPath, "socket");
       if (await liveOwner(session)) sessions.push(session);

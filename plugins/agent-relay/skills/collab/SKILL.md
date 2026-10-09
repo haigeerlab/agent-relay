@@ -46,11 +46,14 @@ bridge 会核对身份：发送、ack 和自动确认的 `bridge_wait` 只接受
 用户问“有哪些会话”时，用下列格式展示实际已加入项：
 
 ```text
-[Claude Code] reviewer · player · registered · wakeable · unread 2
-[Codex] api-check · server · registered · wake-held · unread 0
+[Claude Code] reviewer · player · registered · 等待授权 · wakeable · unread 2
+[Codex] api-check · server · registered · 已停止 · wake-held · unread 0
 ```
 
-`registered` 不等于在线，最近活动不等于可唤醒；未知事实写“未知”。不展示完整内部 ID、完整路径或 PID。
+运行状态取自 `bridge_agents` 每项的 `presence.state`：`running` 写“运行中”，`waiting-approval` 写“等待授权”，
+`waiting-input` 写“等待输入”，`stopped` 写“已停止”，`unknown` 写“未知”。`registered` 不等于在线，最近活动不等于可唤醒；
+未知事实写“未知”。不展示完整内部 ID、完整路径或 PID。某个会话处在“等待授权”时，告诉用户去那个会话里自己处理弹窗；
+不替用户回答，也不催对方绕过。
 
 ## 发送、回复与等待（先看上面的转交规则）
 

@@ -729,6 +729,33 @@ export class BridgeStore {
   }
 
   /**
+   * agent-relay presence-and-approval D148: per Claude-hosted agent (recorded host, else wake target), its oldest direct
+   * message not yet handled, with the session to check. Retired agents and failed or expired messages are left out.
+   */
+  claudeWaiting(): Array<{ agent: string; sessionId: string; messageId: number; fromAgent: string }> {
+    const rows = this.db
+      .prepare(
+        `SELECT m.id, m.from_agent, m.to_agent, ag.host_app, ag.host_session,
+                json_extract(w.target, '$.app') AS wake_app, json_extract(w.target, '$.sessionId') AS wake_session
+         FROM messages m JOIN agents ag ON ag.name = m.to_agent LEFT JOIN wake_targets w ON w.agent = ag.name
+         WHERE ag.retired_at IS NULL
+           AND (ag.host_app = 'claude' OR (ag.host_app IS NULL AND json_extract(w.target, '$.app') = 'claude'))
+           AND COALESCE(m.delivery_state, 'queued') NOT IN ('failed', 'expired')
+           AND NOT EXISTS (SELECT 1 FROM acknowledgements a WHERE a.message_id = m.id AND a.agent = m.to_agent)
+           AND m.id = (SELECT MIN(m2.id) FROM messages m2 WHERE m2.to_agent = m.to_agent
+             AND COALESCE(m2.delivery_state, 'queued') NOT IN ('failed', 'expired')
+             AND NOT EXISTS (SELECT 1 FROM acknowledgements a2 WHERE a2.message_id = m2.id AND a2.agent = m2.to_agent))
+         ORDER BY m.to_agent`,
+      )
+      .all() as Array<{ id: number | bigint; from_agent: string; to_agent: string; host_app: string | null;
+        host_session: string | null; wake_app: string | null; wake_session: string | null }>;
+    return rows.flatMap((row) => {
+      const sessionId = row.host_app === "claude" ? row.host_session : row.wake_session;
+      return sessionId ? [{ agent: row.to_agent, sessionId, messageId: Number(row.id), fromAgent: row.from_agent }] : [];
+    });
+  }
+
+  /**
    * Retire an agent: stop pings, and optionally close its unhandled backlog.
    * Closed messages keep their history; the acknowledgement records why.
    */

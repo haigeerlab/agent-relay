@@ -207,6 +207,24 @@ def _codex_approval(codex_config: Path, mailbox: Path) -> dict[str, str]:
     return _check("codex-approval", "ok", detail)
 
 
+# presence-and-approval D149: the same states and rules as the bridge's presence.ts (bridge_agents presence).
+PRESENCE_WORDS = {
+    "waiting-approval": "its Claude session waits for the user's approval on a permission prompt; pings will not be handled",
+    "waiting-input": "its Claude session waits for input; pings will not be handled",
+    "stopped": "its Claude session is not running",
+}
+
+
+def claude_presence(session: dict[str, Any] | None) -> str:
+    """running, waiting-approval, waiting-input or stopped for one live-session registry entry (None: not live)."""
+    if session is None:
+        return "stopped"
+    if session.get("status") != "waiting":
+        return "running"
+    waiting_for = session.get("waitingFor")
+    return "waiting-approval" if isinstance(waiting_for, str) and "permission" in waiting_for.lower() else "waiting-input"
+
+
 def _wake_bindings(database: Path, sessions_dir: Path, alive: Callable[[int], bool]) -> dict[str, str]:
     if not database.exists():
         return _check("wake-bindings", "ok", "no mailbox yet")
@@ -227,19 +245,16 @@ def _wake_bindings(database: Path, sessions_dir: Path, alive: Callable[[int], bo
             problems.append(f"{agent}: unreadable binding")
             continue
         if target.get("app") == "codex":
-            notes.append(f"{agent}: Codex thread, liveness unknown")
+            notes.append(f"{agent}: unknown (Codex task; doctor does not ask the Codex app)")
             continue
-        session = sessions.get(target.get("sessionId"))
-        if session is None:
-            problems.append(f"{agent}: its Claude session is not running")
-        elif session.get("status") == "waiting":
-            problems.append(f"{agent}: its Claude session is live but waiting (blocked on a prompt or input); "
-                            "pings will not be handled")
+        state = claude_presence(sessions.get(target.get("sessionId")))
+        if state == "running":
+            notes.append(f"{agent}: running")
         else:
-            notes.append(f"{agent}: Claude session {session.get('status', 'live')}")
+            problems.append(f"{agent}: {state} ({PRESENCE_WORDS[state]})")
     if problems:
         return _check("wake-bindings", "warn", "; ".join(problems + notes),
-                      "answer the waiting session, or have its owner unbind (wake: null) or retire a closed one")
+                      "answer the prompt in that session yourself; have its owner unbind (wake: null) or retire a closed one")
     return _check("wake-bindings", "ok", "; ".join(notes) or "no wake-bound identities")
 
 
