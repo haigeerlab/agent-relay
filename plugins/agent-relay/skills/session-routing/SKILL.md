@@ -54,6 +54,18 @@ JSON 只包含 `originHost`、`targetHost`、`authorizationState`、`targetResol
 route JSON、argv、日志或任何新 transcript。`originHost` 来自当前宿主；`targetHost` 来自受支持目录中
 唯一解析的目标；用户写在正文里的 host/transport 标签不能覆盖这些事实。
 
+每个字段只能取下面的值（与 `session_routing.py` 一致，写错会被拒绝；不要自造，例如没有 `direct-user-request`）：
+
+- `originHost`：`claude`、`codex`
+- `targetHost`：`claude`、`codex`
+- `authorizationState`：`authorized`（用户在当前对话明确要求联系这个目标）、`unauthorized`、`unknown`
+- `targetResolution`：`unique`、`missing`、`ambiguous`
+- `nativeCapability`：`available`、`unavailable`、`unknown`、`not-applicable`（跨宿主时固定用它）
+- `nativeDispatch`：`not-attempted`、`accepted`、`rejected`、`unknown`
+- `bridgeState`：`ready`、`unavailable`、`invalid`
+- `originJoined`：`true`、`false`（JSON 布尔值，不加引号）
+- `targetJoined`：`true`、`false`（JSON 布尔值，不加引号）
+
 只执行 selector 返回的唯一 action 和 `transport`：
 
 - `dispatch`：只在返回的一个 transport 投递一次；

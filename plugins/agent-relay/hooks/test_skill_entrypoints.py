@@ -119,5 +119,62 @@ class SessionDelegationEntryTests(unittest.TestCase):
             self.assertTrue((PLUGIN_ROOT / "hooks" / name).is_file(), name)
 
 
+
+ROUTING = PLUGIN_ROOT / "skills" / "session-routing" / "SKILL.md"
+
+
+class ExactArgumentTests(unittest.TestCase):
+    """install-truth D185: skills give the exact values and calls the code accepts."""
+
+    def field_values(self, text, field):
+        import re
+        lines = [line for line in text.splitlines() if line.startswith("- `" + field + "`")]
+        self.assertEqual(len(lines), 1, field)
+        return set(re.findall(r"`([^`]+)`", lines[0].split("：", 1)[1]))
+
+    def test_session_routing_lists_each_selector_field_s_allowed_values_from_the_code(self):
+        import session_routing as routing
+        text = ROUTING.read_text(encoding="utf-8")
+        for field, values in (("originHost", routing.HOSTS), ("targetHost", routing.HOSTS),
+                              ("authorizationState", routing.AUTHORIZATION_STATES),
+                              ("targetResolution", routing.TARGET_RESOLUTIONS),
+                              ("nativeCapability", routing.NATIVE_CAPABILITIES),
+                              ("nativeDispatch", routing.NATIVE_DISPATCHES),
+                              ("bridgeState", routing.BRIDGE_STATES),
+                              ("originJoined", {"true", "false"}), ("targetJoined", {"true", "false"})):
+            with self.subTest(field=field):
+                self.assertEqual(self.field_values(text, field), set(values))
+        self.assertEqual({field for field in routing._ROUTE_FIELDS},
+                         {"originHost", "targetHost", "authorizationState", "targetResolution", "nativeCapability",
+                          "nativeDispatch", "bridgeState", "originJoined", "targetJoined"})
+
+    def test_collab_gives_one_literal_bridge_register_call_per_host(self):
+        text = COLLAB.read_text(encoding="utf-8")
+        self.assertIn('Claude Code：`bridge_register({"agent": "<名字>", "wake": null})`', text)
+        self.assertIn('Codex：`bridge_register({"agent": "<名字>", "wake": null, '
+                      '"host": {"app": "codex", "sessionId": "<CODEX_THREAD_ID>"}})`', text)
+
+    def test_collab_suggests_a_new_name_before_takeover_of_a_stopped_session_s_name(self):
+        text = COLLAB.read_text(encoding="utf-8")
+        self.assertIn("名字被一个已停止的会话占着时，默认建议换一个新名字", text)
+        self.assertIn("只有用户就是要这个原名", text)
+
+
+    def test_readme_and_changelog_say_how_the_claude_side_is_updated(self):
+        # install-truth D184 (measured 2026-10-10): a new session loads the clone itself for a clone install; a GitHub
+        # install needs both commands, `--scope user` for the user entry; open sessions keep their copy until restarted.
+        readme = (PLUGIN_ROOT.parents[1] / "README.md").read_text(encoding="utf-8")
+        section = readme[readme.index("## 更新插件"):readme.index("## 升级运行时")]
+        for text in ("claude plugin marketplace update agent-relay-marketplace",
+                     "claude plugin update --scope user agent-relay@agent-relay-marketplace",
+                     "桌面应用的 Code 标签页", "新开", "恢复", "doctor", "claude-plugin"):
+            self.assertIn(text, section)
+        changelog = (PLUGIN_ROOT.parents[1] / "CHANGELOG.md").read_text(encoding="utf-8")
+        unreleased = changelog[changelog.index("## [Unreleased]"):changelog.index("## [0.6.1]")]
+        self.assertIn("claude plugin update --scope user agent-relay@agent-relay-marketplace", unreleased)
+        released = changelog[changelog.index("## [0.6.1]"):changelog.index("## [0.6.0]")]
+        self.assertIn("更正（0.6.2）", released)
+
+
 if __name__ == "__main__":
     unittest.main()
