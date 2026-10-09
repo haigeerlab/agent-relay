@@ -212,7 +212,10 @@ class InstallationAndPermissionTests(unittest.TestCase):
         self.assertTrue(command[-7].endswith("delegation_scope_hook.py"), command)
         self.assertEqual(command[-6:], ["--root", str(self.project.resolve()), "--scope", "README.md",
                                         "--scope", "docs"])
-        self.assertEqual(json.loads(scoped[index + 1]).keys(), {"hooks"})
+        # delegation-continue-parity D174: a project's disableAllHooks cannot switch the hook off (measured 2026-10-09:
+        # flag settings override the project's `true`).
+        self.assertEqual(json.loads(scoped[index + 1]).keys(), {"hooks", "disableAllHooks"})
+        self.assertIs(json.loads(scoped[index + 1])["disableAllHooks"], False)
 
     def test_a_server_level_allow_rule_covers_that_servers_tools_only(self):
         # delegation-continue-parity D174: Claude Code honours `mcp__<server>`; pre-flight must agree.

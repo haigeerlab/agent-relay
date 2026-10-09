@@ -393,7 +393,8 @@ def _scope_settings(scope: tuple[str, ...], root: Path | None) -> tuple[str, ...
     for item in scope:
         command += ["--scope", item]
     hook = {"matcher": "Read|Grep|Glob", "hooks": [{"type": "command", "command": shlex.join(command)}]}
-    return ("--settings", json.dumps({"hooks": {"PreToolUse": [hook]}}))
+    # delegation-continue-parity D174: flag settings override a project's `disableAllHooks: true` (measured 2026-10-09).
+    return ("--settings", json.dumps({"disableAllHooks": False, "hooks": {"PreToolUse": [hook]}}))
 
 
 _PATH = re.compile(r"(?:~|/)[^\s'\"]*")

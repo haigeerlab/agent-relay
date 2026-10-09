@@ -33,23 +33,32 @@ def _glob_base(pattern: str) -> str:
     return os.path.dirname(pattern[:cut]) if cut < len(pattern) else pattern
 
 
-def _target(tool: str, tool_input: dict, root: Path) -> Path | None:
-    if tool == "Read":
-        raw = tool_input.get("file_path")
-    else:
-        raw = tool_input.get("path")
-        if tool == "Glob" and not raw:
-            pattern = tool_input.get("pattern")
-            if not isinstance(pattern, str):
-                return None
-            # An absolute (or ~) pattern searches where it says, whatever the working directory.
-            raw = _glob_base(pattern) if pattern.startswith(("/", "~")) else None
-        if raw is None:
-            return root
+def _resolve(raw: object, base: Path) -> Path | None:
     if not isinstance(raw, str) or not raw:
         return None
     path = Path(os.path.expanduser(raw))
-    return (path if path.is_absolute() else root / path).resolve()
+    return (path if path.is_absolute() else base / path).resolve()
+
+
+def _targets(tool: str, tool_input: dict, root: Path) -> list[Path] | None:
+    """Every place the call would read; None for malformed input."""
+    if tool == "Read":
+        target = _resolve(tool_input.get("file_path"), root)
+        return None if target is None else [target]
+    raw = tool_input.get("path")
+    base = root if raw is None else _resolve(raw, root)
+    if base is None:
+        return None
+    if tool == "Grep":
+        return [base]
+    # delegation-continue-parity D174: a Glob reads under its path *and* where its pattern points, which may leave
+    # the path (`../x`) or name an absolute place.
+    pattern = tool_input.get("pattern")
+    if not isinstance(pattern, str):
+        return None
+    part = _glob_base(os.path.expanduser(pattern))
+    reach = (Path(part) if os.path.isabs(part) else base / part).resolve()
+    return [reach] if raw is None else [base, reach]
 
 
 def _inside(target: Path, scope: list[Path]) -> bool:
@@ -73,8 +82,8 @@ def main(argv: list[str] | None = None) -> int:
         return _deny()
     if tool not in FILE_TOOLS:
         return 0
-    target = _target(tool, tool_input, root)
-    if target is None or not scope or not _inside(target, scope):
+    targets = _targets(tool, tool_input, root)
+    if targets is None or not scope or not all(_inside(target, scope) for target in targets):
         return _deny()
     return 0
 
