@@ -29,9 +29,11 @@ class FakeAdapter:
         self.store = store
         self.results = results
         self.calls = []
+        self.scopes = []
 
-    def create(self, delegation_id, prompt, isolated_worktree=False):
+    def create(self, delegation_id, prompt, isolated_worktree=False, scope=()):
         self.calls.append(("create", delegation_id, prompt, isolated_worktree))
+        self.scopes.append(scope)
         result = self.results.pop(0)
         if result.state == "created":
             self.store.bind_host(
@@ -199,6 +201,7 @@ class RecoveryTests(unittest.TestCase):
         self.assertIn("<agent-relay-review-scope>", prompt)
         self.assertIn("README.md, docs", prompt)
         self.assertIn("Files read:", prompt)
+        self.assertEqual(adapter.scopes[-1], ("README.md", "docs"), "the adapter gets the scope (D167)")
 
     def test_native_delivery_states_and_retry_keys_are_stable(self):
         for observed, state, expected in (

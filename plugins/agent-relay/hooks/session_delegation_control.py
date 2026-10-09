@@ -417,6 +417,7 @@ class SessionDelegationController:
                 claim.delegation_id,
                 self._with_result_route(_with_scope(prompt, scope), route, turn_seed),
                 isolated_worktree=isolated_worktree,
+                **({"scope": scope} if scope else {}),
             ),
             still=lambda current: current.state == "creating",
         )

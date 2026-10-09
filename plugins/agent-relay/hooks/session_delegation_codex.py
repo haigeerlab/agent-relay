@@ -688,7 +688,9 @@ class CodexAdapter:
         return "unknown"
 
     def create(self, delegation_id: str, prompt: str, *,
-               isolated_worktree: bool = False) -> CodexRunResult:
+               isolated_worktree: bool = False, scope: tuple[str, ...] = ()) -> CodexRunResult:
+        # delegation-hygiene D166: on Codex the scope is the envelope's instruction only (a soft limit).
+        del scope
         claim, envelope, permission = self._scope(
             delegation_id, isolated_worktree=isolated_worktree)
         if claim.state == "unknown":
