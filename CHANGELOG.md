@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-09
+
+信箱 schema 仍为 5，委派库结构仍为 2。
+
 **接口 2.0（破坏性变更）**：这一批（第二轮联调）改变了对外行为——`bridge_send` 不再回显正文（`long-messages`）、
 同宿主委派与 `host-native` 委派意图删除（`delegation-cross-host`）、被唤醒的 Codex 回合不再被强制降权
 （`wake-any-mode`）。`interface.json` 只改版本号为 `2.0`，`status` 命令和它的 `{ready, setup}` 输出不变；
@@ -50,6 +54,37 @@
   collaboration-ops 技能写明两种方式——退出应用后重开；或用 `pkill -TERM -f "[a]gent-relay/runtime/dist/server.js"` 只结束
   bridge（方括号让它不会结束执行它的 shell），这时 ChatGPT 应用要 ⌘Q 完全退出再打开，否则已打开的 Codex 线程会一直报
   “Transport closed”。技能要求 agent 只有在用户明确同意这一步后才执行 `pkill`。只改文档。
+以上来自第二轮联调这一批的 PR：`wake-any-mode`（#54）、`presence-and-approval`（#55）、`long-messages`（#56）、
+`mailbox-polish`（#57）、`delegation-cross-host`（#58）、`delegation-user-context`（#59）、`delegation-hygiene`（#60），
+以及之前的 `upgrade-restart-note`（#48）和 `ci-on-demand`（#51–#53）。
+
+### 从 0.5.2 升级
+
+1. **先把 Spec Guard 升到 0.56.0 或更新。** 更早的 Spec Guard 只接受接口 1.x，会把 agent-relay 2.0 报成不可用。
+2. 两个宿主都更新插件：
+   - Claude Code（从 GitHub 装的）：先 `claude plugin marketplace update agent-relay-marketplace`，再
+     `claude plugin update agent-relay@agent-relay-marketplace`。
+   - Codex：把 `~/.codex/config.toml` 里 `[marketplaces.agent-relay-marketplace]` 的 `ref` 改成 `"v0.6.0"`（自己改，改前留一份
+     副本），再 `codex plugin marketplace upgrade`，最后 `codex plugin add agent-relay@agent-relay-marketplace`。
+   - 从本地克隆装的：把克隆更新到 v0.6.0 后，Claude 无需其他操作，Codex 再执行一次 `codex plugin add`。
+3. **升级运行时**（这一版改了 bridge）：关闭所有使用信箱的会话（所有 Claude Code 会话和 ChatGPT 应用），或按 README
+   “升级运行时”只结束 bridge；在 macOS 自带的“终端”里确认 `pgrep -fl "agent-relay/runtime/dist/server.js"` 没有输出，再执行
+   `python3 -B <插件目录>/hooks/native_collaboration_runtime.py upgrade --confirm`。半路被打断时按 `status` 的提示执行
+   `recover --confirm`。宿主接入不用重做。
+4. `doctor`：`runtime`、`probe`（10 个工具）、`host-entries` 为 ok。旧版本留下的 `codex-gate.off` 不再使用，可以自己删掉。
+5. 想退回 0.5.2：关掉所有会话后 `rollback --confirm`，并把两个宿主的插件也退回 v0.5.2。信箱与委派库的结构
+   没变，回退不需要迁移；Spec Guard 0.56.0 也接受 0.5.2 的接口 1.4。
+
+从更早的版本升级：按对应版本的说明做完宿主那边的步骤，把 `ref` 换成 `"v0.6.0"` 更新插件，再做上面第 1、3、4 步。
+
+### 已知问题
+
+- Codex 侧的审查范围（`--scope`）只是软限制：范围写进约束、结果列出读过的文件，但不能硬性拦截。
+- 选了 `--user-environment` 的 Claude Code 会话，`Skill` 工具是否还需要单独的放行规则，以及 Codex 在只读沙箱里申请沙箱外
+  写入时的具体提示，还要在真实宿主验收时核对。
+- 自动审查模式（Claude 的 auto、Codex 的“帮我批准”）下，被唤醒那一轮的操作不一定经过你本人（`wake-any-mode` 的风险说明）。
+- 0.5.2 及更早版本列出的已知问题仍然存在，见下方各版本的“已知问题”。
+
 ## [0.5.2] - 2026-10-09
 
 接口仍为 **1.4**，信箱 schema 仍为 5，委派库结构仍为 2。这一版收尾 0.4.0 架构审核剩下的发现：状态迁移、委派的并发与
