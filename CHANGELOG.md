@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+- **Codex → Claude Code 委派在真实宿主上走通**（模块 `claude-delegation-realhost`，D181–D183，第二轮联调对 0.6.1 的
+  真实验收 H1、H2、L1）：只改插件的 hooks，更新插件即生效，不用升级运行时。
+  - **已停止的会话能续聊（H1）**：Claude Code 2.1.295 停掉的后台会话在 `claude agents --json --all` 里是
+    `state: "done"`，没有 `status` 和 `pid`。以前续聊一律答 `held/target-status-unknown`，0.6.1 修的“续聊带上全部
+    限制”在真实宿主上根本走不到。现在这种会话按已停止处理，续聊和补发注册都走 `--resume`。
+  - **resume 后改绑新任务**：`claude --bg --resume` 会新开一个后台任务，id 和 sessionId 都换了。以前 adapter 要求
+    id 不变，于是记录进了 `unknown`。现在等 resume 打印出来的任务出现在同一项目的列表里，再把记录改绑到它。
+  - **委派会话能拿到信箱工具（H2）**：信箱工具是延迟加载的，会话一个工具都没调用就结束这一轮的话，永远拿不到。
+    现在启动时的工具白名单加了 `ToolSearch`（它只能加载白名单里本来就允许的工具），首轮和补发注册那一轮的提示词都
+    要求：工具还没出现时不要结束这一轮，先读一次允许读的文件，再用 ToolSearch 加载并注册。
+  - **续聊后拿回自己的信箱名**：resume 出来的是新会话，原名字还登记在已停止的旧会话上，注册会被拒。只有 resume
+    那一轮的信封授权它接管自己这个名字（先 `takeover: true` 加 `wake: null`，审查类再绑 `wake: "auto"`）。
+  - 未确认的一轮返回 `hostStatus: "unknown"` 和 `host-result-unknown`（以前把轮次编号填进了 `hostStatus`）；对
+    `unknown` 记录续聊报 `delegation-state-unknown`，并说明下一步：先 cancel，再重新 create。
+  - `prune --help` 写明 `--confirm ID,...` 只取消列出的 id。
 - **takeover 能换掉另一会话的唤醒绑定**（模块 `takeover-wake-rebind`，D186，2026-10-10 实测发现）：bridge 改动，
   **要用 `upgrade --confirm` 升级运行时才生效**（升级前先关掉所有会话，见 README 的升级说明）。
   - 以前名字已经绑定到另一个会话的唤醒时，`bridge_register` 带 `takeover: true` 和新的 `wake`（`"auto"` 或

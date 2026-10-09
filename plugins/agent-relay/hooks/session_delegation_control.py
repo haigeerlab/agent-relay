@@ -868,11 +868,14 @@ def _parser() -> argparse.ArgumentParser:
     resolve = subparsers.add_parser(
         "resolve", help="read only: mailbox names of active delegated sessions with this friendly name (D168)")
     resolve.add_argument("--name", required=True)
-    prune = subparsers.add_parser(
-        "prune", help="list records stuck in creating/unknown for an hour; --confirm cancels them (D169)")
+    # claude-delegation-realhost D183: the help says what --confirm does since D173.
+    prune_help = ("list records stuck in creating/unknown for an hour; "
+                  "--confirm ID,... cancels only the listed ids (D169, D173)")
+    prune = subparsers.add_parser("prune", help=prune_help, description=prune_help)
     # delegation-continue-parity D173: --confirm names the ids the preview printed (comma-separated).
     prune.add_argument("--confirm", metavar="ID,...", type=lambda value: tuple(
-        item.strip() for item in value.split(",") if item.strip()))
+        item.strip() for item in value.split(",") if item.strip()),
+        help="cancel only these ids, as printed by the preview")
     prune.add_argument("--include-unknown-hosts", action="store_true",
                        help="also cancel records whose host session cannot be checked")
 
@@ -1036,14 +1039,26 @@ def main(argv: list[str] | None = None) -> int:
                          ensure_ascii=False, sort_keys=True))
         return 1
     except (ControlError, DelegationError, ValueError) as error:
-        reason = error.reason if isinstance(error, ControlError) else str(error)
-        payload = {"state": "error", "reason": reason}
-        if isinstance(error, ControlError) and error.candidates:
-            payload["candidates"] = list(error.candidates)
-        if isinstance(error, ControlError) and error.detail:
-            payload["detail"] = error.detail
-        print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+        print(json.dumps(error_payload(error), ensure_ascii=False, sort_keys=True))
         return 1
+
+
+# claude-delegation-realhost D182: an `unknown` record cannot take a follow-up; say what to do instead.
+STATE_UNKNOWN_DETAIL = (
+    "Nothing confirms where this delegation's session is, so it cannot take a follow-up. "
+    "Cancel it, then create the delegation again.")
+
+
+def error_payload(error: ValueError) -> dict[str, object]:
+    reason = error.reason if isinstance(error, ControlError) else str(error)
+    payload: dict[str, object] = {"state": "error", "reason": reason}
+    if isinstance(error, ControlError) and error.candidates:
+        payload["candidates"] = list(error.candidates)
+    if isinstance(error, ControlError) and error.detail:
+        payload["detail"] = error.detail
+    elif reason == "delegation-state-unknown":
+        payload["detail"] = STATE_UNKNOWN_DETAIL
+    return payload
 
 
 if __name__ == "__main__":

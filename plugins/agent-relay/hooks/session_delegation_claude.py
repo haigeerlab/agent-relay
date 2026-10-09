@@ -62,6 +62,18 @@ _IDLE_STATES = frozenset(("blocked", "done", "running", "active", "working"))
 def _host_idle(session: "ClaudeSession") -> bool:
     """The one rule for "this Claude target is idle", shared by status and continue."""
     return session.status == "idle" and session.state in _IDLE_STATES
+
+
+# Statuses a stopped target reports; resuming it is the only way to give it a turn.
+_STOPPED_STATUSES = frozenset(("stopped", "exited", "failed", "done"))
+
+
+def _host_stopped(session: "ClaudeSession") -> bool:
+    """claude-delegation-realhost D181: the one rule for "this Claude target is stopped". Claude Code 2.1.295 lists a
+    session it stopped as state "done" with no status and no pid (measured 2026-10-10); a "done" entry with a live pid
+    is an idle session, which `_host_idle` covers."""
+    return (session.state in ("stopped", "exited", "failed")
+            or (session.state == "done" and session.pid is None))
 _ANSI = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\)|[78])")
 
 
@@ -220,7 +232,8 @@ def _matches_rule(rule: str, tool: str) -> bool:
 def _permission_shape(intent: str, host_permission: str | None, server_name: str,
                       communication_tools: tuple[str, ...] = COMMUNICATION_TOOLS,
                       ) -> tuple[str, tuple[str, ...], tuple[str, ...]]:
-    review = ("Read", "Grep", "Glob")
+    # claude-delegation-realhost D182: ToolSearch only loads the deferred schemas of tools already allowed here.
+    review = ("Read", "Grep", "Glob", "ToolSearch")
     development = review + ("Edit", "Write", "Bash")
     communication = communication_rules(server_name, communication_tools)
     # delegation-user-context D163: the user's environment adds only the Skill tool.
@@ -277,7 +290,7 @@ def _internal_name(friendly_name: str, delegation_id: str) -> str:
 
 
 def _bounded_prompt(prompt: str, delegation_id: str, friendly_name: str,
-                    communication_tools: tuple[str, ...], intent: str) -> str:
+                    communication_tools: tuple[str, ...], intent: str, *, resumed: bool = False) -> str:
     if (not isinstance(prompt, str) or not prompt.strip()
             or len(prompt) > MAX_HOST_PROMPT_CHARS
             or any((ord(character) < 32 and character not in "\n\t")
@@ -289,9 +302,21 @@ def _bounded_prompt(prompt: str, delegation_id: str, friendly_name: str,
         registration = (
             "Before anything else, call bridge_register exactly once with agent " + name
             + " and wake " + wake + ". If the agent-relay mailbox tools are not listed yet, they are still"
-            " connecting: wait for them (ToolSearch may load them by name) and register then. Do not answer"
+            " connecting and arrive only after a tool call, so do not end your turn: make one allowed Read of a"
+            " file you may read for this task, then load them by name with ToolSearch and register. Do not answer"
             " before you have registered, and never give the result only in this conversation."
         )
+        if resumed:
+            # claude-delegation-realhost D182 (the user, 2026-10-10): a resume runs as a new session, while the
+            # mailbox still holds this delegation's name for the stopped one.
+            registration += (
+                " This turn runs in a resumed copy of this delegation's earlier session: if bridge_register refuses "
+                + name + " because another claude session that is no longer running holds it, call it once more"
+                " with takeover: true and wake null"
+                + (', then once more with wake "auto"' if intent == "safe-review" else "")
+                + ". That earlier session was this delegation's own; this envelope authorizes that takeover for"
+                " this name only."
+            )
     else:
         raise ClaudeAdapterError("registration-tool-unavailable")
     return (
@@ -748,8 +773,9 @@ class ClaudeAdapter:
         if claim.state in ("created", "running"):
             observed = self.status(delegation_id)
             claim = self.store.get_delegation(delegation_id)
+            # D181: a stopped target gets the re-send too, by resume (an idle one by wake).
             if (claim.state == "created" and observed.prerequisite == "mailbox-registration-missing"
-                    and observed.host_status == "idle"):
+                    and (observed.host_status == "idle" or observed.host_status in _STOPPED_STATUSES)):
                 return self._resend_registration(claim, envelope, permission, prompt)
             if claim.state != "completed":
                 return ClaudeRunResult(
@@ -757,6 +783,9 @@ class ClaudeAdapter:
                     host_status=observed.host_status,
                     prerequisite=observed.prerequisite or "target-busy",
                 )
+        if claim.state == "unknown":
+            # claude-delegation-realhost D182: nothing confirms where the target is; the next step is cancel, then create.
+            raise ClaudeAdapterError("delegation-state-unknown")
         if claim.state != "completed" or claim.host_ref is None or claim.host_session_ref is None:
             raise ClaudeAdapterError("delegation-is-not-ready-for-follow-up")
         if not permission.ready:
@@ -795,7 +824,7 @@ class ClaudeAdapter:
                 "held", claim.host_ref, claim.host_session_ref,
                 prerequisite="target-status-unknown",
             )
-        if not _host_idle(session):
+        if not (_host_idle(session) or _host_stopped(session)):
             return ClaudeRunResult(
                 "held", claim.host_ref, claim.host_session_ref,
                 host_status=session.status, prerequisite="target-busy",
@@ -811,11 +840,15 @@ class ClaudeAdapter:
                  ) -> ClaudeRunResult:
         """Send one turn to an idle or stopped target: wake it, or stop it and resume with the envelope."""
         delegation_id = claim.delegation_id
+        enveloped = _bounded_prompt(
+            prompt, delegation_id, claim.friendly_name, self.communication_tools, claim.permission_intent)
         if _host_idle(session):
             if self.native_wake is not None:
                 begin(turn_ref)
                 try:
-                    observed_turn = self.native_wake(claim.host_session_ref, prompt)
+                    # claude-delegation-realhost D182: a re-sent registration (state "created") carries the envelope.
+                    observed_turn = self.native_wake(
+                        claim.host_session_ref, enveloped if state == "created" else prompt)
                 except Exception as error:
                     # Advance first, then re-raise: `begin_follow_up` has already run, so
                     # letting a defect out without the transition would strand the
@@ -824,12 +857,9 @@ class ClaudeAdapter:
                     self.store.advance(delegation_id, "unknown", "host-result-unknown")
                     if is_defect(error):
                         raise
-                    return ClaudeRunResult(
-                        "unknown", claim.host_ref, claim.host_session_ref, turn_ref)
+                    return self._unknown_turn(claim, advanced=True)
                 if not isinstance(observed_turn, str) or not observed_turn.strip():
-                    self.store.advance(delegation_id, "unknown", "host-result-unknown")
-                    return ClaudeRunResult(
-                        "unknown", claim.host_ref, claim.host_session_ref, turn_ref)
+                    return self._unknown_turn(claim)
                 return ClaudeRunResult(
                     state, claim.host_ref, claim.host_session_ref,
                     host_status="working", prerequisite=prerequisite,
@@ -839,17 +869,13 @@ class ClaudeAdapter:
                     str(self.installation.binary), "stop", claim.host_ref,
                 ), envelope.project_root)
             except ClaudeCommandUncertain:
-                self.store.advance(delegation_id, "unknown", "host-result-unknown")
-                return ClaudeRunResult(
-                    "unknown", claim.host_ref, claim.host_session_ref, turn_ref)
+                return self._unknown_turn(claim)
             if (stopped.returncode != 0
                     or set(_STOPPED.findall(_plain(stopped.stdout))) != {claim.host_ref}):
-                self.store.advance(delegation_id, "unknown", "host-result-unknown")
-                return ClaudeRunResult(
-                    "unknown", claim.host_ref, claim.host_session_ref, turn_ref)
+                return self._unknown_turn(claim)
             session = ClaudeSession(
                 session.host_ref, session.session_ref, "stopped", "stopped", None)
-        if session.state not in ("stopped", "exited", "failed"):
+        if not _host_stopped(session):
             return ClaudeRunResult(
                 "held", claim.host_ref, claim.host_session_ref,
                 host_status=session.status, prerequisite="target-status-unknown",
@@ -859,9 +885,8 @@ class ClaudeAdapter:
         begin(turn_ref)
         command = build_resume_command(
             self.installation, config, claim.host_session_ref,
-            _bounded_prompt(
-                prompt, delegation_id, claim.friendly_name,
-                self.communication_tools, claim.permission_intent),
+            _bounded_prompt(prompt, delegation_id, claim.friendly_name, self.communication_tools,
+                            claim.permission_intent, resumed=True),
             claim.permission_intent, permission.permission_mode, envelope.host_permission,
             server_name=self.server_name,
             communication_tools=self.communication_tools,
@@ -870,27 +895,34 @@ class ClaudeAdapter:
         )
         try:
             completed = self._run(command, envelope.project_root)
+            observed = (_parse_background_ref(completed.stdout or "")
+                        if completed.returncode == 0 else None)
         except ClaudeCommandUncertain as error:
             observed = _parse_background_ref(error.observed_stdout)
-            if observed != claim.host_ref:
-                self.store.advance(delegation_id, "unknown", "host-result-unknown")
-                return ClaudeRunResult(
-                    "unknown", claim.host_ref, claim.host_session_ref, turn_ref)
-            completed = None
-        if completed is not None:
-            observed = _parse_background_ref(completed.stdout or "")
-            if completed.returncode != 0 or observed != claim.host_ref:
-                self.store.advance(delegation_id, "unknown", "host-result-unknown")
-                return ClaudeRunResult(
-                    "unknown", claim.host_ref, claim.host_session_ref, turn_ref)
-        confirmed, _problem = self._settled_session(envelope.project_root, claim.host_ref)
-        if confirmed is None or confirmed.session_ref != claim.host_session_ref:
-            self.store.advance(delegation_id, "unknown", "host-result-unknown")
-            return ClaudeRunResult(
-                "unknown", claim.host_ref, claim.host_session_ref, turn_ref)
+        if observed is None:
+            return self._unknown_turn(claim)
+        # claude-delegation-realhost D182: `--resume` starts a new background job with its own id and session id
+        # (measured 2026-10-10); the record follows the job this command printed, once it is listed.
+        confirmed, _problem = self._settled_session(envelope.project_root, observed)
+        if confirmed is None or (observed == claim.host_ref
+                                 and confirmed.session_ref != claim.host_session_ref):
+            return self._unknown_turn(claim)
+        if observed != claim.host_ref:
+            claim = self.store.rebind_host(
+                delegation_id, claim.host_ref, claim.host_session_ref,
+                confirmed.host_ref, confirmed.session_ref)
         return ClaudeRunResult(
             state, claim.host_ref, claim.host_session_ref,
             host_status=confirmed.status, prerequisite=prerequisite,
+        )
+
+    def _unknown_turn(self, claim: object, *, advanced: bool = False) -> ClaudeRunResult:
+        """A turn whose delivery was not confirmed; the record goes `unknown` (cancel, then create again)."""
+        if not advanced:
+            self.store.advance(claim.delegation_id, "unknown", "host-result-unknown")
+        return ClaudeRunResult(
+            "unknown", claim.host_ref, claim.host_session_ref,
+            host_status="unknown", prerequisite="host-result-unknown",
         )
 
     def status(self, delegation_id: str) -> ClaudeRunResult:
