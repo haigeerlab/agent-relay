@@ -67,3 +67,56 @@ test("page budgets count other scripts as about one token per character (D151)",
   assert.ok(!(last >= 0xd800 && last <= 0xdbff), "never ends inside a surrogate pair");
   assert.equal(emoji.length % 2, 0);
 });
+
+test("a long body is read whole, in order and in parts, by its recipient only (D152, D153)", async () => {
+  const { textCost } = await import("../src/paging.js");
+  const dir = mkdtempSync(join(tmpdir(), "agent-relay-long-read-"));
+  const body = longChinese();
+  const path = join(dir, "long.txt");
+  writeFileSync(path, body);
+  const a = await session(dir, "claude-long-read");
+  try {
+    for (const agent of ["alice", "bob", "carol"]) await a.call("bridge_register", { agent });
+    const id = (await a.call("bridge_send", { from: "alice", to: "bob", bodyFile: path, threadId: "long" })).json().id;
+
+    const first = await a.call("bridge_inbox", { agent: "bob" });
+    const page = first.json();
+    assert.equal(page.messages[0].bodyTruncated, true);
+    assert.equal(page.messages[0].nextOffset, page.messages[0].body.length);
+    assert.match(page.continue[0], new RegExp(`Message #${id} is longer than this page; read the rest with ` +
+      `bridge_inbox \\{agent: "bob", messageId: ${id}, bodyOffset: ${page.messages[0].nextOffset}\\}`));
+
+    let read = "";
+    let offset: number | undefined = 0;
+    let parts = 0;
+    while (offset !== undefined) {
+      const part = await a.call("bridge_inbox", { agent: "bob", messageId: id, bodyOffset: offset });
+      assert.ok(part.ok, part.text.slice(0, 300));
+      assert.ok(textCost(part.text) <= 52_000, `part ${parts}: ${textCost(part.text)} units`);
+      const message = part.json().message;
+      assert.equal(message.id, id);
+      assert.equal(message.bodyOffset, offset);
+      assert.equal(message.bodyLength, body.length);
+      read += message.body;
+      offset = message.nextOffset;
+      parts += 1;
+      assert.ok(parts < 20, "it ends");
+    }
+    assert.equal(read, body, "every character exactly once, in order");
+    assert.ok(parts >= 4, `${parts} parts`);
+
+    const other = await a.call("bridge_inbox", { agent: "carol", messageId: id });
+    assert.equal(other.ok, false);
+    assert.match(other.text, new RegExp(`#${id} is not in "carol"'s inbox`));
+
+    const thread = (await a.call("bridge_thread", { threadId: "long" })).json();
+    assert.equal(thread.messages[0].nextOffset, thread.messages[0].body.length);
+    assert.match(thread.continue[0], /read the rest with bridge_inbox \{agent: "<recipient>", messageId/);
+
+    const waited = (await a.call("bridge_wait", { agent: "bob", timeoutSeconds: 1, acknowledge: false })).json();
+    assert.equal(waited.messages[0].bodyTruncated, true);
+    assert.match(waited.continue[0], new RegExp(`bridge_inbox \\{agent: "bob", messageId: ${id}, bodyOffset: \\d+\\}`));
+  } finally {
+    await a.close();
+  }
+});

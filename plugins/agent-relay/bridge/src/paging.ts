@@ -4,6 +4,10 @@ import type { BridgeMessage } from "./bridge-store.js";
 export interface MessageView extends BridgeMessage {
   bodyTruncated?: true;
   bodyLength?: number;
+  /** long-messages D152: where this body part starts in the stored body (part reads only). */
+  bodyOffset?: number;
+  /** long-messages D153: where the rest starts; absent when the body is complete. */
+  nextOffset?: number;
 }
 
 export interface FitOptions {
@@ -45,13 +49,28 @@ export function prefixWithin(text: string, budget: number): string {
 }
 
 function shorten(message: BridgeMessage, budget: number, byCharacters = false): MessageView {
-  return {
-    ...message,
-    body: byCharacters ? Array.from(message.body).slice(0, Math.max(0, budget)).join("")
-      : prefixWithin(message.body, Math.max(0, budget)),
-    bodyTruncated: true,
-    bodyLength: message.body.length,
-  };
+  const body = byCharacters ? Array.from(message.body).slice(0, Math.max(0, budget)).join("")
+    : prefixWithin(message.body, Math.max(0, budget));
+  return { ...message, body, bodyTruncated: true, bodyLength: message.body.length, nextOffset: body.length };
+}
+
+/** The part of `message`'s body from `offset` that fits a page (long-messages D152). */
+export function bodyPart(message: BridgeMessage, offset: number, maxChars?: number): MessageView {
+  const budget = Math.min(Math.max(maxChars ?? DEFAULT_PAGE_CHARS, 1_000), MAX_PAGE_CHARS) - ENVELOPE_CHARS;
+  let start = Math.min(Math.max(Math.trunc(offset), 0), message.body.length);
+  const code = message.body.charCodeAt(start);
+  if (start > 0 && code >= 0xdc00 && code <= 0xdfff) start -= 1; // never start inside a surrogate pair
+  const body = prefixWithin(message.body.slice(start), budget);
+  const end = start + body.length;
+  return { ...message, body, bodyOffset: start, bodyLength: message.body.length,
+    ...(end < message.body.length ? { bodyTruncated: true as const, nextOffset: end } : {}) };
+}
+
+/** long-messages D153: one line per shortened body saying how to read the rest. */
+export function continueLines(views: MessageView[], agent: string | null): string[] {
+  return views.filter((view) => view.nextOffset !== undefined).map((view) =>
+    `Message #${view.id} is longer than this page; read the rest with bridge_inbox ` +
+    `{agent: ${agent === null ? '"<recipient>"' : JSON.stringify(agent)}, messageId: ${view.id}, bodyOffset: ${view.nextOffset}}`);
 }
 
 /**
