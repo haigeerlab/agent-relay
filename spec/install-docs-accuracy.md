@@ -40,11 +40,13 @@ Readers: the user; people installing agent-relay from the README; the round-2 co
    The collab skill tells the agent to resolve the hooks directory from its own skill location.
 4. **5c wording.** Both messages say what is true: agent-relay does not add allow rules to the user's settings; its
    uninstall removes only the deny rules 0.4.0 wrote.
-5. **5d.** The skill never puts user text inside shell single quotes and never uses a heredoc (A7: a heredoc fails in
-   Codex's read-only sandbox, which is why 0.6.0 moved to a pipe). The JSON is built by `python3 -c` from arguments
-   (`json.dumps` of `sys.argv`), whose output is piped into the selector; the user's text reaches it only as separate
-   double-quoted arguments. The existing `test_selector_json_is_piped_not_a_heredoc` keeps guarding the pipe. The form
-   must still match the allow rules the skill already documents; if it cannot, the skill says which rule to add.
+5. **5d.** Keep the 0.6.0 form `printf '%s' <json> | python3 -B …/session_routing.py select` (a pipe, no heredoc —
+   A7: a heredoc fails in Codex's read-only sandbox), so the documented allow rules still match. Only the quoting
+   changes: the whole JSON is one argument quoted by `shlex.quote`'s rule — wrapped in single quotes, every `'` inside
+   written as `'\''`. Inside single quotes bash and zsh expand nothing, so `$(…)`, backticks, `$HOME` and `!` in a name,
+   title or body reach the selector verbatim; double quotes are never used for user text (they expand `$(…)`). The
+   skill states this rule with one worked example. Reading the selector's input from separate arguments was considered
+   and rejected: it changes the selector's interface and its allow rule for no gain over correct quoting.
 6. **CHANGELOG.** `--host-permission` removal joins the 2.0 breaking list; a `[0.6.1]` entry lists the three modules,
    the upgrade from 0.6.0 (delegation store schema 2 → 3; runtime upgrade for `presence-polish`) and rollback (restore
    the delegation store copy).
@@ -58,8 +60,10 @@ Readers: the user; people installing agent-relay from the README; the round-2 co
 
 1. Red first: `install-codex` output names all ten tools and the table form; `--approve-mailbox-tools` names the ones
    it added.
-2. Red first (skill tests): collab mentions the Bypass hold and `crossSessionInbound`; session-routing has no
-   `'<json>'` and no heredoc (the existing heredoc guard stays green); README has no `plugins/agent-relay/hooks/` command outside the developer section.
+2. Red first (skill tests): collab mentions the Bypass hold and `crossSessionInbound`; session-routing states the
+   single-quote rule and uses no heredoc (the existing heredoc guard stays green); a command built by that rule from a
+   name and body containing `'`, `$(…)`, backticks and `$HOME`, run under both `bash` and `zsh`, hands the selector
+   exactly the original text (nothing expanded or executed); README has no `plugins/agent-relay/hooks/` command outside the developer section.
 3. The two "never edits" messages corrected; CHANGELOG `[0.6.1]`.
 4. `scripts/validate.sh` green on Python 3.9, 3.10, 3.14; CI green.
 
