@@ -16,6 +16,9 @@ function setup() {
   const store = new BridgeStore(join(dir, "bridge.sqlite"));
   store.register("sender");
   store.register("cc", undefined, { app: "claude", sessionId: "host-cc" });
+  store.wakes.bind("cc", { app: "claude", sessionId: "host-cc" });
+  // presence-polish D176: hosted in Claude but not bound to wake; the approval check leaves it alone.
+  store.register("unbound", undefined, { app: "claude", sessionId: "host-unbound" });
   store.register("bound");
   store.wakes.bind("bound", { app: "claude", sessionId: "wake-bound" });
   store.register("cx", undefined, { app: "codex", sessionId: "thread-cx" });
@@ -24,8 +27,9 @@ function setup() {
   return { dir, store, log, lines, env: { AGENT_RELAY_NOTIFY_LOG: log } as NodeJS.ProcessEnv };
 }
 
-test("the store lists, per Claude-hosted agent, its oldest unhandled direct message", () => {
+test("the store lists, per wake-bound Claude agent, its oldest unhandled direct message", () => {
   const { store } = setup();
+  store.send({ fromAgent: "sender", toAgent: "unbound", body: "not checked" });
   const first = store.send({ fromAgent: "sender", toAgent: "cc", body: "one" });
   store.send({ fromAgent: "sender", toAgent: "cc", body: "two" });
   const bound = store.send({ fromAgent: "sender", toAgent: "bound", body: "three" });

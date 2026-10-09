@@ -10,7 +10,7 @@ import test from "node:test";
 
 import { checkRecipient } from "../src/addressing.js";
 import { BridgeStore } from "../src/bridge-store.js";
-import { claudeSessions, type ClaudeSession } from "../src/claude-wake.js";
+import { claudeSessions, claudeSessionsOrNull, type ClaudeSession } from "../src/claude-wake.js";
 import type { Presence } from "../src/presence.js";
 import { claudePresence, codexOwner } from "../src/presence.js";
 import { session } from "./support/session.js";
@@ -105,6 +105,38 @@ test("a Codex task is running with a connected owner, stopped without one, unkno
     }
   }
   assert.equal(await codexOwner("thread-1", join(tmpdir(), "no-such-dir", "ipc.sock")), null);
+});
+
+test("an unreadable session registry is unknown, an absent one holds no session", { skip: process.platform !== "darwin" }, async () => {
+  // agent-relay presence-polish D176: "cannot read" must not read as "not running".
+  const root = mkdtempSync(join(tmpdir(), "presence-unreadable-"));
+  assert.deepEqual(await claudeSessionsOrNull(join(root, "absent")), []);
+  const locked = join(root, "locked");
+  mkdirSync(locked, { mode: 0o000 });
+  try {
+    assert.equal(await claudeSessionsOrNull(locked), null);
+    assert.deepEqual(await claudeSessions(locked), [], "wake and liveness keep their reading");
+    assert.equal(claudePresence("desktop-1", await claudeSessionsOrNull(locked)).state, "unknown");
+  } finally {
+    chmodSync(locked, 0o700);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("bridge_agents shows an unreadable registry as unknown, not stopped", { skip: process.platform !== "darwin" }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), "presence-agents-locked-"));
+  const sessions = join(dir, ".claude", "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const claude = await session(dir, "claude-locked");
+  try {
+    assert.ok((await claude.call("bridge_register", { agent: "cc" })).ok);
+    chmodSync(sessions, 0o000);
+    const cc = (await claude.call("bridge_agents", {})).json().agents.find((a: any) => a.name === "cc");
+    assert.equal(cc.presence.state, "unknown");
+  } finally {
+    chmodSync(sessions, 0o700);
+    await claude.close();
+  }
 });
 
 test("bridge_agents shows presence for every agent", async () => {

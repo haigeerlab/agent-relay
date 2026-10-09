@@ -1,6 +1,6 @@
 import type { BridgeStore } from "./bridge-store.js";
 import { channelNotification, type ChannelNotification } from "./claude-channel.js";
-import { ClaudeWake, claudeSessions } from "./claude-wake.js";
+import { ClaudeWake, claudeSessionsOrNull } from "./claude-wake.js";
 import { wakeCodex } from "./codex-wake.js";
 import { BUSY_NOTIFY_AFTER_MS, NOTIFIED_TEXT, notifyUndelivered, waitingEpisode } from "./notify.js";
 import { claudePresence, type Presence } from "./presence.js";
@@ -112,7 +112,7 @@ export class WakeDispatcher {
     const waiting = this.store.claudeWaiting();
     if (waiting.length === 0) return;
     const presenceOf = this.presenceOf ?? await (async () => {
-      const sessions = process.platform === "darwin" ? await claudeSessions() : null;
+      const sessions = await claudeSessionsOrNull();
       return async (sessionId: string) => claudePresence(sessionId, sessions);
     })();
     for (const entry of waiting) {
