@@ -31,6 +31,9 @@ description: 加入本机 Claude Code／Codex 联调、查看联调消息与已�
    Codex Desktop 不绑定唤醒时也带上 `host: {app: "codex", sessionId: 当前任务的 CODEX_THREAD_ID}`：它只记下宿主，
    让发来的消息能提醒用户、出现在等待列表里，不绑定唤醒也不授予任何权限；只能填本任务自己的 ID，环境里没有就省略。
 3. 注册后调用 `bridge_inbox` 和 `bridge_agents`，只报告可读名称、宿主、项目简称和真实状态。
+4. Claude Code 会话第一次加入时，告诉用户：可以一次性放行 10 个信箱工具，免得每个工具都弹一次确认；
+   `native_collaboration_adapters.py claude-allow-rules` 会打印要加进 `~/.claude/settings.json` 的精确规则。
+   加不加由用户决定，不要替用户改这个文件。
 
 同一会话始终复用首次成功的身份；不能替另一个会话注册、绑定唤醒或接管同名身份。无法确认当前会话 ID 时，
 停止唤醒绑定，不猜窗口标题、进程或最近活动。

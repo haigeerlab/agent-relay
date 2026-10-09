@@ -74,6 +74,10 @@ codex plugin add agent-relay@agent-relay-marketplace
 - “我在信箱里是谁” → 本会话的身份、宿主、会话标题和项目（`bridge_sessions` 的 `whoami`）。
 - “刚才那条消息怎么样了”“等它回复” → 按消息编号查状态，或一直等到它被确认、回复、失败或过期
   （`bridge_wake_status` / `bridge_wait` 带 `messageId`，等待时不替谁确认消息）。
+- 第一次在 Claude Code 里用，每个信箱工具都会弹一次确认（`mailbox-polish`）：想一次性放行，运行
+  `python3 -B plugins/agent-relay/hooks/native_collaboration_adapters.py claude-allow-rules`，把它打印的 10 条精确规则加进
+  `~/.claude/settings.json` 的 `permissions.allow`（加不加由你决定，agent-relay 不会改这个文件；Codex 已在安装时预先放行）。
+  另外，Claude Code 第一次打开一个项目时的信任弹窗**默认选中的是 “No, exit”**，直接回车会退出，要先选到 “Yes”。
 - 长消息（`long-messages`）：发送结果只回编号和长度，不回显正文；收件方一页读不完时，结果里的 `continue` 行写明下一次
   `bridge_inbox` 的参数（`messageId`、`bodyOffset`），一段段读完即可，不需要 Bash。每页按大约 1.2 万个 token 控制，
   中文和英文都不会超过宿主的输出上限。

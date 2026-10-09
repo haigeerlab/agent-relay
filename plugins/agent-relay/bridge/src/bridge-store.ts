@@ -316,6 +316,7 @@ export class BridgeStore {
   private insertMessage(input: SendInput): { message: BridgeMessage; duplicate: boolean } {
     const replyTo = input.replyTo ?? null;
     let threadId = input.threadId ?? null;
+    let answersOwnMessage = false;
     if (replyTo !== null) {
       const original = this.db.prepare("SELECT thread_id, from_agent, to_agent FROM messages WHERE id = ?").get(replyTo) as
         | { thread_id: string | null; from_agent: string; to_agent: string }
@@ -323,6 +324,7 @@ export class BridgeStore {
       if (!original) throw new ReplyLinkError(`No message #${replyTo} to reply to.`);
       assertMayReply(replyTo, original.from_agent, original.to_agent, input.fromAgent);
       threadId = replyThread(replyTo, original.thread_id, input.threadId);
+      answersOwnMessage = original.to_agent === input.fromAgent;
     }
     const idempotencyKey = input.idempotencyKey ?? null;
 
@@ -371,6 +373,8 @@ export class BridgeStore {
 
     const message = this.messageById(Number(result.lastInsertRowid)) as BridgeMessage;
     if (input.wake !== false) this.wakes.enqueue(message);
+    // agent-relay mailbox-polish D155: the recipient answering a direct message has it, as surely as a fetch.
+    if (answersOwnMessage && replyTo !== null) this.wakes.recordRead(input.fromAgent, [replyTo]);
     return { message, duplicate: false };
   }
 

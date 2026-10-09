@@ -196,10 +196,24 @@ def legacy_deny_rules() -> list[str]:
     return [f"mcp__{CLAUDE_SERVER_NAME}__{tool}" for tool in LEGACY_WORKER_TOOLS]
 
 
+def claude_allow_rules(server: str = CLAUDE_SERVER_NAME) -> list[str]:
+    """mailbox-polish D156: the exact Claude permission rules for the mailbox tools (no wildcard)."""
+    return ["mcp__%s__%s" % (server, tool) for tool in MAILBOX_TOOLS]
+
+
+def print_claude_allow_rules() -> int:
+    """Print the one-time approval lines; write nothing. Adding them is the user's choice."""
+    rules = claude_allow_rules()
+    print("To stop Claude Code asking about each mailbox tool, the user may add these %d rules to "
+          "permissions.allow in ~/.claude/settings.json (agent-relay never edits that file):" % len(rules))
+    print(json.dumps({"permissions": {"allow": rules}}, indent=2))
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("host", choices=("codex", "claude", "install-codex", "install-claude",
-                                         "uninstall-codex", "uninstall-claude"))
+                                         "uninstall-codex", "uninstall-claude", "claude-allow-rules"))
     parser.add_argument("--root", type=Path)
     parser.add_argument("--node", type=Path, help="default: the node the host entries pin, else PATH's (D58)")
     parser.add_argument("--codex-config", type=Path, default=Path.home() / ".codex" / "config.toml")
@@ -216,6 +230,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--confirm-uninstall", action="store_true",
                         help="allow an uninstall command to remove host configuration")
     args = parser.parse_args(argv)
+    if args.host == "claude-allow-rules":
+        return print_claude_allow_rules()
     try:
         args.root = args.root or default_root()
     except StateHomeError as error:

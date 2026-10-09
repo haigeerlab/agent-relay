@@ -29,6 +29,28 @@ class NativeCollaborationAdaptersTests(unittest.TestCase):
         self.node.write_text("node\n")
         self.node.chmod(0o755)
 
+    def test_claude_allow_rules_print_the_exact_rules_and_write_nothing(self):
+        # mailbox-polish D156: one-time approval lines for Claude, printed only; the user decides to add them.
+        import contextlib
+        import io
+        from native_collaboration_adapters import main
+        from native_collaboration_runtime import MAILBOX_TOOLS
+        settings = Path(self.tmp.name) / "never" / "settings.json"
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(main(["claude-allow-rules", "--claude-settings", str(settings)]), 0)
+        text = out.getvalue()
+        expected = ["mcp__agent-relay__" + tool for tool in MAILBOX_TOOLS]
+        self.assertEqual(len(expected), 10)
+        for rule in expected:
+            self.assertEqual(text.count('"%s"' % rule), 1, rule)
+        self.assertNotIn("*", text)
+        snippet = json.loads(text[text.index("{"):])
+        self.assertEqual(snippet, {"permissions": {"allow": expected}})
+        self.assertIn("~/.claude/settings.json", text)
+        self.assertFalse(settings.exists())
+        self.assertFalse(settings.parent.exists())
+
     def test_codex_fragment_is_mailbox_only_and_no_secret(self):
         fragment = codex_fragment(self.root, self.node)
         self.assertIn(f"[mcp_servers.{CODEX_SERVER_NAME}]", fragment)

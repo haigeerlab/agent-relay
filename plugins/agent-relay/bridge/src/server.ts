@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { pendingWarning } from "./delivery.js";
+import { deliveryState, pendingWarning } from "./delivery.js";
 import { duplicateWarning } from "./idempotency.js";
 import { readBodyFile } from "./body-file.js";
 import { basename } from "node:path";
@@ -151,6 +151,10 @@ function main(): void {
           "stay unread for delivery and its recipient will still be pinged. If " + JSON.stringify(agent) + " is this " +
           "session's own name (for example after the bridge restarted), call bridge_register with it from this session again.",
       };
+
+  // agent-relay mailbox-polish D154: a view shows the delivery state after the read this call recorded.
+  const afterRead = <T extends { id: number; deliveryState: unknown }>(view: T): T =>
+    ({ ...view, deliveryState: deliveryState(store.database, view.id) });
 
   const pagingInput = {
     limit: z.number().int().min(1).max(200).optional().describe("Maximum messages to return. Defaults to 25 (30 for threads)."),
@@ -393,7 +397,7 @@ function main(): void {
           store.wakes.recordRead(agent, [message.id]);
           store.touch(agent);
         }
-        return jsonResult({ agent, message, ...readReceipt(agent, recorded) });
+        return jsonResult({ agent, message: afterRead(message), ...readReceipt(agent, recorded) });
       }
       const page = store.inboxPage(agent, { includeAcknowledged, fromAgent, threadId, afterId, includeExpired, limit, maxChars, maxBodyChars });
       if (recorded) {
@@ -401,7 +405,8 @@ function main(): void {
         store.touch(agent);
       }
       const more = continueLines(page.messages, agent);
-      return jsonResult({ agent, ...page, ...(more.length ? { continue: more } : {}), ...readReceipt(agent, recorded) });
+      return jsonResult({ agent, ...page, messages: page.messages.map(afterRead), ...(more.length ? { continue: more } : {}),
+        ...readReceipt(agent, recorded) });
     },
   );
 
@@ -455,7 +460,7 @@ function main(): void {
         count: fitted.messages.length,
         acknowledged,
         hasMore: result.messages.length > max || fitted.omitted > 0,
-        messages: fitted.messages,
+        messages: fitted.messages.map(afterRead),
         ...(continueLines(fitted.messages, agent).length ? { continue: continueLines(fitted.messages, agent) } : {}),
         nextAction: result.timedOut
           ? "If the coordination thread is still active, call bridge_wait again."

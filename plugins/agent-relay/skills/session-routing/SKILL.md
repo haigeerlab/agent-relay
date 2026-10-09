@@ -16,7 +16,8 @@ description: 按会话名称在本机 Claude Code／Codex 会话间发现、发�
 ## 先做唯一选路
 
 把可信路由事实通过 JSON stdin 传给 selector。Claude Code 里直接用下面这条（路径已由 Claude 填好，与验收清单的
-放行规则逐字一致；JSON 用 heredoc 或管道从 stdin 传入，不要在同一条命令里接别的命令）：
+放行规则逐字一致；JSON 用管道从 stdin 传入，例如 `printf '%s' '<json>' | python3 -B …/session_routing.py select`，
+不要用 heredoc——Codex 的只读沙箱里 heredoc 建不了临时文件；也不要在同一条命令里接别的命令）：
 
 ```text
 python3 -B ${CLAUDE_PLUGIN_ROOT}/hooks/session_routing.py select

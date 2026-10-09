@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+- **信箱的几处小修**（模块 `mailbox-polish`，D154–D157，第二轮联调 A5–A7）：收件箱与等待返回本次读取之后的投递状态，
+  收件方用 `replyTo` 回复原消息也算送达证据，送达并回复过的消息不再停在 `unknown`；新增只读命令
+  `native_collaboration_adapters.py claude-allow-rules`，打印 Claude Code 一次性放行 10 个信箱工具的精确规则（不改你的
+  设置文件），README 提醒 Claude Code 信任弹窗默认选中 “No, exit”；session-routing 改用管道传 JSON，Codex 只读沙箱里
+  不再失败。bridge 改动，升级运行时后生效。
 - **长消息不再撑爆上下文**（模块 `long-messages`，D150–D153，第二轮联调 A3）：`bridge_send` 的结果只给编号、状态、
   `bodyLength` 和警告，不再回显正文（**破坏性变更**，属于接口 2.0）；分页预算按接近 token 的份数计算（ASCII 算 1、其他
   字符算 4），中文一页约 1.2 万字，不再超过宿主上限；`bridge_inbox` 新增 `messageId` 与 `bodyOffset`，可以一段段读完
