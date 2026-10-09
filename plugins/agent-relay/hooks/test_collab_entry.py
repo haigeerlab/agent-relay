@@ -60,6 +60,8 @@ class CollabEntryContractTest(unittest.TestCase):
             "完整内部 ID",
             # presence-and-approval D146: presence words, and the user answers prompts themselves.
             "presence.state", "等待授权", "已停止", "不替用户回答",
+            # long-messages D152, D153: long messages are read with the mailbox tools alone.
+            "nextOffset", "bodyOffset", "不用 Bash", "不回显正文",
         ):
             self.assertIn(phrase, text)
 

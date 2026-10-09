@@ -76,7 +76,9 @@ bridge 会核对身份：发送、ack 和自动确认的 `bridge_wait` 只接受
 名字、条数、发件方和编号（`waiting: {count, from, ids}`），不读正文；没有就说没有。发件结果里的“已尝试通知”只表示
 bridge 尝试过桌面通知，macOS 可能没显示，不要说成用户已经看到。
 
-读取用 `bridge_inbox`；处理后才调用 `bridge_ack`。主动等待使用 `bridge_wait` 且
+长消息只用信箱工具读完，不用 Bash：结果里有 `continue` 行或某条消息带 `nextOffset` 时，按那一行调用
+`bridge_inbox`（`agent`、`messageId`、`bodyOffset`），一直读到不再返回 `nextOffset`，把各段按顺序拼起来再处理。
+发送结果只有编号和 `bodyLength`，不回显正文。读取用 `bridge_inbox`；处理后才调用 `bridge_ack`。主动等待使用 `bridge_wait` 且
 `acknowledge: false`，返回后仍需实际处理再确认。被唤醒后只处理当前权限允许的请求，有副作用的动作仍向用户取权。
 结果里 `readRecorded: false` 表示这次读取没有算作已读：读的是别人的身份（不影响对方的投递和唤醒），或读的是自己
 的名字但 bridge 重启后还没重新注册——后一种照 `readNote` 用 `bridge_register` 重新注册本会话的名字再读。
