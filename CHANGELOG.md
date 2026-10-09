@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+- **takeover 能换掉另一会话的唤醒绑定**（模块 `takeover-wake-rebind`，D186，2026-10-10 实测发现）：bridge 改动，
+  **要用 `upgrade --confirm` 升级运行时才生效**（升级前先关掉所有会话，见 README 的升级说明）。
+  - 以前名字已经绑定到另一个会话的唤醒时，`bridge_register` 带 `takeover: true` 和新的 `wake`（`"auto"` 或
+    `{app, sessionId}`）会通过 takeover 检查，却在绑定那一步报 “Agent is already bound to another session”，注册失败；
+    续聊的 Claude Code 委派用 `takeover: true, wake: "auto"` 重新注册自己的名字时就会撞上。现在 takeover 会在一个事务里
+    换掉旧绑定，效果等同先 `wake: null` 再绑新会话：旧会话上还没发出的唤醒提醒取消，消息仍在收件箱里未读，注册结果照旧
+    给出未读数和 “was taken over” 说明。
+  - 不带 `takeover` 的拒绝、`wake: null`、省略 `wake` 与同一会话重复注册都不变；接口仍为 2.0，信箱 schema 仍为 5。
+  - 0.6.2 委派信封里“先 `wake: null` 做 takeover，再 `wake: "auto"`”的绕行保留，旧运行时上仍然需要它。
+
 ## [0.6.1] - 2026-10-10
 
 接口仍为 **2.0**（`interface.json` 不变，Spec Guard 0.56.0 或更新），信箱 schema 仍为 5，**委派库升到 schema 3**。这一版修复

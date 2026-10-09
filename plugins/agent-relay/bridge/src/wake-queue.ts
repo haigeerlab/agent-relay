@@ -65,17 +65,24 @@ export class WakeQueue {
     return row ? JSON.parse(row.target as string) : null;
   }
 
-  bind(agent: string, target: WakeTarget | null): void {
+  /**
+   * Bind `agent` to `target`, or unbind it with null. A binding to another session is refused unless `replace`
+   * (agent-relay takeover-wake-rebind D186: a takeover), which unbinds and binds in one step, as wake: null then
+   * the new wake would.
+   */
+  bind(agent: string, target: WakeTarget | null, { replace = false } = {}): void {
     const current = this.target(agent);
-    if (current && target && (current.app !== target.app || current.sessionId !== target.sessionId)) {
+    const other = !!current && !!target && (current.app !== target.app || current.sessionId !== target.sessionId);
+    if (other && !replace) {
       throw new Error("Agent is already bound to another session. Use a unique agent name, or unbind it with wake: null first.");
     }
-    if (!target) {
-      this.db.prepare("DELETE FROM wake_targets WHERE agent = ?").run(agent);
-      this.db.prepare("UPDATE wake_jobs SET state = 'cancelled', detail = 'Recipient unbound' WHERE agent = ? AND state = 'pending'").run(agent);
-      return;
-    }
-    this.db.prepare("INSERT OR REPLACE INTO wake_targets(agent, target) VALUES (?, ?)").run(agent, JSON.stringify(target));
+    atomically(this.db, () => {
+      if (!target || other) {
+        this.db.prepare("DELETE FROM wake_targets WHERE agent = ?").run(agent);
+        this.db.prepare("UPDATE wake_jobs SET state = 'cancelled', detail = 'Recipient unbound' WHERE agent = ? AND state = 'pending'").run(agent);
+      }
+      if (target) this.db.prepare("INSERT OR REPLACE INTO wake_targets(agent, target) VALUES (?, ?)").run(agent, JSON.stringify(target));
+    });
   }
 
   // Called in the same transaction that inserts the durable mailbox message.
