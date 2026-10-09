@@ -423,9 +423,7 @@ def _probe_outside(root: Path, node: str) -> dict[str, Any]:
 
 CLAUDE_PLUGIN_ID = "agent-relay@agent-relay-marketplace"
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
-CLAUDE_UPDATE_STEPS = ("run `claude plugin marketplace update agent-relay-marketplace` and "
-                       "`claude plugin update agent-relay@agent-relay-marketplace`, then restart open Claude sessions "
-                       "(the desktop Code tab included)")
+RESTART = "restart open Claude sessions (the desktop Code tab included)"
 
 
 def _copy_version(root: Path) -> str | None:
@@ -449,8 +447,9 @@ def _claude_plugin_list() -> tuple[int, str] | None:
 
 
 def _claude_plugin(listing: Callable[[], tuple[int, str] | None], expected: str | None) -> dict[str, str]:
-    """install-truth D184: Claude Code loads `installPath` (desktop Code tab) or `readFromFolder` (`claude --bg`), and
-    the listing's own `version` is not what those folders hold, so read every enabled copy's plugin.json."""
+    """install-truth D184: compare the copy Claude Code loads with this plugin, from its plugin.json, never the
+    listing's own `version`. Measured 2026-10-10 (2.1.293 desktop, 2.1.295 CLI): a new session loads `readFromFolder`
+    when the entry has one, else `installPath`; a session keeps the copy it started with until it is restarted."""
     result = listing()
     if result is None:
         return _check("claude-plugin", "skip", "claude not found")
@@ -463,30 +462,53 @@ def _claude_plugin(listing: Callable[[], tuple[int, str] | None], expected: str 
         return _check("claude-plugin", "skip", "claude plugin list --json: not JSON")
     if not isinstance(entries, list):
         return _check("claude-plugin", "skip", "claude plugin list --json: not a list")
-    users: dict[str, list[str]] = {}
+    loaded: dict[tuple[str, str], list[str]] = {}
+    unused: dict[str, list[str]] = {}
     for entry in entries:
         if not (isinstance(entry, dict) and entry.get("id") == CLAUDE_PLUGIN_ID and entry.get("enabled") is True):
             continue
         scope = entry.get("scope") if isinstance(entry.get("scope"), str) else "unknown"
         project = entry.get("projectPath")
         user = scope + (":" + project if isinstance(project, str) and project else "")
-        for key in ("installPath", "readFromFolder"):
-            path = entry.get(key)
-            if isinstance(path, str) and path and user not in users.setdefault(path, []):
-                users[path].append(user)
-    if not users:
+        folder, install = entry.get("readFromFolder"), entry.get("installPath")
+        folder = folder if isinstance(folder, str) and folder else None
+        install = install if isinstance(install, str) and install else None
+        if folder is None and install is None:
+            continue
+        key = ("folder", folder) if folder else ("install", install)
+        if user not in loaded.setdefault(key, []):
+            loaded[key].append(user)
+        if folder and install and install != folder and user not in unused.setdefault(install, []):
+            unused[install].append(user)
+    if not loaded:
         return _check("claude-plugin", "ok", "no enabled agent-relay plugin in Claude Code")
-    stale = []
-    for path, using in users.items():
+    stale, steps = [], []
+    for (kind, path), using in loaded.items():
         version = _copy_version(Path(path))
         if version is not None and version == expected:
             continue
         stale.append(("%s is %s" % (path, version) if version else path + " has no readable version")
                      + " (" + _plugin_users(using) + ")")
+        if kind == "folder":
+            steps.append(f"update {path} (git pull in that clone)")
+        else:
+            steps.append("run `claude plugin marketplace update agent-relay-marketplace`")
+            for scope in sorted({user.split(":", 1)[0] for user in using}):
+                steps.append(f"`claude plugin update --scope {scope} agent-relay@agent-relay-marketplace`"
+                             + (" inside each listed project" if scope in ("local", "project") else ""))
+    notes = []
+    for path, using in unused.items():
+        version = _copy_version(Path(path))
+        if version != expected:
+            notes.append("%s (%s, %s) is not loaded while readFromFolder is set" % (
+                path, version or "unreadable", _plugin_users(using)))
+    restart = "sessions started before an update keep their copy until restarted"
     if not stale:
-        return _check("claude-plugin", "ok", f"every enabled agent-relay copy Claude Code loads is {expected}")
-    return _check("claude-plugin", "warn", f"this plugin is {expected}; " + "; ".join(stale),
-                  CLAUDE_UPDATE_STEPS)
+        detail = f"every agent-relay copy Claude Code loads is {expected}; {restart}"
+        return _check("claude-plugin", "ok", detail + ("; " + "; ".join(notes) if notes else ""))
+    ordered = list(dict.fromkeys(steps)) + [RESTART]
+    return _check("claude-plugin", "warn", f"this plugin is {expected}; " + "; ".join(stale + notes),
+                  ", then ".join(ordered))
 
 
 def _plugin_users(using: list[str]) -> str:

@@ -32,6 +32,18 @@ Readers: the user; the round-2 coordinator.
    `<installPath>/.claude-plugin/plugin.json` (and, when present, from the `readFromFolder` copy too), never the
    listing's `version`; any copy that differs from the plugin doctor runs from is `warn`, naming which copy and giving
    the two update commands and the restart as next step. Unavailable `claude` → `skip`. Nothing is written.
+2a. **Measured while building (2026-10-10; the user chose this rule the same day).** With the user's consent the
+   update was run on this Mac and new sessions were started with the desktop app's own binary (2.1.293,
+   `CLAUDE_CODE_ENTRYPOINT=claude-desktop`, `--setting-sources user,project,local`, stream-json like the Code tab) and
+   with the CLI (2.1.295), in relay-integration (local-scope entry → cache `0.1.0`) and in a folder with no entry: every
+   one loaded `readFromFolder` (the clone, 0.6.1), per the session's `init` plugin list and the skill's base directory.
+   The 0.5.2 seen in acceptance came from a desktop session started on 2026-10-07 and still open on 2026-10-09: a session
+   keeps the copy it started with. So the check compares only the copy a new session loads — `readFromFolder` when the
+   entry has one, else `installPath` — and warns only when that copy differs; stale `installPath` copies that are not
+   loaded are noted in the detail; the detail always says sessions started before an update keep their copy until
+   restarted. `claude plugin update` without `--scope` updates only the current folder's local entry; the user entry
+   needs `--scope user`. Local entries left on old cache copies (four of them for deleted folders) are left alone and
+   only reported (the user, 2026-10-10).
 3. **L2.** session-routing lists each selector field's allowed values, taken from `session_routing.py`, and a skill
    guard test fails when the code's set and the skill's list differ.
 4. **L3.** collab gives one literal `bridge_register` call per host (`{agent, wake}`; Codex with `host`).
