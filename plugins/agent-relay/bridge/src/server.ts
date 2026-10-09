@@ -44,6 +44,12 @@ async function isClaudeSessionLive(sessionId: string): Promise<boolean> {
   return sessions.some((session) => session.sessionId === sessionId || session.bridgeSessionId === sessionId);
 }
 
+/** agent-relay presence-and-approval D146, D147: one host session's state, read on demand. */
+async function presenceOf(host: WakeTarget): Promise<Presence> {
+  if (host.app === "codex") return codexPresence(await codexOwner(host.sessionId));
+  return claudePresence(host.sessionId, process.platform === "darwin" ? await claudeSessions() : null);
+}
+
 /** The app session hosting this MCP process, when the host exposes it. */
 function detectSession(env: NodeJS.ProcessEnv = process.env): WakeTarget | null {
   const claude = env.CLAUDE_CODE_SESSION_ID?.trim();
@@ -279,7 +285,7 @@ function main(): void {
       const body = text ?? readBodyFile(bodyFile as string);
       if (from === BRIDGE_AGENT) throw new Error(`"${BRIDGE_AGENT}" is reserved for automated notices.`);
       caller.require(from, store.getAgent(from), "send as");
-      const check = await checkRecipient(store, to, { allowUnregistered, isClaudeSessionLive });
+      const check = await checkRecipient(store, to, { allowUnregistered, presenceOf });
       if (!check.ok) throw new Error(check.error);
       const warnings = [...check.warnings];
       const { message, duplicate } = store.deliver({

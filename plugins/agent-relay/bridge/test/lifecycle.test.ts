@@ -60,7 +60,7 @@ test("senders are warned when pings keep failing or the recipient looks idle", a
   store.register("claude-worker");
   store.wakes.bind("claude-worker", { app: "claude", sessionId: "gone-session" });
   failPings(store, "sender", "claude-worker", 3, "Claude expired this peer message");
-  const check = await checkRecipient(store, "claude-worker", { isClaudeSessionLive: async () => false });
+  const check = await checkRecipient(store, "claude-worker", { presenceOf: async () => ({ state: "stopped" }) });
   assert.equal(check.ok, true);
   assert.ok(check.warnings.some((warning) => /last 3 background pings/.test(warning) && /crossSessionInbound/.test(warning)));
   assert.ok(check.warnings.some((warning) => /session is not running/.test(warning)));

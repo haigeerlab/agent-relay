@@ -8,7 +8,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
+import { checkRecipient } from "../src/addressing.js";
+import { BridgeStore } from "../src/bridge-store.js";
 import { claudeSessions, type ClaudeSession } from "../src/claude-wake.js";
+import type { Presence } from "../src/presence.js";
 import { claudePresence, codexOwner } from "../src/presence.js";
 import { session } from "./support/session.js";
 
@@ -118,4 +121,30 @@ test("bridge_agents shows presence for every agent", async () => {
   } finally {
     await claude.close();
   }
+});
+
+test("the sender is told when the recipient waits for the user's approval or is not running (D147)", async () => {
+  const store = new BridgeStore(":memory:");
+  store.register("sender");
+  store.register("cc");
+  store.wakes.bind("cc", { app: "claude", sessionId: "claude-1" });
+  store.register("cx");
+  store.wakes.bind("cx", { app: "codex", sessionId: "thread-1" });
+  const asked: string[] = [];
+  const as = (state: Presence["state"]) => async (target: { app: string; sessionId: string }): Promise<Presence> => {
+    asked.push(`${target.app}:${target.sessionId}`);
+    return { state };
+  };
+  const waiting = await checkRecipient(store, "cc", { presenceOf: as("waiting-approval") });
+  assert.ok(waiting.warnings.some((w) => /"cc" is waiting for the user's approval in its session/.test(w)), waiting.warnings.join("\n"));
+  assert.deepEqual(asked, ["claude:claude-1"]);
+  const stopped = await checkRecipient(store, "cc", { presenceOf: as("stopped") });
+  assert.ok(stopped.warnings.some((w) => /"cc"'s Claude session is not running/.test(w)));
+  const codexStopped = await checkRecipient(store, "cx", { presenceOf: as("stopped") });
+  assert.ok(codexStopped.warnings.some((w) => /"cx"'s Codex task is not open/.test(w)), codexStopped.warnings.join("\n"));
+  for (const state of ["running", "waiting-input", "unknown"] as const) {
+    const quiet = await checkRecipient(store, "cc", { presenceOf: as(state) });
+    assert.deepEqual(quiet.warnings, [], state);
+  }
+  store.close();
 });

@@ -1,5 +1,7 @@
 import type { BridgeStore } from "./bridge-store.js";
 import { BRIDGE_AGENT, CLAUDE_HOLD_EXPLANATION } from "./notices.js";
+import type { Presence } from "./presence.js";
+import type { WakeTarget } from "./wake-queue.js";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STALE_UNBOUND_MS = 24 * 3_600_000;
@@ -56,7 +58,8 @@ export interface RecipientCheck {
 
 export interface RecipientCheckOptions {
   allowUnregistered?: boolean;
-  isClaudeSessionLive?: (sessionId: string) => Promise<boolean>;
+  /** agent-relay presence-and-approval D147: the recipient's host session state (presence.ts). */
+  presenceOf?: (target: WakeTarget) => Promise<Presence>;
   now?: number;
 }
 
@@ -103,8 +106,15 @@ export async function checkRecipient(
     );
   }
   const target = store.wakes.target(to);
-  if (target?.app === "claude" && options.isClaudeSessionLive && !(await options.isClaudeSessionLive(target.sessionId))) {
-    warnings.push(`"${to}"'s Claude session is not running. The message will wait in its inbox until that conversation reads it.`);
+  const host = store.getAgent(to)?.host ?? target;
+  const presence = host && options.presenceOf ? await options.presenceOf(host) : null;
+  if (presence?.state === "waiting-approval") {
+    warnings.push(`"${to}" is waiting for the user's approval in its session. Your message waits until the user answers ` +
+      "that prompt; nothing here can answer it.");
+  } else if (presence?.state === "stopped") {
+    warnings.push(host!.app === "claude"
+      ? `"${to}"'s Claude session is not running. The message will wait in its inbox until that conversation reads it.`
+      : `"${to}"'s Codex task is not open. The message will wait in its inbox until that task reads it.`);
   }
   if (!target) {
     const last = store.lastActivity(to);
