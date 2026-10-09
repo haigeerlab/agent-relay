@@ -43,6 +43,13 @@ class SessionRoutingEntryTests(unittest.TestCase):
         self.assertIn("targetResolution", text)
         self.assertIn("nativeCapability", text)
 
+    def test_selector_json_is_piped_not_a_heredoc(self):
+        # mailbox-polish D157: a heredoc cannot create its temporary file in Codex's read-only sandbox.
+        text = ROUTING.read_text(encoding="utf-8")
+        self.assertIn("printf '%s' '<json>' | python3 -B", text)
+        self.assertIn("不要用 heredoc", text)
+        self.assertNotIn("heredoc 或管道", text)
+
     def test_claude_same_host_uses_only_supported_native_primitives(self):
         text = self.routing_text()
         for phrase in (

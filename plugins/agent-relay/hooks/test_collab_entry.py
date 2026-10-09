@@ -62,6 +62,8 @@ class CollabEntryContractTest(unittest.TestCase):
             "presence.state", "等待授权", "已停止", "不替用户回答",
             # long-messages D152, D153: long messages are read with the mailbox tools alone.
             "nextOffset", "bodyOffset", "不用 Bash", "不回显正文",
+            # mailbox-polish D156: the one-time approval lines, never written for the user.
+            "claude-allow-rules", "不要替用户改这个文件",
         ):
             self.assertIn(phrase, text)
 
