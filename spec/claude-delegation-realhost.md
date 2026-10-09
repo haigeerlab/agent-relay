@@ -56,7 +56,12 @@ Readers: the user; the round-2 coordinator (acceptance after 0.6.2).
    (`rebind_host`, only from the exact old binding, only while `created` or `running`). This is Claude Code's
    resume, not a second session from the adapter. (iii) An `unknown` turn result put the turn ref in `hostStatus`;
    it now says `unknown` with `host-result-unknown`, and a continue of an `unknown` record answers
-   `delegation-state-unknown` with "cancel it, then create again".
+   `delegation-state-unknown` with "cancel it, then create again". (iv) Real check (a), first run: the resumed
+   session's `bridge_register` of the delegation's own name was refused — the name is held by the stopped session
+   (new session id). The user chose (2026-10-10) that the resumed turn's envelope, and only that turn's, authorizes
+   taking that one name back: when the refusal says the holder is a claude session no longer running, register again
+   with `takeover: true` and `wake: null`, then (safe review) with `wake: "auto"`. Two steps because the bridge refuses
+   takeover together with a new wake while the old binding exists (bridge gap, not changed here).
 4. **L1.** `prune --help` says `--confirm ID,...` cancels the listed ids.
 5. **Real checks on this Mac** before the PR: (a) a Codex-shaped Claude delegation (the adapter's own commands, scoped
    to `README.md`) is created, completed, stopped with `claude stop`, then continued through the adapter; the follow-up

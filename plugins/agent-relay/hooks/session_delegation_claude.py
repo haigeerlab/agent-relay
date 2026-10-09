@@ -290,7 +290,7 @@ def _internal_name(friendly_name: str, delegation_id: str) -> str:
 
 
 def _bounded_prompt(prompt: str, delegation_id: str, friendly_name: str,
-                    communication_tools: tuple[str, ...], intent: str) -> str:
+                    communication_tools: tuple[str, ...], intent: str, *, resumed: bool = False) -> str:
     if (not isinstance(prompt, str) or not prompt.strip()
             or len(prompt) > MAX_HOST_PROMPT_CHARS
             or any((ord(character) < 32 and character not in "\n\t")
@@ -306,6 +306,17 @@ def _bounded_prompt(prompt: str, delegation_id: str, friendly_name: str,
             " file you may read for this task, then load them by name with ToolSearch and register. Do not answer"
             " before you have registered, and never give the result only in this conversation."
         )
+        if resumed:
+            # claude-delegation-realhost D182 (the user, 2026-10-10): a resume runs as a new session, while the
+            # mailbox still holds this delegation's name for the stopped one.
+            registration += (
+                " This turn runs in a resumed copy of this delegation's earlier session: if bridge_register refuses "
+                + name + " because another claude session that is no longer running holds it, call it once more"
+                " with takeover: true and wake null"
+                + (', then once more with wake "auto"' if intent == "safe-review" else "")
+                + ". That earlier session was this delegation's own; this envelope authorizes that takeover for"
+                " this name only."
+            )
     else:
         raise ClaudeAdapterError("registration-tool-unavailable")
     return (
@@ -873,7 +884,9 @@ class ClaudeAdapter:
         self._configs[delegation_id] = config
         begin(turn_ref)
         command = build_resume_command(
-            self.installation, config, claim.host_session_ref, enveloped,
+            self.installation, config, claim.host_session_ref,
+            _bounded_prompt(prompt, delegation_id, claim.friendly_name, self.communication_tools,
+                            claim.permission_intent, resumed=True),
             claim.permission_intent, permission.permission_mode, envelope.host_permission,
             server_name=self.server_name,
             communication_tools=self.communication_tools,

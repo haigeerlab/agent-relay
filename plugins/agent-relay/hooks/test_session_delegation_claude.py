@@ -1186,6 +1186,39 @@ class AdapterTests(unittest.TestCase):
             self.assertIn("one allowed Read", control)
             self.assertIn("ToolSearch", control)
 
+    def test_only_a_resumed_turn_may_take_its_own_name_back(self):
+        # claude-delegation-realhost D182 (the user, 2026-10-10): a resume runs as a new session, and the bridge refuses
+        # the delegation's own name while it is held by the stopped one; that turn alone may take it over.
+        self.complete_claim()
+        runner = ScriptedRunner([
+            completed(json.dumps([self.done_entry()])),
+            completed("backgrounded · 6472d974 · readme.md purpose review\n"),
+            completed(json.dumps([self.done_entry(), self.resumed_entry()])),
+        ])
+        self.adapter(runner).continue_turn(self.claim.delegation_id, "Check again")
+        resumed = runner.calls[1][0][-1]
+        control = resumed[resumed.index("<agent-relay-control>"):]
+        # The bridge refuses takeover together with a new wake while the old binding exists, so unbind first.
+        self.assertIn("takeover: true and wake null, then once more with wake \"auto\"", control)
+        self.assertIn("no longer running", control)
+        first = _bounded_prompt("Review", self.claim.delegation_id, "review", COMMUNICATION_TOOLS, "safe-review")
+        self.assertNotIn("takeover", first)
+
+        idle = self.unregistered_created_claim_again()
+        sent = []
+        self.adapter(ScriptedRunner([idle, idle]), wake=lambda _session, prompt: sent.append(prompt) or "turn-1",
+                     registration_probe=lambda *_args: False).continue_turn(self.second.delegation_id, "Again")
+        self.assertNotIn("takeover", sent[0])
+
+    def unregistered_created_claim_again(self):
+        _envelope, self.second = self.make_claim(key="claude-request-456")
+        entry = dict(self.entry(state="working", status="idle"), id="aaaabbbb",
+                     sessionId="aaaabbbb-0817-479d-886e-772bafbbee6f")
+        self.adapter(ScriptedRunner([
+            completed("backgrounded · aaaabbbb · test\n"), completed(json.dumps([entry])),
+        ])).create(self.second.delegation_id, "Review")
+        return completed(json.dumps([entry]))
+
     def test_a_resent_registration_by_wake_carries_the_envelope(self):
         idle = self.unregistered_created_claim()
         sent = []
