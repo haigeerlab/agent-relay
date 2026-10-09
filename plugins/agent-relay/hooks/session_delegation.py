@@ -867,6 +867,39 @@ class DelegationStore:
                     connection.execute("ROLLBACK")
                 raise
 
+    def rebind_host(self, delegation_id: str, host_ref: str, host_session_ref: str,
+                    new_host_ref: str, new_session_ref: str) -> DelegationClaim:
+        """claude-delegation-realhost D182: a resumed Claude session runs as a new background job; move the binding
+        from the exact old job to the new one, only while a turn is being delivered."""
+        values = (self._validated_host_value(new_host_ref, "host-ref"),
+                  self._validated_host_value(new_session_ref, "host-session-ref"))
+        with self._connection() as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                row = connection.execute(
+                    "SELECT * FROM delegations WHERE delegation_id = ?", (delegation_id,)
+                ).fetchone()
+                if row is None:
+                    raise DelegationError("delegation-not-found")
+                if (row["host_ref"], row["host_session_ref"]) != (host_ref, host_session_ref):
+                    raise DelegationError("host-binding-conflict")
+                if row["state"] not in ("created", "running"):
+                    raise DelegationError("invalid-state-transition")
+                connection.execute(
+                    "UPDATE delegations SET host_ref = ?, host_session_ref = ?, updated_at = ? "
+                    "WHERE delegation_id = ?",
+                    (*values, int(self._now()), delegation_id),
+                )
+                updated = connection.execute(
+                    "SELECT * FROM delegations WHERE delegation_id = ?", (delegation_id,)
+                ).fetchone()
+                connection.execute("COMMIT")
+                return self._claim(updated)
+            except Exception:
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
+                raise
+
     def record_host_unknown(self, delegation_id: str,
                             host_ref: str | None = None) -> DelegationClaim:
         if host_ref is not None:

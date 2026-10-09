@@ -143,7 +143,7 @@ class InstallationAndPermissionTests(unittest.TestCase):
         args = (installation, Path("/private/tmp/session.mcp.json"), "agent-relay-12345678", "Review", "safe-review",
                 "dontAsk")
         default = build_create_command(*args)
-        tools = ",".join(("Read", "Grep", "Glob", *communication_rules("agent-relay")))
+        tools = ",".join(("Read", "Grep", "Glob", "ToolSearch", *communication_rules("agent-relay")))
         self.assertEqual(default, (
             "/opt/claude", "--background", "--name", "agent-relay-12345678",
             "--mcp-config", "/private/tmp/session.mcp.json", "--strict-mcp-config",
@@ -261,6 +261,20 @@ class InstallationAndPermissionTests(unittest.TestCase):
                                      "--permission-prompts", "--no-chrome"):
                             self.assertIn(flag, resume)
                         self.assertEqual("--settings" in resume, bool(scope))
+
+    def test_every_launch_shape_can_load_its_deferred_mailbox_tools(self):
+        # claude-delegation-realhost D182: the mailbox tools arrive deferred (`toolSearchAbsent: true` without it).
+        installation = ClaudeInstallation(Path("/opt/claude"), "2.1.295")
+        config = Path("/private/tmp/session.mcp.json")
+        for intent in ("safe-review", "bounded-development"):
+            for host_permission in (None, "user-environment"):
+                with self.subTest(intent=intent, environment=host_permission):
+                    for command in (
+                            build_create_command(installation, config, "agent-relay-12345678", "Go", intent,
+                                                 "dontAsk", host_permission),
+                            build_resume_command(installation, config, "session-uuid", "Go", intent,
+                                                 "dontAsk", host_permission)):
+                        self.assertIn("ToolSearch", command[list(command).index("--tools") + 1].split(","))
 
     def test_host_prompt_allows_control_envelope_after_maximum_user_body(self):
         prompt = _bounded_prompt(
@@ -1042,6 +1056,179 @@ class AdapterTests(unittest.TestCase):
         self.assertIn("not listed yet", control)
         self.assertIn("ToolSearch", control)
         self.assertIn("Do not answer before", control)
+
+    def done_entry(self):
+        """claude-delegation-realhost D181: Claude Code 2.1.295's `agents --json --all` entry after `claude stop`,
+        verbatim in shape (the coordinator, 2026-10-10): state "done", no status, no pid."""
+        return {"id": "ce5b9501", "cwd": str(self.project.resolve()), "kind": "background",
+                "startedAt": 1791567882687, "sessionId": "ce5b9501-0817-479d-886e-772bafbbee6f",
+                "name": "agent-relay-" + self.claim.delegation_id[:8], "state": "done"}
+
+    def test_a_done_session_without_a_pid_is_resumed_with_its_launch_limits(self):
+        self.complete_claim()
+        runner = ScriptedRunner([
+            completed(json.dumps([self.done_entry()])),
+            completed("backgrounded · ce5b9501 · test\n"),
+            completed(json.dumps([self.entry(state="running", status="working")])),
+        ])
+        result = self.adapter(runner).continue_turn(self.claim.delegation_id, "Check again")
+        self.assertEqual(result.state, "running", result)
+        resume = runner.calls[1][0]
+        self.assertEqual(resume[:4], [str(self.installation.binary), "--background", "--resume",
+                                      "ce5b9501-0817-479d-886e-772bafbbee6f"])
+        self.assertIn("--permission-mode", resume)
+
+    def test_a_done_unregistered_target_gets_the_registration_resent_by_resume(self):
+        self.adapter(self.runner_for_create()).create(self.claim.delegation_id, "Review")
+        done = completed(json.dumps([self.done_entry()]))
+        runner = ScriptedRunner([
+            done,  # status: exact entry
+            done,  # continue: exact entry
+            completed("backgrounded · ce5b9501 · test\n"),
+            completed(json.dumps([self.entry(state="running", status="working")])),
+        ])
+        result = self.adapter(runner, registration_probe=lambda *_args: False).continue_turn(
+            self.claim.delegation_id, "Again")
+        self.assertEqual((result.state, result.prerequisite), ("created", "registration-resent"), result)
+        resume = runner.calls[2][0]
+        self.assertEqual(resume[:3], [str(self.installation.binary), "--background", "--resume"])
+        self.assertIn("call bridge_register", resume[-1])
+        self.assertFalse(any(command[1:2] == ["stop"] for command, _ in runner.calls), "already stopped")
+
+    RESUMED_SESSION = "6472d974-9092-4ee5-b687-86ff33f86b0c"
+
+    def resumed_entry(self, *, state="running", status="working"):
+        """claude-delegation-realhost D182: `claude --bg --resume <session>` starts a new background job with its own id
+        and session id (measured 2026-10-10: d849dfa6 resumed as 6472d974, a copy of the conversation plus the turn)."""
+        return {"id": "6472d974", "cwd": str(self.project.resolve()), "kind": "background",
+                "startedAt": 1791567587156, "sessionId": self.RESUMED_SESSION,
+                "name": "readme.md purpose review", "pid": 456, "state": state, "status": status}
+
+    def test_a_resume_that_starts_a_new_job_rebinds_the_record_to_it(self):
+        self.complete_claim()
+        runner = ScriptedRunner([
+            completed(json.dumps([self.done_entry()])),
+            completed("backgrounded · 6472d974 · readme.md purpose review\n"),
+            completed(json.dumps([self.done_entry(), self.resumed_entry()])),
+        ])
+        result = self.adapter(runner).continue_turn(self.claim.delegation_id, "Check again")
+        self.assertEqual((result.state, result.host_ref, result.host_session_ref, result.host_status),
+                         ("running", "6472d974", self.RESUMED_SESSION, "working"), result)
+        stored = self.store.get_delegation(self.claim.delegation_id)
+        self.assertEqual((stored.state, stored.host_ref, stored.host_session_ref),
+                         ("running", "6472d974", self.RESUMED_SESSION))
+
+    def test_a_resent_registration_through_a_new_job_completes_on_the_new_session(self):
+        self.adapter(self.runner_for_create()).create(self.claim.delegation_id, "Review")
+        done = completed(json.dumps([self.done_entry()]))
+        runner = ScriptedRunner([
+            done, done,
+            completed("backgrounded · 6472d974 · readme.md purpose review\n"),
+            completed(json.dumps([self.done_entry(), self.resumed_entry()])),
+        ])
+        result = self.adapter(runner, registration_probe=lambda *_args: False).continue_turn(
+            self.claim.delegation_id, "Again")
+        self.assertEqual((result.state, result.prerequisite, result.host_ref),
+                         ("created", "registration-resent", "6472d974"), result)
+
+        seen = []
+        probe = lambda _name, _pid, session_ref, _intent: seen.append(session_ref) or session_ref == self.RESUMED_SESSION
+        status = self.adapter(ScriptedRunner([
+            completed(json.dumps([self.done_entry(), self.resumed_entry(state="done", status="idle")]))]),
+            registration_probe=probe).status(self.claim.delegation_id)
+        self.assertEqual(status.state, "completed", status)
+        self.assertEqual(seen, [self.RESUMED_SESSION])
+
+    def test_a_resume_whose_new_job_is_never_listed_stays_unknown(self):
+        self.complete_claim()
+        runner = RepeatingRunner([
+            completed(json.dumps([self.done_entry()])),
+            completed("backgrounded · 6472d974 · readme.md purpose review\n"),
+            completed(json.dumps([self.done_entry()])),
+        ])
+        result = self.adapter(runner).continue_turn(self.claim.delegation_id, "Check again")
+        self.assertEqual((result.state, result.host_ref), ("unknown", "ce5b9501"), result)
+
+    def test_an_unknown_result_carries_a_host_status_never_a_turn_ref(self):
+        # The coordinator (2026-10-10, item b): the turn ref used to land in hostStatus by position.
+        self.complete_claim()
+        runner = ScriptedRunner([
+            completed(json.dumps([self.entry()])),
+            completed("", returncode=1),
+        ])
+        result = self.adapter(runner).continue_turn(self.claim.delegation_id, "Check again")
+        self.assertEqual((result.state, result.host_status, result.prerequisite),
+                         ("unknown", "unknown", "host-result-unknown"), result)
+
+    def test_an_unknown_record_names_cancel_then_create_as_the_next_step(self):
+        self.complete_claim()
+        self.adapter(ScriptedRunner([
+            completed(json.dumps([self.entry()])), completed("", returncode=1),
+        ])).continue_turn(self.claim.delegation_id, "Check again")
+        with self.assertRaisesRegex(ClaudeAdapterError, "^delegation-state-unknown$"):
+            self.adapter(ScriptedRunner([])).continue_turn(self.claim.delegation_id, "Once more")
+
+    def test_both_registration_turns_read_first_and_never_end_before_registering(self):
+        # claude-delegation-realhost D182 (the coordinator, 2026-10-10): a turn that ends without any tool call never
+        # receives the deferred mailbox tools, so the first turn and the re-sent one both start with one allowed Read.
+        self.adapter(self.runner_for_create()).create(self.claim.delegation_id, "Review")
+        done = completed(json.dumps([self.done_entry()]))
+        runner = ScriptedRunner([
+            done, done, completed("backgrounded · ce5b9501 · test\n"),
+            completed(json.dumps([self.entry(state="running", status="working")])),
+        ])
+        self.adapter(runner, registration_probe=lambda *_args: False).continue_turn(
+            self.claim.delegation_id, "Again")
+        for prompt in (_bounded_prompt("Review", self.claim.delegation_id, "review",
+                                       COMMUNICATION_TOOLS, "safe-review"), runner.calls[2][0][-1]):
+            control = prompt[prompt.index("<agent-relay-control>"):]
+            self.assertIn("do not end your turn", control)
+            self.assertIn("one allowed Read", control)
+            self.assertIn("ToolSearch", control)
+
+    def test_only_a_resumed_turn_may_take_its_own_name_back(self):
+        # claude-delegation-realhost D182 (the user, 2026-10-10): a resume runs as a new session, and the bridge refuses
+        # the delegation's own name while it is held by the stopped one; that turn alone may take it over.
+        self.complete_claim()
+        runner = ScriptedRunner([
+            completed(json.dumps([self.done_entry()])),
+            completed("backgrounded · 6472d974 · readme.md purpose review\n"),
+            completed(json.dumps([self.done_entry(), self.resumed_entry()])),
+        ])
+        self.adapter(runner).continue_turn(self.claim.delegation_id, "Check again")
+        resumed = runner.calls[1][0][-1]
+        control = resumed[resumed.index("<agent-relay-control>"):]
+        # The bridge refuses takeover together with a new wake while the old binding exists, so unbind first.
+        self.assertIn("takeover: true and wake null, then once more with wake \"auto\"", control)
+        self.assertIn("no longer running", control)
+        first = _bounded_prompt("Review", self.claim.delegation_id, "review", COMMUNICATION_TOOLS, "safe-review")
+        self.assertNotIn("takeover", first)
+
+        idle = self.unregistered_created_claim_again()
+        sent = []
+        self.adapter(ScriptedRunner([idle, idle]), wake=lambda _session, prompt: sent.append(prompt) or "turn-1",
+                     registration_probe=lambda *_args: False).continue_turn(self.second.delegation_id, "Again")
+        self.assertNotIn("takeover", sent[0])
+
+    def unregistered_created_claim_again(self):
+        _envelope, self.second = self.make_claim(key="claude-request-456")
+        entry = dict(self.entry(state="working", status="idle"), id="aaaabbbb",
+                     sessionId="aaaabbbb-0817-479d-886e-772bafbbee6f")
+        self.adapter(ScriptedRunner([
+            completed("backgrounded · aaaabbbb · test\n"), completed(json.dumps([entry])),
+        ])).create(self.second.delegation_id, "Review")
+        return completed(json.dumps([entry]))
+
+    def test_a_resent_registration_by_wake_carries_the_envelope(self):
+        idle = self.unregistered_created_claim()
+        sent = []
+        runner = ScriptedRunner([idle, idle])
+        result = self.adapter(runner, wake=lambda session, prompt: sent.append(prompt) or "turn-1",
+                              registration_probe=lambda *_args: False).continue_turn(self.claim.delegation_id, "Again")
+        self.assertEqual((result.state, result.prerequisite), ("created", "registration-resent"), result)
+        self.assertEqual(len(sent), 1)
+        self.assertIn("call bridge_register", sent[0])
+        self.assertIn("Delegation claim: " + self.claim.delegation_id, sent[0])
 
     def test_continue_resends_the_envelope_once_to_an_idle_unregistered_target(self):
         idle = self.unregistered_created_claim()
