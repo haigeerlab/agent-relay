@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+- **说明与实际一致**（模块 `install-docs-accuracy`，D178–D180，第二轮联调事后审查第 3、4 条和 5c、5d）：
+  - `install-codex`（含 `--approve-mailbox-tools`）的输出列出写进 `~/.codex/config.toml` 的每一张审批表
+    （`[mcp_servers.agent_relay.tools.<工具>] approval_mode = "approve"`），补的时候只列补上的；行为不变。
+  - collab 技能和 README 写明：Bypass permissions 下 Claude Code 会扣住别的会话发来的唤醒提醒（桌面应用里会过期），
+    要收到需你自己把 `crossSessionInbound` 设为 `"accept"` 或换模式，agent-relay 不替你改。
+  - README 新增“找到插件目录”，命令都改成 `<插件目录>/hooks/…`（以前写的是仓库里的 `plugins/agent-relay/hooks/…`，
+    装了插件的人照抄会找不到）；collab 技能运行 `claude-allow-rules` 前先解析插件目录。
+  - 改正“agent-relay 从不编辑设置文件”的说法：它不添加放行规则，`uninstall-claude` 只删除 0.4.0 及更早写下的拒绝规则。
+  - session-routing：用户给的文字（选路 JSON 和 `resolve --name` 的名字）一律按 `shlex.quote` 规则用单引号引用，
+    不用双引号；在 bash 和 zsh 下实测撇号、`$(…)`、反引号、`$HOME` 都原样传过去。
+  - bridge（升级运行时后生效）：Housekeeper 清理已结束的审批等待期标记；`bodyOffset` 越界报错里的长度与判断一致。
 - **在线状态与审批提醒的小修**（模块 `presence-polish`，D175–D177，第二轮联调事后审查 5a、5b、5e、5k）：bridge 改动，
   升级运行时后生效。
   - Claude Code 没给状态时间时，以前第一次审批提醒之后同一会话再也不会提醒；现在每次进入等待都会提醒一次。起始时间
@@ -33,8 +44,8 @@
 信箱 schema 仍为 5，委派库结构仍为 2。
 
 **接口 2.0（破坏性变更）**：这一批（第二轮联调）改变了对外行为——`bridge_send` 不再回显正文（`long-messages`）、
-同宿主委派与 `host-native` 委派意图删除（`delegation-cross-host`）、被唤醒的 Codex 回合不再被强制降权
-（`wake-any-mode`）。`interface.json` 只改版本号为 `2.0`，`status` 命令和它的 `{ready, setup}` 输出不变；
+同宿主委派与 `host-native` 委派意图删除（`delegation-cross-host`）、委派控制器的 `--host-permission` 参数删除、
+由 `--user-environment` 取代（`delegation-user-context`）、被唤醒的 Codex 回合不再被强制降权（`wake-any-mode`）。`interface.json` 只改版本号为 `2.0`，`status` 命令和它的 `{ready, setup}` 输出不变；
 需要 Spec Guard 0.56.0 或更新（接受 `>=1.0,<3.0`）。
 
 - **委派的范围、名字与清理**（模块 `delegation-hygiene`，D166–D170，第二轮联调 B4、B5）：只读审查可用
