@@ -92,8 +92,9 @@ def _atomic_write(path: Path, content: str, mode: int) -> None:
 
 
 def mailbox_approvals(tools=MAILBOX_TOOLS) -> str:
-    """codex-gated-wake D70: the mailbox tools only read and write the mailbox, so a woken turn under the approval gate
-    reads and replies without a card; any execution still meets the read-only sandbox. Same table Codex writes for 始终允许."""
+    """codex-gated-wake D70: the mailbox tools only read and write the mailbox, so they are pre-approved and a woken turn
+    reads and replies without a card; anything else follows the task's own settings (wake-any-mode D140). Same table
+    Codex writes for 始终允许."""
     return "\n".join(f'[mcp_servers.{CODEX_SERVER_NAME}.tools.{tool}]\napproval_mode = "approve"\n' for tool in tools)
 
 
