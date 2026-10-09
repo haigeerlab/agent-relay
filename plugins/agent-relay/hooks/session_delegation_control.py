@@ -503,6 +503,9 @@ class SessionDelegationController:
     ) -> PublicSession:
         claim, envelope = self._resolve(
             friendly_name, disambiguator=disambiguator)
+        # delegation-cross-host D158: a same-host session an older version created is never continued.
+        if envelope.origin_host == claim.target_host:
+            raise ControlError("same-host-unsupported")
         self._require_active(envelope)
         turn_seed = claim.last_turn_ref or "initial"
         route = self._turn_route(
@@ -732,7 +735,7 @@ def _parser() -> argparse.ArgumentParser:
         "permissions", help="read-only Claude project permission preflight")
     permissions.add_argument("--project", type=Path, required=True)
     permissions.add_argument("--permission", choices=(
-        "safe-review", "bounded-development", "host-native"),
+        "safe-review", "bounded-development"),
         default="safe-review")
     permissions.add_argument("--host-permission")
 
@@ -746,7 +749,7 @@ def _parser() -> argparse.ArgumentParser:
     create.add_argument("--baseline", required=True)
     create.add_argument("--dirty", action="store_true")
     create.add_argument("--permission", choices=(
-        "safe-review", "bounded-development", "host-native"),
+        "safe-review", "bounded-development"),
         default="safe-review")
     create.add_argument("--host-permission")
     create.add_argument("--horizon", choices=("task", "strict", "batch", "session"),

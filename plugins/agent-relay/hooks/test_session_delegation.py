@@ -90,9 +90,10 @@ class AuthorizationDecisionTests(DelegationTestCase):
         store = self.store()
         batch = self.authorize(
             store, horizon="batch", max_sessions=2,
-            target_hosts=("claude", "codex"), idempotency_key="batch-12345678",
+            idempotency_key="batch-12345678",
         )
-        for number, host in enumerate(("claude", "codex"), 1):
+        # delegation-cross-host D158: one other host, so a batch targets that host only.
+        for number, host in enumerate(("claude", "claude"), 1):
             store.claim_launch(
                 batch.envelope_id, "batch-launch-%d" % number, host,
                 self.project, "a" * 40, "safe-review",
@@ -145,26 +146,28 @@ class AuthorizationDecisionTests(DelegationTestCase):
                 self.project, "a" * 40, "safe-review",
             )
 
-    def test_expired_depth_or_host_native_without_exact_permission_fails_closed(self):
+    def test_expired_depth_host_native_or_same_host_fails_closed(self):
+        # delegation-cross-host D158, D159: host-native is no longer an intent; same-host delegation is not offered.
         cases = (
             (self.request(expires_at=NOW), "authorization-expired"),
             (self.request(depth=1), "descendant-delegation-disabled"),
-            (self.request(permission_intent="host-native"), "host-permission"),
+            (self.request(permission_intent="host-native"), "permission-intent"),
+            (self.request(permission_intent="host-native", host_permission="plan"), "permission-intent"),
+            (self.request(host_permission="plan"), "host-permission-unexpected"),
+            (self.request(origin_host="claude", target_hosts=("claude",)), "same-host-unsupported"),
+            (self.request(origin_host="codex", target_hosts=("codex",)), "same-host-unsupported"),
+            (self.request(origin_host="codex", target_hosts=("claude", "codex")), "same-host-unsupported"),
         )
         for request, expected in cases:
-            with self.subTest(expected=expected):
+            with self.subTest(expected=expected, request=request.target_hosts):
                 decision = evaluate_authorization(request, now=NOW)
                 self.assertEqual(decision.state, "rejected")
                 self.assertEqual(decision.reason, expected)
-
-        native = evaluate_authorization(
-            self.request(
-                permission_intent="host-native", host_permission="plan",
-                idempotency_key="native-12345678",
-            ),
-            now=NOW,
-        )
-        self.assertEqual(native.state, "authorized")
+        for origin, target in (("claude", "codex"), ("codex", "claude")):
+            with self.subTest(origin=origin):
+                decision = evaluate_authorization(
+                    self.request(origin_host=origin, target_hosts=(target,)), now=NOW)
+                self.assertEqual(decision.state, "authorized")
 
     def test_malformed_runtime_values_are_rejected_instead_of_crashing(self):
         malformed_targets = evaluate_authorization(
@@ -294,7 +297,7 @@ class PrivateStoreTests(DelegationTestCase):
 class ClaimAndStateTests(DelegationTestCase):
     def test_launch_keeps_a_friendly_name_and_rejects_idempotent_rename(self):
         store = self.store()
-        envelope = self.authorize(store, target_hosts=("codex",))
+        envelope = self.authorize(store, origin_host="claude", target_hosts=("codex",))
         claim = store.claim_launch(
             envelope.envelope_id, "friendly-launch-1", "codex", self.project,
             "a" * 40, "safe-review", friendly_name="播放器复审",
@@ -313,7 +316,7 @@ class ClaimAndStateTests(DelegationTestCase):
 
     def test_exact_host_binding_and_authorized_follow_up_reuse_one_claim(self):
         store = self.store()
-        envelope = self.authorize(store, target_hosts=("codex",))
+        envelope = self.authorize(store, origin_host="claude", target_hosts=("codex",))
         claim = store.claim_launch(
             envelope.envelope_id, "codex-launch-1", "codex", self.project,
             "a" * 40, "safe-review",
@@ -343,7 +346,7 @@ class ClaimAndStateTests(DelegationTestCase):
 
     def test_uncertain_creation_keeps_observed_exact_ref_without_promoting_state(self):
         store = self.store()
-        envelope = self.authorize(store, target_hosts=("codex",))
+        envelope = self.authorize(store, origin_host="claude", target_hosts=("codex",))
         claim = store.claim_launch(
             envelope.envelope_id, "codex-launch-1", "codex", self.project,
             "a" * 40, "safe-review",

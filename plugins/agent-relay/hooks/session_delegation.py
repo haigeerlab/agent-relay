@@ -30,7 +30,10 @@ DATABASE_FILENAME = "delegation.sqlite"
 SCHEMA_VERSION = 2
 HORIZONS = frozenset(("task", "strict", "batch", "session"))
 HOSTS = frozenset(("claude", "codex"))
-PERMISSION_INTENTS = frozenset(("safe-review", "bounded-development", "host-native"))
+# delegation-cross-host D159: host-native never produced a session (both adapters refused it) and is no longer accepted.
+PERMISSION_INTENTS = frozenset(("safe-review", "bounded-development"))
+# Rows an older version stored may still carry it; they stay readable.
+STORED_PERMISSION_INTENTS = PERMISSION_INTENTS | {"host-native"}
 AUTHORITIES = frozenset(("direct-user", "confirmed-user", "agent-proposed", "mailbox"))
 AUTHORIZATION_STATES = frozenset(("authorized", "cancelled", "expired"))
 DELEGATION_STATES = frozenset(
@@ -222,13 +225,13 @@ def evaluate_authorization(request: AuthorizationRequest, *, now: int | None = N
             or len(set(request.target_hosts)) != len(request.target_hosts)
             or any(host not in HOSTS for host in request.target_hosts)):
         return AuthorizationDecision("rejected", reason="target-host")
+    # delegation-cross-host D158: only Claude Code -> Codex and Codex -> Claude Code.
+    if request.origin_host in request.target_hosts:
+        return AuthorizationDecision("rejected", reason="same-host-unsupported")
     if (not isinstance(request.permission_intent, str)
             or request.permission_intent not in PERMISSION_INTENTS):
         return AuthorizationDecision("rejected", reason="permission-intent")
-    if request.permission_intent == "host-native":
-        if not _valid_text(request.host_permission, maximum=128):
-            return AuthorizationDecision("rejected", reason="host-permission")
-    elif request.host_permission is not None:
+    if request.host_permission is not None:
         return AuthorizationDecision("rejected", reason="host-permission-unexpected")
     if (not isinstance(request.max_sessions, int) or isinstance(request.max_sessions, bool)
             or request.max_sessions < 1):
@@ -309,7 +312,7 @@ def _authorization_row_is_valid(row: sqlite3.Row) -> bool:
         and all(isinstance(host, str) for host in targets)
         and len(set(targets)) == len(targets)
         and all(host in HOSTS for host in targets)
-        and row["permission_intent"] in PERMISSION_INTENTS
+        and row["permission_intent"] in STORED_PERMISSION_INTENTS
         and ((row["permission_intent"] == "host-native"
               and _valid_text(row["host_permission"], maximum=128))
              or (row["permission_intent"] != "host-native"
@@ -335,7 +338,7 @@ def _delegation_row_is_valid(row: sqlite3.Row) -> bool:
         and isinstance(row["launch_key"], str)
         and _KEY.fullmatch(row["launch_key"]) is not None
         and row["target_host"] in HOSTS
-        and row["permission_intent"] in PERMISSION_INTENTS
+        and row["permission_intent"] in STORED_PERMISSION_INTENTS
         and _valid_text(row["friendly_name"], maximum=128)
         and row["state"] in DELEGATION_STATES
         and all(value is None or _valid_text(value, maximum=512) for value in binding)
