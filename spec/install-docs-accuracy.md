@@ -26,7 +26,7 @@ Readers: the user; people installing agent-relay from the README; the round-2 co
   breaks the single quotes. The pipe itself is right (A7, guarded by `test_selector_json_is_piped_not_a_heredoc`).
 - **5h.** The 2.0 breaking-change summary in CHANGELOG does not list the removal of `--host-permission`.
 
-## Assumptions (to be confirmed by the user)
+## Assumptions (accepted by the user 2026-10-09)
 
 1. **Approvals are stated.** `install-codex` (and `--approve-mailbox-tools`, and README/collaboration-ops upgrade steps)
    print the ten tool names and the exact table form written to `~/.codex/config.toml`, before the restart hint; the
@@ -78,4 +78,4 @@ Readers: the user; people installing agent-relay from the README; the round-2 co
 
 ## Open questions
 
-None beyond the assumptions above.
+None. Accepted by the user on 2026-10-09 (reviewed by the round-2 coordinator, 72600fc).

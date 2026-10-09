@@ -22,7 +22,7 @@ Readers: the user; the round-2 coordinator.
 - **5k.** `bridge_agents` asks the Codex app (`thread-owner-discovery`) for every Codex identity, retired ones too; a
   stuck app slows the whole listing.
 
-## Assumptions (to be confirmed by the user)
+## Assumptions (accepted by the user 2026-10-09)
 
 1. **5a.** Without `since`, the de-duplication key uses the time the bridge first saw this waiting episode (kept in
    memory per session; cleared when the session is seen not waiting), so each new episode notifies once.
@@ -63,4 +63,4 @@ Readers: the user; the round-2 coordinator.
 
 ## Open questions
 
-None beyond the assumptions above.
+None. Accepted by the user on 2026-10-09 (reviewed by the round-2 coordinator, 72600fc).

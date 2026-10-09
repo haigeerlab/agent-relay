@@ -36,7 +36,7 @@ Readers: the user; the round-2 coordinator (acceptance after 0.6.1).
   the hook off.
 - Delegation store: `SCHEMA_VERSION = 2`, no migration path (`session_delegation.py:30`, 473–505).
 
-## Assumptions (to be confirmed by the user)
+## Assumptions (accepted by the user 2026-10-09)
 
 1. **Store schema 3.** The store gains two nullable columns, `scope` (JSON list) and `state_reason` (text), through an
    additive in-place migration 2 → 3 (`ALTER TABLE … ADD COLUMN` under the write lock, then `user_version = 3`). It is
@@ -104,4 +104,4 @@ Readers: the user; the round-2 coordinator (acceptance after 0.6.1).
 
 ## Open questions
 
-None beyond the assumptions above.
+None. Accepted by the user on 2026-10-09 (reviewed by the round-2 coordinator, 72600fc).
