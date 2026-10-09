@@ -6,7 +6,7 @@
 agent-relay 原来是 [Spec Guard](https://github.com/haigeerlab/spec-guard-plugin) 的可选协作能力，现在拆成独立插件：
 只想让会话互相通信的项目（例如设计项目）装它就够了。
 
-> 状态：0.6.0（接口 2.0，需要 Spec Guard 0.56.0 或更新）。变化、升级步骤和已知问题见 [CHANGELOG.md](CHANGELOG.md)；
+> 状态：0.6.1（接口 2.0，需要 Spec Guard 0.56.0 或更新）。变化、升级步骤和已知问题见 [CHANGELOG.md](CHANGELOG.md)；
 > 各项目标见 [docs/collaboration-interface.md](docs/collaboration-interface.md) 的“加固目标”栏。
 
 ## 能做什么
@@ -40,7 +40,7 @@ claude plugin install agent-relay@agent-relay-marketplace
 Codex（固定到发布的版本）：
 
 ```bash
-codex plugin marketplace add haigeerlab/agent-relay --ref v0.6.0
+codex plugin marketplace add haigeerlab/agent-relay --ref v0.6.1
 codex plugin add agent-relay@agent-relay-marketplace
 ```
 
@@ -195,7 +195,7 @@ python3 -B <插件目录>/hooks/state_migration.py migrate --confirm
 ## 升级运行时
 
 插件更新带来新版 bridge 时，`status` 会报告 `bridge.current: false`。agent 会先问你，在你关掉所有正在用信箱的
-会话后再执行 `<插件目录>/hooks/native_collaboration_runtime.py upgrade --confirm`：先把邮箱备份到 `~/.agent-relay/backups/<时间>/`，
+会话后再执行 `python3 -B <插件目录>/hooks/native_collaboration_runtime.py upgrade --confirm`：先把邮箱备份到 `~/.agent-relay/backups/<时间>/`，
 在旁边装好新版，把 `mailbox/` 和 `data/` 挪过去再整体替换，核对通过才算完成，失败会自动换回。旧目录
 `runtime.previous-<时间>` 保留，确认无误后由你删除；宿主接入不用动。新版 bridge 会把邮箱升级到 schema 5（从 schema 2 一次升到位，升级前自动备份）：
 回到旧运行时还能打开它，但旧版 agent-relay 插件只认 schema 2（到 4），所以回滚时要连插件一起回滚，或者用备份恢复邮箱
@@ -208,10 +208,10 @@ python3 -B <插件目录>/hooks/state_migration.py migrate --confirm
   自己）。升级完成后，Claude Code 会话重开即可；ChatGPT 应用要 ⌘Q 完全退出再打开，否则已经打开的 Codex 线程会一直报
   “Transport closed”。
 
-- **回滚**：同样关掉所有会话后执行 `<插件目录>/hooks/native_collaboration_runtime.py rollback --confirm`，回到最新的
+- **回滚**：同样关掉所有会话后执行 `python3 -B <插件目录>/hooks/native_collaboration_runtime.py rollback --confirm`，回到最新的
   `runtime.previous-<时间>`，信箱和数据一起带过去；先备份信箱，当前版本保留为 `runtime.rolled-back-<时间>`。
 - **中途被打断**：升级、重装或回滚半路停下（进程被杀、断电），`~/.agent-relay/runtime-swap.json` 会留下记录，`status` 报
-  `interrupted`，doctor 判为 fail，其他命令拒绝执行。关掉所有会话后执行 `<插件目录>/hooks/native_collaboration_runtime.py recover --confirm`：
+  `interrupted`，doctor 判为 fail，其他命令拒绝执行。关掉所有会话后执行 `python3 -B <插件目录>/hooks/native_collaboration_runtime.py recover --confirm`：
   一律回到切换前的运行时（不往前补完），没换成的那份保留为 `.runtime-<类型>-failed-<时间>`。之后可以再升级一次。
 - `runtime.previous-*`、`runtime.rolled-back-*`、`.runtime-*-failed-*` 都不会自动删除，确认无误后由你删。
 
@@ -220,8 +220,8 @@ python3 -B <插件目录>/hooks/state_migration.py migrate --confirm
 完整卸载按下面的顺序做（`collaboration-ops` skill 会逐步先问你），消息历史默认保留：
 
 1. 关掉所有正在用信箱的会话（Claude 这一步要关掉**所有** Claude Code 会话，见第 3 步）。
-2. `<插件目录>/hooks/native_collaboration_runtime.py doctor`：看清当前接入了哪些宿主。
-3. 移除宿主配置：`<插件目录>/hooks/native_collaboration_adapters.py uninstall-codex --confirm-uninstall` 和
+2. `python3 -B <插件目录>/hooks/native_collaboration_runtime.py doctor`：看清当前接入了哪些宿主。
+3. 移除宿主配置：`python3 -B <插件目录>/hooks/native_collaboration_adapters.py uninstall-codex --confirm-uninstall` 和
    `uninstall-claude --confirm-uninstall`。
    - 每次写宿主配置（安装和卸载都算）之前，都会先把要改的文件复制到
      `~/.agent-relay/backups/<UTC 时间>/host-config/`，并打印路径。这些副本可能含 MCP 的 API key 等凭据，
@@ -233,7 +233,7 @@ python3 -B <插件目录>/hooks/state_migration.py migrate --confirm
      时，只移除条目、保留 7 条规则：开着的旧版会话会按新设置重新过滤它缓存的工具列表，规则一删就会露出已删除的
      worker 工具。所以这一步由你在**关掉所有 Claude Code 会话之后、在终端里**执行；从任何 Claude
      会话里跑（包括让 agent 代跑）都会保留规则，并打印可以照抄的终端命令。
-4. 移除运行时：`<插件目录>/hooks/native_collaboration_runtime.py uninstall --confirm`。只删构建产物，`mailbox/`（消息历史和备份）
+4. 移除运行时：`python3 -B <插件目录>/hooks/native_collaboration_runtime.py uninstall --confirm`。只删构建产物，`mailbox/`（消息历史和备份）
    和 `data/` 保留；以后再 `install` 会围绕它们重建。
 5. 卸载插件：`claude plugin uninstall agent-relay@agent-relay-marketplace`；
    `codex plugin remove agent-relay@agent-relay-marketplace`。
