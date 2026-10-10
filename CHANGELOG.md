@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-10-10
+
+接口仍为 **2.0**（`interface.json` 不变，Spec Guard 0.56.0 或更新），信箱 schema 仍为 5，委派库仍为 schema 3。这一版修复
+第二轮联调对 0.6.1 做真实宿主验收时发现的问题：Codex → Claude Code 的委派在真实宿主上续聊走不通、有时拿不到信箱工具；
+升级后 Claude 侧实际用的是哪一份插件说不清。升级前先看这三点：
+
+- **更新插件后要新开会话才生效**：Claude Code 会话一直用它启动时那份插件，已经开着的、关掉应用重开的、恢复的会话都还是
+  旧的那份（见 README“更新插件”）。
+- **bridge 有改动，要 `upgrade --confirm` 升级运行时**：`takeover-wake-rebind` 和 `holder-still-running` 两项升级运行时后
+  才生效；其余在插件的 hooks、技能和文档里，更新插件并新开会话即生效。
+- **行为收紧**：`bridge_register` 带 `takeover: true` 去接管一个**仍在运行的** Claude 会话的名字，现在会被拒绝并报
+  `holder-still-running`；要接管，先关掉那个会话，或者换一个名字。
+
 - **Codex → Claude Code 委派在真实宿主上走通**（模块 `claude-delegation-realhost`，D181–D183，第二轮联调对 0.6.1 的
   真实验收 H1、H2、L1）：只改插件的 hooks，更新插件即生效，不用升级运行时。
   - **已停止的会话能续聊（H1）**：Claude Code 2.1.295 停掉的后台会话在 `claude agents --json --all` 里是
@@ -45,6 +58,47 @@
   - 登记里没有它（已停止）时照旧接管。读不到登记，或原持有者是 Codex 会话（查不到它是否存活）时也照旧接管，但结果的
     说明里如实写“未能确认原会话是否仍在运行”，不写成“已停止”。`reactivate` 加 `takeover` 同样适用。
   - 续聊的 Claude Code 委派接管的是自己已停止的旧会话，不受影响。
+
+以上来自四个模块的 PR：`claude-delegation-realhost`（#73）、`takeover-wake-rebind`（#74）、`install-truth`（#77）、
+`holder-still-running`（#79），spec 与计划见 #71、#72、#75、#78，收尾 #75、#76、#78；模块 PR 都经第二轮联调审查。
+
+### 从 0.6.1 升级
+
+1. 两个宿主都更新插件（详见 README“更新插件”）：
+   - Claude Code（从 GitHub 装的）：先 `claude plugin marketplace update agent-relay-marketplace`，再
+     `claude plugin update --scope user agent-relay@agent-relay-marketplace`（不带 `--scope` 只更新当前目录那条项目级记录）。
+   - Codex：把 `~/.codex/config.toml` 里 `[marketplaces.agent-relay-marketplace]` 的 `ref` 改成 `"v0.6.2"`（自己改，改前留一份
+     副本），再 `codex plugin marketplace upgrade`，最后 `codex plugin add agent-relay@agent-relay-marketplace`。
+   - 从本地克隆装的：**先把克隆更新到 v0.6.2**（`git -C <克隆> pull --ff-only`）；Claude 新会话直接读克隆目录，Codex 再执行
+     一次 `codex plugin add`。克隆没更新时，下一步的 `upgrade` 会拿旧版 bridge 比较，报 `current` 而什么也不做。
+2. **升级运行时**：关闭所有使用信箱的会话（所有 Claude Code 会话和 ChatGPT 应用），或按 README“升级运行时”只结束 bridge；
+   在 macOS 自带的“终端”里确认 `pgrep -fl "agent-relay/runtime/dist/server.js"` 没有输出，再执行
+   `python3 -B <插件目录>/hooks/native_collaboration_runtime.py upgrade --confirm`（插件目录见 README“找到插件目录”）。
+   输出应为 `"state": "upgraded"`；半路被打断时按 `status` 的提示执行 `recover --confirm`。宿主接入不用重做。
+3. **新开 Claude Code 会话**（包括桌面应用的 Code 标签页）；恢复旧会话不算。
+4. `doctor`：`runtime`、`probe`（10 个工具）、`host-entries`、`claude-plugin` 为 ok。`claude-plugin` 的说明里列出的
+   “not loaded” 旧缓存副本不影响使用。
+
+信箱和委派库的 schema 都没变，不需要迁移。
+
+### 想退回 0.6.1
+
+关掉所有会话后 `rollback --confirm` 退回运行时，并把两个宿主的插件也退回 v0.6.1，然后新开会话。信箱和委派库不需要处理。
+在 0.6.2 里续聊过的 Claude Code 委派，记录已经改绑到 resume 出来的新后台任务；退回后这些记录照常能查看和取消。
+
+### 已知问题
+
+- “恢复（resume）的会话仍用它最初那份插件”是协调方观测到的一例，没有在本机另行复现；稳妥的做法是更新后新开会话。
+- Claude Code 的项目级插件记录（`scope: local`）可能还指向旧的缓存副本；实测有 `readFromFolder`（本地克隆安装）时它们
+  不会被加载，`doctor` 只列出、不清理。
+- 续聊的 Claude Code 委派，信封里仍然分两步接管自己的名字（先 `wake: null`，再 `wake: "auto"`），这样在还没升级运行时
+  的 bridge 上也能用。
+- Codex 持有者查不到是否存活，接管它的名字不会被拒绝，结果里会说明“无法确认”。
+- Codex 侧的审查范围仍是软限制（每一轮都重复范围说明，但不能硬性拦截）。
+- 以下待真实宿主验收时核对：连续十次 Codex → Claude Code 创建都能注册并回传；创建 → 停止 → 续聊后仍保留权限与范围并
+  回传；接管仍在运行的 Claude 会话的名字被拒绝、关掉后成功；按“更新插件”做完后桌面 Code 标签页的新会话加载新版；
+  Claude Code 自己是否已在会话等待授权时通知（A2）。
+- 0.6.1 及更早版本列出的已知问题仍然存在，见下方各版本的“已知问题”。
 
 ## [0.6.1] - 2026-10-10
 
