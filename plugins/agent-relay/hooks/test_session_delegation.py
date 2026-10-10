@@ -15,6 +15,7 @@ from session_delegation import (
     AuthorizationRequest,
     DelegationError,
     DelegationStore,
+    StateNotWritableError,
     evaluate_authorization,
 )
 
@@ -516,6 +517,87 @@ class ClaimAndStateTests(DelegationTestCase):
         self.assertEqual(completed.state, "completed")
         with self.assertRaisesRegex(DelegationError, "invalid-state-transition"):
             store.advance(claim.delegation_id, "running", "host-running")
+
+
+
+class ReadOnlyStoreTests(DelegationTestCase):
+    """delegation-status-read-only D189: looking at delegations needs no write access."""
+
+    def filled(self):
+        store = self.store()
+        envelope = self.authorize(store, origin_host="codex", target_hosts=("claude",))
+        claim = store.claim_launch(envelope.envelope_id, "ro-launch", "claude", self.project, "a" * 40, "safe-review")
+        store.bind_host(claim.delegation_id, "ce5b9501", "ce5b9501-old", "2.1.295", "dontAsk/safe-review")
+        return claim
+
+    def snapshot(self):
+        return {path.name: (path.stat().st_mtime_ns, path.read_bytes() if path.is_file() else b"")
+                for path in [self.root, *self.root.iterdir()]}
+
+    def test_a_read_only_store_reads_everything_and_changes_no_file(self):
+        claim = self.filled()
+        before = self.snapshot()
+        store = DelegationStore(self.root, now=lambda: NOW, read_only=True)
+        self.assertEqual([item.delegation_id for item in store.list_delegations()], [claim.delegation_id])
+        self.assertEqual(store.get_delegation(claim.delegation_id).state, "created")
+        self.assertEqual(store.get_authorization(claim.envelope_id).origin_host, "codex")
+        self.assertEqual(store.stale_delegations(), ())
+        self.assertEqual(self.snapshot(), before)
+
+    def test_every_writing_method_is_refused_as_not_writable(self):
+        claim = self.filled()
+        store = DelegationStore(self.root, now=lambda: NOW, read_only=True)
+        for call in (lambda: store.advance(claim.delegation_id, "unknown", "host-result-unknown"),
+                     lambda: store.authorize(self.request(idempotency_key="another-key-12345678")),
+                     lambda: store.set_turn_ref(claim.delegation_id, "turn-1"),
+                     lambda: store.record_host_unknown(claim.delegation_id),
+                     lambda: store.cancel_authorization(claim.envelope_id),
+                     lambda: store.prune_stale(claim.delegation_id)):
+            with self.assertRaises(StateNotWritableError):
+                call()
+        self.assertEqual(DelegationStore(self.root, now=lambda: NOW).get_delegation(claim.delegation_id).state, "created")
+
+    def test_a_read_only_store_never_creates_or_migrates(self):
+        with self.assertRaisesRegex(DelegationError, "state directory is unavailable"):
+            DelegationStore(self.root, read_only=True)
+        self.assertFalse(self.root.exists())
+        self.root.mkdir(mode=0o700)
+        with self.assertRaisesRegex(DelegationError, "delegation database is unavailable"):
+            DelegationStore(self.root, read_only=True)
+        self.assertEqual(list(self.root.iterdir()), [])
+
+        self.filled()
+        with sqlite3.connect(self.root / "delegation.sqlite") as connection:
+            connection.execute("PRAGMA user_version = 2")
+        before = self.snapshot()
+        with self.assertRaisesRegex(DelegationError, "^delegation-store-needs-migration$"):
+            DelegationStore(self.root, read_only=True)
+        self.assertEqual(self.snapshot(), before, "no schema-2 copy, no migration")
+
+    def test_a_store_that_cannot_be_read_without_writing_says_so(self):
+        # A writer died mid-transaction: the copied database has a hot journal that a read-only open cannot roll back.
+        self.filled()
+        database = self.root / "delegation.sqlite"
+        writer = sqlite3.connect(database, isolation_level=None)
+        # Apple's SQLite build does not spill an open transaction to the file unless told to; without the spill the
+        # copy below is an intact database with a cold journal, which is readable (and correct) read-only.
+        writer.execute("PRAGMA cache_spill = 1")
+        writer.execute("PRAGMA cache_size = 1")
+        writer.execute("BEGIN IMMEDIATE")
+        writer.execute("CREATE TABLE junk (a, b)")
+        writer.executemany("INSERT INTO junk VALUES (?, ?)", [(index, "x" * 2000) for index in range(300)])
+        crashed = self.parent / "crashed"
+        crashed.mkdir(mode=0o700)
+        for name in ("delegation.sqlite", "delegation.sqlite-journal"):
+            (crashed / name).write_bytes((self.root / name).read_bytes())
+            (crashed / name).chmod(0o600)
+        writer.execute("ROLLBACK")
+        writer.close()
+        before = {path.name: path.read_bytes() for path in crashed.iterdir()}
+        with self.assertRaisesRegex(DelegationError, "^state-not-readable$"):
+            DelegationStore(crashed, read_only=True).list_delegations()
+        self.assertEqual({path.name: path.read_bytes() for path in crashed.iterdir()}, before, "nothing rolled back or removed")
+        self.assertEqual(len(DelegationStore(crashed, now=lambda: NOW).list_delegations()), 1, "a writer recovers it")
 
 
 if __name__ == "__main__":

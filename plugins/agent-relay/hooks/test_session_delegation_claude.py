@@ -1095,6 +1095,23 @@ class AdapterTests(unittest.TestCase):
         self.assertIn("call bridge_register", resume[-1])
         self.assertFalse(any(command[1:2] == ["stop"] for command, _ in runner.calls), "already stopped")
 
+    def test_observe_reports_the_host_status_from_a_read_only_store_and_advances_nothing(self):
+        # delegation-status-read-only D189: status from a sandbox looks without writing.
+        self.adapter(self.runner_for_create()).create(self.claim.delegation_id, "Review")
+        files = lambda: {path.name: (path.stat().st_mtime_ns, path.read_bytes()) for path in self.store.root.iterdir() if path.is_file()}
+        before = files()
+        read_only = DelegationStore(self.store.root, now=lambda: NOW, read_only=True)
+        runner = ScriptedRunner([completed(json.dumps([self.entry(state="done", status="idle")]))])
+        adapter = ClaudeAdapter(read_only, self.installation, self.root, runner=runner,
+                                config_factory=lambda _id: self.config, now=lambda: NOW, sleep=lambda _delay: None,
+                                registration_probe=lambda *_args: True)
+        result = adapter.observe(self.claim.delegation_id)
+        self.assertEqual((result.state, result.host_status), ("created", "idle"), result)
+        self.assertEqual(files(), before)
+        gone = ClaudeAdapter(read_only, self.installation, self.root, runner=ScriptedRunner([completed("[]")]),
+                             config_factory=lambda _id: self.config, now=lambda: NOW, sleep=lambda _delay: None)
+        self.assertEqual(gone.observe(self.claim.delegation_id).host_status, "unknown")
+
     RESUMED_SESSION = "6472d974-9092-4ee5-b687-86ff33f86b0c"
 
     def resumed_entry(self, *, state="running", status="working"):

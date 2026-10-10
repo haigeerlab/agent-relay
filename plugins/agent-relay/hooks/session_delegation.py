@@ -17,6 +17,7 @@ import re
 import sqlite3
 import stat
 import time
+from urllib.parse import quote
 from typing import Callable, Iterator
 from uuid import UUID, uuid4
 
@@ -122,6 +123,23 @@ class DelegationError(ValueError):
 
 class StateNotWritableError(DelegationError):
     """delegation-cross-host D160: the state location cannot be written here (for example a Codex sandbox)."""
+
+
+def store_is_writable(root: Path) -> bool:
+    """delegation-status-read-only D189: can the delegation store under `root` be written from here?
+
+    Asked by opening the database file for writing and closing it again, which changes nothing (no truncation, no
+    write; SQLite's own open silently falls back to read-only, so it cannot be asked). A store that does not exist
+    yet counts as writable: creating it is the caller's next step and fails there if it cannot.
+    """
+    database = Path(root) / DATABASE_FILENAME
+    if not database.is_file():
+        return True
+    try:
+        os.close(os.open(database, os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)))
+        return True
+    except OSError:
+        return False
 
 
 @dataclass(frozen=True)
@@ -404,15 +422,30 @@ def _stored_scope(raw: str) -> tuple[str, ...] | None:
 class DelegationStore:
     """Owner-only SQLite store with atomic authorization and launch claims."""
 
-    def __init__(self, root: Path, *, now: Callable[[], int] | None = None):
+    # delegation-status-read-only D189: everything that changes the store; refused up front when opened read-only.
+    _WRITING = ("authorize", "claim_launch", "bind_host", "rebind_host", "record_host_unknown", "set_turn_ref",
+                "begin_follow_up", "prune_stale", "advance", "cancel_authorization")
+
+    def __init__(self, root: Path, *, now: Callable[[], int] | None = None, read_only: bool = False):
         self.root = Path(root)
         self.database = self.root / DATABASE_FILENAME
         self._now = now or (lambda: int(time.time()))
+        # D189: a read-only store opens SQLite with mode=ro and never creates, initializes or migrates anything.
+        self.read_only = read_only
+        if read_only:
+            for name in self._WRITING:
+                setattr(self, name, self._refuse_write)
         self._prepare_root()
         self._prepare_database()
 
+    @staticmethod
+    def _refuse_write(*_args: object, **_kwargs: object) -> None:
+        raise StateNotWritableError("delegation store is open read-only")
+
     def _prepare_root(self) -> None:
         if not (self.root.exists() or self.root.is_symlink()):
+            if self.read_only:
+                raise DelegationError("state directory is unavailable")
             try:
                 self.root.mkdir(parents=True, mode=0o700)
                 self.root.chmod(0o700)
@@ -449,6 +482,14 @@ class DelegationStore:
         return metadata
 
     def _prepare_database(self) -> None:
+        if self.read_only:
+            self._database_metadata()
+            with self._connection() as connection:
+                version = connection.execute("PRAGMA user_version").fetchone()[0]
+            if version == 2:
+                raise DelegationError("delegation-store-needs-migration")
+            self._validate_schema()
+            return
         if not (self.database.exists() or self.database.is_symlink()):
             flags = os.O_CREAT | os.O_EXCL | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
             try:
@@ -476,19 +517,29 @@ class DelegationStore:
         self._database_metadata()
         self._check_sidecars()
         try:
-            connection = sqlite3.connect(str(self.database), timeout=5, isolation_level=None)
+            if self.read_only:
+                connection = sqlite3.connect("file:%s?mode=ro" % quote(str(self.database)), uri=True, timeout=5,
+                                             isolation_level=None)
+            else:
+                connection = sqlite3.connect(str(self.database), timeout=5, isolation_level=None)
             connection.row_factory = sqlite3.Row
             connection.execute("PRAGMA foreign_keys = ON")
             connection.execute("PRAGMA busy_timeout = 5000")
             return connection
         except sqlite3.Error as error:
-            raise DelegationError("delegation database is corrupt") from error
+            raise DelegationError("state-not-readable" if self.read_only else "delegation database is corrupt") from error
 
     @contextmanager
     def _connection(self) -> Iterator[sqlite3.Connection]:
         connection = self._raw_connection()
         try:
             yield connection
+        except sqlite3.Error as error:
+            if not self.read_only:
+                raise
+            # D189: a read that fails here (a hot journal left by a dead writer cannot be rolled back read-only) is
+            # reported as such — never answered with an empty result, never retried in a mode that could read half-written data.
+            raise DelegationError("state-not-readable") from error
         finally:
             connection.close()
             self._check_sidecars()
