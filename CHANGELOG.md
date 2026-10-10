@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-10-10
+
+接口仍为 **2.0**（`interface.json` 不变，Spec Guard 0.56.0 或更新），信箱 schema 仍为 5，委派库仍为 schema 3。这一版做两件事：
+桌面通知写明是哪个会话、在哪里，点击能把对应的窗口带到前台；在 Codex 的默认沙箱里查看委派不再需要写权限。升级前先看这三点：
+
+- **bridge 有改动，要 `upgrade --confirm` 升级运行时**：`notice-location`（通知的文字和点击）升级运行时后才生效；
+  `delegation-status-read-only` 在插件的 hooks 里，更新插件并新开会话即生效。
+- **更新插件后要新开会话才生效**：已经开着的、关掉应用重开的、恢复的会话都还用旧的那份（见 README“更新插件”）。
+- **第一次点击终端会话的通知时，macOS 会弹一次“自动化”授权**：以 terminal-notifier 的名义，请求控制 Terminal 或 iTerm，
+  用来切到对应的标签页。不允许的话仍会把终端应用带到前台，只是不自动选中标签页；以后可在“系统设置 → 隐私与安全性 →
+  自动化”里改。点击只切换窗口，不批准任何东西，也不向会话输入内容。
+
 - **查看委派不需要写权限**（模块 `delegation-status-read-only`，D189，0.6.2 真实验收的低项）：只改插件的 hooks，更新
   插件并新开会话即生效。
   - 委派状态不可写时（比如 Codex 的默认沙箱），`list`、`status`、`resolve` 和不带 `--confirm` 的 `prune` 以只读方式
@@ -24,6 +36,45 @@
 
 - README 新增“用之前：配置清单”：把装一次、每个项目一次、每个会话一句话、用委派时额外需要的、不用提前配的和升级之后
   要做的事列在一处，细节仍在各自的章节里；只改文档，行为不变。
+
+以上来自两个模块的 PR：`notice-location`（#84，低项修正在 #85）、`delegation-status-read-only`（#86），spec 与计划见 #82、
+#83、#85；README 配置清单 #81。模块 PR 都经第二轮联调审查。
+
+### 从 0.6.2 升级
+
+1. 两个宿主都更新插件（详见 README“更新插件”）：
+   - Claude Code（从 GitHub 装的）：先 `claude plugin marketplace update agent-relay-marketplace`，再
+     `claude plugin update --scope user agent-relay@agent-relay-marketplace`。
+   - Codex：把 `~/.codex/config.toml` 里 `[marketplaces.agent-relay-marketplace]` 的 `ref` 改成 `"v0.6.3"`（自己改，改前留一份
+     副本），再 `codex plugin marketplace upgrade`，最后 `codex plugin add agent-relay@agent-relay-marketplace`。
+   - 从本地克隆装的：**先把克隆更新到 v0.6.3**（`git -C <克隆> pull --ff-only`）；Claude 新会话直接读克隆目录，Codex 再执行
+     一次 `codex plugin add`。克隆没更新时，下一步的 `upgrade` 会拿旧版 bridge 比较，报 `current` 而什么也不做。
+2. **升级运行时**：关闭所有使用信箱的会话（所有 Claude Code 会话和 ChatGPT 应用），或按 README“升级运行时”只结束 bridge；
+   在 macOS 自带的“终端”里确认 `pgrep -fl "agent-relay/runtime/dist/server.js"` 没有输出，再执行
+   `python3 -B <插件目录>/hooks/native_collaboration_runtime.py upgrade --confirm`。输出应为 `"state": "upgraded"`。
+3. **新开 Claude Code 会话**；Codex 用 ⌘Q 完全退出 ChatGPT 应用再打开。
+4. `doctor`：`runtime`、`probe`（10 个工具）、`host-entries`、`claude-plugin`、`notifications` 为 ok。
+
+信箱和委派库的 schema 都没变，不需要迁移。
+
+### 想退回 0.6.2
+
+关掉所有会话后 `rollback --confirm` 退回运行时，并把两个宿主的插件也退回 v0.6.2，然后新开会话。信箱和委派库不需要处理。
+授予 terminal-notifier 的“自动化”权限不会自动撤销，不想保留可在系统设置里关掉。
+
+### 已知问题
+
+- 通知的点击动作只在装了 terminal-notifier 时有；`osascript` 通道只有文字。
+- 后台会话（`claude --bg`）、tmux／screen／ssh 里的会话和位置判断不出来的通知没有点击动作；后台会话的通知写明
+  `claude attach <编号>`。
+- 点击 Claude 桌面应用或 Codex 的通知只把应用带到前台，不会跳到那个具体的会话或线程（没有公开的深链接格式，这一版没有做）。
+- Codex 的通知只有在应用自己确认持有那个线程时才写“Codex app”并可点击；终端里的 Codex CLI 只写“Codex”。
+- 只读的 `status` 报的是库里记下的状态，可能落后于宿主；只有 Claude Code 目标会同时给出当下看到的宿主状态，Codex 目标
+  为 `unknown`。
+- 以下待真实宿主验收时核对：升级运行时后，会话真的卡在授权上时自动弹出的通知带位置、点击能到对应的窗口或标签页
+  （开发时是用新代码直接弹测试通知验证的：桌面应用、iTerm、Terminal、Codex 应用都通过）；在 Codex 的默认沙箱里
+  `status` 和 `list` 不用提权就能回答并带 `readOnly: true`。
+- 0.6.2 及更早版本列出的已知问题仍然存在，见下方各版本的“已知问题”。
 
 ## [0.6.2] - 2026-10-10
 
