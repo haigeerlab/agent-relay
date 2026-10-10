@@ -1,7 +1,7 @@
 // agent-relay presence-and-approval D148: the user hears, once per waiting episode, that a mailbox session waits for
 // their approval while a message to it is unhandled. The bridge only tells; it never answers the prompt.
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -188,4 +188,24 @@ test("the approval notice names the session's place, and a notice already shown 
   assert.deepEqual(located, ["host-cc"], "looked up once");
   await d.close();
   store.close();
+});
+
+// Review of #84: with notices switched off no mark is ever written, so the place must not be looked up every 30 s.
+test("switched-off notices never look the place up", async () => {
+  for (const off of ["env", "file"] as const) {
+    const { store, lines, log, dir } = setup();
+    if (off === "file") writeFileSync(join(dir, "notify.off"), "");
+    const located: string[] = [];
+    const d = new WakeDispatcher(store, {
+      env: { AGENT_RELAY_NOTIFY_LOG: log, ...(off === "env" ? { AGENT_RELAY_NOTIFY: "off" } : {}) },
+      deliver: async () => ({ state: "unknown", detail: "test" }),
+      presenceOf: async () => ({ state: "waiting-approval", since: "t" }),
+      locationOf: async (sessionId) => { located.push(sessionId); return undefined; } });
+    store.send({ fromAgent: "sender", toAgent: "cc", body: "x" });
+    await d.checkApprovals();
+    await d.checkApprovals();
+    assert.deepEqual([lines(), located], [[], []], off);
+    await d.close();
+    store.close();
+  }
 });

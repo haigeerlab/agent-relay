@@ -163,6 +163,11 @@ function safeKey(notice: UndeliveredNotice): string {
   return (notice.key ?? String(notice.messageId)).replace(/[^A-Za-z0-9._-]/g, "_");
 }
 
+/** Are desktop notices switched off for this mailbox (the environment switch, or `notify.off` next to it)? */
+export function noticesOff(mailboxPath: string, env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.AGENT_RELAY_NOTIFY === "off" || !isAbsolute(mailboxPath) || existsSync(join(dirname(mailboxPath), "notify.off"));
+}
+
 /** Was a notice with this key already attempted by a bridge on this mailbox? (Read only; the mark is the truth.) */
 export function alreadyNotified(mailboxPath: string, key: string): boolean {
   return isAbsolute(mailboxPath)
@@ -177,9 +182,8 @@ export function alreadyNotified(mailboxPath: string, key: string): boolean {
  */
 export function notifyUndelivered(mailboxPath: string, notice: UndeliveredNotice,
   env: NodeJS.ProcessEnv = process.env, channel: NoticeChannel = {}): boolean {
-  if (env.AGENT_RELAY_NOTIFY === "off" || !isAbsolute(mailboxPath)) return false;
+  if (noticesOff(mailboxPath, env)) return false;
   const dir = dirname(mailboxPath);
-  if (existsSync(join(dir, "notify.off"))) return false;
   const log = env.AGENT_RELAY_NOTIFY_LOG;
   if (!log && process.platform !== "darwin") return false;
   try {

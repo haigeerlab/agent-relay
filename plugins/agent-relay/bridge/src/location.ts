@@ -29,7 +29,7 @@ export const validTty = (tty: unknown): string | null =>
   typeof tty === "string" && /^ttys\d{1,4}$/.test(tty) ? tty : null;
 
 export const validBundle = (bundle: unknown): string | null =>
-  typeof bundle === "string" && /^[A-Za-z0-9.-]{1,128}$/.test(bundle) ? bundle : null;
+  typeof bundle === "string" && /^[A-Za-z0-9][A-Za-z0-9.-]{0,127}$/.test(bundle) ? bundle : null;
 
 /** The outermost `.app` of an absolute executable path (VS Code's "Code Helper.app" lives inside the real app). */
 export function outermostApp(path: string): string | null {

@@ -12,5 +12,5 @@
   - Deep links (`claude://`, `codex://`): not tried — the user chose activation only (no documented format); nothing about deep links is documented.
 - [x] Task 5: docs and bridge bookkeeping — `UPSTREAM.md` row, manifest (75 files), CHANGELOG `[Unreleased]` (needs `upgrade --confirm`), README "授权与安全" paragraph with its guard test; committed together with the bridge change (88a7b52)
 - [x] Checkpoint (report): local validation — `scripts/validate.sh` pass on Python 3.9.6, 3.10.7, 3.14.3 with Node v24.18.0 first on PATH: 47 files / 756 tests each, bridge `npm run check` 185 ok
-- [ ] Task 6: PR and CI
-- [ ] Checkpoint (gate): module review
+- [x] Task 6: PR and CI — #84 (14dec24), the four CI jobs green
+- [x] Checkpoint (gate): module review — the round-2 coordinator reviewed #84 (mergeable; checked that only the tty and the two fixed bundle ids reach `-execute`, that `busy` implies a connected app owner, and that all 115 background sessions on this Mac have id = first 8 characters of the session id); the user merged #84 (1ce3be5). Its two low items, fixed in the closeout with tests first: a bundle id must start with a letter or digit (`-help` can no longer be passed to `-activate`); with notices switched off (environment or `notify.off`) the place is not looked up at all (no mark is written then, so it used to run `ps` and `defaults` every 30 s). validate.sh pass on Python 3.9.6 and 3.14.3: 757 tests, bridge 186

@@ -24,7 +24,9 @@ test("formats are strict: tty, bundle id, and the outermost .app of a nested pat
   assert.equal(validTty("ttys000"), "ttys000");
   for (const bad of ["??", "", "ttys", "ttys0\n1", "/dev/ttys000", "ttys000 x", "console"]) assert.equal(validTty(bad), null, bad);
   assert.equal(validBundle("dev.warp.Warp-Stable"), "dev.warp.Warp-Stable");
-  for (const bad of ["", "a b", "x;y", "$(id)", "a'b", "a".repeat(129), "com.x\n"]) assert.equal(validBundle(bad), null, bad);
+  for (const bad of ["", "a b", "x;y", "$(id)", "a'b", "a".repeat(129), "com.x\n", "-help", ".x", "-activate"]) {
+    assert.equal(validBundle(bad), null, bad); // never an option-looking value for -activate (review of #84)
+  }
   assert.equal(outermostApp("/Applications/Visual Studio Code.app/Contents/Frameworks/Code Helper.app/Contents/MacOS/Code Helper"),
     "/Applications/Visual Studio Code.app");
   assert.equal(outermostApp("/System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal"),
