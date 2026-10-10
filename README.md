@@ -74,6 +74,50 @@ codex plugin list --json | python3 -c 'import json,sys; print(next((p["source"][
 `--state-root` 仍然优先。注意：接入宿主时写进宿主配置的是当时解析出的绝对路径，之后再改这个变量**不会**挪动
 已经接入的宿主，要在新目录下重新安装运行时并重新接入宿主才会生效。
 
+## 用之前：配置清单
+
+照着做一遍，之后就只剩“对会话说一句话”。每一项的细节在后面的章节里，这里只列要做什么。
+
+**装一次**
+
+1. 两个宿主都装上插件（见“安装”）。
+2. 让 agent “检查一下 agent-relay 状态”，按它列出的步骤初始化运行时、接入宿主；每一步都等你同意。之后重启已经打开的会话。
+3. Codex：接入时会给 10 个信箱工具写 `approval_mode = "approve"`，并把写进 `~/.codex/config.toml` 的条目列给你看，
+   不用再配。
+4. Claude Code：10 个信箱工具默认每次调用都弹确认。想免掉，运行
+   `python3 -B <插件目录>/hooks/native_collaboration_adapters.py claude-allow-rules`，把它打印的 10 条规则加进
+   `~/.claude/settings.json` 的 `permissions.allow`。加不加由你决定，agent-relay 不会改这个文件。
+5. 运行 `python3 -B <插件目录>/hooks/native_collaboration_runtime.py doctor`，各项为 ok 即可（`warn` 会写明下一步）。
+
+**每个项目一次**
+
+- Claude Code：信任这个项目。信任弹窗默认选中的是 “No, exit”，直接回车会退出，要先选到 “Yes”。
+- Codex：在 App 里添加项目时，选“信任此文件夹”。
+
+**每个会话一句话**
+
+- 对会话说“加入本机联调并允许唤醒，名字用 X”。不说“允许唤醒”，别的会话发来消息时它不会被叫醒。
+- 任何权限模式都能加入，包括 Claude 的 auto 模式；例外是 Bypass permissions，它会把来信提醒扣到过期
+  （见“授权与安全”）。
+- 名字被一个已经停止的旧会话占着时，换一个名字最省事；一定要用原名，才需要你同意接管。
+
+**用委派时额外需要**（让一边新开一个受限会话去干活，只有 Claude Code → Codex 和 Codex → Claude Code 两个方向）
+
+- 发起委派的会话先加入联调并允许唤醒，结果才能自动回到它这里。
+- 目标是 Claude Code 时，目标项目的 `.claude/settings.json` 或 `.claude/settings.local.json` 里要有 10 个信箱工具的
+  allow；只在用户级 `~/.claude/settings.json` 里配不算，除非用了下一条。
+- 想让委派出来的 Claude Code 会话带上你自己的设置、插件和 skill，创建时说“加载我的用户环境”，并在 allow 里
+  加上 `Skill`；缺了会在启动前显示 held 和要补的规则，不会启动一个半残的会话。
+
+**不用提前配的**
+
+对方会话干活要用的权限（读文件、跑命令等）不用提前配：那是那个会话自己的设置，需要时它自己弹窗找你；它卡在授权上时，
+这台 Mac 会弹一条通知，会话目录里也会标成“等待授权”。agent-relay 不替任何会话改权限。
+
+**升级之后**
+
+更新插件后要新开会话才生效（重开应用、恢复旧会话都不算），bridge 有改动的版本还要升级运行时；见“更新插件”和“升级运行时”。
+
 ## 怎么用
 
 直接用自然语言说，不需要记工具名或内部 ID：
