@@ -571,6 +571,22 @@ class ClaudePluginCopyTests(unittest.TestCase):
         self.assertIn(str(old_clone) + " is 0.5.2", result["detail"])
         self.assertIn("git pull", result["next"])
 
+    def test_a_deleted_project_s_entry_is_not_sent_to_a_folder_that_is_gone(self):
+        # Round-2 coordinator, review of #77 (low 1).
+        gone = self.base / "deleted-worktree"
+        result = self.check(self.listed(self.entry(self.cache_010, scope="local", project=gone)))
+        self.assertEqual(result["state"], "warn", result)
+        self.assertNotIn("inside each listed project", result["next"])
+        self.assertNotIn("marketplace update", result["next"])
+        self.assertIn("entries whose folder is gone can be ignored or removed by you", result["next"])
+
+    def test_a_loaded_copy_newer_than_this_plugin_is_only_noted(self):
+        # Round-2 coordinator, review of #77 (low 2): doctor run from an older copy must not send the user backwards.
+        result = self.check(self.listed(self.entry(self.cache_010, folder=self.clone)), version="0.6.1")
+        self.assertEqual(result["state"], "ok", result)
+        self.assertIn(str(self.clone) + " is 0.6.2, newer than this plugin (0.6.1)", result["detail"])
+        self.assertEqual(self.check(self.listed(self.entry(self.cache_052)), version="0.6.10")["state"], "warn")
+
     def test_a_loaded_copy_without_a_readable_version_warns(self):
         missing = self.base / "cache" / "missing"
         result = self.check(self.listed(self.entry(missing)))
