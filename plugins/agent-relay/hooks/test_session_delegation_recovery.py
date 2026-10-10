@@ -583,6 +583,28 @@ class RecoveryTests(unittest.TestCase):
         self.assertIn("--confirm ID,... cancels only the listed ids", text)
         self.assertNotIn("--confirm cancels them", text)
 
+    def test_a_read_only_status_answers_even_when_the_host_cannot_be_asked(self):
+        # delegation-status-read-only D189 (review of #86): looking should give an answer; whatever preparing or asking
+        # the adapter raises, the stored record comes back with the host status unknown, and nothing is advanced.
+        import subprocess
+        controller, adapter = self.controller(["created"])
+        self.create(controller)
+        for failure in (subprocess.TimeoutExpired("claude", 60), ControlError("backend-unavailable"), OSError("denied"),
+                        RuntimeError("unexpected")):
+            def factory(_host, _project, failure=failure):
+                raise failure
+            result = SessionDelegationController(self.store, factory).status_named("复审", read_only=True)
+            self.assertEqual((result.state, result.host_status), ("created", "unknown"), failure)
+        observed = SimpleNamespace(observe=lambda _id: SimpleNamespace(state="created", host_status="idle"))
+        seen = SessionDelegationController(self.store, lambda _host, _project: observed).status_named("复审", read_only=True)
+        self.assertEqual(seen.host_status, "idle")
+        self.assertEqual(adapter.calls[-1][0], "create", "the reconciling status was never called")
+
+    def test_the_not_readable_detail_also_names_a_writer_in_progress(self):
+        payload = error_payload(DelegationError("state-not-readable"))
+        self.assertIn("another session is writing", payload["detail"])
+        self.assertIn("Try again in a moment", payload["detail"])
+
     def test_absent_list_is_empty_and_does_not_initialize_runtime(self):
         state_root = self.root / "absent-state"
         output = io.StringIO()

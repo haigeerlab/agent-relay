@@ -679,7 +679,7 @@ class SessionDelegationController:
                 observe = getattr(self.adapter_factory(claim.target_host, envelope.project_root), "observe", None)
                 if observe is not None:
                     host_status = self._result_fact(observe(claim.delegation_id), "host_status") or "unknown"
-            except (ControlError, DelegationError, ValueError, OSError):
+            except Exception:  # noqa: BLE001 - looking gives an answer whatever asking the host raised (review of #86)
                 pass
             return self._public(claim, envelope, host_status=host_status, host_operation="status")
         adapter = self.adapter_factory(claim.target_host, envelope.project_root)
@@ -1076,8 +1076,9 @@ REASON_DETAILS = {
         "The delegation store is from an older version and must be migrated, which needs write access: run any "
         "delegation command once outside the sandbox (with write access to the state directory)."),
     "state-not-readable": (
-        "The delegation store cannot be read without writing to it (an interrupted write left a journal to roll "
-        "back). Nothing was read or changed; run any delegation command once with write access to recover it."),
+        "The delegation store cannot be read without writing to it: an interrupted write left a journal to roll "
+        "back, or another session is writing right now. Nothing was read or changed. Try again in a moment; if it "
+        "stays like this, run any delegation command once with write access to recover it."),
 }
 
 # claude-delegation-realhost D182: an `unknown` record cannot take a follow-up; say what to do instead.

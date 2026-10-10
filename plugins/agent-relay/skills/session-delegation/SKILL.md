@@ -144,7 +144,7 @@ repository identity、精确 baseline 和 dirty 状态，并在当前调用中�
 说明还没有创建或改动任何东西，照它的 `detail` 申请提权后重跑同一条命令（复用同一组 key）。
 在沙箱里（委派状态不可写时），`list`、`status`、`resolve` 和不带 `--confirm` 的 `prune` 以只读方式回答，输出带
 `readOnly: true`：这时 `status` 报的是库里记下的状态，**没有推进**，可能落后于宿主的实际情况——如实转述，需要最新状态
-就申请提权后再查一次。返回 `state-not-readable`（上次写入被打断，要先恢复）或 `delegation-store-needs-migration`
+就申请提权后再查一次。返回 `state-not-readable`（上次写入被打断要先恢复，或另一个会话正在写——先稍等再试一次）或 `delegation-store-needs-migration`
 （旧版本的库）时什么都没读也没改，照 `detail` 在有写权限的环境里运行一次任意委派命令即可；不要绕过，也不要当成“没有委派”。
 `create --expires-at` 写带时区的 ISO 8601，例如 `2026-10-08T18:00:00+08:00` 或 `2026-10-08T10:00:00Z`（也接受整数
 epoch 秒）；不带时区的时间会被拒绝（退出码 2）。
