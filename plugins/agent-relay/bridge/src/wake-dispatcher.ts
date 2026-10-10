@@ -2,7 +2,8 @@ import type { BridgeStore } from "./bridge-store.js";
 import { channelNotification, type ChannelNotification } from "./claude-channel.js";
 import { ClaudeWake, claudeSessionsOrNull } from "./claude-wake.js";
 import { wakeCodex } from "./codex-wake.js";
-import { BUSY_NOTIFY_AFTER_MS, NOTIFIED_TEXT, notifyUndelivered, waitingEpisode } from "./notify.js";
+import { claudeLocation, type Location } from "./location.js";
+import { BUSY_NOTIFY_AFTER_MS, NOTIFIED_TEXT, alreadyNotified, notifyUndelivered, waitingEpisode } from "./notify.js";
 import { claudePresence, type Presence } from "./presence.js";
 import type { WakeJob, WakeResult } from "./wake-queue.js";
 
@@ -21,6 +22,8 @@ export interface DispatcherOptions {
   codexWake?: (job: WakeJob) => Promise<WakeResult>;
   /** presence-and-approval D148: a Claude session's state by session id; defaults to Claude Code's registry. */
   presenceOf?: (sessionId: string) => Promise<Presence>;
+  /** notice-location D188: where a waiting Claude session is; defaults to the registry entry `presenceOf` came from. */
+  locationOf?: (sessionId: string) => Promise<Location | undefined>;
 }
 
 /** How often a bridge looks for Claude sessions waiting for the user's approval (D148). */
@@ -36,6 +39,7 @@ export class WakeDispatcher {
   private env: NodeJS.ProcessEnv;
   private codexWake: (job: WakeJob) => Promise<WakeResult>;
   private presenceOf?: (sessionId: string) => Promise<Presence>;
+  private locationOf?: (sessionId: string) => Promise<Location | undefined>;
   private approvalsCheckedAt = 0;
 
   constructor(private store: BridgeStore, options: DispatcherOptions | ((job: WakeJob) => Promise<WakeResult>) = {}) {
@@ -45,6 +49,7 @@ export class WakeDispatcher {
     this.env = resolved.env ?? process.env;
     this.codexWake = resolved.codexWake ?? ((job) => wakeCodex(job));
     this.presenceOf = resolved.presenceOf;
+    this.locationOf = resolved.locationOf;
     this.claude = new ClaudeWake((job, result) => store.wakes.finish(job, result));
   }
 
@@ -95,9 +100,12 @@ export class WakeDispatcher {
         ? (now - job.createdAt >= BUSY_NOTIFY_AFTER_MS ? "Codex has been busy for ten minutes" : null)
         : result.state === "pending" ? "Codex is not running; the message waits" : null;
     if (!why) return result;
+    // notice-location D188: "busy" is the Codex app answering on its own socket that it holds this thread; in every
+    // other case nothing confirms where the Codex side is, so the notice says only "Codex" and has no click action.
+    const where: Location = { place: { kind: result.reason === "busy" ? "codex-app" : "codex" } };
     const notified = notifyUndelivered(job.mailboxPath,
       { messageId: job.messageId, fromAgent: job.fromAgent, agent: job.agent, why,
-        body: this.store.messageById(job.messageId)?.body }, this.env);
+        body: this.store.messageById(job.messageId)?.body, where }, this.env);
     return notified ? { ...result, detail: `${result.detail} ${NOTIFIED_TEXT}` } : result;
   }
 
@@ -111,10 +119,14 @@ export class WakeDispatcher {
     if (this.stopped) return;
     const waiting = this.store.claudeWaiting();
     if (waiting.length === 0) return;
-    const presenceOf = this.presenceOf ?? await (async () => {
-      const sessions = await claudeSessionsOrNull();
-      return async (sessionId: string) => claudePresence(sessionId, sessions);
-    })();
+    // Without an injected presence, one registry read serves both the presence and the location (D188): the tty is
+    // looked up only for an entry that passed the reader's own liveness check.
+    const sessions = this.presenceOf ? null : await claudeSessionsOrNull();
+    const presenceOf = this.presenceOf ?? (async (sessionId: string) => claudePresence(sessionId, sessions));
+    const locationOf = this.locationOf ?? (async (sessionId: string) => {
+      const found = sessions?.find((s) => s.sessionId === sessionId || s.bridgeSessionId === sessionId);
+      return found ? claudeLocation(found) : undefined;
+    });
     for (const entry of waiting) {
       const presence = await presenceOf(entry.sessionId);
       const waiting = presence.state === "waiting-approval";
@@ -123,9 +135,12 @@ export class WakeDispatcher {
       // list, so a later message must not be hidden behind it).
       const episode = presence.since ?? waitingEpisode(this.store.dbPath, entry.sessionId, waiting);
       if (!waiting || episode === null) continue;
+      const key = `approval-${entry.sessionId}-${presence.since ?? `${episode}-${entry.messageId}`}`;
+      if (alreadyNotified(this.store.dbPath, key)) continue; // no tty or parent lookups for a notice already shown
       notifyUndelivered(this.store.dbPath, { kind: "approval", messageId: entry.messageId, fromAgent: entry.fromAgent,
         agent: entry.agent, why: "waiting for your approval in its Claude session",
-        key: `approval-${entry.sessionId}-${presence.since ?? `${episode}-${entry.messageId}`}` }, this.env);
+        where: await locationOf(entry.sessionId).catch(() => undefined),
+        key }, this.env);
     }
   }
 

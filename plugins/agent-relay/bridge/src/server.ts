@@ -329,9 +329,11 @@ function main(): void {
         if (capWarning) warnings.push(capWarning);
         // agent-relay codex-gated-wake D67: a recorded Codex recipient with no wake binding would never hear of it.
         const recipient = store.getAgent(to);
+        // notice-location D188: "Codex app" (and a click) only when the app itself says it holds that thread.
         if (!duplicate && wake !== false && recipient?.host?.app === "codex" && !store.wakes.target(to)
             && notifyUndelivered(dbPath, { messageId: message.id, fromAgent: from, agent: to,
-              why: "its Codex session has no wake binding; the message waits", body })) {
+              why: "its Codex session has no wake binding; the message waits", body,
+              where: { place: { kind: (await codexOwner(recipient.host.sessionId)) === true ? "codex-app" : "codex" } } })) {
           warnings.push(`${JSON.stringify(to)} is a Codex session without a wake binding. ${NOTIFIED_TEXT}`);
         }
         // agent-relay acceptance-030-gaps D72: with no binding and no recorded host nobody can be woken or notified.
