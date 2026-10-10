@@ -3,7 +3,7 @@ import { channelNotification, type ChannelNotification } from "./claude-channel.
 import { ClaudeWake, claudeSessionsOrNull } from "./claude-wake.js";
 import { wakeCodex } from "./codex-wake.js";
 import { claudeLocation, type Location } from "./location.js";
-import { BUSY_NOTIFY_AFTER_MS, NOTIFIED_TEXT, alreadyNotified, notifyUndelivered, waitingEpisode } from "./notify.js";
+import { BUSY_NOTIFY_AFTER_MS, NOTIFIED_TEXT, alreadyNotified, noticesOff, notifyUndelivered, waitingEpisode } from "./notify.js";
 import { claudePresence, type Presence } from "./presence.js";
 import type { WakeJob, WakeResult } from "./wake-queue.js";
 
@@ -136,7 +136,8 @@ export class WakeDispatcher {
       const episode = presence.since ?? waitingEpisode(this.store.dbPath, entry.sessionId, waiting);
       if (!waiting || episode === null) continue;
       const key = `approval-${entry.sessionId}-${presence.since ?? `${episode}-${entry.messageId}`}`;
-      if (alreadyNotified(this.store.dbPath, key)) continue; // no tty or parent lookups for a notice already shown
+      // No tty or parent lookups for a notice already shown, or when notices are off (no mark is ever written then).
+      if (noticesOff(this.store.dbPath, this.env) || alreadyNotified(this.store.dbPath, key)) continue;
       notifyUndelivered(this.store.dbPath, { kind: "approval", messageId: entry.messageId, fromAgent: entry.fromAgent,
         agent: entry.agent, why: "waiting for your approval in its Claude session",
         where: await locationOf(entry.sessionId).catch(() => undefined),

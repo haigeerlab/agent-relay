@@ -36,7 +36,7 @@ Readers: the user; the round-2 coordinator (reviews, re-checks after release).
    - Terminal session → the owning app is found by walking the session process's parents (bounded depth) and taking
      the **outermost** `.app` on the first parent path that has one (so VS Code's "Code Helper.app" resolves to the
      enclosing `Visual Studio Code.app`). Its bundle id is read from that app's `Info.plist` and must match
-     `^[A-Za-z0-9.-]{1,128}$`. For Terminal (`com.apple.Terminal`) and iTerm (`com.googlecode.iterm2`) — these two
+     `^[A-Za-z0-9][A-Za-z0-9.-]{0,127}$`. For Terminal (`com.apple.Terminal`) and iTerm (`com.googlecode.iterm2`) — these two
      ids only — the click runs one fixed `-execute` command: `/usr/bin/open -b <that bundle id>` first, then
      `/usr/bin/osascript` with a fixed script that selects the tab whose tty matches and raises its window. macOS asks
      the user once for Automation permission, in terminal-notifier's name; if the user declines, the app is still
