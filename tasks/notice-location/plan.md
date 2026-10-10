@@ -8,7 +8,7 @@ coordinator is told every PR number.
 
 ### Task 1: where a session is (pure, tested)
 Red first: the registry reader keeps `entrypoint`, `kind`, `hostSessionId`; `locate(...)` returns one of desktop,
-terminal (with tty and the owning app's bundle id when the parent walk finds an `.app`), background, codex, unknown;
+terminal (with tty and the bundle id of the outermost `.app` in the parent chain, read from its `Info.plist` and format-checked), background, codex app (only with a confirmed app owner) or plain codex, unknown;
 tty and pid formats are checked. Green: a small `location.ts`; the parent walk uses `/bin/ps -o ppid=,comm=` with a
 bounded depth and timeout.
 
@@ -17,13 +17,14 @@ Red first: `noticeFields` for both notice kinds and each place, with and without
 limits; the osascript fallback gets the same fields. Green: `notify.ts` takes an optional location.
 
 ### Task 3: the click goes there
-Red first: argv per place — `-activate <fixed bundle id>` for desktop, Codex and unknown terminal apps; `-execute` with
-the fixed Terminal / iTerm AppleScript carrying only the tty; nothing for background or unknown; hostile names, paths,
+Red first: argv per place — `-activate <bundle id>` for desktop, the Codex app and other terminal apps; for Terminal
+and iTerm one fixed `-execute` command (`/usr/bin/open -b <id>`, then `/usr/bin/osascript` carrying only the tty); nothing for background or unknown; hostile names, paths,
 bodies and senders never outside `-title`, `-subtitle` and stdin. Green: `notify.ts` appends the action; both callers
 pass the location (approval notices: the waiting Claude session; Codex notices: the Codex app).
 
 ### Task 4: real checks on this Mac — **ask the user before each** (they show notices and move windows)
-Approval notice from a desktop session and from a Terminal tab (iTerm if installed): text and click; a Codex notice;
+Approval notice from a desktop session and from a Terminal tab (iTerm if installed): text and click; the click after
+declining the Automation prompt; a Codex notice;
 then, separately consented, one try each of a `claude://` and a `codex://` deep link. A deep link that does not open the
 exact session is not used. Results in the todo.
 

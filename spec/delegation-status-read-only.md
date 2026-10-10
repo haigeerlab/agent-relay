@@ -19,7 +19,10 @@ directory and database for writing, and a failure becomes `{"state": "error", "r
    and says the stored state may be behind. `create`, `continue`, `cancel` and `prune --confirm` still answer
    `state-not-writable`; `prune` without `--confirm` and `resolve` (both read-only) follow rule 1.
 3. A store that needs migration (older schema) or does not exist is not created or migrated by a read-only command: the
-   answer names the reason (`list` on an absent store stays the empty list, as today).
+   answer names the reason (`list` on an absent store stays the empty list, as today). The store uses SQLite's
+   default rollback journal: when a writer died and left a hot journal, a read-only open cannot roll it back. If the
+   read-only open or any read fails, the answer is an error with a reason (`state-not-readable`) — never an empty
+   result, and never a retry with `immutable` or any mode that could read half-written data.
 4. Only the plugin's hooks change; no runtime upgrade. The session-delegation skill says `status` and `list` work from
    Codex's sandbox without escalation.
 
@@ -32,7 +35,8 @@ directory and database for writing, and a failure becomes `{"state": "error", "r
 1. Red first, with the D160 sandbox fixture (`sandbox-exec` denying writes below the state root): `status`, `list`,
    `resolve` and `prune` (preview) answer with `readOnly: true` and leave every file's bytes and mtime unchanged;
    `create`, `continue`, `cancel`, `prune --confirm` answer `state-not-writable`; a schema-2 store read-only names
-   the migration; a writable store behaves exactly as today (no `readOnly`).
+   the migration; a store whose read-only open fails (a leftover hot journal) answers `state-not-readable`, not an
+   empty result; a writable store behaves exactly as today (no `readOnly`).
 2. `scripts/validate.sh` green on Python 3.9, 3.10, 3.14; CI green.
 
 ## Boundaries
