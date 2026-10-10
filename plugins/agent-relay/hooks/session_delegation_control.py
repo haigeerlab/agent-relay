@@ -27,6 +27,7 @@ from session_delegation import (
     OperationClaim,
     RESULT_KEY_PREFIX,
     evaluate_authorization,
+    store_is_writable,
 )
 from session_routing import BRIDGE_TRANSPORT, validate_public_outcome
 
@@ -666,10 +667,21 @@ class SessionDelegationController:
         )
 
     def status_named(
-        self, friendly_name: str, *, disambiguator: str | None = None,
+        self, friendly_name: str, *, disambiguator: str | None = None, read_only: bool = False,
     ) -> PublicSession:
         claim, envelope = self._resolve(
             friendly_name, disambiguator=disambiguator)
+        if read_only:
+            # delegation-status-read-only D189: the stored record as it is — nothing is advanced — plus the host
+            # status when the adapter can observe it without writing; "unknown" when it cannot be asked from here.
+            host_status = "unknown"
+            try:
+                observe = getattr(self.adapter_factory(claim.target_host, envelope.project_root), "observe", None)
+                if observe is not None:
+                    host_status = self._result_fact(observe(claim.delegation_id), "host_status") or "unknown"
+            except (ControlError, DelegationError, ValueError, OSError):
+                pass
+            return self._public(claim, envelope, host_status=host_status, host_operation="status")
         adapter = self.adapter_factory(claim.target_host, envelope.project_root)
         result = adapter.status(claim.delegation_id)
         current = self.store.get_delegation(claim.delegation_id)
@@ -779,12 +791,12 @@ def _permission_preflight(args: argparse.Namespace) -> dict[str, object]:
     }
 
 
-def _production_controller(args: argparse.Namespace) -> SessionDelegationController:
+def _production_controller(args: argparse.Namespace, *, read_only: bool = False) -> SessionDelegationController:
     from session_delegation_claude import prepare_claude_adapter
     from session_delegation_codex import prepare_codex_adapter
 
     _selected_node(args)  # refuse an unusable node before the store or any host is touched
-    store = DelegationStore(args.state_root)
+    store = DelegationStore(args.state_root, read_only=read_only)
     resolved_backend = None
 
     def backend():
@@ -961,20 +973,27 @@ def main(argv: list[str] | None = None) -> int:
     except StateHomeError as error:
         parser.exit(2, f"{parser.prog}: error: {error}\n")
     try:
+        # delegation-status-read-only D189: when the store cannot be written from here (a Codex sandbox), the commands
+        # that only look open it read-only and say so; the ones that must write refuse before touching anything.
+        read_only = args.command != "permissions" and not store_is_writable(args.state_root)
+        if read_only and (args.command in ("create", "continue", "cancel")
+                          or (args.command == "prune" and args.confirm is not None)):
+            raise StateNotWritableError("delegation store is not writable here")
         if args.command == "permissions":
             payload = _permission_preflight(args)
         elif args.command == "list" and not args.state_root.exists():
             payload: object = []
         elif args.command == "prune":
-            payload = (prune_records(DelegationStore(args.state_root), confirm_ids=args.confirm,
+            payload = (prune_records(DelegationStore(args.state_root, read_only=read_only), confirm_ids=args.confirm,
                                      include_unknown_hosts=args.include_unknown_hosts)
                        if args.state_root.exists() else {"stale": [], "writesPerformed": False})
         elif args.command == "resolve":
-            payload = {"name": args.name, "matches": resolve_alias(DelegationStore(args.state_root), args.name)
+            payload = {"name": args.name,
+                       "matches": resolve_alias(DelegationStore(args.state_root, read_only=read_only), args.name)
                        if args.state_root.exists() else []}
         elif args.command == "list":
             controller = SessionDelegationController(
-                DelegationStore(args.state_root),
+                DelegationStore(args.state_root, read_only=read_only),
                 lambda _host, _project: (_ for _ in ()).throw(
                     ControlError("host-adapter-not-required-for-list")),
             )
@@ -1008,7 +1027,7 @@ def main(argv: list[str] | None = None) -> int:
                     raise DelegationError(
                         decision.reason or ",".join(decision.missing_decisions))
                 prompt = _read_prompt()
-            controller = _production_controller(args)
+            controller = _production_controller(args, read_only=read_only)
             if args.command == "create":
                 payload = controller.authorize_and_create(
                     request, args.launch_key, args.name, prompt,
@@ -1026,10 +1045,15 @@ def main(argv: list[str] | None = None) -> int:
                 ).payload()
             elif args.command == "status":
                 payload = controller.status_named(
-                    args.name, disambiguator=args.disambiguator).payload()
+                    args.name, disambiguator=args.disambiguator, read_only=read_only).payload()
+                if read_only:
+                    payload["detail"] = READ_ONLY_STATUS_DETAIL
             else:
                 payload = controller.cancel_named(
                     args.name, disambiguator=args.disambiguator).payload()
+        if read_only:
+            for item in payload if isinstance(payload, list) else [payload]:
+                item["readOnly"] = True
         print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
         return 0
     except (StateNotWritableError, sqlite3.OperationalError) as error:
@@ -1042,6 +1066,19 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(error_payload(error), ensure_ascii=False, sort_keys=True))
         return 1
 
+
+# delegation-status-read-only D189.
+READ_ONLY_STATUS_DETAIL = (
+    "The delegation state cannot be written from here, so this is the stored record as it is: its state was not "
+    "advanced and may be behind what the host shows. Run status with write access to bring it up to date.")
+REASON_DETAILS = {
+    "delegation-store-needs-migration": (
+        "The delegation store is from an older version and must be migrated, which needs write access: run any "
+        "delegation command once outside the sandbox (with write access to the state directory)."),
+    "state-not-readable": (
+        "The delegation store cannot be read without writing to it (an interrupted write left a journal to roll "
+        "back). Nothing was read or changed; run any delegation command once with write access to recover it."),
+}
 
 # claude-delegation-realhost D182: an `unknown` record cannot take a follow-up; say what to do instead.
 STATE_UNKNOWN_DETAIL = (
@@ -1058,6 +1095,8 @@ def error_payload(error: ValueError) -> dict[str, object]:
         payload["detail"] = error.detail
     elif reason == "delegation-state-unknown":
         payload["detail"] = STATE_UNKNOWN_DETAIL
+    elif reason in REASON_DETAILS:
+        payload["detail"] = REASON_DETAILS[reason]
     return payload
 
 

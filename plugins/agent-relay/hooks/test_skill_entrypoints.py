@@ -187,5 +187,13 @@ class ExactArgumentTests(unittest.TestCase):
             self.assertIn(text, readme)
 
 
+    def test_delegation_skill_says_what_read_only_answers_mean(self):
+        # delegation-status-read-only D189.
+        text = DELEGATION.read_text(encoding="utf-8")
+        for needle in ("`readOnly: true`", "没有推进", "`state-not-readable`", "`delegation-store-needs-migration`",
+                       "不要当成“没有委派”"):
+            self.assertIn(needle, text)
+
+
 if __name__ == "__main__":
     unittest.main()

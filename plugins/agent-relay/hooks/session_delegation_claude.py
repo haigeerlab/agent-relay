@@ -946,6 +946,20 @@ class ClaudeAdapter:
             )
         return self._reconcile_lifecycle(claim, session)
 
+    def observe(self, delegation_id: str) -> ClaudeRunResult:
+        """delegation-status-read-only D189: the stored state and the host status as listed now; writes nothing."""
+        claim = self.store.get_delegation(delegation_id)
+        session = None
+        if claim.target_host == "claude" and claim.host_ref is not None:
+            envelope = self.store.get_authorization(claim.envelope_id)
+            try:
+                session = self._exact_session(envelope.project_root, claim.host_ref)
+            except ClaudeAdapterError:
+                session = None
+        if session is None or session.session_ref != claim.host_session_ref:
+            return ClaudeRunResult(claim.state, claim.host_ref, claim.host_session_ref, host_status="unknown")
+        return ClaudeRunResult(claim.state, claim.host_ref, claim.host_session_ref, host_status=session.status)
+
     def logs(self, delegation_id: str) -> ClaudeRunResult:
         claim = self.store.get_delegation(delegation_id)
         if claim.target_host != "claude" or claim.host_ref is None:

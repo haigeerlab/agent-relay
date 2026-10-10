@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+- **查看委派不需要写权限**（模块 `delegation-status-read-only`，D189，0.6.2 真实验收的低项）：只改插件的 hooks，更新
+  插件并新开会话即生效。
+  - 委派状态不可写时（比如 Codex 的默认沙箱），`list`、`status`、`resolve` 和不带 `--confirm` 的 `prune` 以只读方式
+    打开委派库并照常回答，输出带 `readOnly: true`，不创建、不迁移、不改动任何文件。以前 `status` 在需要把记录往前推进
+    时会报 `state-not-writable`。
+  - 只读的 `status` 报的是库里记下的状态，不推进它，并在 `detail` 里说明可能落后；宿主状态只在不写库就能看到时给出。
+  - `create`、`continue`、`cancel`、`prune --confirm` 在不可写时一开始就报 `state-not-writable`，不先去碰宿主。
+  - 旧版本的库报 `delegation-store-needs-migration`；上次写入被打断、不写就读不了的库报 `state-not-readable`，
+    不回答空结果，也不换可能读到半截数据的方式硬读。
+
 - **通知写明会话在哪，点击能过去**（模块 `notice-location`，D188，用户 2026-10-10 提出）：bridge 改动，
   **要用 `upgrade --confirm` 升级运行时才生效**。
   - “等你授权”的通知写明会话名、项目目录名和位置：Claude 桌面应用、终端（应用名和 tty）、后台会话（附
