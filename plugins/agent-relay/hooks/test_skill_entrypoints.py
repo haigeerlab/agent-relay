@@ -179,5 +179,13 @@ class ExactArgumentTests(unittest.TestCase):
         self.assertIn("更正（0.6.2）", released)
 
 
+    def test_readme_says_what_a_notice_click_does_and_whose_automation_prompt_it_is(self):
+        # notice-location D188.
+        readme = (PLUGIN_ROOT.parents[1] / "README.md").read_text(encoding="utf-8")
+        for text in ("点击只切换窗口，不批准任何东西，也不向会话输入内容", "以 terminal-notifier 的名义弹一次“自动化”授权",
+                     "系统设置 → 隐私与安全性 → 自动化"):
+            self.assertIn(text, readme)
+
+
 if __name__ == "__main__":
     unittest.main()

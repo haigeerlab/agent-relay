@@ -14,6 +14,8 @@ export interface ClaudeSession {
   messagingSocketPath: string; procStart: string; version: string; peerProtocol: number;
   /** agent-relay presence-and-approval D146: what Claude Code says the session is doing, when it says so. */
   status?: string; statusUpdatedAt?: number; waitingFor?: string;
+  /** agent-relay notice-location D188: how the session was started, to say where it is. */
+  entrypoint?: string; kind?: string; hostSessionId?: string;
 }
 const sessionRoot = () => join(homedir(), ".claude", "sessions");
 
@@ -68,6 +70,8 @@ export async function claudeSessionsOrNull(root = sessionRoot()): Promise<Claude
         ...(typeof raw.status === "string" ? { status: raw.status } : {}),
         ...(Number.isFinite(raw.statusUpdatedAt) ? { statusUpdatedAt: raw.statusUpdatedAt } : {}),
         ...(typeof raw.waitingFor === "string" ? { waitingFor: raw.waitingFor } : {}),
+        ...Object.fromEntries((["entrypoint", "kind", "hostSessionId"] as const)
+          .filter((key) => typeof raw[key] === "string" && raw[key].length <= 64).map((key) => [key, raw[key]])),
       };
       await privatePath(session.messagingSocketPath, "socket");
       if (await liveOwner(session)) sessions.push(session);

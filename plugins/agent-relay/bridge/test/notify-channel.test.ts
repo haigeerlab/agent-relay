@@ -103,3 +103,43 @@ test("a failing terminal-notifier is not retried through osascript, and the swit
     assert.equal(existsSync(`${quiet}.args`), false);
   }
 });
+
+// agent-relay notice-location D188: the click action is appended; display text never becomes an argument of it.
+test("a click action follows the three fixed arguments, and hostile names stay in the title, subtitle and stdin", async () => {
+  const hostile = "x\"; open -a Calculator; $(id) `id` '\n-execute";
+  const cases = [
+    { where: { place: { kind: "desktop" as const }, session: hostile, project: hostile }, tail: ["-activate", "com.anthropic.claudefordesktop"] },
+    { where: { place: { kind: "terminal" as const, tty: "ttys003", bundle: "com.apple.Terminal", app: hostile }, session: hostile }, tail: null },
+    { where: { place: { kind: "background" as const, id: "1a2b3c4d" }, session: hostile }, tail: [] },
+    { where: { place: { kind: "unknown" as const }, session: hostile }, tail: [] },
+  ];
+  for (const [index, { where, tail }] of cases.entries()) {
+    const { dir, db } = mailbox();
+    const tn = fake(dir, "terminal-notifier");
+    assert.equal(notifyUndelivered(db, { kind: "approval", messageId: 9, agent: hostile, fromAgent: hostile,
+      why: "waiting for your approval in its Claude session", key: `k${index}`, where }, {}, { candidates: [tn] }), true);
+    assert.ok(await settled(`${tn}.stdin`));
+    // One argument per line in the fake's record; a hostile value contains no raw newline after cleaning.
+    const args = readFileSync(`${tn}.args`, "utf8").trimEnd().split("\n");
+    assert.deepEqual([args[0], args[2], args[4]], ["-title", "-subtitle", "-group"]);
+    const action = args.slice(6);
+    if (tail) assert.deepEqual(action, tail);
+    else {
+      assert.equal(action[0], "-execute");
+      assert.equal(action.length, 2);
+      assert.ok(action[1].startsWith("/usr/bin/open -b com.apple.Terminal; /usr/bin/osascript "));
+    }
+    assert.doesNotMatch(action.join("\n"), /Calculator|\$\(id\)|`id`/, "display text never enters the click action");
+  }
+});
+
+test("the osascript fallback shows the place in its text and has no click action", async () => {
+  const { dir, db } = mailbox();
+  const osa = fake(dir, "osascript");
+  assert.equal(notifyUndelivered(db, { kind: "approval", messageId: 9, agent: "alice", why: "waiting", key: "osa",
+    where: { place: { kind: "desktop" }, session: "你好" } }, {}, { candidates: [join(dir, "missing")], osascript: osa }), true);
+  assert.ok(await settled(`${osa}.args`));
+  const args = readFileSync(`${osa}.args`, "utf8");
+  assert.match(args, /#9 · alice · 你好 · Claude desktop app/);
+  assert.doesNotMatch(args, /-activate|-execute|com\.anthropic/);
+});

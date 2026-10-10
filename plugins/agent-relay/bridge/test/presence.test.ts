@@ -52,9 +52,15 @@ test("the registry's status, time and reason are read; malformed ones are ignore
     writeFileSync(join(root, process.pid + ".json"), JSON.stringify({ ...base, status: "waiting",
       statusUpdatedAt: 1791511930012, waitingFor: "permission prompt" }));
     const [found] = await claudeSessions(root);
+    assert.equal(found.entrypoint, undefined, "absent fields stay absent");
     assert.equal(found.status, "waiting");
     assert.equal(found.statusUpdatedAt, 1791511930012);
     assert.equal(found.waitingFor, "permission prompt");
+    // agent-relay notice-location D188: how the session was started is kept, as bounded strings only.
+    writeFileSync(join(root, process.pid + ".json"), JSON.stringify({ ...base, entrypoint: "cli", kind: "interactive",
+      hostSessionId: "x".repeat(65) }));
+    const [started] = await claudeSessions(root);
+    assert.deepEqual([started.entrypoint, started.kind, started.hostSessionId], ["cli", "interactive", undefined]);
     writeFileSync(join(root, process.pid + ".json"), JSON.stringify({ ...base, status: 7, statusUpdatedAt: "soon",
       waitingFor: { x: 1 } }));
     const [odd] = await claudeSessions(root);

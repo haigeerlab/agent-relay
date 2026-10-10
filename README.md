@@ -175,6 +175,13 @@ Claude Code 会话卡在授权上时，这台 Mac 会弹一条通知，会话目
   丢掉**、系统设置里也找不到开关；想看到横幅就 `brew install terminal-notifier`（是否安装由你决定），第一次弹出时允许它。
   bridge 看不到 macOS 是否真的显示了，所以 wake 详情和发件方警告只写“已尝试通知”（attempted）。doctor 的
   `notifications` 检查按实际通道判断看起来是否允许，`doctor --test-notification` 走同一通道弹一条测试通知让你确认。
+- **通知写明会话在哪，点击能过去**：“等你授权”的通知副标题里写会话名、项目目录名和位置（Claude 桌面应用、
+  终端的 tty、后台会话和打开它的 `claude attach <编号>`）；Codex 的通知在应用确认持有那个线程时写“Codex app”。
+  用 terminal-notifier 时，点击通知会把对应的应用带到前台，Terminal 和 iTerm 还会切到那个标签页；后台会话、
+  tmux／ssh 里的会话和位置判断不出来的通知没有点击动作。**点击只切换窗口，不批准任何东西，也不向会话输入内容。**
+  第一次点击终端会话的通知时，macOS 会以 terminal-notifier 的名义弹一次“自动化”授权（允许它控制 Terminal 或
+  iTerm）；不允许的话仍会把终端应用带到前台，只是不自动选中标签页，以后可在“系统设置 → 隐私与安全性 → 自动化”里改。
+  关掉预览（`notify-preview.off`）时文字只写位置类别，点击照常跳转。
   一定看得到的地方是**等待列表**：在任一会话里问“有哪些等 Codex 处理的消息”，或跑 doctor 看 `codex-waiting`（只列数量、
   发件方和编号，不含正文）。
 - **发给收不到提醒的身份时会提示发件方**：收件方既没绑定唤醒、bridge 也不知道它在哪个宿主（例如 Codex 以 `wake: null`

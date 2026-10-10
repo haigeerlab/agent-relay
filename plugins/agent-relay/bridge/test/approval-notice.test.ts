@@ -170,3 +170,22 @@ test("housekeeping removes the episode marks of sessions with nothing waiting", 
   assert.deepEqual(readdirSync(marks).sort(), ["approval-host-cc-1-2", "episode-host-cc", "episode-just-started"]);
   store.close();
 });
+
+// agent-relay notice-location D188: the approval notice says where the waiting session is, looked up once per notice.
+test("the approval notice names the session's place, and a notice already shown costs no second lookup", async () => {
+  const { store, lines, env } = setup();
+  const located: string[] = [];
+  const d = new WakeDispatcher(store, { env, deliver: async () => ({ state: "unknown", detail: "test" }),
+    presenceOf: async () => ({ state: "waiting-approval", since: "2026-10-10T06:00:00.000Z" }),
+    locationOf: async (sessionId) => { located.push(sessionId);
+      return { place: { kind: "terminal", tty: "ttys003", bundle: "com.apple.Terminal", app: "Terminal" },
+        session: "fix gate", project: "agent-relay" }; } });
+  store.send({ fromAgent: "sender", toAgent: "cc", body: "please review" });
+  await d.checkApprovals();
+  await d.checkApprovals();
+  assert.equal(lines().length, 1);
+  assert.match(lines()[0], /· cc · fix gate in agent-relay · Terminal ttys003 \|/);
+  assert.deepEqual(located, ["host-cc"], "looked up once");
+  await d.close();
+  store.close();
+});

@@ -3,6 +3,8 @@ import { execFile } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
 
+import { clickArgs, placeCategory, placeLabel, type Location } from "./location.js";
+
 /** A Codex recipient that is merely busy is notified only after this long (the user's choice, 2026-10-08). */
 export const BUSY_NOTIFY_AFTER_MS = 10 * 60_000;
 
@@ -17,6 +19,8 @@ export interface UndeliveredNotice {
   body?: string;
   /** presence-and-approval D148: a Claude session waiting for the user's approval, not undelivered Codex work. */
   kind?: "approval";
+  /** notice-location D188: where the session is; shown in the text and, for terminal-notifier, used for the click. */
+  where?: Location;
 }
 
 // agent-relay notify-channel D89 (reverses codex-gated-wake D67's "never the body", confirmed by the user 2026-10-08):
@@ -42,17 +46,28 @@ export interface NoticeFields {
 
 /** What the desktop notice shows. Title and subtitle always start with a fixed prefix, never with a dash. */
 export function noticeFields(notice: UndeliveredNotice, { preview }: { preview: boolean }): NoticeFields {
+  const place = notice.where?.place;
   if (notice.kind === "approval") {
     const agent = oneLine(notice.agent, NAME_CHARS);
+    // notice-location D188: "<session> in <project> · <place>"; without previews only the place category.
+    const session = oneLine(notice.where?.session ?? "", NAME_CHARS);
+    const project = oneLine(notice.where?.project ?? "", NAME_CHARS);
+    // The label may carry an app's display name: cleaned and cut like every other shown name.
+    const located = [session && project ? `${session} in ${project}` : session || project,
+      place ? oneLine(placeLabel(place), REASON_CHARS) : ""]
+      .filter(Boolean);
     return { title: preview ? `agent-relay · ${agent} waits for you` : "agent-relay",
-      subtitle: preview ? `#${notice.messageId} · ${agent}` : "", body: noticeText(notice) };
+      subtitle: preview ? [`#${notice.messageId}`, agent, ...located].join(" · ") : place ? placeCategory(place) : "",
+      body: noticeText(notice) };
   }
-  if (!preview) return { title: "agent-relay", subtitle: "", body: noticeText(notice) };
+  // The title already says Codex; only a confirmed app is worth a word more.
+  const app = place?.kind === "codex-app" ? placeLabel(place) : "";
+  if (!preview) return { title: "agent-relay", subtitle: app, body: noticeText(notice) };
   const subtitle = `#${notice.messageId} · ${oneLine(notice.agent, NAME_CHARS)}`;
-  if (notice.body === undefined) return { title: "agent-relay", subtitle, body: noticeText(notice) };
+  if (notice.body === undefined) return { title: "agent-relay", subtitle: app ? `${subtitle} · ${app}` : subtitle, body: noticeText(notice) };
   return {
     title: `agent-relay · ${oneLine(notice.fromAgent ?? "a peer", NAME_CHARS) || "a peer"} → Codex`,
-    subtitle: `${subtitle} · ${oneLine(notice.why, REASON_CHARS)}`,
+    subtitle: `${subtitle} · ${oneLine(notice.why, REASON_CHARS)}${app ? ` · ${app}` : ""}`,
     body: oneLine(notice.body, PREVIEW_CHARS) || "(empty message)",
   };
 }
@@ -148,6 +163,12 @@ function safeKey(notice: UndeliveredNotice): string {
   return (notice.key ?? String(notice.messageId)).replace(/[^A-Za-z0-9._-]/g, "_");
 }
 
+/** Was a notice with this key already attempted by a bridge on this mailbox? (Read only; the mark is the truth.) */
+export function alreadyNotified(mailboxPath: string, key: string): boolean {
+  return isAbsolute(mailboxPath)
+    && existsSync(join(dirname(mailboxPath), "notified", safeKey({ messageId: 0, agent: "", why: "", key })));
+}
+
 /**
  * Show one desktop notification for this message unless it was already shown by any bridge on this mailbox.
  * Off with `AGENT_RELAY_NOTIFY=off` or a `notify.off` file next to the mailbox; `AGENT_RELAY_NOTIFY_LOG` records the
@@ -177,7 +198,9 @@ export function notifyUndelivered(mailboxPath: string, notice: UndeliveredNotice
   // retried through osascript, which could show the same notice twice.
   const notifier = findNotifier(channel.candidates);
   if (notifier) {
-    const child = execFile(notifier, ["-title", fields.title, "-subtitle", fields.subtitle, "-group", `agent-relay-${safeKey(notice)}`],
+    // notice-location D188: the click action comes last and is built from the verified place alone.
+    const child = execFile(notifier, ["-title", fields.title, "-subtitle", fields.subtitle, "-group", `agent-relay-${safeKey(notice)}`,
+      ...(notice.where ? clickArgs(notice.where.place) : [])],
       { timeout: 10_000 }, () => {});
     child.stdin?.on("error", () => {});
     child.stdin?.end(fields.body);
