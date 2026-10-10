@@ -37,6 +37,14 @@
     给出未读数和 “was taken over” 说明。
   - 不带 `takeover` 的拒绝、`wake: null`、省略 `wake` 与同一会话重复注册都不变；接口仍为 2.0，信箱 schema 仍为 5。
   - 0.6.2 委派信封里“先 `wake: null` 做 takeover，再 `wake: "auto"`”的绕行保留，旧运行时上仍然需要它。
+- **takeover 不会抢走仍在运行的 Claude 会话的名字**（模块 `holder-still-running`，D187，第二轮联调审查 #74、#77 时提出）：
+  bridge 改动，**要用 `upgrade --confirm` 升级运行时才生效**。
+  - `bridge_register` 带 `takeover: true` 时，名字的原持有者（登记的主人，或名字的唤醒绑定所在的会话）如果是会话登记里
+    读得到仍在运行的 Claude 会话，就拒绝并报 `holder-still-running`，什么都不改；要接管，先关掉那个会话，或者换名。
+    **这收紧了以前的行为**：以前原会话还开着也能接管。
+  - 登记里没有它（已停止）时照旧接管。读不到登记，或原持有者是 Codex 会话（查不到它是否存活）时也照旧接管，但结果的
+    说明里如实写“未能确认原会话是否仍在运行”，不写成“已停止”。`reactivate` 加 `takeover` 同样适用。
+  - 续聊的 Claude Code 委派接管的是自己已停止的旧会话，不受影响。
 
 ## [0.6.1] - 2026-10-10
 

@@ -1,6 +1,6 @@
 # Todo: holder-still-running
 
-- [ ] Task 1: takeover refuses a running Claude holder (D187)
-- [ ] Checkpoint (report): local validation
+- [x] Task 1: takeover refuses a running Claude holder (D187) — four new tests in `test/identity.test.ts` covering the seven cases, all red first (takeover went through; no caveat note). The live holder is a registry entry under the test sessions' HOME that points at the test process with a real socket (as the presence tests build one). Green: `bridge_register` reads `claudeSessionsOrNull()` once when a takeover resolves an owner or binding conflict with a Claude holder — listed → `holder-still-running: …`, nothing changes (owner, binding and the pending wake job checked after each refusal); registry `null` → note "could not confirm …"; Codex holder → note "cannot confirm …"; `reactivate` + `takeover` refused the same way; the delegation's two calls against its stopped session succeed. `takeover` description, `UPSTREAM.md` row, manifest (73 files), CHANGELOG `[Unreleased]`, collab sentence with its guard test — same commit. `identity.test.ts` 14/14
+- [x] Checkpoint (report): local validation — `scripts/validate.sh` pass on Python 3.9.6, 3.10.7, 3.14.3 with Node v24.18.0 first on PATH: 47 files / 746 tests each, bridge `npm run check` 176 ok
 - [ ] Task 2: PR and CI
 - [ ] Checkpoint (gate): module review

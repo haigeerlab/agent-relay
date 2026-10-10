@@ -1,6 +1,9 @@
 // agent-relay identity-check: a name belongs to the host session that registered it.
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -205,6 +208,142 @@ test("takeover: true with a new wake replaces another session's wake binding and
     assert.deepEqual(noWake.json().wake, { app: "claude", sessionId: "claude-session-c" }, "omitted wake keeps the binding");
   } finally {
     await Promise.all([a.close(), b.close(), c.close(), codex.close()]);
+  }
+});
+
+// agent-relay holder-still-running D187: a registry under the sessions' HOME that lists `sessionId` as a live Claude
+// session (this test process stands in for it), as the presence tests build one.
+async function liveClaude(dir: string, sessionId: string): Promise<() => void> {
+  const sockets = "/tmp/cc-socks-" + process.getuid!();
+  mkdirSync(sockets, { recursive: true, mode: 0o700 });
+  const path = join(sockets, process.pid + "-" + randomBytes(4).toString("hex") + ".sock");
+  const server: Server = createServer(() => {});
+  await new Promise<void>((ok) => server.listen(path, ok));
+  chmodSync(path, 0o600);
+  const procStart = execFileSync("/bin/ps", ["-p", String(process.pid), "-o", "lstart="],
+    { encoding: "utf8", env: { ...process.env, TZ: "UTC", LC_ALL: "C" } }).trim();
+  const root = join(dir, ".claude", "sessions");
+  mkdirSync(root, { recursive: true });
+  writeFileSync(join(root, process.pid + ".json"), JSON.stringify({ pid: process.pid, sessionId, name: "holder", cwd: dir,
+    procStart, messagingSocketPath: path, version: "2.1.295", peerProtocol: 1, status: "idle" }));
+  return () => { server.close(); rmSync(join(root, process.pid + ".json"), { force: true }); };
+}
+
+function facts(dir: string, agent: string) {
+  const store = new BridgeStore(join(dir, "bridge.sqlite"));
+  try {
+    return { host: store.getAgent(agent)?.host?.sessionId ?? null, wake: store.wakes.target(agent)?.sessionId ?? null,
+      jobs: store.wakes.list(agent).map((job) => job.state) };
+  } finally {
+    store.close();
+  }
+}
+
+test("takeover is refused while the name's Claude holder is still running (D187)", { skip: process.platform !== "darwin" }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), "agent-relay-identity-live-holder-"));
+  const a = await session(dir, "claude-session-a");
+  const b = await session(dir, "claude-session-b");
+  const codex = await session(dir, null);
+  let stop = () => {};
+  try {
+    assert.ok((await a.call("bridge_register", { agent: "alice", wake: "auto" })).ok);
+    assert.ok((await codex.call("bridge_register", { agent: "carol" })).ok);
+    assert.ok((await codex.call("bridge_send", { from: "carol", to: "alice", body: "ping" })).ok);
+    const before = facts(dir, "alice");
+    assert.deepEqual(before, { host: "claude-session-a", wake: "claude-session-a", jobs: ["pending"] });
+    stop = await liveClaude(dir, "claude-session-a");
+
+    for (const args of [{ takeover: true }, { takeover: true, wake: "auto" }, { takeover: true, wake: null }]) {
+      const refused = await b.call("bridge_register", { agent: "alice", ...args });
+      assert.equal(refused.ok, false, JSON.stringify(args));
+      assert.match(refused.text, /holder-still-running: "alice"/);
+      assert.match(refused.text, /stop that session first|choose a different name/i);
+      assert.deepEqual(facts(dir, "alice"), before, "a refusal changes nothing");
+    }
+
+    stop();
+    stop = () => {};
+    const moved = await b.call("bridge_register", { agent: "alice", takeover: true, wake: "auto" });
+    assert.ok(moved.ok, moved.text);
+    assert.doesNotMatch(moved.json().notes.join(" "), /confirm/, "a readable registry without the holder needs no caveat");
+    assert.equal(facts(dir, "alice").host, "claude-session-b");
+  } finally {
+    stop();
+    await Promise.all([a.close(), b.close(), codex.close()]);
+  }
+});
+
+test("a live session the name's wake is bound to also blocks takeover of the binding (D187)", { skip: process.platform !== "darwin" }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), "agent-relay-identity-live-binding-"));
+  const a = await session(dir, "claude-session-a");
+  const b = await session(dir, "claude-session-b");
+  let stop = () => {};
+  try {
+    assert.ok((await a.call("bridge_register", { agent: "alice", wake: "auto" })).ok);
+    assert.ok((await b.call("bridge_register", { agent: "alice", takeover: true })).ok, "owner moves, binding stays on a");
+    assert.deepEqual(facts(dir, "alice"), { host: "claude-session-b", wake: "claude-session-a", jobs: [] });
+    stop = await liveClaude(dir, "claude-session-a");
+    const refused = await b.call("bridge_register", { agent: "alice", takeover: true, wake: "auto" });
+    assert.equal(refused.ok, false);
+    assert.match(refused.text, /holder-still-running/);
+    assert.equal(facts(dir, "alice").wake, "claude-session-a");
+  } finally {
+    stop();
+    await Promise.all([a.close(), b.close()]);
+  }
+});
+
+test("takeover says so when it cannot confirm the previous holder stopped (D187)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "agent-relay-identity-unconfirmed-"));
+  const a = await session(dir, "claude-session-a");
+  const b = await session(dir, "claude-session-b");
+  const codex = await session(dir, null);
+  try {
+    assert.ok((await a.call("bridge_register", { agent: "alice" })).ok);
+    assert.ok((await codex.call("bridge_register",
+      { agent: "dave", host: { app: "codex", sessionId: "thread-1" } })).ok);
+
+    const fromCodex = await b.call("bridge_register", { agent: "dave", takeover: true });
+    assert.ok(fromCodex.ok, fromCodex.text);
+    assert.match(fromCodex.json().notes.join(" "), /cannot confirm whether the previous Codex session is still running/);
+
+    mkdirSync(join(dir, ".claude"), { recursive: true });
+    writeFileSync(join(dir, ".claude", "sessions"), "not a directory");
+    const unreadable = await b.call("bridge_register", { agent: "alice", takeover: true });
+    assert.ok(unreadable.ok, unreadable.text);
+    const notes = unreadable.json().notes.join(" ");
+    assert.match(notes, /could not confirm whether the previous Claude session is still running/);
+    assert.doesNotMatch(notes, /stopped|no longer running/);
+  } finally {
+    await Promise.all([a.close(), b.close(), codex.close()]);
+  }
+});
+
+test("reactivate with takeover is refused for a running holder; a delegation takes back its own stopped session's name (D187)", { skip: process.platform !== "darwin" }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), "agent-relay-identity-live-reactivate-"));
+  const a = await session(dir, "claude-session-a");
+  const b = await session(dir, "claude-session-b");
+  let stop = () => {};
+  try {
+    assert.ok((await a.call("bridge_register", { agent: "gone" })).ok);
+    retire(dir, "gone", "tester");
+    stop = await liveClaude(dir, "claude-session-a");
+    const refused = await b.call("bridge_register", { agent: "gone", reactivate: true, takeover: true });
+    assert.equal(refused.ok, false);
+    assert.match(refused.text, /holder-still-running/);
+    stop();
+    stop = () => {};
+
+    // claude-delegation-realhost D182: the resumed turn's two calls, against its own stopped session.
+    assert.ok((await a.call("bridge_register", { agent: "review-12345678", wake: "auto" })).ok);
+    const first = await b.call("bridge_register", { agent: "review-12345678", takeover: true, wake: null });
+    assert.ok(first.ok, first.text);
+    const second = await b.call("bridge_register", { agent: "review-12345678", wake: "auto" });
+    assert.ok(second.ok, second.text);
+    assert.deepEqual(facts(dir, "review-12345678"), { host: "claude-session-b", wake: "claude-session-b", jobs: [] });
+  } finally {
+    stop();
+    await Promise.all([a.close(), b.close()]);
   }
 });
 

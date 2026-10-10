@@ -183,7 +183,7 @@ function main(): void {
           .optional()
           .describe("Skills this agent offers, e.g. ['review','architecture']. Omitted keeps the existing list."),
         takeover: z.boolean().optional().describe(
-          "Move a name registered by or bound to another session to this one. Only after the user agrees."),
+          "Move a name registered by or bound to another session to this one. Only after the user agrees. Refused (holder-still-running) while that session is a Claude session still running: stop it first."),
         reactivate: z.boolean().optional().describe(
           "Bring back a retired name. Only after the user agrees; the result then says reactivated: true."),
         host: z.object({ app: z.literal("codex"), sessionId: z.string().min(1).max(128) }).optional().describe(
@@ -244,7 +244,27 @@ function main(): void {
             "Choose a different name, or pass takeover: true only after the user agrees to move it to this session." + retired,
         );
       }
-      if (takeover && (ownerConflict || bindingConflict)) notes.push(`"${agent}" was taken over from another session.`);
+      if (takeover && (ownerConflict || bindingConflict)) {
+        // agent-relay holder-still-running D187: a name is never taken from a Claude session that is still running;
+        // when that cannot be checked (a Codex holder, or no readable registry) the takeover goes ahead and says so.
+        const holders = [ownerConflict ? owner! : null, bindingConflict ? current! : null]
+          .filter((holder): holder is WakeTarget => holder !== null);
+        const running = holders.some((holder) => holder.app === "claude") ? await claudeSessionsOrNull() : [];
+        for (const holder of holders) {
+          if (holder.app !== "claude") continue;
+          if (running?.some((s) => s.sessionId === holder.sessionId || s.bridgeSessionId === holder.sessionId)) {
+            throw new Error(
+              `holder-still-running: "${agent}" is held by a Claude session that is still running. ` +
+                "Stop that session first, then register again with takeover: true, or choose a different name.",
+            );
+          }
+        }
+        notes.push(`"${agent}" was taken over from another session.`);
+        if (running === null) notes.push("The bridge could not confirm whether the previous Claude session is still running.");
+        if (holders.some((holder) => holder.app === "codex")) {
+          notes.push("The bridge cannot confirm whether the previous Codex session is still running.");
+        }
+      }
       if (wake !== undefined) store.wakes.bind(agent, target ?? null, { replace: !!takeover && bindingConflict });
       const registered = store.register(agent, capabilities, takeover && ownerConflict ? host : host ?? undefined);
       caller.prove(agent);
