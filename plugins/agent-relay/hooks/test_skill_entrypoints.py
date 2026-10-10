@@ -158,6 +158,9 @@ class ExactArgumentTests(unittest.TestCase):
         text = COLLAB.read_text(encoding="utf-8")
         self.assertIn("名字被一个已停止的会话占着时，默认建议换一个新名字", text)
         self.assertIn("只有用户就是要这个原名", text)
+        # holder-still-running D187.
+        self.assertIn("`holder-still-running`", text)
+        self.assertIn("先关掉那个会话", text)
 
 
     def test_readme_and_changelog_say_how_the_claude_side_is_updated(self):
