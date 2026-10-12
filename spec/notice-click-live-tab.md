@@ -18,12 +18,17 @@ Readers: the user; the round-2 coordinator (reviews, re-checks after release).
   | Terminal window | tty | busy | processes | note |
   |---|---|---|---|---|
   | 312683 | /dev/ttys004 | true | 4 | live |
-  | 316414 | /dev/ttys008 | false | 0 | "[进程已完成]", opened earlier on ttys007 |
+  | 316414 | /dev/ttys008 | false | 0 | "[进程已完成]" |
   | 316500 | /dev/ttys008 | true | 5 | the target (live claude session), minimized |
 
-  `ps -t ttys007` now shows iTerm's login: the ended tab's old tty was reused by the system, and Terminal reports
-  ttys008 for it. So the tty of an ended Terminal tab cannot be trusted. The click restored 316414 and left 316500
-  minimized.
+  The click restored 316414 and left 316500 minimized.
+- **Mechanism (measured while building, 2026-10-12):** an ended Terminal tab keeps reporting its own tty; the system
+  frees that tty and hands it to the next session, so two tabs report the same one. Reproduced on demand: a window
+  whose script exits (316613, ended, ttys002), then a window that keeps running (316615) — it got ttys002.
+  **The first reading was wrong** (the coordinator's and mine, written in this spec as merged in #92): that 316414
+  had been opened on ttys007 and Terminal then reported ttys008 for it, so "the tty of an ended tab cannot be
+  trusted". 316414 was on ttys008 itself; "Last login on ttys007" in its window is the previous login's line. The
+  reported tty is right — it is simply no longer that tab's alone.
 - The same loop with `and (count of processes of t) > 0` matches only 316500 (measured here, read-only).
 - Not introduced by 0.6.4: the 0.6.3 script picks the same wrong tab; no earlier check had a duplicate tty.
 - iTerm: its `session` class has `tty`, `is processing` and `is at shell prompt`, no process list. Both profiles on
@@ -42,12 +47,21 @@ Readers: the user; the round-2 coordinator (reviews, re-checks after release).
 4. **Unchanged security:** the script stays fixed and carries only the format-checked tty; program paths are exactly
    `/usr/bin/open` and `/usr/bin/osascript`; a click only brings a window forward. No new permission: `processes` is
    read through the Automation grant for Terminal that 0.6.3 already asks for (the read worked here without a prompt).
+4a. **Added while building (the user, 2026-10-12: "iTerm 也一起改"):** the target window is pinned by its id before
+   anything moves. Found in this module's first real check: `w` in `repeat with w in windows` is "window N", and
+   restoring a minimized window reorders the windows, so the statements after the restore (`set index`,
+   `set frontmost`; iTerm's `select w`) acted on whichever window was then in that position — with three Terminal
+   windows the ended one came to the front although the live one had been matched and restored. Present since 0.6.4
+   (#91), whose checks had two windows. Both fixed scripts now run `set x to window id (id of w)` right after the
+   match and use `x` afterwards. The command still carries only the tty. This is the only iTerm change; assumption 3
+   (no process condition for iTerm) stands.
 5. Vendored-bridge change: `UPSTREAM.md`, manifest, CHANGELOG `[Unreleased]` ("takes effect after
    `upgrade --confirm`"). Interface stays 2.0, mailbox schema 5, delegation store schema 3.
 
 ## Decisions
 
-- **D191 a clicked terminal notice acts only on a tab that still has processes.** Assumptions 1–3.
+- **D191 a clicked terminal notice acts only on a tab that still has processes, and on the window it matched.**
+  Assumptions 1–3 and 4a.
 
 ## Requirements
 

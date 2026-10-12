@@ -82,13 +82,17 @@ function selectTab(bundle: typeof TERMINAL | typeof ITERM, tty: string): string 
       // The tab is selected before the window comes back from the Dock: restoring first left iTerm on its old tab.
       // Only a minimized window is restored: setting `miniaturized` on one that is not left `frontmost` without
       // effect (measured 2026-10-12).
-      `if tty of t is "/dev/${tty}" then`, "set selected of t to true",
-      "if miniaturized of w then set miniaturized of w to false",
-      "set index of w to 1", "set frontmost of w to true", "return", "end if",
+      // notice-click-live-tab D191: an ended tab can report the tty of a live session (its own was reused; measured
+      // 2026-10-12), and the first match wins. Only a tab that still has processes is the session.
+      `if tty of t is "/dev/${tty}" and (count of processes of t) > 0 then`, // `w` is "window N" and restoring a window reorders them: pin the target by its id before anything moves
+      // (measured 2026-10-12 with three windows: after the restore, `set index`/`set frontmost` hit another window).
+      "set x to window id (id of w)", "set selected of t to true",
+      "if miniaturized of x then set miniaturized of x to false",
+      "set index of x to 1", "set frontmost of x to true", "return", "end if",
       "end repeat", "end repeat", "end tell"]
     : ['tell application "iTerm2"', "repeat with w in windows", "repeat with t in tabs of w",
-      "repeat with s in sessions of t", `if tty of s is "/dev/${tty}" then`, "select t", "select s",
-      "if miniaturized of w then set miniaturized of w to false", "select w", "return", "end if",
+      "repeat with s in sessions of t", `if tty of s is "/dev/${tty}" then`, "set x to window id (id of w)", "select t", "select s",
+      "if miniaturized of x then set miniaturized of x to false", "select x", "return", "end if",
       "end repeat", "end repeat", "end repeat", "end tell"];
   return `/usr/bin/open -b ${bundle}; /usr/bin/osascript ${quoted(script)}`;
 }

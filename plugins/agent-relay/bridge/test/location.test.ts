@@ -65,10 +65,16 @@ test("a click activates an app, or runs one fixed command that carries only a bu
     // notice-click-focus D190: with several windows the raised window must also become the key window.
     // notice-click-focus (minimized window, the user 2026-10-12): a minimized target is restored first, in both apps.
     // Measured 2026-10-12: restoring before selecting left iTerm on its old tab, so the tab is selected first.
+    // notice-click-live-tab D191: an ended Terminal tab can report a live session's tty (measured 2026-10-12), so
+    // only a tab that still has processes matches. iTerm has no process list in its dictionary and is unchanged.
     if (bundle === TERMINAL) {
-      assert.match(command, /then' -e 'set selected of t to true' -e 'if miniaturized of w then set miniaturized of w to false' -e 'set index of w to 1' -e 'set frontmost of w to true' -e 'return'/);
+      assert.ok(command.includes(`-e 'if tty of t is "/dev/ttys003" and (count of processes of t) > 0 then' -e 'set x to window id`), command);
+      // The loop variable is "window N": restoring a window reorders them, so the target is pinned by its id first
+      // (measured 2026-10-12: with three windows the statements after the restore hit another window).
+      assert.match(command, /then' -e 'set x to window id \(id of w\)' -e 'set selected of t to true' -e 'if miniaturized of x then set miniaturized of x to false' -e 'set index of x to 1' -e 'set frontmost of x to true' -e 'return'/);
     } else {
-      assert.match(command, /then' -e 'select t' -e 'select s' -e 'if miniaturized of w then set miniaturized of w to false' -e 'select w' -e 'return'/);
+      assert.ok(command.includes(`-e 'if tty of s is "/dev/ttys003" then' -e 'set x to window id`), command);
+      assert.match(command, /then' -e 'set x to window id \(id of w\)' -e 'select t' -e 'select s' -e 'if miniaturized of x then set miniaturized of x to false' -e 'select x' -e 'return'/);
     }
     assert.doesNotMatch(command, /whatever|\$\(id\)/, "the app's display name never enters the command");
     // Program paths: exactly these two, nothing else that looks like a path except the tty device.
