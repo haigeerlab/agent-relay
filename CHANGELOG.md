@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [0.6.4] - 2026-10-12
+
+接口仍为 **2.0**（`interface.json` 不变，Spec Guard 0.56.0 或更新），信箱 schema 仍为 5，委派库仍为 schema 3。这一版只修一件事：
+点击通知后键盘焦点要落在目标窗口。升级前先看这两点：
+
+- **bridge 有改动，要 `upgrade --confirm` 升级运行时**：这一版全部在 bridge 里，不升级运行时就没有任何变化。
+- **通知副标题的顺序变了**：位置排在最前（`Terminal ttys004 · #编号 · …`），因为 macOS 的横幅只显示大约四十个字符。
+
 - **点击通知后键盘焦点落在目标窗口**（模块 `notice-click-focus`，D190，第二轮联调对 0.6.3 的真实验收）：bridge 改动，
   **要用 `upgrade --confirm` 升级运行时才生效**。
   - Terminal 开着多个窗口时，点击通知以前只把目标窗口排到最前，键盘焦点还留在原来的窗口，接着打字会进到别的窗口。
@@ -10,6 +18,32 @@
     四十个字符，排在末尾时看不到。
   - 目标窗口处于最小化时，点击通知先把它从 Dock 里恢复出来，再设为活动窗口并切到对应的标签页（Terminal 和 iTerm 的固定
     脚本各加一句 `if miniaturized of w then set miniaturized of w to false`，命令里仍只有 tty）。
+
+以上来自模块 `notice-click-focus` 的 PR #89，spec 与计划见 #88；经第二轮联调审查。
+
+### 从 0.6.3 升级
+
+1. 两个宿主都更新插件（详见 README“更新插件”）：Claude Code 从 GitHub 装的，先 `claude plugin marketplace update
+   agent-relay-marketplace`，再 `claude plugin update --scope user agent-relay@agent-relay-marketplace`；Codex 把
+   `~/.codex/config.toml` 里的 `ref` 改成 `"v0.6.4"` 后 `codex plugin marketplace upgrade`、`codex plugin add
+   agent-relay@agent-relay-marketplace`；从本地克隆装的先 `git -C <克隆> pull --ff-only`，Codex 再 `codex plugin add`。
+2. **升级运行时**：关闭所有使用信箱的会话或只结束 bridge（见 README“升级运行时”），确认 `pgrep -fl
+   "agent-relay/runtime/dist/server.js"` 没有输出，再执行 `python3 -B <插件目录>/hooks/native_collaboration_runtime.py
+   upgrade --confirm`，输出应为 `"state": "upgraded"`。
+3. 新开 Claude Code 会话；Codex 用 ⌘Q 完全退出 ChatGPT 应用再打开。
+
+信箱和委派库的 schema 都没变，不需要迁移；“自动化”权限也不用重新授予。
+
+### 想退回 0.6.3
+
+关掉所有会话后 `rollback --confirm` 退回运行时，并把两个宿主的插件退回 v0.6.3，然后新开会话。
+
+### 已知问题
+
+- 目标窗口处于最小化时，点击通知不会把它从 Dock 里恢复出来。
+- Terminal“一个窗口两个标签页”的情况在这一版没有重新实测（新加的那句对单窗口等于无操作，0.6.3 开发时这个场景通过过）；
+  待真实宿主验收时核对。
+- 0.6.3 及更早版本列出的已知问题仍然存在。
 
 ## [0.6.3] - 2026-10-10
 

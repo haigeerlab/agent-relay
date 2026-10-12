@@ -7,6 +7,7 @@
 - [x] Task 3: is the place visible in the banner? — the user's screenshot of the reproduction notice: the banner showed `#4 · 测试-terminal · terminal-test in termi…` and cut the place off even on that short subtitle (about 40 characters are shown). Red tests first, then the place moved to the front for both notice kinds (`Terminal ttys004 · #4 · …`, `Codex app · #7 · …`); the user confirmed the next banner started with `Terminal ttys004`
 - [x] Task 4: bridge bookkeeping — `UPSTREAM.md` row, manifest, CHANGELOG `[Unreleased]` (needs `upgrade --confirm`); README unchanged (it does not spell out the subtitle order)
 - [x] Checkpoint (report): local validation — `scripts/validate.sh` pass on Python 3.9.6, 3.10.7, 3.14.3 with Node v24.18.0 first on PATH: 47 files / 770 tests each, bridge `npm run check` 186 ok
+<<<<<<< HEAD
 - [ ] Task 5: PR and CI
 - [ ] Checkpoint (gate): module review
 
@@ -16,3 +17,7 @@ Added after the module review (the user, 2026-10-12: "纳入 0.6.4"): restore a 
   - Second variant (unconditional restore): iTerm minimized → restored, active, claude tab selected. Terminal two windows, not minimized, the other active → the window was raised (first in the list) but **not** the key window; same again on a retry where Terminal did come to the front. Made the restore conditional on `miniaturized of w`.
   - Final script: Terminal two windows not minimized → the claude window became the key window; Terminal minimized → restored and key; iTerm minimized with another tab current → restored, key, claude tab selected. iTerm not minimized is the #89 path (the new statement is a no-op there) and was not re-run.
   - CHANGELOG moves the item from known issues to the change; spec assumption 4a records the order and the condition. validate.sh pass on Python 3.9.6, 3.10.7, 3.14.3
+=======
+- [x] Task 5: PR and CI — #89 (ce02f95), the four CI jobs green
+- [x] Checkpoint (gate): module review — the round-2 coordinator reviewed #89 (no remarks; accepted that the Terminal two-tab case was not re-run, to be recorded as such; agreed the minimized-window case is a known issue only); the user merged #89 (98da676)
+>>>>>>> origin/main
