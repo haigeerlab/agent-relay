@@ -184,7 +184,7 @@ test("the approval notice names the session's place, and a notice already shown 
   await d.checkApprovals();
   await d.checkApprovals();
   assert.equal(lines().length, 1);
-  assert.match(lines()[0], /· cc · fix gate in agent-relay · Terminal ttys003 \|/);
+  assert.match(lines()[0], /\| Terminal ttys003 · #\d+ · cc · fix gate in agent-relay \|/);
   assert.deepEqual(located, ["host-cc"], "looked up once");
   await d.close();
   store.close();

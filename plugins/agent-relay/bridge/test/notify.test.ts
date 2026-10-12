@@ -245,20 +245,21 @@ test("a notice names the session, its project and the place; without previews on
   const approval = { kind: "approval" as const, messageId: 7, agent: "alice", why: "waiting for your approval in its Claude session" };
   const tab = { place: { kind: "terminal" as const, tty: "ttys003", bundle: "com.apple.Terminal", app: "Terminal" },
     session: "fix the\ngate", project: "agent-relay" };
+  // notice-click-focus D190: the banner shows about 40 characters of the subtitle, so the place comes first.
   assert.equal(noticeFields({ ...approval, where: tab }, { preview: true }).subtitle,
-    "#7 · alice · fix the gate in agent-relay · Terminal ttys003");
+    "Terminal ttys003 · #7 · alice · fix the gate in agent-relay");
   assert.equal(noticeFields({ ...approval, where: { place: { kind: "desktop" }, session: "你好" } }, { preview: true }).subtitle,
-    "#7 · alice · 你好 · Claude desktop app");
+    "Claude desktop app · #7 · alice · 你好");
   assert.equal(noticeFields({ ...approval, where: { place: { kind: "background", id: "1a2b3c4d" }, project: "p" } },
-    { preview: true }).subtitle, "#7 · alice · p · background session · claude attach 1a2b3c4d");
+    { preview: true }).subtitle, "background session · claude attach 1a2b3c4d · #7 · alice · p");
   assert.equal(noticeFields({ ...approval, where: { place: { kind: "unknown" } } }, { preview: true }).subtitle, "#7 · alice");
   assert.equal(noticeFields({ ...approval, where: tab }, { preview: false }).subtitle, "terminal", "no name, no tty");
   assert.equal(noticeFields({ ...approval, where: { ...tab, session: "x".repeat(80) } }, { preview: true }).subtitle,
-    `#7 · alice · ${"x".repeat(40)}… in agent-relay · Terminal ttys003`);
+    `Terminal ttys003 · #7 · alice · ${"x".repeat(40)}… in agent-relay`);
 
   const codex = { ...base, body: "hello" };
   assert.equal(noticeFields({ ...codex, where: { place: { kind: "codex-app" } } }, { preview: true }).subtitle,
-    "#7 · cx · Codex is not running; the message waits · Codex app");
+    "Codex app · #7 · cx · Codex is not running; the message waits");
   assert.equal(noticeFields({ ...codex, where: { place: { kind: "codex" } } }, { preview: true }).subtitle,
     "#7 · cx · Codex is not running; the message waits", "the title already says Codex");
   assert.equal(noticeFields({ ...codex, where: { place: { kind: "codex-app" } } }, { preview: false }).subtitle, "Codex app");
@@ -270,7 +271,7 @@ test("a busy Codex app is named as the place; an offline Codex is not (D188)", a
   busy.store.database.prepare("UPDATE wake_jobs SET created_at = ? WHERE message_id = ?")
     .run(Date.now() - BUSY_NOTIFY_AFTER_MS - 1000, message.id);
   await dispatcher(busy.store, busy.log, [{ state: "pending", detail: "Codex is working", reason: "busy" }]).flush();
-  assert.match(busy.lines()[0], /Codex has been busy for ten minutes · Codex app \|/);
+  assert.match(busy.lines()[0], /\| Codex app · #\d+ · cx · Codex has been busy for ten minutes \|/);
   const offline = setup();
   offline.store.send({ fromAgent: "sender", toAgent: "cx", body: "hello" });
   await dispatcher(offline.store, offline.log, [{ state: "pending", detail: "offline", reason: "offline" }]).flush();

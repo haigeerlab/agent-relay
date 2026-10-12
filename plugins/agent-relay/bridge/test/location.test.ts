@@ -62,6 +62,10 @@ test("a click activates an app, or runs one fixed command that carries only a bu
     assert.ok(command.startsWith(`/usr/bin/open -b ${bundle}; /usr/bin/osascript -e '`), command);
     assert.match(command, new RegExp(`tell application "${application}"`));
     assert.match(command, /"\/dev\/ttys003"/);
+    // notice-click-focus D190: with several windows the raised window must also become the key window.
+    if (bundle === TERMINAL) {
+      assert.match(command, /set index of w to 1' -e 'set frontmost of w to true' -e 'return'/);
+    }
     assert.doesNotMatch(command, /whatever|\$\(id\)/, "the app's display name never enters the command");
     // Program paths: exactly these two, nothing else that looks like a path except the tty device.
     assert.deepEqual([...new Set(command.match(/\/[A-Za-z0-9_./-]+/g))].sort(), ["/dev/ttys003", "/usr/bin/open", "/usr/bin/osascript"]);
