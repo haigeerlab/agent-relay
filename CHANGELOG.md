@@ -17,9 +17,9 @@
   - 通知副标题里的位置挪到了最前（`Terminal ttys004 · #编号 · …`、`Codex app · #编号 · …`）：macOS 的横幅只显示大约
     四十个字符，排在末尾时看不到。
   - 目标窗口处于最小化时，点击通知先把它从 Dock 里恢复出来，再设为活动窗口并切到对应的标签页（Terminal 和 iTerm 的固定
-    脚本各加一句 `if miniaturized of w then set miniaturized of w to false`，命令里仍只有 tty）。
+    脚本各加一句 `if miniaturized of w then set miniaturized of w to false`，命令里仍只有 tty；#91）。
 
-以上来自模块 `notice-click-focus` 的 PR #89，spec 与计划见 #88；经第二轮联调审查。
+以上来自模块 `notice-click-focus` 的 PR #89 和 #91，spec 与计划见 #88；经第二轮联调审查。
 
 ### 从 0.6.3 升级
 
@@ -40,7 +40,6 @@
 
 ### 已知问题
 
-- 目标窗口处于最小化时，点击通知不会把它从 Dock 里恢复出来。
 - Terminal“一个窗口两个标签页”的情况在这一版没有重新实测（新加的那句对单窗口等于无操作，0.6.3 开发时这个场景通过过）；
   待真实宿主验收时核对。
 - 0.6.3 及更早版本列出的已知问题仍然存在。
