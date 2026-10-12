@@ -8,7 +8,8 @@
     现在固定脚本在排到最前之后再把它设为活动窗口；iTerm 本来就会这样，没有改。
   - 通知副标题里的位置挪到了最前（`Terminal ttys004 · #编号 · …`、`Codex app · #编号 · …`）：macOS 的横幅只显示大约
     四十个字符，排在末尾时看不到。
-  - 已知问题：目标窗口处于最小化时，点击通知不会把它从 Dock 里恢复出来。
+  - 目标窗口处于最小化时，点击通知先把它从 Dock 里恢复出来，再设为活动窗口并切到对应的标签页（Terminal 和 iTerm 的固定
+    脚本各加一句 `if miniaturized of w then set miniaturized of w to false`，命令里仍只有 tty）。
 
 ## [0.6.3] - 2026-10-10
 
