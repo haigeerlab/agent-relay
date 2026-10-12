@@ -76,7 +76,10 @@ const quoted = (lines: string[]) => lines.map((line) => `-e '${line}'`).join(" "
 function selectTab(bundle: typeof TERMINAL | typeof ITERM, tty: string): string {
   const script = bundle === TERMINAL
     ? ['tell application "Terminal"', "repeat with w in windows", "repeat with t in tabs of w",
-      `if tty of t is "/dev/${tty}" then`, "set selected of t to true", "set index of w to 1", "return", "end if",
+      // notice-click-focus D190: `set index` only orders the window; with several windows it must also become the
+      // key window, or what the user types next goes to the previously active one (measured 2026-10-12).
+      `if tty of t is "/dev/${tty}" then`, "set selected of t to true", "set index of w to 1",
+      "set frontmost of w to true", "return", "end if",
       "end repeat", "end repeat", "end tell"]
     : ['tell application "iTerm2"', "repeat with w in windows", "repeat with t in tabs of w",
       "repeat with s in sessions of t", `if tty of s is "/dev/${tty}" then`, "select w", "select t", "select s",

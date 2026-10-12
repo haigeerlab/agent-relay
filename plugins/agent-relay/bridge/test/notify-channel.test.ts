@@ -140,6 +140,6 @@ test("the osascript fallback shows the place in its text and has no click action
     where: { place: { kind: "desktop" }, session: "你好" } }, {}, { candidates: [join(dir, "missing")], osascript: osa }), true);
   assert.ok(await settled(`${osa}.args`));
   const args = readFileSync(`${osa}.args`, "utf8");
-  assert.match(args, /#9 · alice · 你好 · Claude desktop app/);
+  assert.match(args, /Claude desktop app · #9 · alice · 你好/);
   assert.doesNotMatch(args, /-activate|-execute|com\.anthropic/);
 });

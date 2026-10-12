@@ -1,9 +1,11 @@
 # Todo: notice-click-focus
 
-- [ ] Task 1: reproduce, then fix Terminal (ask the user before each notice)
-- [ ] Task 2: iTerm with several windows
-- [ ] Task 3: is the place visible in the banner?
-- [ ] Task 4: bridge bookkeeping
-- [ ] Checkpoint (report): local validation
+- [x] Task 1: reproduce, then fix Terminal — reproduced 2026-10-12 with the 0.6.3 script (two Terminal windows, the new one active, Finder in front; test notice built by the worktree's code for the live cli session on ttys004): after the click the user's typing went to the new window. Red test first (`set index of w to 1` must be followed by `set frontmost of w to true`); green in `selectTab`. Same setup with the new script: typing went to the ttys004 window, and the subtitle now starts with `Terminal ttys004`
+  - The single-window, two-tab Terminal case was **not re-run**: desktop control grants terminals click-only access, so I could not open a second tab myself, and the user's ⌘T did not reach Terminal (the Claude app was in front). The added statement comes after the tab selection and changes nothing before it; the two-tab case passed with the 0.6.3 script in #84 and the iTerm two-tab case passed today with the unchanged iTerm script. Recorded as a deviation from the spec's requirement 2 for the reviewer and the user.
+  - Found on the way: a minimized target window is not restored by the click (Terminal, all windows minimized: another window became active). Out of this module's two points; written into the CHANGELOG's known issues, not changed.
+- [x] Task 2: iTerm with several windows — checked with the unchanged iTerm script, me driving the windows and the user clicking the banner (the banner belongs to Notification Center, which desktop control cannot see or click): two iTerm windows, the new one active, Finder in front → after the click the ttys000 (claude) window was the main window (`app_list_windows`: `is_main`). One window with two tabs, the other tab active → the claude tab was selected after the click. iTerm's `select w` already activates the window: nothing changed
+- [x] Task 3: is the place visible in the banner? — the user's screenshot of the reproduction notice: the banner showed `#4 · 测试-terminal · terminal-test in termi…` and cut the place off even on that short subtitle (about 40 characters are shown). Red tests first, then the place moved to the front for both notice kinds (`Terminal ttys004 · #4 · …`, `Codex app · #7 · …`); the user confirmed the next banner started with `Terminal ttys004`
+- [x] Task 4: bridge bookkeeping — `UPSTREAM.md` row, manifest, CHANGELOG `[Unreleased]` (needs `upgrade --confirm`); README unchanged (it does not spell out the subtitle order)
+- [x] Checkpoint (report): local validation — `scripts/validate.sh` pass on Python 3.9.6, 3.10.7, 3.14.3 with Node v24.18.0 first on PATH: 47 files / 770 tests each, bridge `npm run check` 186 ok
 - [ ] Task 5: PR and CI
 - [ ] Checkpoint (gate): module review

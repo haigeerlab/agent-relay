@@ -49,25 +49,26 @@ export function noticeFields(notice: UndeliveredNotice, { preview }: { preview: 
   const place = notice.where?.place;
   if (notice.kind === "approval") {
     const agent = oneLine(notice.agent, NAME_CHARS);
-    // notice-location D188: "<session> in <project> · <place>"; without previews only the place category.
+    // notice-location D188: "<place> · #id · agent · <session> in <project>"; without previews only the place
+    // category. notice-click-focus D190: the banner shows about forty characters, so the place comes first.
     const session = oneLine(notice.where?.session ?? "", NAME_CHARS);
     const project = oneLine(notice.where?.project ?? "", NAME_CHARS);
     // The label may carry an app's display name: cleaned and cut like every other shown name.
-    const located = [session && project ? `${session} in ${project}` : session || project,
-      place ? oneLine(placeLabel(place), REASON_CHARS) : ""]
-      .filter(Boolean);
+    const located = place ? oneLine(placeLabel(place), REASON_CHARS) : "";
+    const named = session && project ? `${session} in ${project}` : session || project;
     return { title: preview ? `agent-relay · ${agent} waits for you` : "agent-relay",
-      subtitle: preview ? [`#${notice.messageId}`, agent, ...located].join(" · ") : place ? placeCategory(place) : "",
+      subtitle: preview ? [located, `#${notice.messageId}`, agent, named].filter(Boolean).join(" · ")
+        : place ? placeCategory(place) : "",
       body: noticeText(notice) };
   }
-  // The title already says Codex; only a confirmed app is worth a word more.
-  const app = place?.kind === "codex-app" ? placeLabel(place) : "";
-  if (!preview) return { title: "agent-relay", subtitle: app, body: noticeText(notice) };
-  const subtitle = `#${notice.messageId} · ${oneLine(notice.agent, NAME_CHARS)}`;
-  if (notice.body === undefined) return { title: "agent-relay", subtitle: app ? `${subtitle} · ${app}` : subtitle, body: noticeText(notice) };
+  // The title already says Codex; only a confirmed app is worth a word more, and it comes first (D190).
+  const app = place?.kind === "codex-app" ? placeLabel(place) + " · " : "";
+  if (!preview) return { title: "agent-relay", subtitle: app.replace(/ · $/, ""), body: noticeText(notice) };
+  const subtitle = `${app}#${notice.messageId} · ${oneLine(notice.agent, NAME_CHARS)}`;
+  if (notice.body === undefined) return { title: "agent-relay", subtitle, body: noticeText(notice) };
   return {
     title: `agent-relay · ${oneLine(notice.fromAgent ?? "a peer", NAME_CHARS) || "a peer"} → Codex`,
-    subtitle: `${subtitle} · ${oneLine(notice.why, REASON_CHARS)}${app ? ` · ${app}` : ""}`,
+    subtitle: `${subtitle} · ${oneLine(notice.why, REASON_CHARS)}`,
     body: oneLine(notice.body, PREVIEW_CHARS) || "(empty message)",
   };
 }
