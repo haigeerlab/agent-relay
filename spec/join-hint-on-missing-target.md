@@ -42,6 +42,8 @@ Readers: the user; the round-2 coordinator (reviews, re-checks after release).
    letters, digits and hyphens, for example `live-saas-fe`) before showing the sentence. What the user typed (often
    a session title with Chinese and symbols) is never passed to the selector or put on a command line because of
    this module: the selector's input is unchanged and has no name field.
+   (Clarified while building: the existing read-only `session_delegation_control.py resolve --name '<名字>'` step,
+   with its quoting rule, is unchanged and still receives the user's wording; this module adds no such command.)
 5. **Not built:** listing the sessions of Codex or Claude that have not joined. That would make the mail layer read
    the hosts' session lists, against "the user creates the session and joins it with one sentence".
 6. **Release:** hooks and skills only. 0.6.6; takes effect after updating the plugin and opening a new session. No

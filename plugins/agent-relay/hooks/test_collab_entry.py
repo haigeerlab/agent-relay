@@ -3,6 +3,8 @@
 from pathlib import Path
 import unittest
 
+from session_routing import JOIN_SENTENCE
+
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 SKILL = PLUGIN_ROOT / "skills" / "collab" / "SKILL.md"
@@ -60,6 +62,8 @@ class CollabEntryContractTest(unittest.TestCase):
 
     def test_directory_and_name_resolution_are_truthful(self):
         text = self.skill_text()
+        # join-hint-on-missing-target D192: zero matches gives the sentence that joins the target.
+        self.assertIn("零匹配说明目标尚未加入，并给出这句话让用户粘贴到目标会话：“" + JOIN_SENTENCE + "”", text)
         for phrase in (
             "[Claude Code]", "[Codex]", "registered", "wakeable", "wake-held",
             "unread", "不等于在线", "唯一匹配才发送", "零匹配", "多匹配",

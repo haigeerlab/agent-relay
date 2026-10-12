@@ -23,7 +23,7 @@ description: 按会话名称在本机 Claude Code／Codex 会话间发现、发�
 `it's mine`，就写成 `--name 'it'\''s mine'`。
 用户按名字联系一个会话、而 `bridge_agents` 里没有完全同名的身份时，先用
 `python3 -B "$ROOT/hooks/session_delegation_control.py" resolve --name '<名字>'`（只读）查用户创建委派时起的名字：
-唯一匹配就用返回的 `agent` 作为目标，多个时只问一次最小区别，零个按“目标尚未加入”处理：
+唯一匹配就用返回的 `agent` 作为目标，多个时只问一次最小区别，零个按“目标尚未加入”处理（`targetResolution` 用 `missing`，selector 会在 `nextStep` 里给出加入的那句话）：
 
 ```text
 python3 -B ${CLAUDE_PLUGIN_ROOT}/hooks/session_routing.py select
@@ -71,7 +71,11 @@ route JSON、argv、日志或任何新 transcript。`originHost` 来自当前宿
 - `dispatch`：只在返回的一个 transport 投递一次；
 - `observe`：此前投递已被接受，只读回结果，不再次发送；
 - `reconcile`：只对账同一原生操作或幂等键；
-- `stop`：报告 `routeReason` 和一条最小下一步。
+- `stop`：报告 `routeReason` 和一条最小下一步。结果里带 `nextStep` 时（目标查不到或还没加入本机联调），把它原样
+  告诉用户：让用户把“加入本机联调并允许唤醒，名字叫 <名字>”这句话粘贴到目标会话里。其中的 `<名字>` 由你自己起
+  一个联调名换上再给用户（只用英文字母、数字和连字符，简短好认，例如 `live-saas-fe`），不要照抄用户给的标题；
+  这一步不新增任何带用户文字的命令：selector 不接收名字，用户给的标题只出现在前面那条只读的 `resolve --name`
+  里（按上面的引用规则）。对方加入后，用户再说一次要联系它即可。
 
 `nativeDispatch=unknown` 时只对账，绝对不得 fallback。同宿主 capability 明确 unavailable 时也不能
 自行换路；只有 selector 在已有授权、bridge ready、两端唯一 joined 都成立后明确返回

@@ -34,6 +34,18 @@ WAKE_STATES = frozenset(("admitted", "held", "unavailable", "not-applicable", "u
 RECEIPT_STATES = frozenset(("delivered", "read", "acknowledged", "unavailable", "unknown"))
 RESPONSE_STATES = frozenset(("pending", "received", "cancelled", "failed", "unknown"))
 
+# join-hint-on-missing-target D192: the one sentence a user pastes into a session that has not joined. The skills
+# quote it word for word (tests compare them). `<名字>` is a placeholder: the asking session picks the name; the
+# selector takes none, so what the user typed for the target never reaches a command through this.
+JOIN_SENTENCE = "加入本机联调并允许唤醒，名字叫 <名字>"
+JOIN_HINT = (
+    "目标会话还没有加入本机联调。请用户在那个会话里说一句：“" + JOIN_SENTENCE + "”。"
+    "把 <名字> 换成你起的联调名（只用英文字母、数字和连字符，例如 review-codex），不要照抄用户给的标题。"
+)
+_JOIN_HINT_REASONS = frozenset((
+    "target-missing", "target-not-joined", "native-unavailable-target-not-joined",
+))
+
 _ROUTE_FIELDS = frozenset((
     "originHost", "targetHost", "authorizationState", "targetResolution",
     "nativeCapability", "nativeDispatch", "bridgeState", "originJoined",
@@ -99,6 +111,8 @@ def _decision(action: str, transport: str, reason: str,
     }
     if fallback_from is not None:
         result["fallbackFrom"] = fallback_from
+    if action == "stop" and reason in _JOIN_HINT_REASONS:
+        result["nextStep"] = JOIN_HINT
     return result
 
 

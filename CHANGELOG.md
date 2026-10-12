@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+- **联系一个还没加入联调的会话时，直接给出加入的那句话**（模块 `join-hint-on-missing-target`，D192，用户 2026-10-12 提出）：
+  只改插件的 hooks 和技能说明，**更新插件并新开会话即生效，不需要 `upgrade --confirm`**。
+  - 以前按名字联系一个会话、而对方没加入本机联调时，选路器只返回 `stop` 和原因（`target-missing` 等），流程到此
+    结束，不告诉用户下一步。现在这三种停止结果带上 `nextStep`：`target-missing`、`target-not-joined`、
+    `native-unavailable-target-not-joined`。其他结果不变。
+  - `nextStep` 里是一句让用户粘贴到目标会话的话：“加入本机联调并允许唤醒，名字叫 <名字>”。Claude Code 和 Codex 用
+    同一句。`<名字>` 由提问的会话自己起一个联调名换上（只用英文字母、数字和连字符），不照抄用户给的标题。
+  - 选路器的输入没有变，不接收名字；这一步不新增任何带用户文字的命令。不会去读宿主的会话列表。
+  - 选路器的命令行输出里，这句中文是 JSON 转义形式（`\uXXXX`），在任何终端编码下都能输出，读的一方按 JSON 解析即可。
+
 ## [0.6.5] - 2026-10-12
 
 接口仍为 **2.0**（`interface.json` 不变，Spec Guard 0.56.0 或更新），信箱 schema 仍为 5，委派库仍为 schema 3。这一版只修
