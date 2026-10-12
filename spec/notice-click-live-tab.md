@@ -18,12 +18,17 @@ Readers: the user; the round-2 coordinator (reviews, re-checks after release).
   | Terminal window | tty | busy | processes | note |
   |---|---|---|---|---|
   | 312683 | /dev/ttys004 | true | 4 | live |
-  | 316414 | /dev/ttys008 | false | 0 | "[进程已完成]", opened earlier on ttys007 |
+  | 316414 | /dev/ttys008 | false | 0 | "[进程已完成]" |
   | 316500 | /dev/ttys008 | true | 5 | the target (live claude session), minimized |
 
-  `ps -t ttys007` now shows iTerm's login: the ended tab's old tty was reused by the system, and Terminal reports
-  ttys008 for it. So the tty of an ended Terminal tab cannot be trusted. The click restored 316414 and left 316500
-  minimized.
+  The click restored 316414 and left 316500 minimized.
+- **Mechanism (measured while building, 2026-10-12):** an ended Terminal tab keeps reporting its own tty; the system
+  frees that tty and hands it to the next session, so two tabs report the same one. Reproduced on demand: a window
+  whose script exits (316613, ended, ttys002), then a window that keeps running (316615) — it got ttys002.
+  **The first reading was wrong** (the coordinator's and mine, written in this spec as merged in #92): that 316414
+  had been opened on ttys007 and Terminal then reported ttys008 for it, so "the tty of an ended tab cannot be
+  trusted". 316414 was on ttys008 itself; "Last login on ttys007" in its window is the previous login's line. The
+  reported tty is right — it is simply no longer that tab's alone.
 - The same loop with `and (count of processes of t) > 0` matches only 316500 (measured here, read-only).
 - Not introduced by 0.6.4: the 0.6.3 script picks the same wrong tab; no earlier check had a duplicate tty.
 - iTerm: its `session` class has `tty`, `is processing` and `is at shell prompt`, no process list. Both profiles on

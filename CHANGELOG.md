@@ -4,7 +4,8 @@
 
 - **点击通知不再落到已结束的 Terminal 标签页**（模块 `notice-click-live-tab`，D191，第二轮联调对 0.6.4 的真实验收）：bridge
   改动，**要用 `upgrade --confirm` 升级运行时才生效**。
-  - Terminal 里一个“进程已完成”的标签页会报出和活动会话相同的 tty（它原来的 tty 被系统回收后，Terminal 报的值不可信）。
+  - Terminal 里一个“进程已完成”的标签页会继续报自己原来的 tty；系统把这个 tty 回收后分给新开的会话，两个标签页就报
+    同一个 tty。
     固定脚本以前取第一个 tty 相同的标签页，于是恢复、激活了错的窗口，目标窗口原样不动。现在只认里面还有进程在跑的
     标签页（`tty of t is "/dev/<tty>" and (count of processes of t) > 0`），命令里仍只有 tty，不新增权限。
   - 没有带进程的标签页匹配时，只把 Terminal 带到前台，不会退而选已结束的标签页。
