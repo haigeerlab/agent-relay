@@ -7,5 +7,5 @@
 - [x] Task 3: is the place visible in the banner? — the user's screenshot of the reproduction notice: the banner showed `#4 · 测试-terminal · terminal-test in termi…` and cut the place off even on that short subtitle (about 40 characters are shown). Red tests first, then the place moved to the front for both notice kinds (`Terminal ttys004 · #4 · …`, `Codex app · #7 · …`); the user confirmed the next banner started with `Terminal ttys004`
 - [x] Task 4: bridge bookkeeping — `UPSTREAM.md` row, manifest, CHANGELOG `[Unreleased]` (needs `upgrade --confirm`); README unchanged (it does not spell out the subtitle order)
 - [x] Checkpoint (report): local validation — `scripts/validate.sh` pass on Python 3.9.6, 3.10.7, 3.14.3 with Node v24.18.0 first on PATH: 47 files / 770 tests each, bridge `npm run check` 186 ok
-- [ ] Task 5: PR and CI
-- [ ] Checkpoint (gate): module review
+- [x] Task 5: PR and CI — #89 (ce02f95), the four CI jobs green
+- [x] Checkpoint (gate): module review — the round-2 coordinator reviewed #89 (no remarks; accepted that the Terminal two-tab case was not re-run, to be recorded as such; agreed the minimized-window case is a known issue only); the user merged #89 (98da676)
