@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [0.6.6] - 2026-10-12
+
+接口仍为 **2.0**（`interface.json` 不变，Spec Guard 0.56.0 或更新），信箱 schema 仍为 5，委派库仍为 schema 3。这一版只做
+一件事：联系一个还没加入联调的会话时，直接给出加入的那句话。升级前先看这一点：
+
+- **只改插件，不用升级运行时**：改动全部在 hooks 和技能说明里，bridge 没有变。更新插件并**新开会话**即生效；已经开着的、
+  恢复的会话还用旧的那份（见 README“更新插件”）。
+
 - **联系一个还没加入联调的会话时，直接给出加入的那句话**（模块 `join-hint-on-missing-target`，D192，用户 2026-10-12 提出）：
   只改插件的 hooks 和技能说明，**更新插件并新开会话即生效，不需要 `upgrade --confirm`**。
   - 以前按名字联系一个会话、而对方没加入本机联调时，选路器只返回 `stop` 和原因（`target-missing` 等），流程到此
@@ -11,6 +19,30 @@
     同一句。`<名字>` 由提问的会话自己起一个联调名换上（只用英文字母、数字和连字符），不照抄用户给的标题。
   - 选路器的输入没有变，不接收名字；这一步不新增任何带用户文字的命令。不会去读宿主的会话列表。
   - 选路器的命令行输出里，这句中文是 JSON 转义形式（`\uXXXX`），在任何终端编码下都能输出，读的一方按 JSON 解析即可。
+
+以上来自模块 `join-hint-on-missing-target` 的 PR #96，spec 与计划见 #95；经第二轮联调审查。
+
+### 从 0.6.5 升级
+
+1. 两个宿主都更新插件（详见 README“更新插件”）：Claude Code 从 GitHub 装的，先 `claude plugin marketplace update
+   agent-relay-marketplace`，再 `claude plugin update --scope user agent-relay@agent-relay-marketplace`；Codex 把
+   `~/.codex/config.toml` 里的 `ref` 改成 `"v0.6.6"` 后 `codex plugin marketplace upgrade`、`codex plugin add
+   agent-relay@agent-relay-marketplace`；从本地克隆装的先 `git -C <克隆> pull --ff-only`，Codex 再 `codex plugin add`。
+2. 新开 Claude Code 会话；Codex 用 ⌘Q 完全退出 ChatGPT 应用再打开。
+
+不需要 `upgrade --confirm`：bridge 与 0.6.5 完全相同（已经在 0.6.5 的不用动；还在更早版本的，按那一版的说明升级运行时）。
+信箱和委派库的 schema 都没变，不需要迁移。
+
+### 想退回 0.6.5
+
+把两个宿主的插件退回 v0.6.5，然后新开会话。运行时不用动。
+
+### 已知问题
+
+- 这一版没有做真实宿主的端到端检查（要新开加载了新插件的会话），待真实宿主验收时核对：会话转述出来的那句话是否逐字
+  正确、起的联调名是否合法。
+- 联调名由提问的会话来起，同一个目标在不同会话里可能得到不同的建议名；以用户最终在目标会话里说的为准。
+- 0.6.5 及更早版本列出的已知问题仍然存在。
 
 ## [0.6.5] - 2026-10-12
 
