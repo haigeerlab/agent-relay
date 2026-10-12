@@ -42,12 +42,21 @@ Readers: the user; the round-2 coordinator (reviews, re-checks after release).
 4. **Unchanged security:** the script stays fixed and carries only the format-checked tty; program paths are exactly
    `/usr/bin/open` and `/usr/bin/osascript`; a click only brings a window forward. No new permission: `processes` is
    read through the Automation grant for Terminal that 0.6.3 already asks for (the read worked here without a prompt).
+4a. **Added while building (the user, 2026-10-12: "iTerm 也一起改"):** the target window is pinned by its id before
+   anything moves. Found in this module's first real check: `w` in `repeat with w in windows` is "window N", and
+   restoring a minimized window reorders the windows, so the statements after the restore (`set index`,
+   `set frontmost`; iTerm's `select w`) acted on whichever window was then in that position — with three Terminal
+   windows the ended one came to the front although the live one had been matched and restored. Present since 0.6.4
+   (#91), whose checks had two windows. Both fixed scripts now run `set x to window id (id of w)` right after the
+   match and use `x` afterwards. The command still carries only the tty. This is the only iTerm change; assumption 3
+   (no process condition for iTerm) stands.
 5. Vendored-bridge change: `UPSTREAM.md`, manifest, CHANGELOG `[Unreleased]` ("takes effect after
    `upgrade --confirm`"). Interface stays 2.0, mailbox schema 5, delegation store schema 3.
 
 ## Decisions
 
-- **D191 a clicked terminal notice acts only on a tab that still has processes.** Assumptions 1–3.
+- **D191 a clicked terminal notice acts only on a tab that still has processes, and on the window it matched.**
+  Assumptions 1–3 and 4a.
 
 ## Requirements
 
