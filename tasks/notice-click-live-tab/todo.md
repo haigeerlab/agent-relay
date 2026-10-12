@@ -11,5 +11,5 @@
   - In checks 2–4 the user had switched back to the Claude app before I read the state, so Terminal's `frontmost of window` read false; "first in the window order" is what was read. Not checked: iTerm with three or more windows.
 - [x] Task 3: bridge bookkeeping — `UPSTREAM.md` row, manifest, CHANGELOG `[Unreleased]` (both changes; known issue for an ended iTerm session kept open)
 - [x] Checkpoint (report): local validation — `scripts/validate.sh` pass on Python 3.9.6, 3.10.7, 3.14.3 with Node v24.18.0 first on PATH: 47 files / 770 tests each, bridge `npm run check` included
-- [ ] Task 4: PR and CI
-- [ ] Checkpoint (gate): module review — the coordinator reviews; the user merges; then the 0.6.5 release PR
+- [x] Task 4: PR and CI — #93 (4e56604 code, aa1891b wording of the mechanism after the review), the four CI jobs green
+- [x] Checkpoint (gate): module review — the round-2 coordinator reviewed #93 (code and tests accepted; asked for the mechanism wording in the CHANGELOG and the spec to be corrected: aa1891b; will re-read `frontmost` and try three windows in the acceptance); the user merged #93 (5f7c893)

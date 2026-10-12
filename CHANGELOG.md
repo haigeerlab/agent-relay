@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [0.6.5] - 2026-10-12
+
+接口仍为 **2.0**（`interface.json` 不变，Spec Guard 0.56.0 或更新），信箱 schema 仍为 5，委派库仍为 schema 3。这一版只修
+点击终端会话通知时“落到哪个窗口”的两个问题。升级前先看这一点：
+
+- **bridge 有改动，要 `upgrade --confirm` 升级运行时**：这一版全部在 bridge 里，不升级运行时就没有任何变化。
+
 - **点击通知不再落到已结束的 Terminal 标签页**（模块 `notice-click-live-tab`，D191，第二轮联调对 0.6.4 的真实验收）：bridge
   改动，**要用 `upgrade --confirm` 升级运行时才生效**。
   - Terminal 里一个“进程已完成”的标签页会继续报自己原来的 tty；系统把这个 tty 回收后分给新开的会话，两个标签页就报
@@ -14,10 +21,32 @@
     所以 0.6.4 在窗口有三个以上时可能把另一个窗口提到最前。现在 Terminal 和 iTerm 的固定脚本在匹配后先按窗口 id 固定
     目标（`set x to window id (id of w)`），之后都作用在它上面。这一条是 0.6.4（#91）引入的。
 
+以上来自模块 `notice-click-live-tab` 的 PR #93，spec 与计划见 #92；经第二轮联调审查。
+
+### 从 0.6.4 升级
+
+1. 两个宿主都更新插件（详见 README“更新插件”）：Claude Code 从 GitHub 装的，先 `claude plugin marketplace update
+   agent-relay-marketplace`，再 `claude plugin update --scope user agent-relay@agent-relay-marketplace`；Codex 把
+   `~/.codex/config.toml` 里的 `ref` 改成 `"v0.6.5"` 后 `codex plugin marketplace upgrade`、`codex plugin add
+   agent-relay@agent-relay-marketplace`；从本地克隆装的先 `git -C <克隆> pull --ff-only`，Codex 再 `codex plugin add`。
+2. **升级运行时**：关闭所有使用信箱的会话或只结束 bridge（见 README“升级运行时”），确认 `pgrep -fl
+   "agent-relay/runtime/dist/server.js"` 没有输出，再执行 `python3 -B <插件目录>/hooks/native_collaboration_runtime.py
+   upgrade --confirm`，输出应为 `"state": "upgraded"`。
+3. 新开 Claude Code 会话；Codex 用 ⌘Q 完全退出 ChatGPT 应用再打开。
+
+信箱和委派库的 schema 都没变，不需要迁移；“自动化”权限也不用重新授予。
+
+### 想退回 0.6.4
+
+关掉所有会话后 `rollback --confirm` 退回运行时，并把两个宿主的插件退回 v0.6.4，然后新开会话。
+
 ### 已知问题
 
 - iTerm 没有加“必须有进程”的条件：它默认“会话结束即关闭”，不会留下已结束的会话，脚本字典里也没有进程数可查。把这个设置关掉后，留着的
   已结束会话报什么 tty **没有实测**（要改用户的 iTerm 设置才能造出现场）。
+- iTerm 开着三个以上窗口时的最小化恢复在这一版没有实测（实测是两个窗口）；Terminal 的几次实测读到的是“目标窗口排到
+  第一”，没有在 Terminal 仍在前台时读它是不是活动窗口。待真实宿主验收时核对。
+- 0.6.4 及更早版本列出的已知问题仍然存在。
 
 ## [0.6.4] - 2026-10-12
 
