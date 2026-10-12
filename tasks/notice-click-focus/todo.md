@@ -9,3 +9,10 @@
 - [x] Checkpoint (report): local validation — `scripts/validate.sh` pass on Python 3.9.6, 3.10.7, 3.14.3 with Node v24.18.0 first on PATH: 47 files / 770 tests each, bridge `npm run check` 186 ok
 - [x] Task 5: PR and CI — #89 (ce02f95), the four CI jobs green
 - [x] Checkpoint (gate): module review — the round-2 coordinator reviewed #89 (no remarks; accepted that the Terminal two-tab case was not re-run, to be recorded as such; agreed the minimized-window case is a known issue only); the user merged #89 (98da676)
+
+Added after the module review (the user, 2026-10-12: "纳入 0.6.4"): restore a minimized target window — spec assumption 4a.
+- [x] Task 6: restore a minimized target — test first (red: the statement missing), then `if miniaturized of w then set miniaturized of w to false` in both scripts, after the tab selection and before raising. Real checks 2026-10-12 (I drove the windows with desktop control and read `is_main`/`is_minimized`/the tab bar; the user clicked each banner):
+  - First variant (restore before selecting): Terminal minimized, one tab → restored and active. iTerm minimized, three tabs, another tab current → restored and active but **still on the old tab**. Reordered: select first, then restore.
+  - Second variant (unconditional restore): iTerm minimized → restored, active, claude tab selected. Terminal two windows, not minimized, the other active → the window was raised (first in the list) but **not** the key window; same again on a retry where Terminal did come to the front. Made the restore conditional on `miniaturized of w`.
+  - Final script: Terminal two windows not minimized → the claude window became the key window; Terminal minimized → restored and key; iTerm minimized with another tab current → restored, key, claude tab selected. iTerm not minimized is the #89 path (the new statement is a no-op there) and was not re-run.
+  - CHANGELOG moves the item from known issues to the change; spec assumption 4a records the order and the condition. validate.sh pass on Python 3.9.6, 3.10.7, 3.14.3

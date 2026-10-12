@@ -33,6 +33,15 @@ Readers: the user; the round-2 coordinator (reviews, re-checks after release).
 4. **Place in the subtitle:** a test notice of the same length is shown during the real check; if the banner cuts the
    place off, the place moves to the front of the subtitle (`<place> · #id · agent · <session> in <project>`, and the
    Codex notice likewise); if the place is visible, the text does not change.
+4a. **Added after the spec was accepted (the user, 2026-10-12, relayed by the coordinator and confirmed here):** a
+   minimized target window is restored by the click. Found in the real check of this module: neither `open -b`,
+   `set index` nor `set frontmost` brings a window back from the Dock. Both apps' `window` class has a writable
+   `miniaturized` property (their scripting dictionaries), so the fixed scripts add one statement,
+   `if miniaturized of w then set miniaturized of w to false`, after the tab is selected and before the window is
+   raised or activated; the command still carries only the tty. Measured while building (2026-10-12): restoring
+   before selecting the tab left iTerm on its old tab, and setting `miniaturized` on a window that is not minimized
+   left Terminal's `set frontmost` without effect — hence the order and the condition. Real check: a minimized target
+   is restored, becomes the active window and shows the right tab; a target that is not minimized behaves as in #89.
 5. Vendored-bridge change: `UPSTREAM.md`, manifest, CHANGELOG `[Unreleased]` ("takes effect after `upgrade --confirm`").
    Interface stays 2.0, mailbox schema 5.
 

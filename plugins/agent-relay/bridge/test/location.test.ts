@@ -63,8 +63,12 @@ test("a click activates an app, or runs one fixed command that carries only a bu
     assert.match(command, new RegExp(`tell application "${application}"`));
     assert.match(command, /"\/dev\/ttys003"/);
     // notice-click-focus D190: with several windows the raised window must also become the key window.
+    // notice-click-focus (minimized window, the user 2026-10-12): a minimized target is restored first, in both apps.
+    // Measured 2026-10-12: restoring before selecting left iTerm on its old tab, so the tab is selected first.
     if (bundle === TERMINAL) {
-      assert.match(command, /set index of w to 1' -e 'set frontmost of w to true' -e 'return'/);
+      assert.match(command, /then' -e 'set selected of t to true' -e 'if miniaturized of w then set miniaturized of w to false' -e 'set index of w to 1' -e 'set frontmost of w to true' -e 'return'/);
+    } else {
+      assert.match(command, /then' -e 'select t' -e 'select s' -e 'if miniaturized of w then set miniaturized of w to false' -e 'select w' -e 'return'/);
     }
     assert.doesNotMatch(command, /whatever|\$\(id\)/, "the app's display name never enters the command");
     // Program paths: exactly these two, nothing else that looks like a path except the tty device.

@@ -78,12 +78,18 @@ function selectTab(bundle: typeof TERMINAL | typeof ITERM, tty: string): string 
     ? ['tell application "Terminal"', "repeat with w in windows", "repeat with t in tabs of w",
       // notice-click-focus D190: `set index` only orders the window; with several windows it must also become the
       // key window, or what the user types next goes to the previously active one (measured 2026-10-12).
-      `if tty of t is "/dev/${tty}" then`, "set selected of t to true", "set index of w to 1",
-      "set frontmost of w to true", "return", "end if",
+      // A minimized window is not restored by `open -b`, `set index` or `set frontmost` (the coordinator, 2026-10-12).
+      // The tab is selected before the window comes back from the Dock: restoring first left iTerm on its old tab.
+      // Only a minimized window is restored: setting `miniaturized` on one that is not left `frontmost` without
+      // effect (measured 2026-10-12).
+      `if tty of t is "/dev/${tty}" then`, "set selected of t to true",
+      "if miniaturized of w then set miniaturized of w to false",
+      "set index of w to 1", "set frontmost of w to true", "return", "end if",
       "end repeat", "end repeat", "end tell"]
     : ['tell application "iTerm2"', "repeat with w in windows", "repeat with t in tabs of w",
-      "repeat with s in sessions of t", `if tty of s is "/dev/${tty}" then`, "select w", "select t", "select s",
-      "return", "end if", "end repeat", "end repeat", "end repeat", "end tell"];
+      "repeat with s in sessions of t", `if tty of s is "/dev/${tty}" then`, "select t", "select s",
+      "if miniaturized of w then set miniaturized of w to false", "select w", "return", "end if",
+      "end repeat", "end repeat", "end repeat", "end tell"];
   return `/usr/bin/open -b ${bundle}; /usr/bin/osascript ${quoted(script)}`;
 }
 
