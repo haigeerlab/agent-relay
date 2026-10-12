@@ -3,6 +3,8 @@
 from pathlib import Path
 import unittest
 
+from session_routing import JOIN_SENTENCE
+
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 ROUTING = PLUGIN_ROOT / "skills" / "session-routing" / "SKILL.md"
@@ -96,6 +98,15 @@ class SessionRoutingEntryTests(unittest.TestCase):
         self.assertNotIn("自行实现 socket", text)
         self.assertIn("不扫描窗口", text)
         self.assertIn("不读取进程", text)
+
+    def test_a_stop_with_a_next_step_is_passed_on_with_a_name_the_session_picks(self):
+        # join-hint-on-missing-target D192: the skill quotes the selector's sentence word for word.
+        text = self.routing_text()
+        self.assertIn("“" + JOIN_SENTENCE + "”", text)
+        for phrase in ("`nextStep`", "原样", "自己起", "英文字母、数字和连字符", "live-saas-fe",
+                       "不要照抄用户给的标题", "这一步不新增任何带用户文字的命令", "selector 不接收名字", "粘贴到目标会话"):
+            self.assertIn(phrase, text)
+        self.assertIn("“" + JOIN_SENTENCE + "”", COLLAB.read_text(encoding="utf-8"))
 
     def test_claude_target_resolution_is_unique_and_never_guesses(self):
         text = self.routing_text()

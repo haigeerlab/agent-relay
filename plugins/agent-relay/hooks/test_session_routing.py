@@ -7,7 +7,9 @@ import subprocess
 import sys
 import unittest
 
-from session_routing import RoutingError, select_route, validate_public_outcome
+from session_routing import (
+    JOIN_HINT, JOIN_SENTENCE, RoutingError, select_route, validate_public_outcome,
+)
 
 
 HOOK = Path(__file__).with_name("session_routing.py")
@@ -94,6 +96,63 @@ class RouteSelectionTests(unittest.TestCase):
                 result = select_route(self.facts(targetResolution=resolution))
                 self.assertEqual(result["action"], "stop")
                 self.assertEqual(result["routeReason"], "target-" + resolution)
+
+    def test_a_target_that_has_not_joined_gets_the_sentence_that_joins_it(self):
+        # join-hint-on-missing-target D192: the stop names the next step instead of ending the flow.
+        ready = {"bridgeState": "ready", "originJoined": True, "targetJoined": True}
+        cross = ready | {"targetHost": "codex", "nativeCapability": "not-applicable"}
+        cases = (
+            ({"targetResolution": "missing"}, "target-missing"),
+            (cross | {"targetResolution": "missing"}, "target-missing"),
+            (cross | {"targetJoined": False}, "target-not-joined"),
+            (cross | {"originHost": "codex", "targetHost": "claude", "targetJoined": False}, "target-not-joined"),
+            (ready | {"nativeCapability": "unavailable", "targetJoined": False},
+             "native-unavailable-target-not-joined"),
+        )
+        for overrides, reason in cases:
+            with self.subTest(reason=reason, overrides=overrides):
+                result = select_route(self.facts(**overrides))
+                self.assertEqual((result["action"], result["routeReason"]), ("stop", reason))
+                self.assertEqual(result["nextStep"], JOIN_HINT)
+        self.assertEqual(JOIN_SENTENCE, "加入本机联调并允许唤醒，名字叫 <名字>")
+        self.assertIn("“" + JOIN_SENTENCE + "”", JOIN_HINT)
+        self.assertLessEqual(len(JOIN_HINT), 240)
+        self.assertNotIn("\n", JOIN_HINT)
+        # The same text is a valid public nextStep.
+        validate_public_outcome({
+            "transport": "agent-relay-bridge",
+            "target": {"host": "codex", "name": "live-saas-fe", "project": "live-saas"},
+            "dispatch": "rejected", "wake": "not-applicable", "receipt": "unavailable", "response": "failed",
+            "routeReason": "target-missing", "nextStep": JOIN_HINT,
+        })
+
+    def test_no_other_result_carries_a_next_step(self):
+        ready = {"bridgeState": "ready", "originJoined": True, "targetJoined": True}
+        cross = ready | {"targetHost": "codex", "nativeCapability": "not-applicable"}
+        cases = (
+            {"targetResolution": "ambiguous"},
+            {"authorizationState": "unauthorized"},
+            {"authorizationState": "unknown", "targetResolution": "missing"},
+            cross,
+            cross | {"originJoined": False},
+            cross | {"bridgeState": "unavailable"},
+            cross | {"bridgeState": "invalid", "targetJoined": False},
+            ready | {"nativeCapability": "unavailable"},
+            ready | {"nativeCapability": "unavailable", "originJoined": False},
+            ready | {"nativeCapability": "unavailable", "originJoined": False, "targetJoined": False},
+            ready | {"nativeCapability": "unavailable", "bridgeState": "unavailable", "targetJoined": False},
+            {"nativeCapability": "unknown"},
+            {}, {"nativeDispatch": "accepted"}, {"nativeDispatch": "unknown"}, {"nativeDispatch": "rejected"},
+        )
+        for overrides in cases:
+            with self.subTest(overrides=overrides):
+                self.assertNotIn("nextStep", select_route(self.facts(**overrides)))
+
+    def test_the_selector_takes_no_name(self):
+        for field in ("name", "targetName", "suggestedName"):
+            with self.subTest(field=field):
+                with self.assertRaises(RoutingError):
+                    select_route(self.facts(**{field: "LIVE-SAAS｜前端基础架构"}))
 
     def test_cross_host_bridge_failure_never_switches_to_native_or_another_backend(self):
         for state in ("invalid", "unavailable"):
@@ -269,6 +328,14 @@ class CommandLineTests(unittest.TestCase):
             [sys.executable, "-B", str(HOOK), command],
             input=json.dumps(payload), text=True, capture_output=True, check=False,
         )
+
+    def test_cli_prints_the_join_hint_as_ascii_json(self):
+        # The hint is Chinese; the CLI keeps json.dumps' ASCII escapes so a C-locale stdout (Codex's sandbox) cannot
+        # fail to encode it. A reader gets the text back with json.loads.
+        result = self.run_cli("select", RouteSelectionTests().facts(targetResolution="missing"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(result.stdout.isascii(), result.stdout)
+        self.assertEqual(json.loads(result.stdout)["nextStep"], JOIN_HINT)
 
     def test_cli_uses_json_stdio_and_returns_machine_readable_errors(self):
         valid = RouteSelectionTests().facts()
