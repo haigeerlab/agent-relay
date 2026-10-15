@@ -4,5 +4,5 @@
 - [x] Task 2: only explicit offline is notified; retries keep NOTIFIED_TEXT; `health()` comment back in place — red first (three failures: a reasonless pending was notified as offline; Claude and Codex retries dropped the sentence), then `noticeClaudeOffline` requires `reason === "offline"` and both paths go through `keepNotified` (this call notified, or the mark for the same key exists; Codex also on a busy retry under ten minutes, only for `pending` results). Unreachable for six minutes: no notice. Notices off: nothing appended. "A later job of the same spell" from the spec does not occur for Claude: only the oldest job is ever attempted (durable-ordering), and once it is delivered the spell key changes
 - [x] Task 3: bookkeeping — `UPSTREAM.md`, manifest, CHANGELOG `[Unreleased]`, `docs/BACKGROUND-WAKE.md`
 - [x] Checkpoint (report): local validation — `scripts/validate.sh` pass on Python 3.9.6, 3.10.7, 3.14.3 with Node v24.18.0 first on PATH (47 files, 783 tests each; bridge `npm run check` 194 ok)
-- [ ] Task 4: PR and CI
+- [x] Task 4: PR and CI — #102, the four CI jobs green
 - [ ] Checkpoint (gate): module review
