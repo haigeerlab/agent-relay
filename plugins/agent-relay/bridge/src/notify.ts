@@ -7,6 +7,17 @@ import { clickArgs, placeCategory, placeLabel, type Location } from "./location.
 
 /** A Codex recipient that is merely busy is notified only after this long (the user's choice, 2026-10-08). */
 export const BUSY_NOTIFY_AFTER_MS = 10 * 60_000;
+/**
+ * claude-offline-notice D193: a Claude recipient whose session is not running (the Claude app stops idle sessions) is
+ * told to the user after this long, once per offline spell (the user's choice, 2026-10-15).
+ */
+export const CLAUDE_OFFLINE_NOTIFY_AFTER_MS = 5 * 60_000;
+
+/** Local wall-clock time as HH:MM, for "the first was sent at …". */
+export function clockTime(ms: number): string {
+  const at = new Date(ms);
+  return `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
+}
 
 export interface UndeliveredNotice {
   messageId: number;
@@ -17,8 +28,14 @@ export interface UndeliveredNotice {
   key?: string;
   /** The message text, for the preview (notify-channel D89). */
   body?: string;
-  /** presence-and-approval D148: a Claude session waiting for the user's approval, not undelivered Codex work. */
-  kind?: "approval";
+  /**
+   * presence-and-approval D148: a Claude session waiting for the user's approval, not undelivered Codex work.
+   * claude-offline-notice D193: `offline` — a Claude session that is not running; `messageId` is the first waiting one.
+   */
+  kind?: "approval" | "offline";
+  /** claude-offline-notice D193: how many messages wait, and when the first was sent (ms). */
+  count?: number;
+  since?: number;
   /** notice-location D188: where the session is; shown in the text and, for terminal-notifier, used for the click. */
   where?: Location;
 }
@@ -61,6 +78,14 @@ export function noticeFields(notice: UndeliveredNotice, { preview }: { preview: 
         : place ? placeCategory(place) : "",
       body: noticeText(notice) };
   }
+  if (notice.kind === "offline") {
+    // claude-offline-notice D193: never the message text and never a click (the place is not known once the process
+    // is gone); the session's mailbox name is what the user knows it by.
+    const count = notice.count ?? 1;
+    return { title: `agent-relay · ${oneLine(notice.agent, NAME_CHARS)} is offline`,
+      subtitle: `Claude · ${count} waiting · first sent ${clockTime(notice.since ?? Date.now())}`,
+      body: noticeText(notice) };
+  }
   // The title already says Codex; only a confirmed app is worth a word more, and it comes first (D190).
   const app = place?.kind === "codex-app" ? placeLabel(place) + " · " : "";
   if (!preview) return { title: "agent-relay", subtitle: app.replace(/ · $/, ""), body: noticeText(notice) };
@@ -78,6 +103,13 @@ export const NOTIFIED_TEXT = "A desktop notification was attempted on this Mac; 
   "(notifications not allowed for the app that shows them, or Focus). The user can list waiting messages with doctor or by asking any session.";
 
 export function noticeText(notice: UndeliveredNotice): string {
+  if (notice.kind === "offline") {
+    const count = notice.count ?? 1;
+    return `Claude session ${JSON.stringify(notice.agent)} is not running (the Claude app may have stopped it while ` +
+      `idle). ${count} ${count === 1 ? "message cannot" : "messages cannot"} be delivered; the first, ` +
+      `#${notice.messageId} from ${JSON.stringify(notice.fromAgent ?? "a peer")}, was sent at ` +
+      `${clockTime(notice.since ?? Date.now())}. Open that session to deliver them.`;
+  }
   if (notice.kind === "approval") {
     return `${oneLine(notice.agent, NAME_CHARS)} is ${notice.why}; message #${notice.messageId} from ` +
       `${JSON.stringify(notice.fromAgent ?? "a peer")} waits until you answer it there.`;

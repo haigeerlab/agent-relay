@@ -80,6 +80,13 @@ export async function claudeSessionsOrNull(root = sessionRoot()): Promise<Claude
   return sessions;
 }
 
+/**
+ * claude-offline-notice D193: the sender reads this in its outbox. The Claude app stops an idle session's process, and a
+ * ping can go only to a live one; the message waits in the mailbox until that session runs again.
+ */
+export const CLAUDE_NOT_RUNNING = "Claude session is not running (the Claude app may have stopped it while idle); " +
+  "the message waits and is delivered once that session is opened";
+
 export class ClaudeWake {
   private server: Server | null = null;
   private sockets = new Set<Socket>();
@@ -135,6 +142,7 @@ export class ClaudeWake {
     try {
       const matches = (await claudeSessions(root)).filter(s =>
         s.sessionId === job.target.sessionId || s.bridgeSessionId === job.target.sessionId);
+      if (matches.length === 0) return { state: "pending", reason: "offline", detail: CLAUDE_NOT_RUNNING };
       if (matches.length !== 1) return { state: "pending", detail: "Claude session has no unique live local inbox" };
       const session = matches[0];
       if (session.peerProtocol !== 1) return { state: "refused", detail: "Unsupported Claude peer protocol" };
@@ -144,7 +152,7 @@ export class ClaudeWake {
       if (typeof key.peerToken !== "string" || !/^[0-9a-f]{32}$/.test(key.peerToken) ||
           key.procStart !== session.procStart) return { state: "refused", detail: "Claude inbox authentication metadata does not match its process" };
       const callback = await this.listen(dirname(session.messagingSocketPath));
-      if (!await liveOwner(session)) return { state: "pending", detail: "Claude process stopped before delivery" };
+      if (!await liveOwner(session)) return { state: "pending", reason: "offline", detail: CLAUDE_NOT_RUNNING };
       // Bound retained receipt routes even when peers never send a positive receipt.
       for (const [oldId, p] of this.pending) {
         if (Date.now() - p.job.createdAt > 3_600_000 || this.pending.size >= 100) {

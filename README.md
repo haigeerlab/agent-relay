@@ -170,6 +170,10 @@ Claude Code 会话卡在授权上时，这台 Mac 会弹一条通知，会话目
   写明怎么做），正文是**消息开头最多 60 字的单行预览**。预览会出现在锁屏和共享屏幕上（macOS 的“显示预览”设置可限制）；
   不想显示正文，就在信箱目录（`~/.agent-relay/runtime/mailbox/`）放一个 `notify-preview.off` 文件，退回只写编号的样式；
   完全不要通知就放 `notify.off`。
+- **Claude 会话没在运行时也会通知你**：Claude 桌面应用会在会话空闲时停掉它的进程，bridge 只能把消息送进还在运行的会话。
+  发给这种会话的消息送不进去满 5 分钟时，这台 Mac 上弹一条通知，写明哪个会话（联调名）、几条消息送不进去、最早一条
+  几点发出；同一次离线只提醒一次，打开那个会话后消息就会送进去。通知不带消息正文，也没有点击动作。发件方用
+  `bridge_outbox` 能看到这些消息的 `pendingReason` 是 `offline`。`notify.off` 同样关掉它。
   **通道**：装了 Homebrew 的 terminal-notifier（只认 `/opt/homebrew/bin` 与 `/usr/local/bin`，不按 PATH 找）就用它，
   否则用 `osascript`。`osascript` 的通知记在“脚本编辑器”名下，而脚本编辑器从不申请通知权限，所以多数 Mac 上会被**悄悄
   丢掉**、系统设置里也找不到开关；想看到横幅就 `brew install terminal-notifier`（是否安装由你决定），第一次弹出时允许它。

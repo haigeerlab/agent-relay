@@ -3,7 +3,8 @@ import { channelNotification, type ChannelNotification } from "./claude-channel.
 import { ClaudeWake, claudeSessionsOrNull } from "./claude-wake.js";
 import { wakeCodex } from "./codex-wake.js";
 import { claudeLocation, type Location } from "./location.js";
-import { BUSY_NOTIFY_AFTER_MS, NOTIFIED_TEXT, alreadyNotified, noticesOff, notifyUndelivered, waitingEpisode } from "./notify.js";
+import { BUSY_NOTIFY_AFTER_MS, CLAUDE_OFFLINE_NOTIFY_AFTER_MS, NOTIFIED_TEXT, alreadyNotified, noticesOff, notifyUndelivered,
+  waitingEpisode } from "./notify.js";
 import { claudePresence, type Presence } from "./presence.js";
 import type { WakeJob, WakeResult } from "./wake-queue.js";
 
@@ -88,6 +89,7 @@ export class WakeDispatcher {
         result = { state: "unknown", detail: "Unexpected adapter failure; check the recipient before retrying" };
       }
       if (job.target.app === "codex") result = this.noticeUndelivered(job, result);
+      else result = this.noticeClaudeOffline(job, result);
       this.store.wakes.finish(job, result);
     }
   }
@@ -106,6 +108,23 @@ export class WakeDispatcher {
     const notified = notifyUndelivered(job.mailboxPath,
       { messageId: job.messageId, fromAgent: job.fromAgent, agent: job.agent, why,
         body: this.store.messageById(job.messageId)?.body, where }, this.env);
+    return notified ? { ...result, detail: `${result.detail} ${NOTIFIED_TEXT}` } : result;
+  }
+
+  /**
+   * claude-offline-notice D193: a Claude recipient with no running session (the Claude app stops idle sessions, and only
+   * a live process can take a ping) is told to the user once per offline spell, after five minutes from its first
+   * waiting message. The spell is keyed by that message, so a later spell — after the session took its messages —
+   * gets a new key. Never the message text, never a click.
+   */
+  private noticeClaudeOffline(job: WakeJob, result: WakeResult, now = Date.now()): WakeResult {
+    if (result.state !== "pending" || (result.reason ?? "offline") !== "offline") return result;
+    const waiting = this.store.wakes.waiting(job.agent);
+    if (!waiting || now - waiting.first.createdAt < CLAUDE_OFFLINE_NOTIFY_AFTER_MS) return result;
+    const notified = notifyUndelivered(job.mailboxPath,
+      { kind: "offline", messageId: waiting.first.messageId, fromAgent: waiting.first.fromAgent ?? undefined,
+        agent: job.agent, why: "not running", count: waiting.count, since: waiting.first.createdAt,
+        key: `claude-offline-${job.agent}-${waiting.first.messageId}` }, this.env);
     return notified ? { ...result, detail: `${result.detail} ${NOTIFIED_TEXT}` } : result;
   }
 

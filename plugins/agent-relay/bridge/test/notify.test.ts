@@ -6,7 +6,8 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { BridgeStore } from "../src/bridge-store.js";
-import { BUSY_NOTIFY_AFTER_MS, NAME_CHARS, noticeFields, notifyUndelivered, PREVIEW_CHARS, REASON_CHARS } from "../src/notify.js";
+import { BUSY_NOTIFY_AFTER_MS, CLAUDE_OFFLINE_NOTIFY_AFTER_MS, NAME_CHARS, clockTime, noticeFields, notifyUndelivered, PREVIEW_CHARS,
+  REASON_CHARS } from "../src/notify.js";
 import { WakeDispatcher } from "../src/wake-dispatcher.js";
 import type { WakeResult } from "../src/wake-queue.js";
 import { session } from "./support/session.js";
@@ -95,7 +96,7 @@ test("busy notifies only after ten minutes, once, and never when delivered soone
   store.close();
 });
 
-test("the switch turns notifications off, and Claude recipients are never notified", async () => {
+test("the switch turns notifications off, and a Claude recipient offline for less than five minutes is not notified", async () => {
   for (const [label, env, file] of [["env", { AGENT_RELAY_NOTIFY: "off" }, false], ["file", {}, true]] as const) {
     const { dir, store, log, lines } = setup();
     if (file) writeFileSync(join(dir, "notify.off"), "");
@@ -113,6 +114,82 @@ test("the switch turns notifications off, and Claude recipients are never notifi
   assert.equal(lines().length, 0);
   await d.close();
   store.close();
+});
+
+// claude-offline-notice D193: a Claude recipient whose session is not running is told to the user once per offline
+// spell, after five minutes: which session, how many messages wait, when the first was sent. No body, no click.
+function age(store: BridgeStore, messageId: number, ms: number) {
+  store.database.prepare("UPDATE wake_jobs SET created_at = ?, retry_at = 0 WHERE message_id = ?")
+    .run(Date.now() - ms, messageId);
+}
+const offline: WakeResult = { state: "pending", detail: "not running", reason: "offline" };
+
+test("a Claude recipient offline for five minutes notifies once per spell, naming the session, count and first time", async () => {
+  assert.equal(CLAUDE_OFFLINE_NOTIFY_AFTER_MS, 300_000);
+  const { store, log, lines } = setup("claude");
+  const first = store.send({ fromAgent: "sender", toAgent: "cx", body: "secret body" });
+  const second = store.send({ fromAgent: "sender", toAgent: "cx", body: "another" });
+  age(store, first.id, CLAUDE_OFFLINE_NOTIFY_AFTER_MS - 60_000);
+  const d = dispatcher(store, log, []);
+  await d.flush();
+  assert.equal(lines().length, 0, "four minutes: silent");
+
+  const sentAt = Date.now() - CLAUDE_OFFLINE_NOTIFY_AFTER_MS - 1000;
+  age(store, first.id, CLAUDE_OFFLINE_NOTIFY_AFTER_MS + 1000);
+  await d.flush();
+  assert.equal(lines().length, 1);
+  const time = clockTime(sentAt);
+  assert.equal(lines()[0], `agent-relay · cx is offline | Claude · 2 waiting · first sent ${time} | ` +
+    `Claude session "cx" is not running (the Claude app may have stopped it while idle). 2 messages cannot be ` +
+    `delivered; the first, #${first.id} from "sender", was sent at ${time}. Open that session to deliver them.`);
+  assert.doesNotMatch(lines()[0], /secret body|another/, "never the message text");
+  assert.match(store.wakes.forMessage(first.id)?.detail ?? "", /A desktop notification was attempted on this Mac/);
+  assert.equal(store.wakes.forMessage(second.id)?.state, "pending");
+
+  // More retries and another message in the same spell: no second notice.
+  store.send({ fromAgent: "sender", toAgent: "cx", body: "third" });
+  age(store, first.id, CLAUDE_OFFLINE_NOTIFY_AFTER_MS + 120_000);
+  await d.flush();
+  assert.equal(lines().length, 1, "once per spell");
+
+  // The session comes back and takes every message; a later spell notifies again.
+  store.ack("cx", store.inbox("cx", { limit: 10 }).map((message) => message.id));
+  const later = store.send({ fromAgent: "sender", toAgent: "cx", body: "later" });
+  age(store, later.id, CLAUDE_OFFLINE_NOTIFY_AFTER_MS + 1000);
+  await d.flush();
+  assert.equal(lines().length, 2, "a new spell notifies again");
+  assert.ok(lines()[1].includes(`Claude · 1 waiting`) && lines()[1].includes(`1 message cannot be delivered; the first, #${later.id} from "sender"`), lines()[1]);
+  await d.close();
+  store.close();
+});
+
+test("a Claude notice has no click action and respects the switches; other Claude results stay silent", async () => {
+  for (const [label, env, file] of [["env", { AGENT_RELAY_NOTIFY: "off" }, false], ["file", {}, true]] as const) {
+    const { dir, store, log, lines } = setup("claude");
+    if (file) writeFileSync(join(dir, "notify.off"), "");
+    const m = store.send({ fromAgent: "sender", toAgent: "cx", body: "work" });
+    age(store, m.id, CLAUDE_OFFLINE_NOTIFY_AFTER_MS + 1000);
+    const d = dispatcher(store, log, [offline], env);
+    await d.flush();
+    assert.equal(lines().length, 0, label);
+    await d.close();
+    store.close();
+  }
+  for (const result of [{ state: "held", detail: "held for approval" }, { state: "accepted", detail: "ok" },
+    { state: "refused", detail: "no" }, { state: "unknown", detail: "?" }] as WakeResult[]) {
+    const { store, log, lines } = setup("claude");
+    const m = store.send({ fromAgent: "sender", toAgent: "cx", body: "work" });
+    age(store, m.id, CLAUDE_OFFLINE_NOTIFY_AFTER_MS + 1000);
+    const d = dispatcher(store, log, [result]);
+    await d.flush();
+    assert.equal(lines().length, 0, result.state);
+    await d.close();
+    store.close();
+  }
+  const fields = noticeFields({ kind: "offline", messageId: 7, fromAgent: "s", agent: "cx", why: "", count: 1,
+    since: Date.now() }, { preview: false });
+  assert.match(fields.title, /^agent-relay/);
+  assert.doesNotMatch(`${fields.title}${fields.subtitle}${fields.body}`, /-activate|-execute/);
 });
 
 test("a Codex recipient with no wake binding notifies at send time and the sender is told", async () => {
