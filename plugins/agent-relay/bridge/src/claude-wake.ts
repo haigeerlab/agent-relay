@@ -87,6 +87,15 @@ export async function claudeSessionsOrNull(root = sessionRoot()): Promise<Claude
 export const CLAUDE_NOT_RUNNING = "Claude session is not running (the Claude app may have stopped it while idle); " +
   "the message waits and is delivered once that session is opened";
 
+/**
+ * agent-relay claude-offline-notice-fixes D194: a session that may well be running but cannot be pinged is
+ * "unreachable", never "offline", so it does not raise the not-running notice.
+ */
+export const CLAUDE_SEVERAL_SESSIONS = "Several running Claude sessions claim this recipient; the message waits and is " +
+  "retried until only one does";
+export const CLAUDE_UNREACHABLE = "Claude session's local inbox cannot be reached or failed ownership checks; " +
+  "the message waits and is retried";
+
 export class ClaudeWake {
   private server: Server | null = null;
   private sockets = new Set<Socket>();
@@ -143,7 +152,7 @@ export class ClaudeWake {
       const matches = (await claudeSessions(root)).filter(s =>
         s.sessionId === job.target.sessionId || s.bridgeSessionId === job.target.sessionId);
       if (matches.length === 0) return { state: "pending", reason: "offline", detail: CLAUDE_NOT_RUNNING };
-      if (matches.length !== 1) return { state: "pending", detail: "Claude session has no unique live local inbox" };
+      if (matches.length !== 1) return { state: "pending", reason: "unreachable", detail: CLAUDE_SEVERAL_SESSIONS };
       const session = matches[0];
       if (session.peerProtocol !== 1) return { state: "refused", detail: "Unsupported Claude peer protocol" };
       const hash = createHash("sha256").update(resolve(session.messagingSocketPath)).digest("hex");
@@ -186,7 +195,7 @@ export class ClaudeWake {
       }
       return written
         ? { state: "unknown", detail: "Claude delivery outcome unavailable; no automatic replay" }
-        : { state: "pending", detail: "Claude local inbox unavailable or failed ownership checks" };
+        : { state: "pending", reason: "unreachable", detail: CLAUDE_UNREACHABLE };
     }
   }
 

@@ -576,7 +576,7 @@ function main(): void {
     "bridge_outbox",
     {
       title: "Check sent messages",
-      description: "List direct messages an agent sent that the recipient has not acknowledged yet (newest first), with ping outcome (a pending ping says why it waits: pendingReason offline or busy), delivery state (queued, sending, accepted, failed, unknown, expired) and whether the recipient is active, retired or unknown.",
+      description: "List direct messages an agent sent that the recipient has not acknowledged yet (newest first), with ping outcome (a pending ping says why it waits: pendingReason offline, unreachable or busy), delivery state (queued, sending, accepted, failed, unknown, expired) and whether the recipient is active, retired or unknown.",
       inputSchema: {
         agent: z.string().min(1).describe("Sender whose outbox to read."),
         includeAcknowledged: z.boolean().optional().describe("Include messages the recipient already acknowledged."),

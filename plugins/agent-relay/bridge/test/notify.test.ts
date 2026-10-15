@@ -354,3 +354,73 @@ test("a busy Codex app is named as the place; an offline Codex is not (D188)", a
   await dispatcher(offline.store, offline.log, [{ state: "pending", detail: "offline", reason: "offline" }]).flush();
   assert.doesNotMatch(offline.lines()[0], /Codex app/);
 });
+
+// claude-offline-notice-fixes D194: only an explicit "offline" counts toward the Claude notice; once a notice was
+// attempted, every later retry keeps saying so, without a second notice.
+const ATTEMPTED = /A desktop notification was attempted on this Mac/;
+
+test("a Claude session that is unreachable, or pending without a reason, is never told as offline", async () => {
+  for (const result of [{ state: "pending", detail: "cannot be reached", reason: "unreachable" },
+    { state: "pending", detail: "no reason" }] as WakeResult[]) {
+    const { store, log, lines } = setup("claude");
+    const message = store.send({ fromAgent: "sender", toAgent: "cx", body: "work" });
+    age(store, message.id, CLAUDE_OFFLINE_NOTIFY_AFTER_MS + 60_000);
+    const d = dispatcher(store, log, [result]);
+    await d.flush();
+    assert.equal(lines().length, 0, result.detail);
+    assert.equal(store.wakes.forMessage(message.id)?.state, "pending");
+    assert.doesNotMatch(store.wakes.forMessage(message.id)?.detail ?? "", ATTEMPTED);
+    await d.close();
+    store.close();
+  }
+});
+
+test("after the Claude offline notice, later retries still say a notice was attempted", async () => {
+  const { store, log, lines } = setup("claude");
+  const message = store.send({ fromAgent: "sender", toAgent: "cx", body: "work" });
+  age(store, message.id, CLAUDE_OFFLINE_NOTIFY_AFTER_MS + 1000);
+  const d = dispatcher(store, log, []);
+  await d.flush();
+  assert.equal(lines().length, 1);
+  for (let retry = 0; retry < 2; retry++) {
+    age(store, message.id, CLAUDE_OFFLINE_NOTIFY_AFTER_MS + 60_000 * (retry + 2));
+    await d.flush();
+    assert.match(store.wakes.forMessage(message.id)?.detail ?? "", ATTEMPTED, `retry ${retry}`);
+  }
+  assert.equal(lines().length, 1, "still one notice");
+  await d.close();
+  store.close();
+});
+
+test("after a Codex notice, later retries of that message still say a notice was attempted", async () => {
+  const { store, log, lines } = setup();
+  const message = store.send({ fromAgent: "sender", toAgent: "cx", body: "work" });
+  const d = dispatcher(store, log, [
+    { state: "pending", detail: "Codex local connection unavailable", reason: "offline" },
+    { state: "pending", detail: "Codex is working; ping will wait for idle", reason: "busy" },
+  ]);
+  await d.flush();
+  assert.equal(lines().length, 1);
+  store.database.prepare("UPDATE wake_jobs SET retry_at = 0 WHERE message_id = ?").run(message.id);
+  await d.flush();
+  const detail = store.wakes.forMessage(message.id)?.detail ?? "";
+  assert.match(detail, /^Codex is working/);
+  assert.match(detail, ATTEMPTED);
+  assert.equal(lines().length, 1, "still one notice");
+  await d.close();
+  store.close();
+});
+
+test("with notices off, no retry claims a notice was attempted", async () => {
+  const { store, log, lines } = setup("claude");
+  const message = store.send({ fromAgent: "sender", toAgent: "cx", body: "work" });
+  const d = dispatcher(store, log, [], { AGENT_RELAY_NOTIFY: "off" });
+  for (let retry = 0; retry < 2; retry++) {
+    age(store, message.id, CLAUDE_OFFLINE_NOTIFY_AFTER_MS + 60_000 * (retry + 1));
+    await d.flush();
+    assert.doesNotMatch(store.wakes.forMessage(message.id)?.detail ?? "", ATTEMPTED);
+  }
+  assert.equal(lines().length, 0);
+  await d.close();
+  store.close();
+});

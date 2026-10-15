@@ -1,8 +1,8 @@
 # Todo: claude-offline-notice-fixes
 
-- [ ] Task 1: unreachable is not offline
-- [ ] Task 2: only explicit offline is notified; retries keep NOTIFIED_TEXT; `health()` comment back in place
-- [ ] Task 3: bookkeeping — `UPSTREAM.md`, manifest, CHANGELOG `[Unreleased]`, `docs/BACKGROUND-WAKE.md`
-- [ ] Checkpoint (report): local validation
+- [x] Task 1: unreachable is not offline — red first (the new exports did not exist; the outbox case was a type error), then `PendingReason` gains `"unreachable"`, `ClaudeWake` returns it with `CLAUDE_SEVERAL_SESSIONS` (two live sessions claim the target; tested with a second real private socket owned by the test's parent process) and `CLAUDE_UNREACHABLE` (an inbox key readable by others, i.e. failed ownership checks); the outbox shows `pendingReason: "unreachable"` for the job and the one queued behind it; the `bridge_outbox` description lists it
+- [x] Task 2: only explicit offline is notified; retries keep NOTIFIED_TEXT; `health()` comment back in place — red first (three failures: a reasonless pending was notified as offline; Claude and Codex retries dropped the sentence), then `noticeClaudeOffline` requires `reason === "offline"` and both paths go through `keepNotified` (this call notified, or the mark for the same key exists; Codex also on a busy retry under ten minutes, only for `pending` results). Unreachable for six minutes: no notice. Notices off: nothing appended. "A later job of the same spell" from the spec does not occur for Claude: only the oldest job is ever attempted (durable-ordering), and once it is delivered the spell key changes
+- [x] Task 3: bookkeeping — `UPSTREAM.md`, manifest, CHANGELOG `[Unreleased]`, `docs/BACKGROUND-WAKE.md`
+- [x] Checkpoint (report): local validation — `scripts/validate.sh` pass on Python 3.9.6, 3.10.7, 3.14.3 with Node v24.18.0 first on PATH (47 files, 783 tests each; bridge `npm run check` 194 ok)
 - [ ] Task 4: PR and CI
 - [ ] Checkpoint (gate): module review
