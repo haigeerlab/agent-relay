@@ -5,5 +5,5 @@
 - [x] Task 3: bookkeeping — README "升级运行时", CHANGELOG `[Unreleased]`
 - [x] Checkpoint (report): local validation — `scripts/validate.sh` pass on Python 3.9.6, 3.10.7, 3.14.3 with Node v24.18.0 first on PATH (47 files, 794 tests each)
 - [x] Task 4: real check, 2026-10-16 — the worktree's doctor against the real runtime (read only): `codex-restart` ok, "the ChatGPT app started after the runtime upgrade at 2026-10-15 10:04:55 UTC" (the app was reopened at 18:07:26 +08:00, read as 10:07:26 UTC)
-- [ ] Task 5: PR and CI
+- [x] Task 5: PR and CI — #105, the four CI jobs green; the round-2 coordinator asked to review
 - [ ] Checkpoint (gate): module review
