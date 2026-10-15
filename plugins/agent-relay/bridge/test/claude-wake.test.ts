@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import test from "node:test";
-import { ClaudeWake, claudeSessions, CLAUDE_NOT_RUNNING } from "../src/claude-wake.js";
+import { ClaudeWake, claudeSessions, CLAUDE_NOT_RUNNING, CLAUDE_SEVERAL_SESSIONS, CLAUDE_UNREACHABLE } from "../src/claude-wake.js";
 import type { WakeJob } from "../src/wake-queue.js";
 
 test("Claude authenticates as peer, preserves exact session and reports real held/refused receipts", { skip: process.platform !== "darwin" }, async () => {
@@ -68,9 +68,29 @@ test("Claude authenticates as peer, preserves exact session and reports real hel
       { state: "pending", reason: "offline", detail: CLAUDE_NOT_RUNNING });
     // A readable-by-others key must never be used, even though metadata may be public.
     chmodSync(keyPath, 0o644);
-    assert.equal((await adapter.wake({ ...job, attemptId: "unsafe-key" }, root)).state, "pending");
+    // claude-offline-notice-fixes D194: a session that may be running but cannot be reached is not "offline".
+    assert.deepEqual(await adapter.wake({ ...job, attemptId: "unsafe-key" }, root),
+      { state: "pending", reason: "unreachable", detail: CLAUDE_UNREACHABLE });
     assert.equal(transmissions, 2);
     chmodSync(keyPath, 0o600);
+    // Two live sessions claiming the same target: ambiguous, so unreachable, never offline and never pinged.
+    const parentStart = execFileSync("/bin/ps", ["-p", String(process.ppid), "-o", "lstart="],
+      { encoding: "utf8", env: { ...process.env, TZ: "UTC", LC_ALL: "C" } }).trim();
+    const otherPath = join(directory, process.ppid + "-" + randomBytes(4).toString("hex") + ".sock");
+    const other = createServer(socket => socket.destroy());
+    await new Promise<void>(ok => other.listen(otherPath, ok));
+    chmodSync(otherPath, 0o600);
+    try {
+      writeFileSync(join(root, process.ppid + ".json"), JSON.stringify({ ...metadata, pid: process.ppid,
+        procStart: parentStart, messagingSocketPath: otherPath }), { mode: 0o644 });
+      assert.equal((await claudeSessions(root)).length, 2);
+      assert.deepEqual(await adapter.wake({ ...job, attemptId: "ambiguous" }, root),
+        { state: "pending", reason: "unreachable", detail: CLAUDE_SEVERAL_SESSIONS });
+      assert.equal(transmissions, 2);
+    } finally {
+      rmSync(join(root, process.ppid + ".json"), { force: true });
+      await new Promise<void>(ok => other.close(() => ok()));
+    }
     writeFileSync(join(root, process.pid + ".json"), JSON.stringify({ ...metadata, procStart: "stale process" }));
     assert.deepEqual(await claudeSessions(root), []);
   } finally {

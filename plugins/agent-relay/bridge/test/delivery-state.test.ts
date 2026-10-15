@@ -133,3 +133,17 @@ test("a pending ping tells the sender why it waits: offline or busy (claude-offl
     "only a pending ping carries a reason");
   s.close();
 });
+
+test("a running but unreachable session waits as unreachable, not offline (claude-offline-notice-fixes D194)", () => {
+  const s = store();
+  s.wakes.bind("b", { app: "claude", sessionId: "session-b" });
+  const first = s.send({ fromAgent: "a", toAgent: "b", body: "one" });
+  const behind = s.send({ fromAgent: "a", toAgent: "b", body: "two" });
+  const job = s.wakes.claim(Date.now() + 1);
+  assert.ok(job);
+  s.wakes.finish(job, { state: "pending", reason: "unreachable", detail: "cannot be reached" });
+  const entries = Object.fromEntries(s.outbox("a").entries.map((entry) => [entry.id, entry]));
+  assert.deepEqual(entries[first.id]?.wake, { state: "pending", detail: "cannot be reached", pendingReason: "unreachable" });
+  assert.equal(entries[behind.id]?.wake?.pendingReason, "unreachable");
+  s.close();
+});

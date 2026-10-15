@@ -101,14 +101,14 @@ export class WakeDispatcher {
       : result.state === "pending" && result.reason === "busy"
         ? (now - job.createdAt >= BUSY_NOTIFY_AFTER_MS ? "Codex has been busy for ten minutes" : null)
         : result.state === "pending" ? "Codex is not running; the message waits" : null;
-    if (!why) return result;
+    if (!why) return result.state === "pending" ? this.keepNotified(job, result, false, String(job.messageId)) : result;
     // notice-location D188: "busy" is the Codex app answering on its own socket that it holds this thread; in every
     // other case nothing confirms where the Codex side is, so the notice says only "Codex" and has no click action.
     const where: Location = { place: { kind: result.reason === "busy" ? "codex-app" : "codex" } };
     const notified = notifyUndelivered(job.mailboxPath,
       { messageId: job.messageId, fromAgent: job.fromAgent, agent: job.agent, why,
         body: this.store.messageById(job.messageId)?.body, where }, this.env);
-    return notified ? { ...result, detail: `${result.detail} ${NOTIFIED_TEXT}` } : result;
+    return this.keepNotified(job, result, notified, String(job.messageId));
   }
 
   /**
@@ -118,14 +118,23 @@ export class WakeDispatcher {
    * gets a new key. Never the message text, never a click.
    */
   private noticeClaudeOffline(job: WakeJob, result: WakeResult, now = Date.now()): WakeResult {
-    if (result.state !== "pending" || (result.reason ?? "offline") !== "offline") return result;
+    // claude-offline-notice-fixes D194: only an explicit "offline"; a running but unreachable session is not told.
+    if (result.state !== "pending" || result.reason !== "offline") return result;
     const waiting = this.store.wakes.waiting(job.agent);
     if (!waiting || now - waiting.first.createdAt < CLAUDE_OFFLINE_NOTIFY_AFTER_MS) return result;
+    const key = `claude-offline-${job.agent}-${waiting.first.messageId}`;
     const notified = notifyUndelivered(job.mailboxPath,
       { kind: "offline", messageId: waiting.first.messageId, fromAgent: waiting.first.fromAgent ?? undefined,
-        agent: job.agent, why: "not running", count: waiting.count, since: waiting.first.createdAt,
-        key: `claude-offline-${job.agent}-${waiting.first.messageId}` }, this.env);
-    return notified ? { ...result, detail: `${result.detail} ${NOTIFIED_TEXT}` } : result;
+        agent: job.agent, why: "not running", count: waiting.count, since: waiting.first.createdAt, key }, this.env);
+    return this.keepNotified(job, result, notified, key);
+  }
+
+  /**
+   * claude-offline-notice-fixes D194: a retry overwrites the wake detail, so every retry after the notice — not only
+   * the one that sent it — says that a notice was attempted. Never a second notice.
+   */
+  private keepNotified(job: WakeJob, result: WakeResult, notified: boolean, key: string): WakeResult {
+    return notified || alreadyNotified(job.mailboxPath, key) ? { ...result, detail: `${result.detail} ${NOTIFIED_TEXT}` } : result;
   }
 
   /**

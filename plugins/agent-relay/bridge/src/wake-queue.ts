@@ -20,8 +20,11 @@ export interface WakeTarget {
 export type WakeState = "pending" | "sending" | "accepted" | "read" | "held" | "refused" | "unknown" | "cancelled" | "expired"
   // agent-relay delivery-state-machine (finding 5): the recipient acknowledged the message; final.
   | "acknowledged";
-/** Why a ping is still pending: the recipient is mid-turn, or unreachable. */
-export type PendingReason = "busy" | "offline";
+/**
+ * Why a ping is still pending: the recipient is mid-turn, not running, or (claude-offline-notice-fixes D194) running
+ * but cannot be reached.
+ */
+export type PendingReason = "busy" | "offline" | "unreachable";
 export interface WakeResult {
   state: "pending" | "accepted" | "held" | "refused" | "unknown";
   detail: string;
@@ -239,7 +242,6 @@ export class WakeQueue {
     if (Number(updated.changes) === 1) this.follow(job.messageId, result.state);
   }
 
-  /** Most recent ping outcomes for one recipient, newest first. */
   /**
    * claude-offline-notice D193: the recipient's messages still waiting for a ping (pending or in flight), the oldest
    * first. Only the oldest is ever in flight (durable-ordering), so the rest are pending and never attempted yet.
@@ -255,6 +257,7 @@ export class WakeQueue {
       first: { messageId: Number(first.message_id), createdAt: Number(first.created_at), fromAgent: first.from_agent } };
   }
 
+  /** Most recent ping outcomes for one recipient, newest first. */
   health(agent: string, limit = 5): Array<{ state: WakeState; detail: string; app: string }> {
     return this.db.prepare(`SELECT state, detail, json_extract(target, '$.app') AS app FROM wake_jobs
       WHERE agent = ? ORDER BY id DESC LIMIT ?`).all(agent, limit)
