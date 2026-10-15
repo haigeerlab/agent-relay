@@ -240,6 +240,21 @@ export class WakeQueue {
   }
 
   /** Most recent ping outcomes for one recipient, newest first. */
+  /**
+   * claude-offline-notice D193: the recipient's messages still waiting for a ping (pending or in flight), the oldest
+   * first. Only the oldest is ever in flight (durable-ordering), so the rest are pending and never attempted yet.
+   */
+  waiting(agent: string): { count: number; first: { messageId: number; createdAt: number; fromAgent: string | null } } | null {
+    const row = this.db.prepare(`SELECT COUNT(*) AS n, MIN(w.id) AS first_id FROM wake_jobs w
+      WHERE w.agent = ? AND w.state IN ('pending', 'sending')`).get(agent) as { n: number | bigint; first_id: number | null };
+    if (!row || Number(row.n) === 0 || row.first_id === null) return null;
+    const first = this.db.prepare(`SELECT w.message_id, w.created_at, m.from_agent FROM wake_jobs w
+      JOIN messages m ON m.id = w.message_id WHERE w.id = ?`).get(row.first_id) as
+      { message_id: number; created_at: number; from_agent: string | null };
+    return { count: Number(row.n),
+      first: { messageId: Number(first.message_id), createdAt: Number(first.created_at), fromAgent: first.from_agent } };
+  }
+
   health(agent: string, limit = 5): Array<{ state: WakeState; detail: string; app: string }> {
     return this.db.prepare(`SELECT state, detail, json_extract(target, '$.app') AS app FROM wake_jobs
       WHERE agent = ? ORDER BY id DESC LIMIT ?`).all(agent, limit)

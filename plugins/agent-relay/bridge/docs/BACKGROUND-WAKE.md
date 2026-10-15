@@ -50,6 +50,12 @@ When a ping ends `refused`, `expired` or `held`, the bridge sends the original s
 
 `bridge_send` also warns at send time when the last three pings to a recipient failed, when a bound Claude session is not running, or when an unbound recipient has been idle for a day.
 
+A Claude session can stop while idle (the Claude app stops idle sessions' processes), and a ping goes only to a live
+process. Such a ping stays `pending` with `pendingReason: "offline"`, shown per message in `bridge_outbox` (a message
+queued behind an earlier one to the same recipient shows that one's reason). After five minutes the user gets one
+desktop notification per offline spell naming the session, how many messages wait and when the first was sent; it has
+no message text and no click action. Opening the session lets the next retry deliver the messages.
+
 ## Why Claude pings expire
 
 Claude Code gates cross-session input by permission mode. When the recipient session runs in **Bypass permissions** and the sender does not state a permission mode, the message is held for the user's approval (Claude Code calls this a permission-mode parity hold). A terminal session shows it for review. The desktop app has no approval surface for it, so it expires. Claude Code's `crossSessionInbound` setting controls this: `"accept"` delivers held messages.

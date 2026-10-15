@@ -113,3 +113,23 @@ test("the sender sees each message's delivery state in the outbox and in wake st
   assert.equal(s.wakes.forMessage(sent.id)?.deliveryState, "accepted");
   s.close();
 });
+
+test("a pending ping tells the sender why it waits: offline or busy (claude-offline-notice D193)", () => {
+  const s = store();
+  s.wakes.bind("b", { app: "claude", sessionId: "session-b" });
+  const first = s.send({ fromAgent: "a", toAgent: "b", body: "one" });
+  const behind = s.send({ fromAgent: "a", toAgent: "b", body: "two" });
+  const job = s.wakes.claim(Date.now() + 1);
+  assert.ok(job);
+  s.wakes.finish(job, { state: "pending", reason: "offline", detail: "not running" });
+  const entries = Object.fromEntries(s.outbox("a").entries.map((entry) => [entry.id, entry]));
+  assert.deepEqual(entries[first.id]?.wake, { state: "pending", detail: "not running", pendingReason: "offline" });
+  // A message queued behind the first was never attempted; it waits for the same reason.
+  assert.equal(entries[behind.id]?.wake?.pendingReason, "offline");
+  const later = s.wakes.claim(Date.now() + 120_000);
+  assert.ok(later);
+  s.wakes.finish(later, { state: "accepted", detail: "turn started" });
+  assert.equal(Object.fromEntries(s.outbox("a").entries.map((e) => [e.id, e]))[first.id]?.wake?.pendingReason, undefined,
+    "only a pending ping carries a reason");
+  s.close();
+});
