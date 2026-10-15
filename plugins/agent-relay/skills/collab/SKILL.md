@@ -93,6 +93,9 @@ Claude 会话时，bridge 会拒绝接管并报 `holder-still-running`：让用�
 多匹配只问一次最小区别。已绑定且宿主仍可达时，直接消息默认 `wake: true`；未绑定时只入箱。
 
 回复复用来信 sender 和原 `threadId`。连续消息复用同一身份、目标和唤醒绑定，不重复注册来尝试第二次唤醒。
+Codex 给 Codex 派活时，`session-routing` 的 selector 可能返回 `codex-work-via-mailbox`：按本技能发送和等待，
+对方用 `replyTo` 回复即可（codex-request-via-mailbox D195）。
+
 `bridge_send` 成功只证明入箱；`bridge_wake_status` 证明唤醒结果，`bridge_outbox.acknowledgedAt` 证明处理确认，
 匹配回复才证明 response。`unknown` 保持未知，不重复发送。
 

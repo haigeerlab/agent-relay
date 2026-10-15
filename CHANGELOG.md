@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+- **Codex 给 Codex 派活时，请求和回复都走信箱，回复不再丢**（模块 `codex-request-via-mailbox`，D195，会话
+  spec-guard-monitor 报告、用户 2026-10-16 决定按方案 A 做）：只改 hooks 和技能，**更新插件、新开会话即可，不需要升级运行时**。
+  - 以前 Codex 发给 Codex 一律优先走 Codex 自己的原生消息。原生消息的回复只留在对方会话里，要发起方自己去取；发起方
+    派完活先结束这一轮，回复就没人取，整条协作停住，要你提醒才继续。
+  - 现在路由选择器多三个可选输入：`exchange`（`ask` 当场等答案、`assign` 派活、`unknown` 拿不准，默认 `unknown`）、
+    `originWake`、`targetWake`（是否绑定了唤醒）。Codex 发给 Codex、不是当场问答、双方都加入并允许唤醒时，走信箱
+    （`routeReason: codex-work-via-mailbox`），对方用 `replyTo` 回复，回复会把发起方叫醒。
+  - 当场问一句等答案的，仍走原生消息。双方没都加入并允许唤醒、或信箱不可用时，也仍走原生，但会告诉你回复可能回不来，
+    并给出加入那句话。已经发过一次原生的，一律不再改走信箱，不会发两次。Claude 发给 Claude、跨宿主都不变。
+  - 已接受的取舍：对方 Codex 正忙时，信箱消息会排到它空下来再送；原生消息可能当场插进去。
+
 ## [0.6.8] - 2026-10-15
 
 接口仍为 **2.0**（`interface.json` 不变，Spec Guard 0.56.0 或更新），信箱 schema 仍为 5，委派库仍为 schema 3。这一版修
