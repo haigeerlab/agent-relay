@@ -1,15 +1,18 @@
 """doctor reports agent-relay's health on this Mac, read only (ops-commands D42)."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
 import plistlib
 import sqlite3
+import subprocess
 import tempfile
 import time
 import sys
 import unittest
+from unittest.mock import patch
 
 from native_collaboration_adapters import CLAUDE_SERVER_NAME, codex_fragment
 from native_collaboration_doctor import TEST_NOTIFICATION_TEXT, codex_auto_approval, doctor, send_test_notification
@@ -88,7 +91,7 @@ class DoctorTests(unittest.TestCase):
                        processes=lambda: self.processes, alive=lambda pid: pid in self.alive,
                        notification_prefs=lambda: prefs(SCRIPT_EDITOR_ALLOWED), platform="darwin",
                        node_selector=lambda *a, **k: SelectedNode(NODE, "claude-entry", "v24.18.0"),
-                       notifier_candidates=(), claude_plugins=lambda: (0, "[]"))
+                       notifier_candidates=(), claude_plugins=lambda: (0, "[]"), chatgpt_started=lambda: [])
         options.update(overrides)
         return doctor(self.root, **options)
 
@@ -488,6 +491,65 @@ class DoctorTests(unittest.TestCase):
         sent.assert_called_once()
         self.assertEqual(report["testNotification"]["sent"], True)
 
+    # upgrade-codex-restart-check D196: a ChatGPT app started before the newest runtime upgrade lost its mailbox.
+    def upgraded(self, *stamps):
+        for stamp in stamps:
+            (self.root.parent / f"runtime.previous-{stamp}").mkdir()
+
+    def check(self, started):
+        return self.find(self.run_doctor(chatgpt_started=lambda: started), "codex-restart")
+
+    def test_an_app_started_before_the_upgrade_warns_and_after_it_is_ok(self):
+        from native_collaboration_runtime import RESTART_NEXT
+        self.upgraded("20261015T080000Z", "20261015T100455Z", "20261015T100455Z-1")
+        upgrade = datetime(2026, 10, 15, 10, 4, 55, tzinfo=timezone.utc).timestamp()
+        before = self.check([upgrade - 25 * 60])
+        self.assertEqual(before["state"], "warn")
+        self.assertEqual(before["next"], RESTART_NEXT)
+        self.assertIn("2026-10-15 10:04:55 UTC", before["detail"])
+        self.assertEqual(self.check([upgrade + 151])["state"], "ok")
+        # Several app processes: the oldest decides.
+        self.assertEqual(self.check([upgrade + 151, upgrade - 1])["state"], "warn")
+
+    def test_nothing_to_judge_is_ok_and_says_so(self):
+        self.assertIn("no runtime upgrade on record", self.check([0.0])["detail"])
+        self.upgraded("20261015T100455Z")
+        self.assertIn("not running", self.check([])["detail"])
+        cannot = self.check(None)
+        self.assertEqual(cannot["state"], "ok")
+        self.assertIn("cannot tell", cannot["detail"])
+        self.assertEqual(self.check([])["state"], "ok")
+
+    def test_an_unreadable_stamp_cannot_tell(self):
+        self.upgraded("not-a-stamp")
+        check = self.check([0.0])
+        self.assertEqual(check["state"], "ok")
+        self.assertIn("cannot tell", check["detail"])
+
+    def test_the_process_start_is_read_in_utc_so_a_plus_eight_clock_does_not_mislead(self):
+        from native_collaboration_doctor import CHATGPT_APP, chatgpt_started
+        seen = {}
+
+        def fake(command, **kwargs):
+            seen.update(command=command, env=kwargs.get("env", {}))
+            # With TZ=UTC, ps prints 03:00 for an app a +08:00 Mac shows as started at 11:00 local.
+            return subprocess.CompletedProcess(command, 0, stdout=(
+                "Thu Oct 15 03:00:00 2026     " + CHATGPT_APP + "\n"
+                "Thu Oct 15 02:00:00 2026     " + CHATGPT_APP + " Helper (Renderer)\n"
+                "Thu Oct 15 01:00:00 2026     /usr/bin/other\n"
+                "Mon Oct  5 01:00:00 2026     " + CHATGPT_APP + " --type=gpu\n"), stderr="")
+
+        with patch("native_collaboration_doctor.subprocess.run", side_effect=fake):
+            started = chatgpt_started()
+        self.assertEqual(seen["env"].get("TZ"), "UTC")
+        self.assertEqual(started, [datetime(2026, 10, 15, 3, 0, tzinfo=timezone.utc).timestamp()])
+        # The upgrade ran at 09:00 UTC (17:00 on that Mac). Comparing 11:00 local with 09:00 UTC would say "after";
+        # in absolute time the app is six hours older, so it warns.
+        self.upgraded("20261015T090000Z")
+        self.assertEqual(self.check(started)["state"], "warn")
+        with patch("native_collaboration_doctor.subprocess.run", side_effect=OSError("no ps")):
+            self.assertIsNone(chatgpt_started())
+
 
 if __name__ == "__main__":
     unittest.main()
@@ -617,4 +679,3 @@ class ClaudePluginCopyTests(unittest.TestCase):
         from native_collaboration_doctor import _overall
         self.assertEqual(_overall([{"state": "ok"}, {"state": "skip"}]), "ok")
         self.assertEqual(_overall([{"state": "warn"}, {"state": "skip"}]), "warn")
-

@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import patch
 
 import native_collaboration_runtime as runtime
-from native_collaboration_runtime import BRIDGE_COMMIT, NativeRuntimeError, status, upgrade_runtime
+from native_collaboration_runtime import BRIDGE_COMMIT, RESTART_NEXT, NativeRuntimeError, status, upgrade_runtime
 
 
 def fake_run(command, **kwargs):
@@ -92,6 +92,14 @@ class RuntimeUpgradeTests(unittest.TestCase):
         self.upgrade()
         again = self.upgrade()
         self.assertEqual(again["state"], "current")
+        self.assertNotIn("next", again)
+
+    def test_an_upgrade_tells_the_user_to_restart_the_codex_app(self):
+        # upgrade-codex-restart-check D196: Codex tasks that ran before the upgrade lost their mailbox connection.
+        result = self.upgrade()
+        self.assertEqual(result["next"], RESTART_NEXT)
+        self.assertIn("ChatGPT", RESTART_NEXT)
+        self.assertIn("⌘Q", RESTART_NEXT)
 
     def test_a_failed_build_changes_nothing(self):
         def failing(command, **kwargs):

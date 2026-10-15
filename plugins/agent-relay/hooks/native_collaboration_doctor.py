@@ -24,7 +24,7 @@ from typing import Any, Callable, Iterable
 from native_collaboration_adapters import CLAUDE_SERVER_NAME, CODEX_SERVER_NAME
 from node_select import NodeSelectError, select_node, toml_table
 from state_migration import _snapshot
-from native_collaboration_runtime import (MAILBOX_SCHEMA_VERSIONS, MAILBOX_TOOLS, NativeRuntimeError,
+from native_collaboration_runtime import (MAILBOX_SCHEMA_VERSIONS, MAILBOX_TOOLS, RESTART_NEXT, NativeRuntimeError,
                                           live_claude_sessions, open_mailbox_read_only, pid_alive, probe_runtime,
                                           status)
 
@@ -408,6 +408,51 @@ def _old_bridges(processes: Iterable[str]) -> dict[str, str]:
     return _check("old-bridges", "ok", "no Spec Guard collaboration bridge running")
 
 
+# upgrade-codex-restart-check D196: the Codex desktop app's main executable, matched exactly (its helpers differ).
+CHATGPT_APP = "/Applications/ChatGPT.app/Contents/MacOS/ChatGPT"
+_PREVIOUS_STAMP = re.compile(r"runtime\.previous-(\d{8}T\d{6}Z)(?:-\d+)?")
+
+
+def chatgpt_started() -> list[float] | None:
+    """Start times (epoch seconds) of running ChatGPT app processes, or None when ps cannot be read.
+
+    ps prints lstart in local time, while upgrade stamps are UTC, so ps runs with TZ=UTC and both are absolute.
+    """
+    try:
+        lines = subprocess.run(["ps", "-axo", "lstart=,command="], check=True, capture_output=True, text=True,
+                               timeout=30, env={**os.environ, "TZ": "UTC", "LC_ALL": "C"}).stdout.splitlines()
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return None
+    started = []
+    for line in lines:
+        if line[24:].strip() != CHATGPT_APP:
+            continue
+        try:
+            started.append(datetime.strptime(line[:24], "%a %b %d %H:%M:%S %Y")
+                           .replace(tzinfo=timezone.utc).timestamp())
+        except ValueError:
+            return None
+    return started
+
+
+def _codex_restart(root: Path, started: list[float] | None) -> dict[str, str]:
+    previous = list(root.parent.glob("runtime.previous-*"))
+    if not previous:
+        return _check("codex-restart", "ok", "no runtime upgrade on record")
+    stamps = [match.group(1) for match in (_PREVIOUS_STAMP.fullmatch(path.name) for path in previous) if match]
+    if not stamps or started is None:
+        return _check("codex-restart", "ok", "cannot tell whether the ChatGPT app was restarted after the last runtime "
+                      "upgrade (" + ("its time is not readable" if not stamps else "the process list is not readable") + ")")
+    upgraded = datetime.strptime(max(stamps), "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+    when = upgraded.strftime("%Y-%m-%d %H:%M:%S UTC")
+    if not started:
+        return _check("codex-restart", "ok", f"the ChatGPT app is not running (last runtime upgrade {when})")
+    if min(started) < upgraded.timestamp():
+        return _check("codex-restart", "warn", f"the ChatGPT app has run since before the runtime upgrade at {when}, "
+                      "so its Codex tasks lost their mailbox connection", RESTART_NEXT)
+    return _check("codex-restart", "ok", f"the ChatGPT app started after the runtime upgrade at {when}")
+
+
 def _ps() -> list[str]:
     try:
         return subprocess.run(["ps", "-axo", "command"], check=True, capture_output=True, text=True,
@@ -555,7 +600,8 @@ def doctor(root: Path, *, home: Path | None = None, node: str | None = None, cod
            notification_prefs: Callable[[], bytes | None] = read_notification_prefs,
            platform: str = sys.platform, node_selector: Callable[..., Any] = select_node,
            notifier_candidates: Iterable[str] = NOTIFIER_CANDIDATES,
-           claude_plugins: Callable[[], tuple[int, str] | None] = _claude_plugin_list) -> dict[str, Any]:
+           claude_plugins: Callable[[], tuple[int, str] | None] = _claude_plugin_list,
+           chatgpt_started: Callable[[], list[float] | None] = chatgpt_started) -> dict[str, Any]:
     home = Path(home) if home else Path.home()
     codex_home = os.environ.get("CODEX_HOME", "").strip()
     codex_config = Path(codex_config) if codex_config else (Path(codex_home) if codex_home else home / ".codex") / "config.toml"
@@ -579,5 +625,6 @@ def doctor(root: Path, *, home: Path | None = None, node: str | None = None, cod
             checks.append(_codex_waiting(copy))
     checks.append(_notifications(root / "mailbox", notification_prefs, platform, notifier_candidates))
     checks.append(_old_bridges(processes()))
+    checks.append(_codex_restart(root, chatgpt_started()))
     checks.append(_claude_plugin(claude_plugins, _copy_version(PLUGIN_ROOT)))
     return {"state": _overall(checks), "root": str(root), "checks": checks}

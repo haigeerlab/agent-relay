@@ -283,6 +283,10 @@ Claude Code 会话在**启动时**定下用哪一份插件，之后一直用这�
   自己）。升级完成后，Claude Code 会话重开即可；ChatGPT 应用要 ⌘Q 完全退出再打开，否则已经打开的 Codex 线程会一直报
   “Transport closed”。
 
+升级成功时，输出的 `next` 会提醒你重开 ChatGPT 应用。之后 doctor 的 `codex-restart` 一项会比较 ChatGPT 应用的启动时间
+和最近一次升级（最新的 `runtime.previous-<时间>`）：应用还是升级前打开的就报 warn，重开后变成 ok。终端里运行的
+`codex` 会话升级后同样要重开，doctor 看不出来。
+
 - **回滚**：同样关掉所有会话后执行 `python3 -B <插件目录>/hooks/native_collaboration_runtime.py rollback --confirm`，回到最新的
   `runtime.previous-<时间>`，信箱和数据一起带过去；先备份信箱，当前版本保留为 `runtime.rolled-back-<时间>`。
 - **中途被打断**：升级、重装或回滚半路停下（进程被杀、断电），`~/.agent-relay/runtime-swap.json` 会留下记录，`status` 报
