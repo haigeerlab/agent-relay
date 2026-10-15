@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [0.6.7] - 2026-10-15
+
+接口仍为 **2.0**（`interface.json` 不变，Spec Guard 0.56.0 或更新），信箱 schema 仍为 5，委派库仍为 schema 3。这一版只做
+一件事：发给没在运行的 Claude 会话的消息送不进去时，告诉你。升级前先看这一点：
+
+- **bridge 有改动，要 `upgrade --confirm` 升级运行时**：这一版全部在 bridge 里，不升级运行时就没有任何变化。
+
 - **Claude 会话没在运行时，送不进去的消息会通知你**（模块 `claude-offline-notice`，D193，会话 spec-guard-monitor 报告、
   用户 2026-10-15 决定）：bridge 改动，**要用 `upgrade --confirm` 升级运行时才生效**。
   - Claude 桌面应用会在会话空闲时停掉它的进程，bridge 只能把消息送进还在运行的会话。以前这类消息只是一直排队重试，直到
@@ -12,6 +19,34 @@
   - 发件方用 `bridge_outbox` 能看到每条待发消息的 `wake.pendingReason`（`offline` 或 `busy`）；排在前一条后面、还没轮到
     的消息沿用前一条的原因。Claude 会话没在运行时的说明改成了一句人话。
   - 没有做的：从外部叫醒一个已经停掉的桌面会话。bridge 调不到桌面应用自己的会话工具，记为待定问题。
+
+以上来自模块 `claude-offline-notice` 的 PR #99，spec 与计划见 #98。问题由会话 spec-guard-monitor 报告、经用户同意转交。
+这两个 PR 没有经过第二轮联调审查（它的会话已停止），由用户直接合并。
+
+### 从 0.6.6 升级
+
+1. 两个宿主都更新插件（详见 README“更新插件”）：Claude Code 从 GitHub 装的，先 `claude plugin marketplace update
+   agent-relay-marketplace`，再 `claude plugin update --scope user agent-relay@agent-relay-marketplace`；Codex 把
+   `~/.codex/config.toml` 里的 `ref` 改成 `"v0.6.7"` 后 `codex plugin marketplace upgrade`、`codex plugin add
+   agent-relay@agent-relay-marketplace`；从本地克隆装的先 `git -C <克隆> pull --ff-only`，Codex 再 `codex plugin add`。
+2. **升级运行时**：关闭所有使用信箱的会话或只结束 bridge（见 README“升级运行时”），确认 `pgrep -fl
+   "agent-relay/runtime/dist/server.js"` 没有输出，再执行 `python3 -B <插件目录>/hooks/native_collaboration_runtime.py
+   upgrade --confirm`，输出应为 `"state": "upgraded"`。
+3. 新开 Claude Code 会话；Codex 用 ⌘Q 完全退出 ChatGPT 应用再打开。
+
+信箱和委派库的 schema 都没变，不需要迁移；通知沿用原来的权限，不用重新授予。
+
+### 想退回 0.6.6
+
+关掉所有会话后 `rollback --confirm` 退回运行时，并把两个宿主的插件退回 v0.6.6，然后新开会话。
+
+### 已知问题
+
+- 被 Claude 桌面应用真正停掉的会话这一版没有实测（实测用的是绑定到一个不存在进程的会话、并把消息时间调早），待真实
+  宿主验收时核对：通知是否在约五分钟后出现、名字和条数是否正确、打开会话后消息是否送进去。
+- 屏幕上的真实横幅没有弹过，实测只写了通知日志。
+- 已经停掉的桌面会话仍然叫不醒，只能由你打开它。
+- 0.6.6 及更早版本列出的已知问题仍然存在。
 
 ## [0.6.6] - 2026-10-12
 
