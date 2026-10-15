@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [0.6.8] - 2026-10-15
+
+接口仍为 **2.0**（`interface.json` 不变，Spec Guard 0.56.0 或更新），信箱 schema 仍为 5，委派库仍为 schema 3。这一版修
+0.6.7 补审提出的三处小问题，升级前先看这一点：
+
+- **bridge 有改动，要 `upgrade --confirm` 升级运行时**：这一版全部在 bridge 里，不升级运行时就没有任何变化。
+
 - **会话在运行但连不上时，不再当成离线，也不再发“没在运行”的通知**（模块 `claude-offline-notice-fixes`，D194，第二轮联调
   补审 0.6.7 时发现、用户 2026-10-15 决定）：bridge 改动，**要用 `upgrade --confirm` 升级运行时才生效**。
   - 以前同时有几个活会话认领同一个收件方，或者会话的本机收件箱连不上、身份核验没通过时，待发原因也记成 `offline`，
@@ -10,6 +17,32 @@
   - 通知发出之后，之后每次重试的说明里都保留“已尝试发桌面通知”这句，发件方能看出你已经被提醒过；仍然只发一条通知。
     Claude 和 Codex 两条路径都这样。
   - `bridge_outbox` 的 `wake.pendingReason` 多一个可能的取值 `unreachable`。
+
+以上来自模块 `claude-offline-notice-fixes` 的 PR #102，spec 与计划见 #101。问题由第二轮联调补审 0.6.7 时提出；这两个 PR
+由用户直接合并，没有经过第二轮联调审查。
+
+### 从 0.6.7 升级
+
+1. 两个宿主都更新插件（详见 README“更新插件”）：Claude Code 从 GitHub 装的，先 `claude plugin marketplace update
+   agent-relay-marketplace`，再 `claude plugin update --scope user agent-relay@agent-relay-marketplace`；Codex 把
+   `~/.codex/config.toml` 里的 `ref` 改成 `"v0.6.8"` 后 `codex plugin marketplace upgrade`、`codex plugin add
+   agent-relay@agent-relay-marketplace`；从本地克隆装的先 `git -C <克隆> pull --ff-only`，Codex 再 `codex plugin add`。
+2. **升级运行时**：关闭所有使用信箱的会话或只结束 bridge（见 README“升级运行时”），确认 `pgrep -fl
+   "agent-relay/runtime/dist/server.js"` 没有输出，再执行 `python3 -B <插件目录>/hooks/native_collaboration_runtime.py
+   upgrade --confirm`，输出应为 `"state": "upgraded"`。
+3. 新开 Claude Code 会话；Codex 用 ⌘Q 完全退出 ChatGPT 应用再打开。
+
+信箱和委派库的 schema 都没变，不需要迁移；通知沿用原来的权限，不用重新授予。
+
+### 想退回 0.6.7
+
+关掉所有会话后 `rollback --confirm` 退回运行时，并把两个宿主的插件退回 v0.6.7，然后新开会话。
+
+### 已知问题
+
+- “几个会话同时认领同一个收件方”只在测试里造出来过，真实宿主上没有见过；收件箱连不上的情况也只在测试里验证。
+- 连不上（`unreachable`）的会话不会通知你；要不要通知留到以后单独决定。
+- 0.6.7 及更早版本列出的已知问题仍然存在。
 
 ## [0.6.7] - 2026-10-15
 
