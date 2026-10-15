@@ -5,4 +5,4 @@
 - [x] Task 3: bookkeeping — `UPSTREAM.md`, manifest, CHANGELOG `[Unreleased]`, `docs/BACKGROUND-WAKE.md`
 - [x] Checkpoint (report): local validation — `scripts/validate.sh` pass on Python 3.9.6, 3.10.7, 3.14.3 with Node v24.18.0 first on PATH (47 files, 783 tests each; bridge `npm run check` 194 ok)
 - [x] Task 4: PR and CI — #102, the four CI jobs green
-- [ ] Checkpoint (gate): module review
+- [x] Checkpoint (gate): module review — not reviewed by the round-2 coordinator (no mailbox name to send it from this session); the user merged #101 (dc3e213) and #102 (a8a2ccd) directly
