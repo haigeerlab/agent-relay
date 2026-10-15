@@ -4,4 +4,4 @@
 - [x] Task 2: the skills and the interface document — red first (skill test), then `session-routing` (the three optional facts, where wake comes from: `bridge_agents` `wake` not null; the mailbox route with `bridge_send` and `replyTo`; passing `nextStep` on a native dispatch; a note in the Codex native section), one paragraph in `collab`, `docs/collaboration-interface.md` selector and Codex ↔ Codex rows
 - [x] Task 3: bookkeeping — CHANGELOG `[Unreleased]`
 - [x] Checkpoint (report): local validation — `scripts/validate.sh` pass on Python 3.9.6, 3.10.7, 3.14.3 with Node v24.18.0 first on PATH (47 files, 789 tests each)
-- [ ] Checkpoint (gate): module review
+- [x] Checkpoint (gate): module review — the round-2 coordinator reviewed #104 (asked for the project names to be removed and four additions, all made) and #105 (no changes); the user merged #104 (2d5dfdc) and #105 (7586247)

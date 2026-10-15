@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [0.6.9] - 2026-10-16
+
+接口仍为 **2.0**（`interface.json` 不变，Spec Guard 0.56.0 或更新），信箱 schema 仍为 5，委派库仍为 schema 3。这一版有两项
+改动，升级前先看这一点：
+
+- **只改 hooks 和技能，不用升级运行时**：更新插件、新开会话即可；bridge 与 0.6.8 完全相同。
+
 - **Codex 给 Codex 派活时，请求和回复都走信箱，回复不再丢**（模块 `codex-request-via-mailbox`，D195，会话
   spec-guard-monitor 报告、用户 2026-10-16 决定按方案 A 做）：只改 hooks 和技能，**更新插件、新开会话即可，不需要升级运行时**。
   - 以前 Codex 发给 Codex 一律优先走 Codex 自己的原生消息。原生消息的回复只留在对方会话里，要发起方自己去取；发起方
@@ -21,6 +28,33 @@
     重开后为 ok；应用没在运行、没有升级记录或读不出时间时为 ok 并说明。升级时间是 UTC，进程启动时间按 UTC 读出后再比较，
     不会因为本机时区看错。只读，不会去重启或结束应用。
   - 没有做的：终端里运行的 `codex` 会话升级后同样会断开，doctor 看不出来。
+
+以上来自模块 `codex-request-via-mailbox` 和 `upgrade-codex-restart-check` 的 PR #105，spec 与计划见 #104，两个 PR 都经过
+第二轮联调审查。问题由会话 spec-guard-monitor 报告、经用户同意转交。
+
+### 从 0.6.8 升级
+
+1. 两个宿主都更新插件（详见 README“更新插件”）：Claude Code 从 GitHub 装的，先 `claude plugin marketplace update
+   agent-relay-marketplace`，再 `claude plugin update --scope user agent-relay@agent-relay-marketplace`；Codex 把
+   `~/.codex/config.toml` 里的 `ref` 改成 `"v0.6.9"` 后 `codex plugin marketplace upgrade`、`codex plugin add
+   agent-relay@agent-relay-marketplace`；从本地克隆装的先 `git -C <克隆> pull --ff-only`，Codex 再 `codex plugin add`。
+2. 新开 Claude Code 会话；Codex 用 ⌘Q 完全退出 ChatGPT 应用再打开（新的路由规则在技能里，已经打开的 Codex 任务还用旧技能）。
+
+不需要 `upgrade --confirm`：bridge 与 0.6.8 完全相同（已经在 0.6.8 的不用动；还在更早版本的，按那一版的说明升级运行时）。
+信箱和委派库的 schema 都没变，不需要迁移。
+
+### 想退回 0.6.8
+
+把两个宿主的插件退回 v0.6.8，然后新开会话。运行时不用动。
+
+### 已知问题
+
+- 派活走信箱这一版没有做真实宿主的端到端检查（要两个加载了新插件、都加入并允许唤醒的 Codex 任务），待验收时核对：
+  派活走信箱、回复叫醒已结束这一轮的发起方；当场问答仍走原生；一方没加入时看到提醒。
+- “是派活还是当场问答”由发起的会话按你的说法判断，可能判断错；拿不准时按派活走信箱。
+- 如果你给某个多会话项目定过“协调会话和各条线一律走邮箱”的临时规则，可以先保留，验收后再决定是否撤掉。
+- 终端里运行的 `codex` 会话升级运行时后同样会断开，`doctor` 看不出来。
+- 0.6.8 及更早版本列出的已知问题仍然存在。
 
 ## [0.6.8] - 2026-10-15
 
