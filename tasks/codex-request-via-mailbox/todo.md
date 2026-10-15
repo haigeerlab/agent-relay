@@ -1,7 +1,7 @@
 # Todo: codex-request-via-mailbox
 
-- [ ] Task 1: the selector — `exchange`, the Codex/Codex mailbox rule, the `nextStep` warning
-- [ ] Task 2: the skills and the interface document
-- [ ] Task 3: bookkeeping — CHANGELOG `[Unreleased]`
-- [ ] Checkpoint (report): local validation
+- [x] Task 1: the selector — red first (the new constants did not exist), then optional facts `exchange` (`ask`, `assign`, `unknown`; absent `unknown`), `originWake`, `targetWake` (absent `false`) in `session_routing.py`. Codex/Codex with native available and not attempted, `exchange` not `ask`: bridge ready and both joined and wake-bound → `agent-relay-bridge`, `codex-work-via-mailbox` (no `fallbackFrom`); joined or wake missing on either side → native with `CODEX_WORK_JOIN_HINT`; bridge not ready → native with `CODEX_WORK_HINT`. Already attempted (accepted/unknown/rejected), native unknown or unavailable: today's rules, no `nextStep`. Claude pairs and cross-host: identical results whatever the new facts say. Bad values refused
+- [x] Task 2: the skills and the interface document — red first (skill test), then `session-routing` (the three optional facts, where wake comes from: `bridge_agents` `wake` not null; the mailbox route with `bridge_send` and `replyTo`; passing `nextStep` on a native dispatch; a note in the Codex native section), one paragraph in `collab`, `docs/collaboration-interface.md` selector and Codex ↔ Codex rows
+- [x] Task 3: bookkeeping — CHANGELOG `[Unreleased]`
+- [x] Checkpoint (report): local validation — `scripts/validate.sh` pass on Python 3.9.6, 3.10.7, 3.14.3 with Node v24.18.0 first on PATH (47 files, 789 tests each)
 - [ ] Checkpoint (gate): module review

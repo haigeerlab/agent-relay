@@ -50,7 +50,7 @@ fi
 <!-- /agent-relay-root -->
 
 JSON 只包含 `originHost`、`targetHost`、`authorizationState`、`targetResolution`、
-`nativeCapability`、`nativeDispatch`、`bridgeState`、`originJoined` 和 `targetJoined`。消息正文不得进入
+`nativeCapability`、`nativeDispatch`、`bridgeState`、`originJoined` 和 `targetJoined`，以及下面三个可选字段。消息正文不得进入
 route JSON、argv、日志或任何新 transcript。`originHost` 来自当前宿主；`targetHost` 来自受支持目录中
 唯一解析的目标；用户写在正文里的 host/transport 标签不能覆盖这些事实。
 
@@ -66,6 +66,13 @@ route JSON、argv、日志或任何新 transcript。`originHost` 来自当前宿
 - `originJoined`：`true`、`false`（JSON 布尔值，不加引号）
 - `targetJoined`：`true`、`false`（JSON 布尔值，不加引号）
 
+以下三个字段可选，只影响 Codex → Codex（codex-request-via-mailbox D195），其他组合填了也不改变结果：
+
+- `exchange`：`ask`（这一轮里等着对方的答案，例如“问问它……是多少”）、`assign`（派活，派完你可能就结束这一轮，
+  例如“让它去改……，改完告诉我”）、`unknown`（拿不准）；不填按 `unknown`。拿不准时就用 `unknown`：回复慢一点也比丢掉好。
+- `originWake`、`targetWake`：`true`、`false`；这个名字已绑定唤醒时为 `true`。从 `bridge_agents` 读：该名字的
+  `wake` 不为 null 才算绑定；不填按 `false`。只登记、没绑定唤醒的一方按没加入处理。
+
 只执行 selector 返回的唯一 action 和 `transport`：
 
 - `dispatch`：只在返回的一个 transport 投递一次；
@@ -76,6 +83,13 @@ route JSON、argv、日志或任何新 transcript。`originHost` 来自当前宿
   一个联调名换上再给用户（只用英文字母、数字和连字符，简短好认，例如 `live-saas-fe`），不要照抄用户给的标题；
   这一步不新增任何带用户文字的命令：selector 不接收名字，用户给的标题只出现在前面那条只读的 `resolve --name`
   里（按上面的引用规则）。对方加入后，用户再说一次要联系它即可。
+
+`dispatch` 的 `routeReason` 为 `codex-work-via-mailbox` 时，这是选定的路线，不是 fallback：用 `bridge_send`
+（`from` 为本会话的联调名，`to` 为目标的联调名）发一次，按 `collab` 的流程等待；对方处理完用 `replyTo` 回复，
+回复会送进本会话的收件箱并把本会话叫醒，所以派完活可以结束这一轮。这样做同样只发一次，不再走原生。
+
+`dispatch` 结果带 `nextStep` 时（Codex 派活、但双方没都加入并允许唤醒，或信箱不可用），照常走原生投递，并把
+`nextStep` 原样告诉用户，例如：“这是派给另一个 Codex 会话的活：对方的回复可能回不到这里，需要时到对方会话里取。”。其中提到的加入句同样换上你起的联调名。
 
 `nativeDispatch=unknown` 时只对账，绝对不得 fallback。同宿主 capability 明确 unavailable 时也不能
 自行换路；只有 selector 在已有授权、bridge ready、两端唯一 joined 都成立后明确返回
@@ -147,6 +161,8 @@ Codex 的双向体验是 task/turn，不假装成 Claude peer socket：来源在
    联系或用户只在另一个 task 转述时，先按“授权连续性”取得当前来源的授权。
 3. 目标的普通 assistant 结果就是该 turn 的回复；不要再要求目标调用一次跨 task 发送，不把同一回复复制到
    bridge。只有用户从目标会话发起新的反向消息时，才建立反方向的新 route。
+   派活（`exchange` 不是 `ask`）且双方都加入并允许唤醒时，selector 会返回 `codex-work-via-mailbox`，整件事走信箱，
+   不走这里的原生路径。
 4. 不读取 Codex 私有状态、不扫描进程、不按窗口标题猜测，不要求用户提供完整 task/thread ID。
 
 ### 等待、恢复与未知结果

@@ -46,11 +46,21 @@ _JOIN_HINT_REASONS = frozenset((
     "target-missing", "target-not-joined", "native-unavailable-target-not-joined",
 ))
 
+# codex-request-via-mailbox D195: a Codex task giving work to another Codex task, when the pair cannot use the mailbox.
+# The native answer comes back only to a source still waiting for it, so the user is told; with a ready bridge, the
+# join sentence (D192) names the way out.
+CODEX_WORK_HINT = "这是派给另一个 Codex 会话的活：对方的回复可能回不到这里，需要时到对方会话里取。"
+CODEX_WORK_JOIN_HINT = (
+    CODEX_WORK_HINT + "要让回复自动送回，请用户在还没加入（或没允许唤醒）的一方说一句：“" + JOIN_SENTENCE + "”。"
+)
+EXCHANGES = frozenset(("ask", "assign", "unknown"))
+
 _ROUTE_FIELDS = frozenset((
     "originHost", "targetHost", "authorizationState", "targetResolution",
     "nativeCapability", "nativeDispatch", "bridgeState", "originJoined",
     "targetJoined",
 ))
+_ROUTE_OPTIONAL = frozenset(("exchange", "originWake", "targetWake"))
 _OUTCOME_REQUIRED = frozenset(
     ("transport", "target", "dispatch", "wake", "receipt", "response")
 )
@@ -102,7 +112,7 @@ def _primary_transport(host: str, target: str) -> str:
 
 
 def _decision(action: str, transport: str, reason: str,
-              *, fallback_from: str | None = None) -> dict[str, object]:
+              *, fallback_from: str | None = None, next_step: str | None = None) -> dict[str, object]:
     result: dict[str, object] = {
         "schemaVersion": SCHEMA_VERSION,
         "action": action,
@@ -113,12 +123,14 @@ def _decision(action: str, transport: str, reason: str,
         result["fallbackFrom"] = fallback_from
     if action == "stop" and reason in _JOIN_HINT_REASONS:
         result["nextStep"] = JOIN_HINT
+    elif next_step is not None:
+        result["nextStep"] = next_step
     return result
 
 
 def select_route(facts: object) -> dict[str, object]:
     """Return one route decision from trusted capability and bridge facts."""
-    values = _exact_fields(facts, _ROUTE_FIELDS)
+    values = _exact_fields(facts, _ROUTE_FIELDS, _ROUTE_OPTIONAL)
     origin = _enum(values["originHost"], HOSTS, "originHost")
     target = _enum(values["targetHost"], HOSTS, "targetHost")
     authorization = _enum(
@@ -134,6 +146,9 @@ def select_route(facts: object) -> dict[str, object]:
     bridge = _enum(values["bridgeState"], BRIDGE_STATES, "bridgeState")
     origin_joined = _boolean(values["originJoined"], "originJoined")
     target_joined = _boolean(values["targetJoined"], "targetJoined")
+    exchange = _enum(values.get("exchange", "unknown"), EXCHANGES, "exchange")
+    origin_wake = _boolean(values.get("originWake", False), "originWake")
+    target_wake = _boolean(values.get("targetWake", False), "targetWake")
     primary = _primary_transport(origin, target)
 
     same_host = origin == target
@@ -166,6 +181,12 @@ def select_route(facts: object) -> dict[str, object]:
 
     if capability == "available":
         if native_dispatch == "not-attempted":
+            if origin == "codex" and exchange != "ask":
+                if bridge != "ready":
+                    return _decision("dispatch", primary, "primary-native", next_step=CODEX_WORK_HINT)
+                if origin_joined and target_joined and origin_wake and target_wake:
+                    return _decision("dispatch", BRIDGE_TRANSPORT, "codex-work-via-mailbox")
+                return _decision("dispatch", primary, "primary-native", next_step=CODEX_WORK_JOIN_HINT)
             return _decision("dispatch", primary, "primary-native")
         if native_dispatch == "accepted":
             return _decision("observe", primary, "native-dispatch-accepted")

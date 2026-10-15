@@ -338,6 +338,10 @@ ROLLBACK_CAVEAT = (
     "The previous runtime's bridge opens the upgraded (schema 5) mailbox in compatible mode, but an older agent-relay "
     "plugin's hooks read only schema 2 (to 4): roll the plugin back too, or restore the mailbox from the backup "
     "(messages sent since are lost).")
+# upgrade-codex-restart-check D196: a Codex task that ran before the upgrade keeps a closed mailbox connection
+# ("Transport closed") until the ChatGPT app is quit and opened again; doctor repeats it while that is still due.
+RESTART_NEXT = ("Quit the ChatGPT desktop app completely (⌘Q) and open it again so Codex reconnects to the upgraded "
+                "runtime; Claude Code sessions opened from now on use it.")
 UPGRADE_ROLLBACK = (
     "To go back to the previous runtime, close every session using the mailbox and run "
     "native_collaboration_runtime.py rollback --confirm (it uses the newest runtime.previous-*). " + ROLLBACK_CAVEAT)
@@ -608,7 +612,7 @@ def upgrade_runtime(root: Path, *, node: str = "node", npm: str = "npm", source:
                           "promoting": lambda: stage.rename(root)}, verify)
     after = _status(root)
     return {"state": "upgraded", "bridge": after["bridge"], "counts": counts,
-            "previous": str(previous), "backup": str(backup), "rollback": UPGRADE_ROLLBACK}
+            "previous": str(previous), "backup": str(backup), "rollback": UPGRADE_ROLLBACK, "next": RESTART_NEXT}
 
 
 def _free_stamp(root: Path, backups: Path, *names: str) -> str:

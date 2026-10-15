@@ -8,7 +8,8 @@ import sys
 import unittest
 
 from session_routing import (
-    JOIN_HINT, JOIN_SENTENCE, RoutingError, select_route, validate_public_outcome,
+    CODEX_WORK_HINT, CODEX_WORK_JOIN_HINT, JOIN_HINT, JOIN_SENTENCE, RoutingError, select_route,
+    validate_public_outcome,
 )
 
 
@@ -147,6 +148,75 @@ class RouteSelectionTests(unittest.TestCase):
         for overrides in cases:
             with self.subTest(overrides=overrides):
                 self.assertNotIn("nextStep", select_route(self.facts(**overrides)))
+
+    # codex-request-via-mailbox D195: a Codex task giving work to another Codex task uses the mailbox when both are
+    # joined with wake, so the answer comes back with replyTo and wakes the source after it ended its turn.
+    def codex(self, **overrides):
+        return self.facts(**({"originHost": "codex", "targetHost": "codex", "bridgeState": "ready",
+                              "originJoined": True, "targetJoined": True, "originWake": True, "targetWake": True}
+                             | overrides))
+
+    def test_codex_work_goes_through_the_mailbox_when_both_are_joined_with_wake(self):
+        for exchange in ("assign", "unknown", None):
+            with self.subTest(exchange=exchange):
+                facts = self.codex() if exchange is None else self.codex(exchange=exchange)
+                self.assertEqual("exchange" in facts, exchange is not None)
+                self.assertEqual(select_route(facts), {
+                    "schemaVersion": 1, "action": "dispatch", "transport": "agent-relay-bridge",
+                    "routeReason": "codex-work-via-mailbox",
+                })
+        ask = select_route(self.codex(exchange="ask"))
+        self.assertEqual((ask["action"], ask["transport"], ask["routeReason"]),
+                         ("dispatch", "host-native-codex", "primary-native"))
+        self.assertNotIn("nextStep", ask)
+
+    def test_codex_work_without_both_wake_bindings_stays_native_and_says_why(self):
+        for missing in ({"originJoined": False}, {"targetJoined": False}, {"originWake": False},
+                        {"targetWake": False}, {"originWake": None}, {"targetWake": None}):
+            with self.subTest(missing=missing):
+                facts = self.codex(**{k: v for k, v in missing.items() if v is not None})
+                for key, value in missing.items():
+                    if value is None:
+                        del facts[key]  # absent means not bound
+                result = select_route(facts)
+                self.assertEqual((result["action"], result["transport"], result["routeReason"]),
+                                 ("dispatch", "host-native-codex", "primary-native"))
+                self.assertEqual(result["nextStep"], CODEX_WORK_JOIN_HINT)
+        for bridge in ("unavailable", "invalid"):
+            with self.subTest(bridge=bridge):
+                result = select_route(self.codex(bridgeState=bridge, exchange="assign"))
+                self.assertEqual((result["transport"], result["nextStep"]), ("host-native-codex", CODEX_WORK_HINT))
+        self.assertIn("“" + JOIN_SENTENCE + "”", CODEX_WORK_JOIN_HINT)
+        for hint in (CODEX_WORK_HINT, CODEX_WORK_JOIN_HINT):
+            self.assertLessEqual(len(hint), 240)
+            self.assertNotIn("\n", hint)
+
+    def test_a_native_dispatch_already_made_stays_native(self):
+        for dispatch, action in (("accepted", "observe"), ("unknown", "reconcile"), ("rejected", "stop")):
+            with self.subTest(dispatch=dispatch):
+                result = select_route(self.codex(nativeDispatch=dispatch, exchange="assign"))
+                self.assertEqual((result["action"], result["transport"]), (action, "host-native-codex"))
+                self.assertNotIn("nextStep", result)
+        # Native capability not available keeps today's rules (fallback or reconcile), whatever exchange says.
+        unknown = select_route(self.codex(nativeCapability="unknown", exchange="assign"))
+        self.assertEqual(unknown["action"], "reconcile")
+        fallback = select_route(self.codex(nativeCapability="unavailable", exchange="assign"))
+        self.assertEqual((fallback["routeReason"], fallback["fallbackFrom"]),
+                         ("native-capability-unavailable", "host-native-codex"))
+
+    def test_exchange_and_wake_change_nothing_for_claude_pairs_or_across_hosts(self):
+        extra = {"exchange": "assign", "originWake": True, "targetWake": True}
+        ready = {"bridgeState": "ready", "originJoined": True, "targetJoined": True}
+        for base in ({}, ready, ready | {"targetHost": "codex", "nativeCapability": "not-applicable"},
+                     ready | {"originHost": "codex", "nativeCapability": "not-applicable"}):
+            with self.subTest(base=base):
+                self.assertEqual(select_route(self.facts(**(base | extra))), select_route(self.facts(**base)))
+
+    def test_exchange_and_wake_values_are_checked(self):
+        for bad in ({"exchange": "work"}, {"exchange": None}, {"originWake": "yes"}, {"targetWake": 1}):
+            with self.subTest(bad=bad):
+                with self.assertRaises(RoutingError):
+                    select_route(self.codex(**bad))
 
     def test_the_selector_takes_no_name(self):
         for field in ("name", "targetName", "suggestedName"):

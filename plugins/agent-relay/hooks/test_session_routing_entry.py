@@ -3,7 +3,7 @@
 from pathlib import Path
 import unittest
 
-from session_routing import JOIN_SENTENCE
+from session_routing import CODEX_WORK_HINT, JOIN_SENTENCE
 
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
@@ -107,6 +107,16 @@ class SessionRoutingEntryTests(unittest.TestCase):
                        "不要照抄用户给的标题", "这一步不新增任何带用户文字的命令", "selector 不接收名字", "粘贴到目标会话"):
             self.assertIn(phrase, text)
         self.assertIn("“" + JOIN_SENTENCE + "”", COLLAB.read_text(encoding="utf-8"))
+
+    def test_codex_work_goes_through_the_mailbox_and_the_answer_comes_back(self):
+        # codex-request-via-mailbox D195: the skill says which exchange to pass, where the wake facts come from, how
+        # the mailbox route is used, and passes the warning on.
+        text = self.routing_text()
+        for phrase in ("`exchange`", "`ask`", "`assign`", "`unknown`", "`originWake`", "`targetWake`",
+                       "codex-work-via-mailbox", "`bridge_send`", "`replyTo`", "拿不准", "`bridge_agents`",
+                       CODEX_WORK_HINT):
+            self.assertIn(phrase, text)
+        self.assertIn("codex-work-via-mailbox", COLLAB.read_text(encoding="utf-8"))
 
     def test_claude_target_resolution_is_unique_and_never_guesses(self):
         text = self.routing_text()
