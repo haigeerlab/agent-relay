@@ -218,6 +218,37 @@ test("a missing Codex socket stays unknown with the usual detail, at once", { sk
   assert.deepEqual(presence, { state: "unknown", detail: "the Codex app cannot be asked" });
 });
 
+// ---- Task 3: the asked view, bridge_agents owesReplies (D204) ----
+
+test("owesReplies lists, per recipient, the open requests addressed to it, oldest first, at most 20 ids", () => {
+  const s = fresh();
+  const first = s.send({ fromAgent: "asker", toAgent: "helper", body: "q0", expectsReply: true });
+  const rest = Array.from({ length: 21 }, (_, n) =>
+    s.send({ fromAgent: n % 2 ? "other" : "asker", toAgent: "helper", body: `q${n + 1}`, expectsReply: true }).id);
+  s.send({ fromAgent: "helper", toAgent: "asker", body: "fyi" });
+  s.ack("helper", [first.id]);
+  const owes = s.owesReplies();
+  assert.deepEqual([...owes.keys()], ["helper"], "an agent with nothing open has no entry; unmarked messages count nothing");
+  const helper = owes.get("helper");
+  assert.equal(helper?.count, 22, "an acknowledged request is still owed");
+  assert.equal(helper?.ids.length, 20);
+  assert.deepEqual(helper?.ids.slice(0, 2), [first.id, rest[0]]);
+  assert.equal(helper?.oldestAt, first.createdAt);
+  s.close();
+});
+
+test("a reply, an expiry or the recipient's retirement removes a request from owesReplies", () => {
+  const s = fresh();
+  const answered = s.send({ fromAgent: "asker", toAgent: "helper", body: "a", expectsReply: true });
+  const expired = s.send({ fromAgent: "asker", toAgent: "helper", body: "b", expectsReply: true });
+  s.send({ fromAgent: "asker", toAgent: "other", body: "c", expectsReply: true });
+  s.send({ fromAgent: "helper", toAgent: "asker", body: "done", replyTo: answered.id });
+  transition(s.database, expired.id, "expired");
+  s.retire("other", { by: "user" });
+  assert.equal(s.owesReplies().size, 0);
+  s.close();
+});
+
 // ---- through MCP ----
 
 async function withServer(run: (call: (name: string, args: Record<string, unknown>) => Promise<{ data: any; isError: boolean; text: string }>) => Promise<void>): Promise<void> {
@@ -259,6 +290,10 @@ test("bridge_send takes expectsReply and bridge_outbox awaitingReply lists the o
     assert.deepEqual(view.entries[0].recipientPresence, { state: "unknown", detail: "no recorded host session" });
     const inbox = (await call("bridge_inbox", { agent: "worker" })).data;
     assert.equal(inbox.messages[0].expectsReply, true, "the recipient sees that an answer is expected");
+    const agents = (await call("bridge_agents", {})).data.agents as Array<{ name: string; owesReplies?: unknown }>;
+    assert.deepEqual(agents.find((agent) => agent.name === "worker")?.owesReplies,
+      { count: 1, ids: [sent.data.id], oldestAt: sent.data.createdAt });
+    assert.equal(agents.find((agent) => agent.name === "lead")?.owesReplies, undefined);
     await call("bridge_send", { from: "worker", to: "lead", body: "8080", replyTo: sent.data.id });
     assert.equal((await call("bridge_outbox", { agent: "lead", awaitingReply: true })).data.totalAwaitingReply, 0);
     const plain = (await call("bridge_outbox", { agent: "lead" })).data;

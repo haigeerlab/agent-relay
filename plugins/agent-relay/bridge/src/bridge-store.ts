@@ -798,6 +798,24 @@ export class BridgeStore {
   }
 
   /**
+   * agent-relay awaiting-reply-view D204: per recipient, the open requests (D202) addressed to it — what others wait
+   * for it to answer. Retired recipients never appear (OPEN_REQUEST leaves them out).
+   */
+  owesReplies(): Map<string, { count: number; ids: number[]; oldestAt: string }> {
+    const rows = this.db
+      .prepare(`SELECT m.id, m.to_agent, m.created_at FROM messages m WHERE ${OPEN_REQUEST} ORDER BY m.to_agent, m.id`)
+      .all() as Array<{ id: number | bigint; to_agent: string; created_at: string }>;
+    const owes = new Map<string, { count: number; ids: number[]; oldestAt: string }>();
+    for (const row of rows) {
+      const entry = owes.get(row.to_agent) ?? { count: 0, ids: [], oldestAt: row.created_at };
+      entry.count += 1;
+      if (entry.ids.length < 20) entry.ids.push(Number(row.id));
+      owes.set(row.to_agent, entry);
+    }
+    return owes;
+  }
+
+  /**
    * agent-relay presence-and-approval D148: per Claude agent, its oldest direct message not yet handled, with the
    * session to check. Retired agents and failed or expired messages are left out. presence-polish D176: only agents
    * bound to wake a Claude session, the sessions the bridge already watches (no background reading of the others).
