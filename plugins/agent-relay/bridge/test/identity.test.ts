@@ -463,6 +463,8 @@ test("an unverified Codex caller is told to register its own name again, without
     assert.match(refused.text, /no takeover/i);
     assert.match(refused.text, /repeat/i);
     assert.doesNotMatch(refused.text, /takeover: true/);
+    // A claim equal to the recorded host is not a conflict (D200), so the refusal never echoes the recorded thread id.
+    assert.doesNotMatch(refused.text, /thread-a/);
     const ack = await codex.call("bridge_ack", { agent: "carol", ids: [1] });
     assert.match(ack.text, /"carol" is recorded for a Codex task/);
 

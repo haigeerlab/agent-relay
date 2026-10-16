@@ -75,7 +75,8 @@ Claude 会话时，bridge 会拒绝接管并报 `holder-still-running`：让用�
 模式或 Codex 的“帮我批准”下，被唤醒那一轮的操作由该会话的自动审查决定，不一定经过用户本人。唤醒被挂起（held）时如实
 转述原因，不要改配置，也不要换方式绕过。回复（`replyTo`）只能由原消息的收件人发出。要补充或更正自己发出的消息，发一条新消息给同一个收件人：原消息有线程就带它的
 `threadId`，不带 `replyTo`；没有线程就不带 `replyTo`，正文开头写明 “Addendum to #N:”（补充 #N）。不要用 `replyTo` 指向自己发的
-消息，那会被拒（reply-own-message-guidance D211）。
+消息，那会被拒（reply-own-message-guidance D211）。补充消息本身不标 `expectsReply`，除非它提的是一个新问题；否则一个问题会
+挂成两条待回复请求，对方只回其中一条，另一条会一直挂到过期。
 
 信箱工具报 `Transport closed` 时，说明这个会话和信箱的连接已经断了（通常是运行时升级或 bridge 被结束），重试不会好转：
 停下所有信箱调用，告诉用户“联调连接断了”，并请用户在 Codex 里用 ⌘Q 完全退出 ChatGPT 应用再打开，在 Claude Code 里新开
