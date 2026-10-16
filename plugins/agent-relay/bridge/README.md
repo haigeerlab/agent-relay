@@ -179,10 +179,6 @@ npm audit --omit=dev --audit-level=high
 
 The suite covers socket framing, identity and permission boundaries, migrations from 0.3 databases and compatibility with running 0.3 processes, ping persistence, crash recovery and failure notices, mailbox routing, addressing checks, retirement, paging, independent MCP processes and the `retire` CLI.
 
-## Related work
-
-This is not the only Claude/Codex bridge. See [docs/ALTERNATIVES.md](docs/ALTERNATIVES.md) for a comparison with Claude Channels bridges, ACP delegation tools and general agent mailboxes.
-
 ## License
 
 MIT

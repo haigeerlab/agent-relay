@@ -159,6 +159,12 @@ Just say it in natural language; no tool names or internal IDs to remember:
 - "Create a Codex review of these changes" → creates a read-only review session; the result comes back to the current
   session.
 - "Continue that session", "stop that review" → second round in the same session, stop.
+- "Which of my requests has nobody answered", "who am I waiting for" → the requests sent through the mailbox and
+  marked as expecting a reply (`expectsReply`) that have no reply yet, oldest first, each with how long it has waited
+  and the recipient's state (`bridge_outbox` with `awaitingReply`); "who owes a reply", "what do others wait for from
+  me" → per session, how many requests others wait for it to answer and when the oldest was sent (`owesReplies` in
+  `bridge_agents`). Sessions mark their own questions and work requests; the recipient answers with `replyTo` when
+  done, and an ack alone does not count; plain notices are not marked and never appear here.
 - "Who am I in the mailbox" → this session's identity, host, session title and project (`whoami` of `bridge_sessions`).
 - "What happened to that message", "wait for its reply" → check a message's state by id, or wait until it is
   acknowledged, answered, failed or expired (`bridge_wake_status` / `bridge_wait` with `messageId`; waiting
@@ -340,6 +346,10 @@ and gives the command to run when they differ; old cached copies that are not lo
 When the plugin carries a new bridge, also upgrade the runtime as in the next section.
 
 ## Upgrading the runtime
+
+**Update the plugin first, then the runtime**: a new bridge may move the mailbox to a new schema (0.7.0 moves it to 6),
+which older plugins' hooks cannot read, so retiring and delegation would stop. Update the plugin on both hosts first
+(open new sessions; quit and reopen the ChatGPT app), then upgrade as below.
 
 When a plugin update brings a new bridge, `status` reports `bridge.current: false`. The agent asks you first, and
 after you close every session that uses the mailbox it runs

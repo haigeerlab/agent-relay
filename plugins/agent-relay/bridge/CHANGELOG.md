@@ -1,6 +1,13 @@
 # Changelog
 
-## agent-relay 0.5.0 (unreleased)
+## agent-relay 0.7.0
+
+Requests that expect an answer (module `awaiting-reply-view`): mailbox schema 6 adds `messages.expects_reply`;
+`bridge_send` takes `expectsReply`, `bridge_outbox` `awaitingReply` lists the open requests with `waitingSeconds` and
+the recipient's presence, and `bridge_agents` shows `owesReplies`. Changes after 0.5.0 are in agent-relay's own
+CHANGELOG and in `UPSTREAM.md`.
+
+## agent-relay 0.5.0
 
 agent-relay removed the Codex workers from its vendored copy (module `orchestrator-removal`): `ask_codex`,
 `review_with_codex`, `bridge_orchestrate_codex`, `bridge_continue_codex`, `bridge_orchestration_wait`,
