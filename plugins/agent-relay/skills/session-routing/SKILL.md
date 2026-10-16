@@ -87,6 +87,7 @@ route JSON、argv、日志或任何新 transcript。`originHost` 来自当前宿
 `dispatch` 的 `routeReason` 为 `codex-work-via-mailbox` 时，这是选定的路线，不是 fallback：用 `bridge_send`
 （`from` 为本会话的联调名，`to` 为目标的联调名）发一次，按 `collab` 的流程等待；对方处理完用 `replyTo` 回复，
 回复会送进本会话的收件箱并把本会话叫醒，所以派完活可以结束这一轮。这样做同样只发一次，不再走原生。
+这条消息带上 `expectsReply: true`，它在回复之前会出现在待回复视图里（awaiting-reply-view D206）。
 
 `dispatch` 结果带 `nextStep` 时（Codex 派活、但双方没都加入并允许唤醒，或信箱不可用），照常走原生投递，并把
 `nextStep` 原样告诉用户，例如：“这是派给另一个 Codex 会话的活：对方的回复可能回不到这里，需要时到对方会话里取。”。其中提到的加入句同样换上你起的联调名。
@@ -188,6 +189,11 @@ native runtime 的 `bridge_*` 工具。它不同于 `host-native-claude` 或 `ho
 `nativeCapability=not-applicable`、唯一目标、当前 authorization、实际 backend ready 和两端 joined 事实
 交给 selector；只有它返回 `dispatch/agent-relay-bridge` 才调用一次所选 backend 的发送操作。回复使用来信
 携带的精确 sender 与 thread/subject，不按名字重建关联。
+
+**标记要回复**（awaiting-reply-view D206）：经信箱发出的是问题或派活（`exchange` 为 `ask` 或 `assign`，或用户就是
+在问对方、请对方做事）时，`bridge_send` 带 `expectsReply: true`；只是告知、转达结果或回复别人时不带。走原生通道投递的
+请求（Claude `SendMessage`、Codex 线程，包括 D195 里当场问答走原生的 Codex → Codex）一律不标，因为原生的回答不会带
+`replyTo`，标了就会一直挂着。
 
 bridge 的状态保持四段证据，而不是一个“成功”：
 

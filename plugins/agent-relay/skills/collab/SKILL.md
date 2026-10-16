@@ -98,6 +98,13 @@ Claude 会话时，bridge 会拒绝接管并报 `holder-still-running`：让用�
 Codex 给 Codex 派活时，`session-routing` 的 selector 可能返回 `codex-work-via-mailbox`：按本技能发送和等待，
 对方用 `replyTo` 回复即可（codex-request-via-mailbox D195）。
 
+**要回复的请求**（awaiting-reply-view D201–D206）：经信箱提问或派活时，`bridge_send` 带 `expectsReply: true`；只是告知、
+转达或回复时不带，广播不能带。收到带 `expectsReply: true` 的来信，处理完一定用 `bridge_send` 的 `replyTo` 回复原消息，
+结论是“不做”或“做不了”也要回复；ack 不算回复。用户问“我发出的哪些还没人回”“我在等谁”时，调用 `bridge_outbox` 带
+`awaitingReply: true`，逐条报告编号、收件方、已等多久（`waitingSeconds` 换算成分钟或小时）和收件方状态
+（`recipientPresence`），不读正文；`totalAwaitingReply` 是总数。用户问“谁欠回复”“别人在等我回复什么”时，调用
+`bridge_agents`，报告带 `owesReplies: {count, ids, oldestAt}` 的身份（自己的那一项就是别人在等本会话回复的请求）。
+
 `bridge_send` 成功只证明入箱；`bridge_wake_status` 证明唤醒结果，`bridge_outbox.acknowledgedAt` 证明处理确认，
 匹配回复才证明 response。`unknown` 保持未知，不重复发送。
 

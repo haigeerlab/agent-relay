@@ -264,6 +264,7 @@ async function withServer(run: (call: (name: string, args: Record<string, unknow
   const client = new Client({ name: "awaiting-client", version: "1.0.0" });
   await client.connect(transport);
   try {
+    assert.match(client.getInstructions() ?? "", /expectsReply: true is a request: when done, answer it with bridge_send replyTo/);
     await run(async (name, args) => {
       const result = await client.callTool({ name, arguments: args });
       const text = (result.content as Array<{ text: string }>)[0]!.text;
