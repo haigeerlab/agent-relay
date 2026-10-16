@@ -1,8 +1,11 @@
 # 任务：把 spec-guard 的协作能力拆分为独立插件（全程由 spec-guard 引导开发）
 
+> **历史文档。** 这是 2026-10-06 拆分开始时的任务简报，原文保留供 spec 与计划引用；文中的“新插件”即 agent-relay，
+> 各阶段均已完成。现状以 [README](../README.md)、[接口文档](collaboration-interface.md) 与 [CHANGELOG](../CHANGELOG.md) 为准。
+
 ## 背景
 
-仓库：haigeerlab/spec-guard-plugin（本地：/Users/vilin/Documents/haigeerlab/spec-guard-plugin）
+仓库：haigeerlab/spec-guard-plugin
 
 spec-guard 目前内置一组默认关闭的协作能力：
 - 协作信箱（`/spec-guard:collaboration`，native 传输）
@@ -96,7 +99,7 @@ spec-guard 目前内置一组默认关闭的协作能力：
 
 ### 1.2 新插件仓库：迁入代码并用 spec-guard 初始化
 
-1. 由 `collaboration-extraction` 按选定方案生成 /Users/vilin/Documents/haigeerlab/<新插件名>，迁入代码和历史。
+1. 由 `collaboration-extraction` 按选定方案生成新插件仓库（即 agent-relay），迁入代码和历史。
 2. 迁入之后，再补充插件骨架：
    - `.claude-plugin/` 和 marketplace（Claude Code）；
    - `.codex-plugin/` 和 `.agents/plugins/marketplace.json`（Codex）。
@@ -154,7 +157,7 @@ spec-guard 目前内置一组默认关闭的协作能力：
 
 相关项目：
 - 设计侧：使用 huashu-design 的设计项目，本地路径 <设计项目路径>
-- 开发侧：spec-guard-plugin 项目，本地路径 /Users/vilin/Documents/haigeerlab/spec-guard-plugin
+- 开发侧：spec-guard-plugin 项目
 
 安装要求：
 - 两个插件都从本地 marketplace 路径安装（尚未发布），记录安装来源和 commit。

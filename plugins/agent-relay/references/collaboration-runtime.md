@@ -34,7 +34,8 @@ After the user approves creating the private runtime:
 python3 -B "$ROOT/hooks/native_collaboration_runtime.py" install
 ```
 
-The install command uses the repository-pinned upstream revision. It does not modify Claude or Codex config.
+The install command builds from the bridge copy shipped in the plugin (`bridge/`, checked file by file against
+`bridge/UPSTREAM.sha256`); it needs no git, but `npm ci` still needs network. It does not modify Claude or Codex config.
 
 ## Host attachment
 
@@ -75,11 +76,29 @@ opaque suffix. The same session reuses its first successful identity.
 
 Default registration sets `wake: null`. Explicit wake binding is allowed only for the current trusted session and
 only after the user requests it. Claude uses verified `thisSession`; Codex uses the current task's trusted
-`CODEX_THREAD_ID`. Full-auto or bypass sessions must not bind wake.
+`CODEX_THREAD_ID`. Any permission mode may bind wake (`wake-any-mode`): a woken turn runs under that session's own
+settings, which the bridge never changes or approves. A Claude session in Bypass permissions holds cross-session
+pings until they expire, so binding there does not wake it (bridge `docs/BACKGROUND-WAKE.md`, "Why Claude pings
+expire"); tell the user, never change the setting for them.
 
 Wake is best effort and separate from delivery. A message can remain safely queued when wake is unavailable or
 held. Use `bridge_wake_status` for wake facts and `bridge_outbox` for acknowledgement; do not infer either from a
 registered row or recent activity.
+
+## Health check, upgrade and recovery
+
+`doctor` is the read-only health check (runtime, probe, mailbox, host entries, plugin copies, notifications, wake
+bindings, Codex restart after an upgrade); every `warn` or `fail` carries its next step.
+
+```bash
+python3 -B "$ROOT/hooks/native_collaboration_runtime.py" doctor
+```
+
+When `status` reports `bridge.current: false`, the plugin carries a newer bridge. With the user's agreement and every
+session that uses the mailbox closed, `upgrade --confirm` backs the mailbox up, builds beside the old runtime, swaps,
+and rolls back on failure; `rollback --confirm` returns to the newest `runtime.previous-*`; an interrupted swap shows
+as `interrupted` and is put back with `recover --confirm`. The `collaboration-ops` skill and the README section
+"升级运行时" give the exact steps. None of these delete old directories; the user does.
 
 ## Identity retirement
 
@@ -114,6 +133,11 @@ request and never recommends bypass mode.
 4. For an unknown send, inspect the original outbox and wake status; do not resend.
 5. For Claude held states, distinguish project trust, MCP approval, allow rules, and target busy state.
 6. For Codex, use the App-managed supported binary; do not use an older PATH binary or add a model override.
+7. A Codex identity with `presence: not-loaded` belongs to a task the ChatGPT app has not opened since it started:
+   the user opens it there and the message is delivered. It is not a connection or identity fault.
+8. A send or ack refused because the name is not registered by this session (after a bridge restart; for Codex also
+   after the ChatGPT app restarts or a long-idle task is reopened) is fixed by registering the same name again, Codex
+   passing its own `CODEX_THREAD_ID`; no takeover is needed.
 
 Never scan unrelated real mailbox messages during diagnosis. Read only the exact identities or message IDs the
 user placed in scope. Do not expose this runtime to another machine.
