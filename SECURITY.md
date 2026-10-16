@@ -2,8 +2,9 @@
 
 ## 报告安全问题
 
-请**不要**在公开 Issue 里写利用细节。开一个 Issue，只写“有安全问题需要私下沟通”和受影响的版本，维护者会联系你
-约定私下沟通的方式。只修最新发布的版本；修复随下一个版本发布，CHANGELOG 会写明。
+请**不要**在公开 Issue 里写利用细节。在仓库的 **Security** 页点 **Report a vulnerability**
+（[直接打开](https://github.com/haigeerlab/agent-relay/security/advisories/new)），写明受影响的版本和复现步骤；
+报告只有你和维护者看得到。只修最新发布的版本；修复随下一个版本发布，CHANGELOG 会写明，需要时发布安全公告。
 
 ## 防护范围
 
