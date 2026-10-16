@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- **安全问题改走私密报告**：仓库已开启 GitHub 的私密漏洞报告，[SECURITY.md](SECURITY.md) 的报告方式改为
+  Security → Report a vulnerability，不再让报告人先开公开 Issue。
+
 - **文档核对**（只改文档，bridge 与运行时不变）：README 改正接口版本（2.0）和 Codex 在线状态（多了 `not-loaded`），
   文档列表补上新文档；运行时参考改正安装来源（插件自带的 bridge 副本）和唤醒规则（任何权限模式都能绑定，
   `wake-any-mode`），补上 doctor、升级、回滚、恢复，排障加了 not-loaded 和重新登记两条；验收清单的 A2、B7、D11
