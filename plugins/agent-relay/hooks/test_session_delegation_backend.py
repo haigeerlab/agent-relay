@@ -131,8 +131,11 @@ class DelegationBackendTests(unittest.TestCase):
         with self.assertRaisesRegex(BackendUnavailable, "^mailbox-schema-newer$"):
             self.resolve()
         self.assertIsNone(native_result_route(database, "codex", "origin-thread-exact", "delegation-12345678"))
-        from session_delegation_control import REASON_DETAILS
-        self.assertIn("update the agent-relay plugin", REASON_DETAILS["mailbox-schema-newer"])
+        # What the controller prints for it: the reason and the update step (round-2 review of #119).
+        from session_delegation_control import error_payload
+        payload = error_payload(BackendUnavailable("mailbox-schema-newer"))
+        self.assertEqual(payload["reason"], "mailbox-schema-newer")
+        self.assertIn("update the agent-relay plugin on both hosts", payload["detail"])
 
     def test_no_mailbox_yet_does_not_stop_the_backend(self):
         self.assertEqual(self.resolve().name, "native")
