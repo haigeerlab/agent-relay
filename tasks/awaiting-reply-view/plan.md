@@ -5,6 +5,10 @@ D201–D207; D203's cost cap, D206's native exception and D208 added from the ro
 `claude/awaiting-reply-view-impl` from main after this plan's PR; the round-2 coordinator is told every PR number; the
 0.7.0 release PR waits until the implementation PR is merged.
 
+Every commit that changes a file under `plugins/agent-relay/bridge/` reruns `python3 scripts/bridge-manifest.py` and
+adds its `UPSTREAM.md` row in the same commit (D24), so each commit validates on its own; Task 6 only adds the
+documentation rows (round-2 review of #118).
+
 ## Task List
 
 ### Task 1: schema 6 and the marked send
@@ -47,7 +51,7 @@ Files: two `SKILL.md`, `server.ts`, `docs/collaboration-interface.md`, `interfac
 ### Task 6: bridge documents and bookkeeping (D207, D208)
 `bridge/INSTRUCTIONS.md` rewritten to the current rules, `bridge/CHANGELOG.md` ("agent-relay 0.5.0" without
 "(unreleased)", a 0.7.0 line), delete `bridge/docs/ALTERNATIVES.md` and its link in `bridge/README.md`,
-`bridge/UPSTREAM.md` row, `python3 scripts/bridge-manifest.py`; README and `README.en.md` (asking who owes a reply;
+its `bridge/UPSTREAM.md` row and the manifest; README and `README.en.md` (asking who owes a reply;
 upgrade order), CHANGELOG `[Unreleased]` (bridge changed, `upgrade --confirm`, plugins first, transition limit).
 Files: bridge docs, manifest, two READMEs, CHANGELOG.
 

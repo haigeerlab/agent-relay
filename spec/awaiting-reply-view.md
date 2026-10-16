@@ -74,7 +74,8 @@ mailbox for stuck exchanges.
   **Cost cap (round-2 review of #117):** presence is read only for the recipients on the returned page (within
   `limit`), never for every open request counted in `totalAwaitingReply`; a Codex lookup in this view waits at most
   2 s (`codexOwner` `responseTimeoutMs`; a loaded task answers in milliseconds) and a silence reads as `unknown` with
-  the detail "the ChatGPT app did not answer within 2 s", so one slow recipient cannot hold the call near the 10 s IPC
+  the detail "the ChatGPT app did not answer within 2 s; usually the task was not opened since the app started"
+  (the D200 wording; the state stays `unknown`), so one slow recipient cannot hold the call near the 10 s IPC
   timeout. `bridge_agents` presence keeps its 10 s behaviour (out of scope here, see Not in scope).
 - **D204 the asked view is `owesReplies` on `bridge_agents`.** For every non-retired agent with open requests addressed
   to it: `{count, ids (oldest 20), oldestAt}`; absent when zero. Within 2.x its fields are only added to.
