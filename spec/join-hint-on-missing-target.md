@@ -11,11 +11,11 @@ Readers: the user; the round-2 coordinator (reviews, re-checks after release).
 
 ## What exists today (main 92ed796, v0.6.5)
 
-- What happened (the coordinator, this Mac, 0.6.5): asked to reach a Codex session titled "LIVE-SAAS｜前端基础架构".
+- What happened (the coordinator, this Mac, 0.6.5): asked to reach a Codex session titled "项目 A｜前端基础架构".
   `bridge_agents` had no such name; `session_delegation_control.py resolve --name` returned no match;
   `session_routing.py select` with `targetResolution: "missing"` returned
   `{"action":"stop","routeReason":"target-missing"}` and nothing else. The coordinator found the sentence only by
-  reading the skill. After the user said it in the target session (name `live-saas-fe`), message #257 woke Codex and
+  reading the skill. After the user said it in the target session (name `project-a-fe`), message #257 woke Codex and
   the reply #258 came back in 53 seconds.
 - `hooks/session_routing.py` `select_route` stops for a target that cannot be reached with three reasons:
   `target-missing` (the name resolves to nothing), `target-not-joined` (cross-host, resolved but not joined) and
@@ -39,7 +39,7 @@ Readers: the user; the round-2 coordinator (reviews, re-checks after release).
    and in Codex alike.
 4. **The session picks the name, not the selector.** The text carries the placeholder `<名字>` and the rule in a few
    words; the skill tells the session to replace it with a short, readable mailbox name of its own choosing (ASCII
-   letters, digits and hyphens, for example `live-saas-fe`) before showing the sentence. What the user typed (often
+   letters, digits and hyphens, for example `project-a-fe`) before showing the sentence. What the user typed (often
    a session title with Chinese and symbols) is never passed to the selector or put on a command line because of
    this module: the selector's input is unchanged and has no name field.
    (Clarified while building: the existing read-only `session_delegation_control.py resolve --name '<名字>'` step,
