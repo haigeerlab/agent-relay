@@ -120,6 +120,8 @@ Claude Code 会话卡在授权上时，这台 Mac 会弹一条通知，会话目
 **升级之后**
 
 - 更新插件后要**新开会话**才生效；已经开着的、重开应用后的、恢复出来的会话都还用旧的那份（见“更新插件”）。
+- 新版给信箱工具加了参数时（如 0.7.0 的 `expectsReply`、`awaitingReply`），已经开着的会话即使 bridge 重启、重新加载工具，
+  拿到的仍是旧的参数定义，传新参数会被拒绝（`expected boolean`）。要用新参数，Claude Code 新开会话，Codex 新开任务。
 - Claude Code 从 GitHub 装的：`claude plugin update` 要加 `--scope user`，不加只更新当前目录那条项目级记录。
 - Codex：更新插件后用 ⌘Q 完全退出 ChatGPT 应用再打开，已经打开的线程才会连上新版。
 - bridge 有改动的版本还要升级运行时（见“升级运行时”），CHANGELOG 每一版的开头会写明要不要。
@@ -262,7 +264,8 @@ python3 -B <插件目录>/hooks/state_migration.py migrate --confirm
 
 Claude Code 会话在**启动时**定下用哪一份插件，之后一直用这一份：已经开着的会话、关掉应用后重新打开、恢复
 （resume）原来的会话，都还是旧的那份。更新插件后要**新开一个会话**（包括桌面应用的 Code 标签页）才会用上新版。
-（2026-10-10 在本机实测新会话加载的副本；“恢复的会话仍用旧副本”是协调方观测到的一例。）
+（2026-10-10 在本机实测新会话加载的副本；“恢复的会话仍用旧副本”是协调方观测到的一例。）信箱工具的参数定义也一样：
+已开着的会话重连 MCP 也拿不到新参数（0.7.0 验收时在本机实测）。
 
 - **从本地克隆装的**：Claude 新会话直接读克隆目录，`git -C <克隆> pull --ff-only` 之后新开会话即可；Codex 再执行一次
   `codex plugin add agent-relay@agent-relay-marketplace`。
@@ -282,8 +285,8 @@ Claude Code 会话在**启动时**定下用哪一份插件，之后一直用这�
 插件更新带来新版 bridge 时，`status` 会报告 `bridge.current: false`。agent 会先问你，在你关掉所有正在用信箱的
 会话后再执行 `python3 -B <插件目录>/hooks/native_collaboration_runtime.py upgrade --confirm`：先把邮箱备份到 `~/.agent-relay/backups/<时间>/`，
 在旁边装好新版，把 `mailbox/` 和 `data/` 挪过去再整体替换，核对通过才算完成，失败会自动换回。旧目录
-`runtime.previous-<时间>` 保留，确认无误后由你删除；宿主接入不用动。新版 bridge 会把邮箱升级到 schema 5（从 schema 2 一次升到位，升级前自动备份）：
-回到旧运行时还能打开它，但旧版 agent-relay 插件只认 schema 2（到 4），所以回滚时要连插件一起回滚，或者用备份恢复邮箱
+`runtime.previous-<时间>` 保留，确认无误后由你删除；宿主接入不用动。新版 bridge 会把邮箱升级到 schema 6（从更早的 schema 一次升到位，升级前自动备份）：
+回到旧运行时还能打开它，但旧版 agent-relay 插件读不了新 schema（0.6.11 最多认到 5），所以回滚时要连插件一起回滚，或者用备份恢复邮箱
 （之后收到的消息会丢失）。
 
 停 bridge 有两种方式，升级前任选其一，然后在“终端”里用 `pgrep -fl "agent-relay/runtime/dist/server.js"` 确认没有输出：

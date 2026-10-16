@@ -57,7 +57,9 @@
    upgrade --confirm`，输出应为 `"state": "upgraded"` 并带 `next`。新 bridge 第一次打开信箱时把它从 schema 5 升到 6
    （升级前自动备份）。
 3. 再新开 Claude Code 会话；Codex 用 ⌘Q 完全退出 ChatGPT 应用再打开（之后 `doctor` 的 `codex-restart` 应为 ok），
-   `doctor` 的 `mailbox` 应为 ok。
+   `doctor` 的 `mailbox` 应为 ok。升级前就开着的会话即使 bridge 重启、重新加载工具，信箱工具的参数定义仍是旧的，传
+   `expectsReply` 会被以 `expected boolean` 拒绝；要用 `expectsReply`、`awaitingReply`，Claude Code 新开会话，Codex
+   新开任务（0.7.0 验收时实测）。
 
 ### 想退回 0.6.11
 
