@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [0.6.11] - 2026-10-16
+
+接口仍为 **2.0**（`interface.json` 不变，Spec Guard 0.56.0 或更新），信箱 schema 仍为 5，委派库仍为 schema 3。这一版只做
+一件事：Codex 会话在 ChatGPT 里没打开时，说清楚该怎么做。升级前先看这一点：
+
+- **bridge 有改动，要 `upgrade --confirm` 升级运行时**：不升级运行时就没有变化。
+
 - **Codex 会话在 ChatGPT 里没打开时，说清楚该做什么**（模块 `codex-not-loaded`，D200，会话 spec-guard-monitor 报告、用户
   2026-10-16 决定）：bridge 改动，**要用 `upgrade --confirm` 升级运行时才生效**。
   - ChatGPT 应用重启或会话长时间空闲后，没被重新打开的 Codex 会话不会回应 bridge 的查询。以前这被说成“Codex local
@@ -12,6 +19,34 @@
   - `presence.state` 可能在接口 2.x 内增加新取值，上层遇到不认识的取值按 `unknown` 处理（写进了接口文档）。
   - 没有做的：bridge 认不出是哪个 Codex 会话在调用它（Codex 的 bridge 进程环境里没有会话编号），所以身份失效后仍要会话
     自己用原名重新登记一次；Codex 会话会自己做，技能里写明了。
+
+以上来自模块 `codex-not-loaded` 的 PR #112，spec 与计划见 #111，两个 PR 都经过第二轮联调审查。问题由会话
+spec-guard-monitor 报告、经用户同意转交；原因由只读探测查明（没打开的会话对查询不回应，10 秒超时）。
+
+### 从 0.6.10 升级
+
+1. 两个宿主都更新插件（详见 README“更新插件”）：Claude Code 从 GitHub 装的，先 `claude plugin marketplace update
+   agent-relay-marketplace`，再 `claude plugin update --scope user agent-relay@agent-relay-marketplace`；Codex 把
+   `~/.codex/config.toml` 里的 `ref` 改成 `"v0.6.11"` 后 `codex plugin marketplace upgrade`、`codex plugin add
+   agent-relay@agent-relay-marketplace`；从本地克隆装的先 `git -C <克隆> pull --ff-only`，Codex 再 `codex plugin add`。
+2. **升级运行时**：关闭所有使用信箱的会话或只结束 bridge（见 README“升级运行时”），确认 `pgrep -fl
+   "agent-relay/runtime/dist/server.js"` 没有输出，再执行 `python3 -B <插件目录>/hooks/native_collaboration_runtime.py
+   upgrade --confirm`，输出应为 `"state": "upgraded"` 并带 `next`。
+3. 新开 Claude Code 会话；Codex 用 ⌘Q 完全退出 ChatGPT 应用再打开（之后 `doctor` 的 `codex-restart` 应为 ok）。重开后，
+   没再打开过的 Codex 会话会显示 `presence: not-loaded`，在 ChatGPT 里打开即可。
+
+信箱和委派库的 schema 都没变，不需要迁移。
+
+### 想退回 0.6.10
+
+关掉所有会话后 `rollback --confirm` 退回运行时，并把两个宿主的插件退回 v0.6.10，然后新开会话。
+
+### 已知问题
+
+- “没回应”不一定是没打开：已删除或归档的会话、绑错的编号、ChatGPT 本身卡住，看起来都一样，说明里已写明。
+- 查询一个没打开的会话要等 10 秒才超时，所以 `bridge_agents` 和给这种会话发消息时会慢 10 秒（和以前一样，只是说明变了）。
+- bridge 认不出调用它的 Codex 会话，身份失效后仍要会话自己用原名重新登记。
+- 0.6.10 的再唤醒和 0.6.9 的派活走信箱，第二轮联调的验收还在进行；上一版列出的已知问题仍然存在。
 
 ## [0.6.10] - 2026-10-16
 
