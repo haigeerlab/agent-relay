@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { CodexIpc } from "./local-ipc.js";
+import { CodexIpc, IpcError } from "./local-ipc.js";
 import { wakeNotice, type WakeJob, type WakeResult } from "./wake-queue.js";
 
 export function codexTurn(job: WakeJob) {
@@ -24,12 +24,28 @@ export function codexTurn(job: WakeJob) {
   };
 }
 
-export async function wakeCodex(job: WakeJob, path = join(homedir(), ".codex", "ipc", "ipc.sock")): Promise<WakeResult> {
+/**
+ * agent-relay codex-not-loaded D200: the app took the connection but did not answer about this task. Usually the task
+ * was not opened since the app started; a deleted task or a wrong id looks the same, so the words do not claim more.
+ */
+export const CODEX_NOT_LOADED = "The ChatGPT app did not answer for this Codex task, usually because it was not opened " +
+  "since the app started; open it and the message is delivered. If the task can no longer be found, it may have been " +
+  "deleted: join the mailbox again from a new task.";
+
+/** Was this the app staying silent about one task (connected and initialized, then no answer in time)? */
+export function silentAboutTask(error: unknown, connected: boolean): boolean {
+  return connected && error instanceof IpcError && error.timedOut;
+}
+
+export async function wakeCodex(job: WakeJob, path = join(homedir(), ".codex", "ipc", "ipc.sock"),
+  options: { responseTimeoutMs?: number } = {}): Promise<WakeResult> {
   if (process.platform === "win32") return { state: "refused", detail: "Native desktop wake adapter requires Unix local sockets" };
-  const ipc = new CodexIpc();
+  const ipc = new CodexIpc(options);
   let submitted = false;
+  let connected = false;
   try {
     await ipc.connect(path);
+    connected = true;
     const owner = await ipc.request("thread-owner-discovery",
       { hostId: "local", conversationId: job.target.sessionId }, 1);
     if (owner.resultType !== "success" || !owner.handledByClientId) {
@@ -51,9 +67,10 @@ export async function wakeCodex(job: WakeJob, path = join(homedir(), ".codex", "
       return { state: "pending", detail: "Codex is working; ping will wait for idle", reason: "busy" };
     }
     return { state: "unknown", detail: "Codex did not confirm the turn; check the task before retrying" };
-  } catch {
-    return submitted
-      ? { state: "unknown", detail: "Codex delivery outcome unavailable; no automatic replay" }
+  } catch (error) {
+    if (submitted) return { state: "unknown", detail: "Codex delivery outcome unavailable; no automatic replay" };
+    return silentAboutTask(error, connected)
+      ? { state: "pending", detail: CODEX_NOT_LOADED, reason: "offline" }
       : { state: "pending", detail: "Codex local connection unavailable", reason: "offline" };
   } finally { ipc.close(); }
 }

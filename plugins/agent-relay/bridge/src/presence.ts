@@ -3,9 +3,12 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ClaudeSession } from "./claude-wake.js";
+import { CODEX_NOT_LOADED, silentAboutTask } from "./codex-wake.js";
 import { CodexIpc } from "./local-ipc.js";
 
-export type PresenceState = "running" | "waiting-approval" | "waiting-input" | "stopped" | "unknown";
+/** codex-not-loaded D200: `not-loaded` is a Codex task the app does not answer for. A consumer treats a value it does not
+ * know as `unknown` (more may be added within interface 2.x). */
+export type PresenceState = "running" | "waiting-approval" | "waiting-input" | "stopped" | "not-loaded" | "unknown";
 
 export interface Presence {
   state: PresenceState;
@@ -27,20 +30,23 @@ export function claudePresence(sessionId: string, sessions: ClaudeSession[] | nu
 }
 
 /** Does the Codex app hold this thread? true: an owner is connected; false: none; null: the app cannot be asked. */
-export async function codexOwner(threadId: string,
-  path = join(homedir(), ".codex", "ipc", "ipc.sock")): Promise<boolean | null> {
+export async function codexOwner(threadId: string, path = join(homedir(), ".codex", "ipc", "ipc.sock"),
+  options: { responseTimeoutMs?: number } = {}): Promise<boolean | "not-loaded" | null> {
   if (process.platform === "win32") return null;
-  const ipc = new CodexIpc();
+  const ipc = new CodexIpc(options);
+  let connected = false;
   try {
     await ipc.connect(path);
+    connected = true;
     const owner = await ipc.request("thread-owner-discovery", { hostId: "local", conversationId: threadId }, 1);
     return owner.resultType === "success" && !!owner.handledByClientId;
-  } catch {
-    return null;
+  } catch (error) {
+    return silentAboutTask(error, connected) ? "not-loaded" : null;
   } finally { ipc.close(); }
 }
 
-export function codexPresence(owner: boolean | null): Presence {
+export function codexPresence(owner: boolean | "not-loaded" | null): Presence {
   return owner === null ? { state: "unknown", detail: "the Codex app cannot be asked" }
-    : { state: owner ? "running" : "stopped" };
+    : owner === "not-loaded" ? { state: "not-loaded", detail: CODEX_NOT_LOADED }
+      : { state: owner ? "running" : "stopped" };
 }

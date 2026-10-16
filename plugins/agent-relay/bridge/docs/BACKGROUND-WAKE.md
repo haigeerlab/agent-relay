@@ -61,6 +61,12 @@ inbox cannot be reached or fails the ownership checks — waits as `pendingReaso
 and expires like an offline one, but it never raises the offline notice. Once any notice was attempted for a message
 (Codex) or an offline spell (Claude), every later retry's detail keeps saying so; there is still only one notice.
 
+When the ChatGPT app accepts the connection but does not answer about a Codex task, the ping waits as `offline` with
+the detail that the app did not answer for this task, usually because it was not opened since the app started, and that
+opening it delivers the message (a deleted task, or a wrong id, looks the same; then the task has to join again).
+`bridge_agents` shows such a task as `presence: not-loaded`, a send warns about it, and the Codex notice says to open the
+task in the ChatGPT app. A socket that cannot be reached at all still reads "Codex local connection unavailable".
+
 A ping that expired while its recipient was away is pinged once more when the recipient comes back: when it registers
 again, or when the 30-second check finds its Claude session running in a process that started after the expiry. Only
 messages it has not read or acknowledged, and that have not expired themselves, are pinged again; the ping says when the
