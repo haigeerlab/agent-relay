@@ -4,4 +4,4 @@
 - [x] Task 2: notice — red first, then `codexNoticeReason` ("this Codex task is not open; open it in the ChatGPT app") and a send-time warning in `addressing.ts` for `not-loaded`
 - [x] Task 3: docs and bookkeeping — `docs/BACKGROUND-WAKE.md`, `skills/collab` (re-register after a new bridge process; the bridge cannot tell which Codex task calls it), `docs/collaboration-interface.md` (presence values; unknown values read as `unknown`), CHANGELOG, `UPSTREAM.md`, manifest
 - [x] Checkpoint (report): local validation — `scripts/validate.sh` pass on Python 3.9.6, 3.10.7, 3.14.3 with Node v24.18.0 first on PATH (47 files, 806 tests each; bridge `npm run check` 206 ok). Real read-only check with the new `codexOwner` against the ChatGPT app: an open test task `running`, a task not opened since the app restarted and a nonexistent id `not-loaded`
-- [ ] Checkpoint (gate): module review
+- [x] Checkpoint (gate): module review — the round-2 coordinator reviewed #111 (two additions, both made) and #112 (no changes; one note for later: the notice recognises not-loaded by the detail constant); the user merged #111 (fb43654) and #112 (faf0634)
