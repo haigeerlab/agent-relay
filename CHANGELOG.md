@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-16
+
 接口 **2.2**（只放宽了按编号读取的规则、加了一个可选字段，Spec Guard 0.56.0 或更新照样接受），信箱 schema 仍为 **6**，
 委派库仍为 schema 3。来自对两个宿主 10 月 2 日至 16 日会话记录的使用观测（约 1.1 万次信箱调用、约 100 次失败），用户
 2026-10-16 决定修这三条：
@@ -19,6 +21,29 @@
 - **按编号读回自己发出的消息**（模块 `read-own-sent`，D212–D214）：`bridge_inbox` 的 `messageId` 也能分段读回自己
   发出的单发消息和广播（包括已过期的），结果带 `direction`（`sent` / `received`），读回不算任何人已读。收发双方都
   不是自己的消息仍读不到，报错写明原因、发件人和收件人，请向他们要原文。
+
+### 从 0.7.0 升级
+
+1. 两个宿主都更新插件（详见 README“更新插件”）：Claude Code 从 GitHub 装的，先 `claude plugin marketplace update
+   agent-relay-marketplace`，再 `claude plugin update --scope user agent-relay@agent-relay-marketplace`；Codex 把
+   `~/.codex/config.toml` 里的 `ref` 改成 `"v0.7.1"` 后 `codex plugin marketplace upgrade`、`codex plugin add
+   agent-relay@agent-relay-marketplace`；从本地克隆装的先 `git -C <克隆> pull --ff-only`，Codex 再 `codex plugin add`。
+2. **升级运行时**：关闭所有使用信箱的会话或只结束 bridge（见 README“升级运行时”），确认 `pgrep -fl
+   "agent-relay/runtime/dist/server.js"` 没有输出，再执行 `python3 -B <插件目录>/hooks/native_collaboration_runtime.py
+   upgrade --confirm`，输出应为 `"state": "upgraded"`。信箱 schema 仍是 6，不做迁移。
+3. 新开 Claude Code 会话；Codex 用 ⌘Q 完全退出 ChatGPT 应用再打开（之后 `doctor` 的 `codex-restart` 应为 ok）。
+   新的报错和读回规则在 bridge 里，升级后所有会话都生效；技能里的新说明要新开的会话才读得到。
+
+### 想退回 0.7.0
+
+关掉所有会话后 `rollback --confirm` 退回运行时，并把两个宿主的插件退回 v0.7.0，然后新开会话。schema 相同，只退插件或
+只退运行时都还能读信箱，但两边版本不一致时，技能说明和 bridge 的报错会对不上。
+
+### 已知问题
+
+- bridge 仍认不出调用它的 Codex 任务，所以 Codex 会话在 ChatGPT 重启或任务重新打开后，第一次信箱调用照样会被拒一次，
+  然后按报错重新登记、重做；这一版只是让报错把它引到对的做法上。
+- 升级后还没重开的会话仍连着旧的 bridge 进程，看到的还是旧报错，重开后才换成新的。
 
 ## [0.7.0] - 2026-10-16
 
