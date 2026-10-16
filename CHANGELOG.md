@@ -2,9 +2,15 @@
 
 ## [Unreleased]
 
-- **待回复请求视图**（模块 `awaiting-reply-view`，D201–D208，七项清单第 6 项，用户 2026-10-16 决定）：**bridge 有改动，
-  要 `upgrade --confirm` 升级运行时，而且要先更新插件再升级**（见下）。接口 **2.0 → 2.1**（只新增内容，Spec Guard 的
-  `>=1.0,<3.0` 照样接受），信箱 schema **5 → 6**，委派库仍为 schema 3。
+## [0.7.0] - 2026-10-16
+
+接口 **2.1**（`interface.json` 2.1，只新增内容，Spec Guard 0.56.0 或更新照样接受），信箱 schema **6**，委派库仍为 schema 3。
+这一版加了待回复请求视图，并补齐了文档。升级前先看这一点：
+
+- **bridge 有改动，要 `upgrade --confirm` 升级运行时，而且要先更新插件再升级运行时**（见下面“从 0.6.11 升级”）。
+
+- **待回复请求视图**（模块 `awaiting-reply-view`，D201–D208，七项清单第 6 项，用户 2026-10-16 决定）：接口 **2.0 → 2.1**，
+  信箱 schema **5 → 6**。
   - 发信时可以标明“这条要回复”：`bridge_send` 的 `expectsReply`。会话经信箱提问或派活时自己会标上；只是告知的消息不标，
     广播不能标，走原生通道的请求也不标（原生的回答不会带 `replyTo`）。
   - 收到标了要回复的消息，处理完必须带 `replyTo` 回复，结论是“不做”也要回复；ack 不算回复。
@@ -22,13 +28,6 @@
     要回复的请求），`bridge/CHANGELOG.md` 的 0.5.0 去掉“(unreleased)” 并加上 0.7.0 一节，删除已过时的
     `bridge/docs/ALTERNATIVES.md` 及其链接。
 
-### 从 0.6.11 升级
-
-**先更新插件，再升级运行时**：0.6.11 的钩子读不了 schema 6，先升运行时的话，还没更新的那个宿主上退役命令和委派会出错。
-
-1. 两个宿主都更新插件到 0.7.0（详见 README“更新插件”），然后新开 Claude Code 会话，⌘Q 退出 ChatGPT 应用再打开。
-2. 关掉所有用到信箱的会话，执行 `upgrade --confirm`（详见 README“升级运行时”）；之后 doctor 各项应为 ok。
-
 - **英文 README**：新增 [README.en.md](README.en.md)，内容与中文版一致，两份开头互相链接，默认仍是中文；
   [RELEASING.md](RELEASING.md) 写明发版和改 README 时两份要一起改。
 
@@ -42,6 +41,35 @@
   [RELEASING.md](RELEASING.md)（发版流程）和 [SECURITY.md](SECURITY.md)（防护范围与报告方式）。
   bridge 目录里的过时文档留到了下次 bridge 代码改动时一起改（bridge 里改任何文件都会让运行时显示需要升级），已在上面的
   待回复请求视图里一并改掉。
+
+### 从 0.6.11 升级
+
+**顺序不能反：先更新插件，再升级运行时**（D208）。0.6.11 的钩子读不了 schema 6，先升运行时的话，还没更新的那个宿主上
+退役命令和委派会出错。
+
+1. 两个宿主都更新插件（详见 README“更新插件”）：Claude Code 从 GitHub 装的，先 `claude plugin marketplace update
+   agent-relay-marketplace`，再 `claude plugin update --scope user agent-relay@agent-relay-marketplace`；Codex 把
+   `~/.codex/config.toml` 里的 `ref` 改成 `"v0.7.0"` 后 `codex plugin marketplace upgrade`、`codex plugin add
+   agent-relay@agent-relay-marketplace`；从本地克隆装的先 `git -C <克隆> pull --ff-only`，Codex 再 `codex plugin add`。
+   然后新开 Claude Code 会话，⌘Q 完全退出 ChatGPT 应用再打开。
+2. **升级运行时**：关闭所有使用信箱的会话或只结束 bridge（见 README“升级运行时”），确认 `pgrep -fl
+   "agent-relay/runtime/dist/server.js"` 没有输出，再执行 `python3 -B <插件目录>/hooks/native_collaboration_runtime.py
+   upgrade --confirm`，输出应为 `"state": "upgraded"` 并带 `next`。新 bridge 第一次打开信箱时把它从 schema 5 升到 6
+   （升级前自动备份）。
+3. 再新开 Claude Code 会话；Codex 用 ⌘Q 完全退出 ChatGPT 应用再打开（之后 `doctor` 的 `codex-restart` 应为 ok），
+   `doctor` 的 `mailbox` 应为 ok。
+
+### 想退回 0.6.11
+
+关掉所有会话后 `rollback --confirm` 退回运行时，并把两个宿主的插件退回 v0.6.11，然后新开会话。0.6.11 的 bridge 能以兼容
+模式打开 schema 6 的信箱；只退插件、不退运行时的话，0.6.11 的钩子读不了它。
+
+### 已知问题
+
+- 过渡期里收件方还在跑 0.6.x 的旧 bridge 时，看不到“用 replyTo 回复”这条说明，标了要回复的请求可能一直挂到过期。
+- 待回复视图不发通知、不催、不能手动关闭；没人回的请求挂到过期为止。
+- `bridge_agents` 查一个没打开的 Codex 会话仍要等 10 秒（待回复视图里限制为 2 秒）。
+- 上一版列出的已知问题仍然存在。
 
 ## [0.6.11] - 2026-10-16
 
