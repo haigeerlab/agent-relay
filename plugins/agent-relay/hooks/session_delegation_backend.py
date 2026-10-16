@@ -12,7 +12,7 @@ import stat
 from typing import Any, Callable
 
 from native_collaboration_adapters import CLAUDE_SERVER_NAME, claude_config
-from native_collaboration_runtime import MAILBOX_SCHEMA_VERSIONS, open_mailbox_read_only
+from native_collaboration_runtime import MAILBOX_SCHEMA_VERSIONS, newer_mailbox_schema, open_mailbox_read_only
 from session_delegation import RESULT_KEY_PREFIX
 from session_delegation_codex import CommunicationServer
 from session_routing import BRIDGE_TRANSPORT
@@ -182,6 +182,17 @@ def _regular(path: Path, label: str, *, executable: bool = False) -> Path:
     return resolved
 
 
+def _mailbox_version(database: Path) -> int | None:
+    """The mailbox's schema version, or None when there is no readable mailbox yet."""
+    if not database.exists():
+        return None
+    try:
+        with closing(open_mailbox_read_only(database)) as connection:
+            return connection.execute("PRAGMA user_version").fetchone()[0]
+    except (OSError, sqlite3.Error):
+        return None
+
+
 def resolve_backend(
     native_root: Path,
     *,
@@ -192,6 +203,10 @@ def resolve_backend(
     server = generated["mcpServers"][CLAUDE_SERVER_NAME]
     codex = CommunicationServer(node, (server["args"][0],), dict(server["env"]))
     database = Path(native_root) / "mailbox" / "bridge.sqlite"
+    # awaiting-reply-view D208: the probes below read a newer mailbox as None, which would start a delegation whose
+    # result has no route back; stop here with the update step instead.
+    if newer_mailbox_schema(_mailbox_version(database)):
+        raise BackendUnavailable("mailbox-schema-newer")
     return DelegationBackend(
         "native", codex, CLAUDE_SERVER_NAME,
         {"mcpServers": {CLAUDE_SERVER_NAME: server}},

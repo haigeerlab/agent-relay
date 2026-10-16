@@ -1072,6 +1072,9 @@ READ_ONLY_STATUS_DETAIL = (
     "The delegation state cannot be written from here, so this is the stored record as it is: its state was not "
     "advanced and may be behind what the host shows. Run status with write access to bring it up to date.")
 REASON_DETAILS = {
+    "mailbox-schema-newer": (
+        "The mailbox was moved to a newer schema by a newer agent-relay runtime than this plugin reads: update the "
+        "agent-relay plugin on both hosts (open new sessions; quit and reopen the ChatGPT app), then try again."),
     "delegation-store-needs-migration": (
         "The delegation store is from an older version and must be migrated, which needs write access: run any "
         "delegation command once outside the sandbox (with write access to the state directory)."),

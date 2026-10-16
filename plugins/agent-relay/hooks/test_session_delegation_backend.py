@@ -107,10 +107,11 @@ class DelegationBackendTests(unittest.TestCase):
         database.chmod(0o644)
         self.assertIsNone(probe("done-thread-1"))
 
-    def test_mailbox_schemas_v3_to_v5_are_read_and_an_unknown_newer_one_is_not(self):
-        # delivery-state-machine moves the mailbox to schema 3, idempotency to 4, identity-check to 5 (additive columns only).
+    def test_mailbox_schemas_v3_to_v6_are_read_and_an_unknown_newer_one_is_not(self):
+        # delivery-state-machine moves the mailbox to schema 3, idempotency to 4, identity-check to 5,
+        # awaiting-reply-view to 6 (additive columns only).
         database = self._database()
-        for version, readable in ((3, True), (4, True), (5, True), (6, False)):
+        for version, readable in ((3, True), (4, True), (5, True), (6, True)):
             with self.subTest(version=version):
                 with sqlite3.connect(database) as connection:
                     connection.execute(f"PRAGMA user_version = {version}")
@@ -121,6 +122,20 @@ class DelegationBackendTests(unittest.TestCase):
                 route = native_result_route(
                     database, "codex", "origin-thread-exact", "delegation-12345678")
                 self.assertEqual(route is not None, readable)
+
+    def test_a_newer_mailbox_stops_the_backend_with_the_update_step(self):
+        # awaiting-reply-view D208: a silent None here would start a delegation whose result has no route back.
+        database = self._database()
+        with sqlite3.connect(database) as connection:
+            connection.execute("PRAGMA user_version = 7")
+        with self.assertRaisesRegex(BackendUnavailable, "^mailbox-schema-newer$"):
+            self.resolve()
+        self.assertIsNone(native_result_route(database, "codex", "origin-thread-exact", "delegation-12345678"))
+        from session_delegation_control import REASON_DETAILS
+        self.assertIn("update the agent-relay plugin", REASON_DETAILS["mailbox-schema-newer"])
+
+    def test_no_mailbox_yet_does_not_stop_the_backend(self):
+        self.assertEqual(self.resolve().name, "native")
 
     def test_result_route_requires_one_exact_live_origin_and_reads_only_metadata(self):
         database = self._database()
