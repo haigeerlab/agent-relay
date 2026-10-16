@@ -164,7 +164,8 @@ Claude Code 会话卡在授权上时，这台 Mac 会弹一条通知，会话目
 - **会话在等你授权时会告诉你**（`presence-and-approval`）：会话目录（`bridge_agents`，或问任意会话“有哪些会话”）会写明
   每个会话是运行中、已停止、等待授权、等待输入还是未知；给一个等授权或已停止的会话发消息时，发件方会收到提示。
   某个 Claude 会话卡在授权弹窗上、而发给它的消息还没处理时，这台 Mac 上会弹一条通知“某会话在等你授权”，同一次等待只
-  提醒一次；通知不带消息正文，也不能在通知里批准——要你自己回到那个会话处理。Codex 目前只能分出运行中和已停止。
+  提醒一次；通知不带消息正文，也不能在通知里批准——要你自己回到那个会话处理。Codex 会话分得出运行中、已停止和未加载（`not-loaded`：ChatGPT 这次启动后还没打开过它，
+  点开就能收到），分不出是否在等授权。
 - **Codex 收不到时会通知你**：Codex 没开、被挂起、或身份没绑定唤醒时，bridge 立刻在这台 Mac 上弹一条通知，Codex 只是
   在忙则 10 分钟后仍未送达才通知；每条消息最多一次。通知的标题写发件会话，副标题写消息编号、收件身份和原因（需要你动手时
   写明怎么做），正文是**消息开头最多 60 字的单行预览**。预览会出现在锁屏和共享屏幕上（macOS 的“显示预览”设置可限制）；
@@ -225,7 +226,7 @@ Claude Code 会话卡在授权上时，这台 Mac 会弹一条通知，会话目
 ## 与 Spec Guard 的关系
 
 两个插件互相独立，可以只装其中一个。同时安装时，Spec Guard 读取本插件根目录的
-[`interface.json`](plugins/agent-relay/interface.json)（接口 1.2）判断 agent-relay 是否可用，只通过 agent-relay 的
+[`interface.json`](plugins/agent-relay/interface.json)（接口 2.0；Spec Guard 0.56.0 起接受 `>=1.0,<3.0`）判断 agent-relay 是否可用，只通过 agent-relay 的
 skill 名使用协作；未安装时 Spec Guard 的工作流照常运行，只在需要协作的步骤提示安装。
 
 ### 从 Spec Guard 的协作能力迁移
@@ -325,6 +326,9 @@ Claude Code 会话在**启动时**定下用哪一份插件，之后一直用这�
 - [接口文档](docs/collaboration-interface.md)：工具、消息、状态、投递语义、身份、授权、委派与加固目标。
 - [验收清单](docs/acceptance/checklist.md)：真实宿主验收步骤。
 - [变更记录](CHANGELOG.md)：版本变化与已知问题。
+- [发版流程](RELEASING.md)：维护者发一个新版本的步骤与检查。
+- [安全说明](SECURITY.md)：防护范围、信任边界与如何报告安全问题。
+- [后台唤醒](plugins/agent-relay/bridge/docs/BACKGROUND-WAKE.md)：唤醒的实现方式与 Claude 提醒过期的原因。
 - [运行时说明](plugins/agent-relay/references/collaboration-runtime.md)、
   [协作协议](plugins/agent-relay/references/collaboration-protocol.md)。
 

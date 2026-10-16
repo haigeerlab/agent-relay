@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+- **文档核对**（只改文档，bridge 与运行时不变）：README 改正接口版本（2.0）和 Codex 在线状态（多了 `not-loaded`），
+  文档列表补上新文档；运行时参考改正安装来源（插件自带的 bridge 副本）和唤醒规则（任何权限模式都能绑定，
+  `wake-any-mode`），补上 doctor、升级、回滚、恢复，排障加了 not-loaded 和重新登记两条；验收清单的 A2、B7、D11
+  改为 `wake-any-mode` 之后的预期，新增 F 节覆盖 0.6.x 的行为；拆分简报标为历史文档并去掉本机路径。新增
+  [RELEASING.md](RELEASING.md)（发版流程）和 [SECURITY.md](SECURITY.md)（防护范围与报告方式）。
+  bridge 目录里的过时文档（`INSTRUCTIONS.md`、`CHANGELOG.md`、`docs/ALTERNATIVES.md`）留到下次 bridge 代码改动时一起改：
+  bridge 里改任何文件都会让运行时显示需要升级。
+
 ## [0.6.11] - 2026-10-16
 
 接口仍为 **2.0**（`interface.json` 不变，Spec Guard 0.56.0 或更新），信箱 schema 仍为 5，委派库仍为 schema 3。这一版只做
