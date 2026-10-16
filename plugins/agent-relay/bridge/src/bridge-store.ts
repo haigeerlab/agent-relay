@@ -498,6 +498,9 @@ export class BridgeStore {
        FROM messages m
        WHERE m.id = ? AND ${DELIVERED_TO("?")}`,
     );
+    // agent-relay ack-records-read D197: handling a message (for example from its wake preview) is also reading it,
+    // so a newly acknowledged direct message gets read_at if it had none; an earlier read time is kept.
+    const read = this.db.prepare("UPDATE messages SET read_at = COALESCE(read_at, ?) WHERE id = ? AND to_agent = ?");
     const ackedAt = this.now();
     // agent-relay ack-wake-atomic D130: every acknowledgement and its wake closure commit together, or none does,
     // so an acknowledged message never keeps an open wake job that could ping its recipient again.
@@ -506,7 +509,10 @@ export class BridgeStore {
       for (const id of messageIds) {
         const result = stmt.run(agent, ackedAt, note, id, ...deliveredParams(agent));
         acknowledged += Number(result.changes);
-        if (Number(result.changes) === 1) this.wakes.acknowledge(agent, id);
+        if (Number(result.changes) === 1) {
+          read.run(Date.now(), id, agent);
+          this.wakes.acknowledge(agent, id);
+        }
       }
       return acknowledged;
     });
@@ -727,22 +733,23 @@ export class BridgeStore {
   }
 
   /**
-   * agent-relay acceptance-030-gaps D77: direct messages waiting for each non-retired agent whose recorded host is
-   * Codex (not acknowledged by it, not failed or expired), oldest first: count, senders and at most 20 ids, never bodies.
+   * agent-relay acceptance-030-gaps D77: direct messages waiting for each non-retired agent (not acknowledged by it,
+   * not failed or expired), oldest first: count, senders and at most 20 ids, never bodies. waiting-list-all-hosts
+   * D198: for every host, not only Codex, and with the oldest one's creation time (`oldestAt`).
    */
-  codexWaiting(): Map<string, { count: number; from: string[]; ids: number[] }> {
+  waiting(): Map<string, { count: number; from: string[]; ids: number[]; oldestAt: string }> {
     const rows = this.db
       .prepare(
-        `SELECT m.id, m.from_agent, m.to_agent FROM messages m JOIN agents ag ON ag.name = m.to_agent
-         WHERE ag.host_app = 'codex' AND ag.retired_at IS NULL
+        `SELECT m.id, m.from_agent, m.to_agent, m.created_at FROM messages m JOIN agents ag ON ag.name = m.to_agent
+         WHERE ag.retired_at IS NULL
            AND COALESCE(m.delivery_state, 'queued') NOT IN ('failed', 'expired')
            AND NOT EXISTS (SELECT 1 FROM acknowledgements a WHERE a.message_id = m.id AND a.agent = m.to_agent)
          ORDER BY m.to_agent, m.id`,
       )
-      .all() as Array<{ id: number | bigint; from_agent: string; to_agent: string }>;
-    const waiting = new Map<string, { count: number; from: string[]; ids: number[] }>();
+      .all() as Array<{ id: number | bigint; from_agent: string; to_agent: string; created_at: string }>;
+    const waiting = new Map<string, { count: number; from: string[]; ids: number[]; oldestAt: string }>();
     for (const row of rows) {
-      const entry = waiting.get(row.to_agent) ?? { count: 0, from: [], ids: [] };
+      const entry = waiting.get(row.to_agent) ?? { count: 0, from: [], ids: [], oldestAt: row.created_at };
       entry.count += 1;
       if (!entry.from.includes(row.from_agent)) entry.from.push(row.from_agent);
       if (entry.ids.length < 20) entry.ids.push(Number(row.id));

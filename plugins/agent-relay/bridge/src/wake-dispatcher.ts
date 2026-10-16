@@ -1,12 +1,12 @@
 import type { BridgeStore } from "./bridge-store.js";
 import { channelNotification, type ChannelNotification } from "./claude-channel.js";
-import { ClaudeWake, claudeSessionsOrNull } from "./claude-wake.js";
+import { ClaudeWake, claudeSessionsOrNull, type ClaudeSession } from "./claude-wake.js";
 import { wakeCodex } from "./codex-wake.js";
 import { claudeLocation, type Location } from "./location.js";
 import { BUSY_NOTIFY_AFTER_MS, CLAUDE_OFFLINE_NOTIFY_AFTER_MS, NOTIFIED_TEXT, alreadyNotified, noticesOff, notifyUndelivered,
   waitingEpisode } from "./notify.js";
 import { claudePresence, type Presence } from "./presence.js";
-import type { WakeJob, WakeResult } from "./wake-queue.js";
+import { parseProcStart, type WakeJob, type WakeResult } from "./wake-queue.js";
 
 /** Push path into the Claude session hosting this MCP process (opt-in). */
 export interface ChannelDelivery {
@@ -25,6 +25,8 @@ export interface DispatcherOptions {
   presenceOf?: (sessionId: string) => Promise<Presence>;
   /** notice-location D188: where a waiting Claude session is; defaults to the registry entry `presenceOf` came from. */
   locationOf?: (sessionId: string) => Promise<Location | undefined>;
+  /** rewake-on-return D199: the live Claude sessions; defaults to Claude Code's registry. */
+  claudeSessions?: () => Promise<ClaudeSession[] | null>;
 }
 
 /** How often a bridge looks for Claude sessions waiting for the user's approval (D148). */
@@ -41,6 +43,7 @@ export class WakeDispatcher {
   private codexWake: (job: WakeJob) => Promise<WakeResult>;
   private presenceOf?: (sessionId: string) => Promise<Presence>;
   private locationOf?: (sessionId: string) => Promise<Location | undefined>;
+  private claudeSessions?: () => Promise<ClaudeSession[] | null>;
   private approvalsCheckedAt = 0;
 
   constructor(private store: BridgeStore, options: DispatcherOptions | ((job: WakeJob) => Promise<WakeResult>) = {}) {
@@ -51,6 +54,7 @@ export class WakeDispatcher {
     this.codexWake = resolved.codexWake ?? ((job) => wakeCodex(job));
     this.presenceOf = resolved.presenceOf;
     this.locationOf = resolved.locationOf;
+    this.claudeSessions = resolved.claudeSessions;
     this.claude = new ClaudeWake((job, result) => store.wakes.finish(job, result));
   }
 
@@ -138,6 +142,21 @@ export class WakeDispatcher {
   }
 
   /**
+   * rewake-on-return D199: a live Claude session whose process started after a recipient's pings expired came back,
+   * so those still-unhandled messages are pinged once more. A re-armed ping is younger than that process, so the
+   * same start never re-arms twice. procStart is UTC text (see parseProcStart).
+   */
+  private rewakeReturned(waiting: Array<{ agent: string; sessionId: string }>, sessions: ClaudeSession[] | null): void {
+    if (!sessions) return;
+    for (const entry of waiting) {
+      const found = sessions.find((s) => s.sessionId === entry.sessionId || s.bridgeSessionId === entry.sessionId);
+      const started = found ? parseProcStart(found.procStart) : null;
+      if (started === null) continue;
+      try { this.store.wakes.rearm(entry.agent, this.store.wakes.target(entry.agent), started); } catch { /* next check */ }
+    }
+  }
+
+  /**
    * agent-relay presence-and-approval D148: tell the user, once per waiting episode, that a Claude session with an
    * unhandled message waits for their approval. Only tells; never answers the prompt. Every bridge on the mailbox may
    * run this; the notice mark under `notified/` keeps it to one notice.
@@ -149,7 +168,9 @@ export class WakeDispatcher {
     if (waiting.length === 0) return;
     // Without an injected presence, one registry read serves both the presence and the location (D188): the tty is
     // looked up only for an entry that passed the reader's own liveness check.
-    const sessions = this.presenceOf ? null : await claudeSessionsOrNull();
+    const sessions = this.claudeSessions ? await this.claudeSessions()
+      : this.presenceOf ? null : await claudeSessionsOrNull();
+    this.rewakeReturned(waiting, sessions);
     const presenceOf = this.presenceOf ?? (async (sessionId: string) => claudePresence(sessionId, sessions));
     const locationOf = this.locationOf ?? (async (sessionId: string) => {
       const found = sessions?.find((s) => s.sessionId === sessionId || s.bridgeSessionId === sessionId);

@@ -104,8 +104,9 @@ Codex 给 Codex 派活时，`session-routing` 的 selector 可能返回 `codex-w
 `pending`），不会确认任何消息。正文较长或含 `$`、反引号、引号等字符时，先写入文件再用 `bodyFile`（绝对路径）发送，
 不要拼进命令行。用户问“我是谁”时读 `bridge_sessions.whoami`，只报告名字、宿主、会话标题和项目，不展示完整内部 ID。
 
-用户问“有哪些等 Codex 处理的消息”“Codex 那边有没有卡住的消息”时，调用 `bridge_agents`，逐个报告带 `waiting` 的身份：
-名字、条数、发件方和编号（`waiting: {count, from, ids}`），不读正文；没有就说没有。发件结果里的“已尝试通知”只表示
+用户问“有哪些等着处理的消息”“Codex 那边有没有卡住的消息”“哪个会话停了还有消息在等”时，调用 `bridge_agents`，逐个报告
+带 `waiting` 的身份（Claude、Codex 都有）：名字、条数、发件方、编号和最早一条的时间（`waiting: {count, from, ids,
+oldestAt}`），并带上它的 `presence`（例如 `stopped`），不读正文；没有就说没有。发件结果里的“已尝试通知”只表示
 bridge 尝试过桌面通知，macOS 可能没显示，不要说成用户已经看到。
 
 长消息只用信箱工具读完，不用 Bash：结果里有 `continue` 行或某条消息带 `nextOffset` 时，按那一行调用
