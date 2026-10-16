@@ -44,6 +44,18 @@ export class CallerIdentity {
           `"${name}" from this session first (wake: null is fine). ${never}`,
       );
     }
+    // agent-relay codex-identity-recovery D209: a Codex caller cannot be verified, so a name recorded for a Codex task is
+    // most likely its own name after its bridge process was replaced; say how to prove it again, not to take it over.
+    if (!this.host && agent.host?.app === "codex") {
+      throw new IdentityError(
+        `"${name}" is recorded for a Codex task, and this bridge process cannot tell which task calls it (it is new, for ` +
+          `example after the ChatGPT app restarted or the task was reopened), so it cannot ${action} it yet. If ` +
+          `"${name}" is this task's own name, call bridge_register with agent "${name}" and wake: {app: "codex", ` +
+          `sessionId: "<CODEX_THREAD_ID>"} (or, without pings, host: {app: "codex", sessionId: "<CODEX_THREAD_ID>"}) ` +
+          `using this task's own CODEX_THREAD_ID; no takeover is needed for its own name. Then repeat this call. If it ` +
+          `is not this task's name, use this task's own name. ${never}`,
+      );
+    }
     const other = agent.host && !sameHost(this.host, agent.host)
       ? ` It is recorded for another ${agent.host.app} session; registering it here needs takeover: true, which only ` +
         "the user may approve."

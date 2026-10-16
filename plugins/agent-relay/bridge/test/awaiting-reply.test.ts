@@ -265,6 +265,9 @@ async function withServer(run: (call: (name: string, args: Record<string, unknow
   await client.connect(transport);
   try {
     assert.match(client.getInstructions() ?? "", /expectsReply: true is a request: when done, answer it with bridge_send replyTo/);
+    // codex-identity-recovery D209, D210: the same server instructions tell sessions how to recover.
+    assert.match(client.getInstructions() ?? "", /recorded for a Codex task, register that name again as the refusal says and repeat the call/);
+    assert.match(client.getInstructions() ?? "", /Transport closed, stop retrying and ask the user to reopen the app/);
     await run(async (name, args) => {
       const result = await client.callTool({ name, arguments: args });
       const text = (result.content as Array<{ text: string }>)[0]!.text;
@@ -300,4 +303,16 @@ test("bridge_send takes expectsReply and bridge_outbox awaitingReply lists the o
     const plain = (await call("bridge_outbox", { agent: "lead" })).data;
     assert.equal(plain.entries[0].recipientPresence, undefined, "the normal view looks up no presence");
   });
+});
+
+// agent-relay reply-own-message-guidance D211: the sender adds to its request as the refusal says; that is not an
+// answer, so the request stays open.
+test("a sender's addendum on the thread leaves its own request open (D211)", () => {
+  const s = fresh();
+  const question = s.send({ fromAgent: "asker", toAgent: "helper", body: "port?", threadId: "t", expectsReply: true });
+  assert.throws(() => s.send({ fromAgent: "asker", toAgent: "helper", body: "also host?", replyTo: question.id }),
+    /with threadId "t" and without replyTo/);
+  s.send({ fromAgent: "asker", toAgent: "helper", body: "also host?", threadId: "t" });
+  assert.deepEqual(awaiting(s).entries.map((entry) => entry.id), [question.id]);
+  s.close();
 });

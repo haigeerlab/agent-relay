@@ -1,5 +1,13 @@
 # Changelog
 
+## agent-relay 0.7.1
+
+Three fixes from a usage report (modules `codex-identity-recovery`, `reply-own-message-guidance`, `read-own-sent`),
+schema 6 unchanged: a Codex task whose bridge process was replaced is told to register its own name again, without a
+takeover, and the server instructions say so and say to stop on `Transport closed`; a sender pointing `replyTo` at its
+own message is told how to add to it (its thread, or "Addendum to #N:"); `bridge_inbox` `messageId` reads back the
+caller's own sent messages with `direction`, recording no read, and a refused id says why and whom to ask.
+
 ## agent-relay 0.7.0
 
 Requests that expect an answer (module `awaiting-reply-view`): mailbox schema 6 adds `messages.expects_reply`;

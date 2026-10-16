@@ -108,7 +108,7 @@ test("a long body is read whole, in order and in parts, by its recipient only (D
 
     const other = await a.call("bridge_inbox", { agent: "carol", messageId: id });
     assert.equal(other.ok, false);
-    assert.match(other.text, new RegExp(`#${id} is not in "carol"'s inbox`));
+    assert.match(other.text, new RegExp(`#${id} was not sent to "carol" and not sent by it`)); // read-own-sent D213
 
     const thread = (await a.call("bridge_thread", { threadId: "long" })).json();
     assert.equal(thread.messages[0].nextOffset, thread.messages[0].body.length);

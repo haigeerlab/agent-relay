@@ -346,7 +346,7 @@ export class BridgeStore {
         | { thread_id: string | null; from_agent: string; to_agent: string }
         | undefined;
       if (!original) throw new ReplyLinkError(`No message #${replyTo} to reply to.`);
-      assertMayReply(replyTo, original.from_agent, original.to_agent, input.fromAgent);
+      assertMayReply(replyTo, original.from_agent, original.to_agent, input.fromAgent, original.thread_id);
       threadId = replyThread(replyTo, original.thread_id, input.threadId);
       answersOwnMessage = original.to_agent === input.fromAgent;
     }
@@ -504,10 +504,21 @@ export class BridgeStore {
    * agent-relay long-messages D152: one message delivered to `agent`, with the part of its body from `bodyOffset` that
    * fits a page. Undefined when the message is not in that agent's inbox (same rule as inbox()).
    */
-  messagePart(agent: string, messageId: number, options: { bodyOffset?: number; maxChars?: number } = {}): MessageView | undefined {
-    const row = this.db.prepare(`SELECT m.* FROM messages m WHERE m.id = ? AND ${DELIVERED_TO("?")}`)
-      .get(messageId, ...deliveredParams(agent)) as unknown as MessageRow | undefined;
-    return row ? bodyPart(this.toMessage(row), options.bodyOffset ?? 0, options.maxChars) : undefined;
+  messagePart(agent: string, messageId: number, options: { bodyOffset?: number; maxChars?: number } = {}):
+    (MessageView & { direction: "received" | "sent" }) | undefined {
+    // agent-relay read-own-sent D212: also a message `agent` sent; delivered to it wins (a message to oneself).
+    const row = this.db.prepare(`SELECT m.*, CASE WHEN ${DELIVERED_TO("?")} THEN 'received' ELSE 'sent' END AS direction
+      FROM messages m WHERE m.id = ? AND (${DELIVERED_TO("?")} OR m.from_agent = ?)`)
+      .get(...deliveredParams(agent), messageId, ...deliveredParams(agent), agent) as
+      unknown as (MessageRow & { direction: "received" | "sent" }) | undefined;
+    return row ? { ...bodyPart(this.toMessage(row), options.bodyOffset ?? 0, options.maxChars), direction: row.direction } : undefined;
+  }
+
+  /** read-own-sent D213: who sent and received a message, to word a refused read; undefined when there is none. */
+  messageParties(messageId: number): { from: string; to: string } | undefined {
+    const row = this.db.prepare("SELECT from_agent, to_agent FROM messages WHERE id = ?").get(messageId) as
+      { from_agent: string; to_agent: string } | undefined;
+    return row ? { from: row.from_agent, to: row.to_agent } : undefined;
   }
 
   /**

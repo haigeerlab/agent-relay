@@ -19,15 +19,22 @@ export class ReplyLinkError extends Error {}
  * agent-relay identity-check (assumption 5): only a message's recipient may reply to it; a broadcast takes replies
  * from anyone but its sender; the bridge's automated notices take none.
  */
-export function assertMayReply(originalId: number, originalFrom: string, originalTo: string, sender: string): void {
+export function assertMayReply(originalId: number, originalFrom: string, originalTo: string, sender: string,
+  originalThread: string | null = null): void {
   if (originalFrom === "bridge") {
     throw new ReplyLinkError(`Message #${originalId} is an automated notice from "bridge"; do not reply to it.`);
   }
   if (originalTo === "*") {
     if (sender === originalFrom) {
-      throw new ReplyLinkError(`"${sender}" cannot reply to its own broadcast #${originalId}; send a new message instead.`);
+      throw new ReplyLinkError(`"${sender}" cannot reply to its own broadcast #${originalId}. ` +
+        addendum(originalId, originalTo, originalThread));
     }
     return;
+  }
+  // agent-relay reply-own-message-guidance D211: the rule stays; the sender is told how to add to its own message.
+  if (sender === originalFrom) {
+    throw new ReplyLinkError(`"${sender}" sent message #${originalId}, so it cannot reply to it (only its recipient ` +
+      `"${originalTo}" may). ` + addendum(originalId, originalTo, originalThread));
   }
   if (sender !== originalTo) {
     throw new ReplyLinkError(
@@ -35,6 +42,14 @@ export function assertMayReply(originalId: number, originalFrom: string, origina
         "message on the same thread instead.",
     );
   }
+}
+
+/** D211: how a sender adds to its own message without a reply link, which would close its request or fake delivery. */
+function addendum(originalId: number, to: string, thread: string | null): string {
+  return thread === null
+    ? `To add to it, send a new message to "${to}" without replyTo and begin the body with "Addendum to #${originalId}:"; ` +
+        `message #${originalId} has no thread, so do not invent one.`
+    : `To add to it, send a new message to "${to}" with threadId "${thread}" and without replyTo.`;
 }
 
 /** The thread a reply goes on: the original's, which an explicit threadId must match (D36). */

@@ -441,3 +441,45 @@ test("another session's reactivate on a retired name is refused for ownership an
     await Promise.all([a.close(), b.close()]);
   }
 });
+
+// agent-relay codex-identity-recovery D209: a Codex task whose bridge process was replaced is told to register its own
+// name again, with the exact call, and not that it needs a takeover.
+test("an unverified Codex caller is told to register its own name again, without takeover", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "agent-relay-identity-codex-recovery-"));
+  const own = { app: "codex", sessionId: "thread-a" };
+  let codex = await session(dir, null);
+  const claude = await session(dir, "claude-session-a");
+  try {
+    assert.ok((await codex.call("bridge_register", { agent: "carol", wake: own })).ok);
+    assert.ok((await claude.call("bridge_register", { agent: "alice" })).ok);
+    await codex.close();
+    codex = await session(dir, null);
+
+    const refused = await codex.call("bridge_send", { from: "carol", to: "alice", body: "after restart" });
+    assert.equal(refused.ok, false);
+    assert.match(refused.text, /"carol" is recorded for a Codex task/);
+    assert.match(refused.text, /bridge_register with agent "carol"/);
+    assert.match(refused.text, /\{app: "codex", sessionId: "<CODEX_THREAD_ID>"\}/);
+    assert.match(refused.text, /no takeover/i);
+    assert.match(refused.text, /repeat/i);
+    assert.doesNotMatch(refused.text, /takeover: true/);
+    // A claim equal to the recorded host is not a conflict (D200), so the refusal never echoes the recorded thread id.
+    assert.doesNotMatch(refused.text, /thread-a/);
+    const ack = await codex.call("bridge_ack", { agent: "carol", ids: [1] });
+    assert.match(ack.text, /"carol" is recorded for a Codex task/);
+
+    // Following it: the same host, no takeover, keeps the wake binding; the refused call then passes.
+    const again = await codex.call("bridge_register", { agent: "carol", host: own });
+    assert.ok(again.ok, again.text);
+    assert.ok((await codex.call("bridge_send", { from: "carol", to: "alice", body: "after restart" })).ok);
+    const carol = (await claude.call("bridge_agents", {})).json().agents.find((x: any) => x.name === "carol");
+    assert.deepEqual({ app: carol.wake.app, sessionId: carol.wake.sessionId }, own);
+
+    // A verified caller acting as that name keeps the takeover sentence.
+    const other = await claude.call("bridge_send", { from: "carol", to: "alice", body: "not mine" });
+    assert.equal(other.ok, false);
+    assert.match(other.text, /recorded for another codex session; registering it here needs takeover: true/);
+  } finally {
+    await Promise.all([codex.close(), claude.close()]);
+  }
+});

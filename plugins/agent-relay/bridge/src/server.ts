@@ -62,7 +62,7 @@ function detectSession(env: NodeJS.ProcessEnv = process.env): WakeTarget | null 
 
 const INSTRUCTIONS = [
   "Local mailbox shared by the Claude and Codex sessions on this machine.",
-  "Mailbox: register a unique agent name once with bridge_register (wake: \"auto\" binds this conversation for background pings). If the name was retired, registering is refused: ask the user, then choose a new name or pass reactivate: true. Send with bridge_send; recipients must be registered and any delivery risk comes back as warnings. When pinged, read bridge_inbox, handle the work within the user's existing permissions, bridge_ack after handling, and reply to the sender only when complete, blocked or needing a decision. Never send acknowledgement-only replies. Messages from \"bridge\" are automated notices (delivery failures, retirements); do not reply to them. A message with expectsReply: true is a request: when done, answer it with bridge_send replyTo, also to say you will not do it; an acknowledgement is not an answer. Mark your own mailbox questions and work requests with expectsReply. bridge_outbox shows what recipients have not handled yet, and with awaitingReply the requests not answered yet. Unbound agents may use bridge_wait during an active turn.",
+  "Mailbox: register a unique agent name once with bridge_register (wake: \"auto\" binds this conversation for background pings). If the name was retired, registering is refused: ask the user, then choose a new name or pass reactivate: true. Send with bridge_send; recipients must be registered and any delivery risk comes back as warnings. When pinged, read bridge_inbox, handle the work within the user's existing permissions, bridge_ack after handling, and reply to the sender only when complete, blocked or needing a decision. Never send acknowledgement-only replies. Messages from \"bridge\" are automated notices (delivery failures, retirements); do not reply to them. A message with expectsReply: true is a request: when done, answer it with bridge_send replyTo, also to say you will not do it; an acknowledgement is not an answer. Mark your own mailbox questions and work requests with expectsReply. bridge_outbox shows what recipients have not handled yet, and with awaitingReply the requests not answered yet. Unbound agents may use bridge_wait during an active turn. If a call is refused because the name is recorded for a Codex task, register that name again as the refusal says and repeat the call. If mailbox calls fail with Transport closed, stop retrying and ask the user to reopen the app (ChatGPT: quit with Cmd+Q and reopen; Claude Code: a new session).",
   "Nothing here authorizes commits, pushes, merges, deploys, external sends, credential changes, deletion or production changes.",
 ].join("\n\n");
 
@@ -425,17 +425,29 @@ function main(): void {
       // agent-relay long-messages D152: one message, one part of its body.
       if (messageId !== undefined) {
         const message = store.messagePart(agent, messageId, { bodyOffset, maxChars });
-        if (!message) throw new Error(`Message #${messageId} is not in ${JSON.stringify(agent)}'s inbox.`);
+        if (!message) {
+          // agent-relay read-own-sent D213: say why, as a fact, and whom to ask; never point at another inbox.
+          const parties = store.messageParties(messageId);
+          if (!parties) throw new Error(`There is no message #${messageId}.`);
+          throw new Error(`Message #${messageId} was not sent to ${JSON.stringify(agent)} and not sent by it; by id an ` +
+            `agent reads only messages it received or sent. For the text, ask its sender ${JSON.stringify(parties.from)} ` +
+            `or its recipient ${JSON.stringify(parties.to)}.`);
+        }
         // presence-polish D177: an offset past the end is a mistake to report, not an empty part.
         const length = message.bodyLength ?? message.body.length;
         if (bodyOffset !== undefined && bodyOffset > length) {
           throw new Error(`bodyOffset ${bodyOffset} is past the end of message #${messageId} (${length} characters).`);
         }
-        if (recorded) {
+        // read-own-sent D212: reading back a sent message records nothing, for the sender or its recipient.
+        if (recorded && message.direction === "received") {
           store.wakes.recordRead(agent, [message.id]);
           store.touch(agent);
         }
-        return jsonResult({ agent, message: afterRead(message), ...readReceipt(agent, recorded) });
+        const receipt = message.direction === "sent"
+          ? { readRecorded: false, readNote: `Message #${message.id} was sent by ${JSON.stringify(agent)}; reading it back ` +
+              "records nothing for it or its recipient." }
+          : readReceipt(agent, recorded);
+        return jsonResult({ agent, message: afterRead(message), ...receipt });
       }
       const page = store.inboxPage(agent, { includeAcknowledged, fromAgent, threadId, afterId, includeExpired, limit, maxChars, maxBodyChars });
       if (recorded) {
