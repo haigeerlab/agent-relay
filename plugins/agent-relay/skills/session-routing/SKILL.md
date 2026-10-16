@@ -195,6 +195,9 @@ native runtime 的 `bridge_*` 工具。它不同于 `host-native-claude` 或 `ho
 请求（Claude `SendMessage`、Codex 线程，包括 D195 里当场问答走原生的 Codex → Codex）一律不标，因为原生的回答不会带
 `replyTo`，标了就会一直挂着。
 
+`bridge_send` 报名字“记在一个 Codex 任务名下”时，按 `collab` 的身份规则用原名重新登记后重发同一条（D209），不改名、
+不问用户；报 `Transport closed` 时停止重试，按 `collab` 请用户重开应用（D210）。
+
 bridge 的状态保持四段证据，而不是一个“成功”：
 
 - enqueue 只映射为 `dispatch=enqueued`，入箱不等于 wake；

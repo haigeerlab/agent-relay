@@ -265,6 +265,9 @@ async function withServer(run: (call: (name: string, args: Record<string, unknow
   await client.connect(transport);
   try {
     assert.match(client.getInstructions() ?? "", /expectsReply: true is a request: when done, answer it with bridge_send replyTo/);
+    // codex-identity-recovery D209, D210: the same server instructions tell sessions how to recover.
+    assert.match(client.getInstructions() ?? "", /recorded for a Codex task, register that name again as the refusal says and repeat the call/);
+    assert.match(client.getInstructions() ?? "", /Transport closed, stop retrying and ask the user to reopen the app/);
     await run(async (name, args) => {
       const result = await client.callTool({ name, arguments: args });
       const text = (result.content as Array<{ text: string }>)[0]!.text;
