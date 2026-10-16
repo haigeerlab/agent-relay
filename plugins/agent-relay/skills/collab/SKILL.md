@@ -129,7 +129,9 @@ bridge 尝试过桌面通知，macOS 可能没显示，不要说成用户已经�
 
 长消息只用信箱工具读完，不用 Bash：结果里有 `continue` 行或某条消息带 `nextOffset` 时，按那一行调用
 `bridge_inbox`（`agent`、`messageId`、`bodyOffset`），一直读到不再返回 `nextOffset`，把各段按顺序拼起来再处理。
-发送结果只有编号和 `bodyLength`，不回显正文。读取用 `bridge_inbox`；处理后才调用 `bridge_ack`。主动等待使用 `bridge_wait` 且
+发送结果只有编号和 `bodyLength`，不回显正文；要看自己发出的某条原文，用 `bridge_inbox`（`agent` 为本会话的名字、
+`messageId`）读回，结果带 `direction: "sent"`，不算任何人已读（read-own-sent D212）。收发双方都不是自己的消息按编号读不到，
+报错会写出发件人和收件人，向他们要原文。读取用 `bridge_inbox`；处理后才调用 `bridge_ack`。主动等待使用 `bridge_wait` 且
 `acknowledge: false`，返回后仍需实际处理再确认。被唤醒后只处理当前权限允许的请求，有副作用的动作仍向用户取权。
 结果里 `readRecorded: false` 表示这次读取没有算作已读：读的是别人的身份（不影响对方的投递和唤醒），或读的是自己
 的名字但 bridge 重启后还没重新注册——后一种照 `readNote` 用 `bridge_register` 重新注册本会话的名字再读。
