@@ -292,7 +292,7 @@ Just say it in natural language; no tool names or internal IDs to remember:
 ## Relationship with Spec Guard
 
 The two plugins are independent; either can be installed alone. When both are installed, Spec Guard reads
-[`interface.json`](plugins/agent-relay/interface.json) in this plugin's root (interface 2.0; Spec Guard accepts
+[`interface.json`](plugins/agent-relay/interface.json) in this plugin's root (interface 2.1; Spec Guard accepts
 `>=1.0,<3.0` since 0.56.0) to decide whether agent-relay is available, and uses collaboration only through
 agent-relay's skill names; without it, Spec Guard's workflows run as usual and only the steps that need collaboration
 suggest installing it.
