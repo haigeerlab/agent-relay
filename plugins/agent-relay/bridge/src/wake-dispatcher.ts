@@ -142,11 +142,6 @@ export class WakeDispatcher {
   }
 
   /**
-   * agent-relay presence-and-approval D148: tell the user, once per waiting episode, that a Claude session with an
-   * unhandled message waits for their approval. Only tells; never answers the prompt. Every bridge on the mailbox may
-   * run this; the notice mark under `notified/` keeps it to one notice.
-   */
-  /**
    * rewake-on-return D199: a live Claude session whose process started after a recipient's pings expired came back,
    * so those still-unhandled messages are pinged once more. A re-armed ping is younger than that process, so the
    * same start never re-arms twice. procStart is UTC text (see parseProcStart).
@@ -161,6 +156,11 @@ export class WakeDispatcher {
     }
   }
 
+  /**
+   * agent-relay presence-and-approval D148: tell the user, once per waiting episode, that a Claude session with an
+   * unhandled message waits for their approval. Only tells; never answers the prompt. Every bridge on the mailbox may
+   * run this; the notice mark under `notified/` keeps it to one notice.
+   */
   async checkApprovals(): Promise<void> {
     this.approvalsCheckedAt = Date.now();
     if (this.stopped) return;
