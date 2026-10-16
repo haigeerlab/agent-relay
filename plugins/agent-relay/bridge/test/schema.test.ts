@@ -239,24 +239,24 @@ function v2Mailbox(path: string): void {
   const raw = new DatabaseSync(path);
   raw.exec("DROP INDEX idx_messages_delivery");
   raw.exec("DROP INDEX idx_messages_reply");
-  for (const column of [...DELIVERY_COLUMNS, "reply_to"]) raw.exec(`ALTER TABLE messages DROP COLUMN ${column}`);
+  for (const column of [...DELIVERY_COLUMNS, "reply_to", "expects_reply"]) raw.exec(`ALTER TABLE messages DROP COLUMN ${column}`);
   for (const column of HOST_COLUMNS) raw.exec(`ALTER TABLE agents DROP COLUMN ${column}`);
   raw.exec("PRAGMA user_version = 2");
   raw.close();
 }
 
 test("a v2 mailbox migrates straight to the current schema in one open, after one backup, with its rows", () => {
-  assert.equal(SCHEMA_VERSION, 5);
+  assert.equal(SCHEMA_VERSION, 6);
   const dir = mkdtempSync(join(tmpdir(), "bridge-v2-v4-"));
   const path = join(dir, "bridge.sqlite");
   const backupDir = join(dir, "backups");
   v2Mailbox(path);
 
   const store = new BridgeStore(path, { backupDir });
-  assert.deepEqual(store.migration, { from: 2, to: 5, newer: false });
+  assert.deepEqual(store.migration, { from: 2, to: 6, newer: false });
   const backups = readdirSync(backupDir);
   assert.equal(backups.length, 1);
-  assert.match(backups[0] ?? "", /^bridge-pre-v5-from-v2-/);
+  assert.match(backups[0] ?? "", /^bridge-pre-v6-from-v2-/);
   const copy = new DatabaseSync(join(backupDir, backups[0] as string), { readOnly: true });
   assert.equal((copy.prepare("PRAGMA user_version").get() as { user_version: number }).user_version, 2);
   assert.equal((copy.prepare("SELECT COUNT(*) AS n FROM messages").get() as { n: number }).n, 2);

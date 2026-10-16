@@ -24,6 +24,8 @@ export interface BridgeMessage {
   expiresAt: string | null;
   /** agent-relay idempotency: id of the message this one replies to; null when it is not a reply. */
   replyTo: number | null;
+  /** agent-relay awaiting-reply-view D201: the sender expects an answer linked by replyTo. */
+  expectsReply: boolean;
 }
 
 /** A registered agent and its advertised capabilities. */
@@ -62,6 +64,8 @@ export interface SendInput {
   idempotencyKey?: string | null;
   /** agent-relay idempotency: id of the message this one replies to (it must exist; D36 sets the thread). */
   replyTo?: number | null;
+  /** agent-relay awaiting-reply-view D201: mark a direct message as expecting an answer; refused on a broadcast. */
+  expectsReply?: boolean;
 }
 
 export interface InboxOptions {
@@ -164,6 +168,7 @@ interface MessageRow {
   delivery_state?: string | null;
   expires_at?: number | null;
   reply_to?: number | bigint | null;
+  expects_reply?: number | bigint | null;
 }
 
 interface AgentRow {
@@ -280,6 +285,7 @@ export class BridgeStore {
       deliveryState: row.to_agent === "*" ? null : ((row.delivery_state ?? "queued") as DeliveryState),
       expiresAt: row.expires_at == null ? null : new Date(Number(row.expires_at)).toISOString(),
       replyTo: row.reply_to == null ? null : Number(row.reply_to),
+      expectsReply: Number(row.expects_reply ?? 0) === 1,
     };
   }
 
@@ -315,6 +321,10 @@ export class BridgeStore {
 
   private insertMessage(input: SendInput): { message: BridgeMessage; duplicate: boolean } {
     const replyTo = input.replyTo ?? null;
+    const expectsReply = input.expectsReply === true;
+    if (expectsReply && input.toAgent === "*") {
+      throw new Error("A broadcast cannot carry expectsReply: send the request to one recipient.");
+    }
     let threadId = input.threadId ?? null;
     let answersOwnMessage = false;
     if (replyTo !== null) {
@@ -334,7 +344,8 @@ export class BridgeStore {
         .get(input.fromAgent, idempotencyKey) as unknown as MessageRow | undefined;
       if (existing) {
         const stored = this.toMessage(existing);
-        const differs = contentDifferences(stored, { toAgent: input.toAgent, body: input.body, threadId, replyTo });
+        const differs = contentDifferences(stored,
+          { toAgent: input.toAgent, body: input.body, threadId, replyTo, expectsReply });
         if (differs.length && input.fromAgent !== "bridge") {
           throw conflictError(idempotencyKey, input.fromAgent, stored.id, stored.deliveryState, differs);
         }
@@ -365,11 +376,12 @@ export class BridgeStore {
     const result = this.db
       .prepare(
         `INSERT INTO messages (from_agent, to_agent, body, thread_id, idempotency_key, created_at,
-                               delivery_state, delivery_changed_at, expires_at, reply_to)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                               delivery_state, delivery_changed_at, expires_at, reply_to, expects_reply)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(input.fromAgent, input.toAgent, input.body, threadId, idempotencyKey,
-        new Date(sentAt).toISOString(), direct ? "queued" : null, direct ? sentAt : null, expiresAt, replyTo);
+        new Date(sentAt).toISOString(), direct ? "queued" : null, direct ? sentAt : null, expiresAt, replyTo,
+        expectsReply ? 1 : 0);
 
     const message = this.messageById(Number(result.lastInsertRowid)) as BridgeMessage;
     if (input.wake !== false) this.wakes.enqueue(message);

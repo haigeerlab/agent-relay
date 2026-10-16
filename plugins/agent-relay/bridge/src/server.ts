@@ -302,15 +302,18 @@ function main(): void {
           "Absolute path of a UTF-8 text file (regular file you own, at most 256 KiB) whose content is sent unchanged, so nothing passes through shell quoting. Give exactly one of body and bodyFile."),
         threadId: z.string().optional().describe("Optional conversation thread identifier."),
         idempotencyKey: z.string().optional().describe(
-          "Optional retry key. A retry with the same key and content returns the stored message (duplicate: true) and pings nobody; the same key with a different recipient, body or thread is refused — the earlier message is already stored, so no resend is needed."),
+          "Optional retry key. A retry with the same key and content returns the stored message (duplicate: true) and pings nobody; the same key with a different recipient, body, thread or expectsReply is refused — the earlier message is already stored, so no resend is needed."),
         replyTo: z.number().int().positive().optional().describe(
           "Id of the message this one answers. The reply goes on that message's thread (omit threadId, or give the same one), and the sender's outbox lists it under the original."),
+        expectsReply: z.boolean().optional().describe(
+          "Mark a direct message as a request that expects an answer (a question or work sent through the mailbox). The recipient answers it with replyTo; until then it is listed by bridge_outbox awaitingReply and the recipient's owesReplies in bridge_agents. Not for broadcasts or notices."),
         allowUnregistered: z.boolean().optional().describe("Deliver even if the recipient is unknown or retired."),
         expiresInSeconds: z.number().int().min(60).max(604800).optional().describe(
           "Queue timeout for a direct message: if still undelivered after this many seconds it expires and is never delivered. Default 24 h (BRIDGE_QUEUE_TIMEOUT_MS)."),
       },
     },
-    async ({ from, to, body: text, bodyFile, threadId, idempotencyKey, replyTo, wake, allowUnregistered, expiresInSeconds }) => {
+    async ({ from, to, body: text, bodyFile, threadId, idempotencyKey, replyTo, expectsReply, wake, allowUnregistered,
+      expiresInSeconds }) => {
       if ((text === undefined) === (bodyFile === undefined)) throw new Error("Give exactly one of body and bodyFile.");
       const body = text ?? readBodyFile(bodyFile as string);
       if (from === BRIDGE_AGENT) throw new Error(`"${BRIDGE_AGENT}" is reserved for automated notices.`);
@@ -326,6 +329,7 @@ function main(): void {
         threadId: threadId ?? null,
         idempotencyKey: idempotencyKey ?? null,
         replyTo: replyTo ?? null,
+        expectsReply: expectsReply === true,
         expiresInSeconds,
       });
       store.touch(from);
