@@ -26,12 +26,17 @@ opens the task. The sentence points at the wrong cause, and the user was never t
 
 ## Assumptions (accepted by the user 2026-10-16)
 
-1. A discovery request that gets no answer in time (before anything was submitted) means the task is not loaded in the
-   app: the ping stays `pending`/`offline` with the detail "This Codex task is not loaded in the ChatGPT app (it was not
-   opened since the app started or it was idle); open it there and the message is delivered". A socket that cannot be
-   reached at all keeps "Codex local connection unavailable". Retry rules are unchanged.
-2. `presence` gains the value `not-loaded` for such a task (`stopped` stays for "the app answered: no owner",
-   `unknown` for "the app cannot be reached").
+1. A discovery request that gets no answer in time (before anything was submitted) usually means the task is not
+   loaded in the app, but a deleted or archived task, a wrong thread id, or a stuck app look the same (a nonexistent
+   id also timed out). So the detail does not claim more than that (round-2 review of #111): "The ChatGPT app did not
+   answer for this Codex task, usually because it was not opened since the app started; open it and the message is
+   delivered. If the task can no longer be found, it may have been deleted: join the mailbox again from a new task."
+   The ping stays `pending`/`offline`. A socket that cannot be reached at all keeps "Codex local connection
+   unavailable". Retry rules are unchanged.
+2. `presence` gains the value `not-loaded` for such a task, with a detail in the same words (`stopped` stays for "the
+   app answered: no owner", `unknown` for "the app cannot be reached"). `docs/collaboration-interface.md` lists the
+   values and says that `presence.state` may gain values within 2.x and a consumer treats a value it does not know as
+   `unknown` (round-2 review of #111).
 3. The Codex offline notice for such a ping says to open that task in the ChatGPT app (its mailbox name is already in
    the notice).
 4. Docs and skills say the bridge cannot tell which Codex task calls it; after the identity is lost the task registers
@@ -48,7 +53,8 @@ opens the task. The sentence points at the wrong cause, and the user was never t
 ## Requirements
 
 1. Red first, `bridge/test/`: with a fake Codex IPC socket that accepts and never answers discovery, the wake result is
-   `pending`/`offline` with the not-loaded detail; a missing socket keeps the old detail; an answer "no owner" keeps
+   `pending`/`offline` with the not-loaded detail (a nonexistent thread id lands on the same result, and the detail
+   covers that case); a missing socket keeps the old detail; an answer "no owner" keeps
    "Codex task has no connected owner"; a timeout after the turn was submitted stays `unknown`.
 2. Red first: `codexOwner`/`codexPresence` give `not-loaded` for the silent socket, `unknown` for a missing one,
    `stopped`/`running` as before; `bridge_agents` shows it.
