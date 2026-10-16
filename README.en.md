@@ -142,7 +142,8 @@ still shows as running in the directory, so check the ChatGPT app. agent-relay n
 - When a release adds parameters to the mailbox tools (such as `expectsReply` and `awaitingReply` in 0.7.0), a session
   that is already open keeps the old parameter definitions even after the bridge restarts and the tools are reloaded,
   and a new parameter is refused (`expected boolean`). To use the new parameters, open a new Claude Code session or a
-  new Codex task.
+  new Codex task. (Measured for Claude Code; whether an old Codex task gets the new parameters after the app is
+  reopened was not measured, so open a new task to be safe.)
 - Claude Code installed from GitHub: `claude plugin update` needs `--scope user`; without it only the current folder's
   project-level entry is updated.
 - Codex: after updating the plugin, quit the ChatGPT app completely with ⌘Q and reopen it so open threads pick up the
@@ -337,8 +338,8 @@ A Claude Code session decides which copy of the plugin to use **when it starts**
 open, the app closed and reopened, and resumed sessions all keep the old copy. After updating, **open a new session**
 (including the desktop app's Code tab) to use the new version. (The copy a new session loads was measured on this Mac
 on 2026-10-10; "a resumed session keeps the old copy" is one case observed by the coordinator.) The mailbox tool
-parameter definitions behave the same way: an open session does not get new parameters by reconnecting MCP (measured
-on this Mac during the 0.7.0 acceptance).
+parameter definitions behave the same way: an open Claude Code session does not get new parameters by reconnecting
+MCP (measured on this Mac after the 0.7.0 upgrade).
 
 - **Installed from a local clone**: new Claude sessions read the clone directly, so after `git -C <clone> pull
   --ff-only` just open a new session; for Codex run `codex plugin add agent-relay@agent-relay-marketplace` again.
