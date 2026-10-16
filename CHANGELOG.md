@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [0.6.10] - 2026-10-16
+
+接口仍为 **2.0**（`interface.json` 不变，Spec Guard 0.56.0 或更新），信箱 schema 仍为 5，委派库仍为 schema 3。这一版有三项
+改动，升级前先看这一点：
+
+- **bridge 有改动，要 `upgrade --confirm` 升级运行时**：三项都在 bridge 里，不升级运行时就没有变化。
+
 - **确认处理的消息同时记为已读**（模块 `ack-records-read`，D197，会话 spec-guard-monitor 的清单第 2 项）：bridge 改动，
   **要用 `upgrade --confirm` 升级运行时才生效**。以前收件方只凭唤醒预览处理、直接 `bridge_ack`，已读时间一直是空的，
   发件方会看到“已确认处理”却“没读”。现在确认时如果还没记过已读，就同时补上；已经记过的不改。已读因此表示“已取到或已处理”，
@@ -16,6 +23,34 @@
     检查时，发现 Claude 会话的进程是在唤醒过期之后才启动的。只针对还没读、没确认、消息本身也没过期的；同一次启动只一次。
   - 再唤醒的提示里写明这条消息最早几点发出、为什么现在再提醒，请收件方先确认请求是否还有效。发件方不会收到第二条失败
     通知；如果又离线，同一批消息也不会再给你发第二条离线通知。
+
+以上来自模块 `ack-records-read`、`waiting-list-all-hosts`、`rewake-on-return` 的 PR #108，spec 与计划见 #107，两个 PR 都经过
+第二轮联调审查。问题由会话 spec-guard-monitor 报告、经用户同意转交（七项清单中的第 2、3、7 项；第 4 项核对真实信箱后
+发现前提不成立，用户决定不做；第 1、5、6 项以后再排）。
+
+### 从 0.6.9 升级
+
+1. 两个宿主都更新插件（详见 README“更新插件”）：Claude Code 从 GitHub 装的，先 `claude plugin marketplace update
+   agent-relay-marketplace`，再 `claude plugin update --scope user agent-relay@agent-relay-marketplace`；Codex 把
+   `~/.codex/config.toml` 里的 `ref` 改成 `"v0.6.10"` 后 `codex plugin marketplace upgrade`、`codex plugin add
+   agent-relay@agent-relay-marketplace`；从本地克隆装的先 `git -C <克隆> pull --ff-only`，Codex 再 `codex plugin add`。
+2. **升级运行时**：关闭所有使用信箱的会话或只结束 bridge（见 README“升级运行时”），确认 `pgrep -fl
+   "agent-relay/runtime/dist/server.js"` 没有输出，再执行 `python3 -B <插件目录>/hooks/native_collaboration_runtime.py
+   upgrade --confirm`，输出应为 `"state": "upgraded"`，并带一项 `next` 提醒重开 ChatGPT 应用。
+3. 新开 Claude Code 会话；Codex 用 ⌘Q 完全退出 ChatGPT 应用再打开（之后 `doctor` 的 `codex-restart` 应为 ok）。
+
+信箱和委派库的 schema 都没变，不需要迁移；通知沿用原来的权限，不用重新授予。
+
+### 想退回 0.6.9
+
+关掉所有会话后 `rollback --confirm` 退回运行时，并把两个宿主的插件退回 v0.6.9，然后新开会话。
+
+### 已知问题
+
+- 再唤醒这一版没有在真实宿主上端到端检查（要一个真正被桌面应用停掉的会话，等唤醒过期再打开），待验收时核对：打开后约
+  30 秒内收到再唤醒，提示里带首发时间。
+- 已读时间表示“已取到或已处理”，一次确认一批积压消息时也会全部记为已读。
+- 第二轮联调 0.6.9 的验收（派活走信箱）尚未做完；上一版列出的已知问题仍然存在。
 
 ## [0.6.9] - 2026-10-16
 
