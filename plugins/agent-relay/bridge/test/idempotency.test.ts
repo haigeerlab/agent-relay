@@ -254,3 +254,29 @@ test("only a message's recipient may reply; a broadcast takes replies from anyon
   assert.throws(() => s.send({ fromAgent: "x", toAgent: "bridge", body: "thanks", replyTo: notice.id }), /automated notice/);
   s.close();
 });
+
+// agent-relay reply-own-message-guidance D211: a sender cannot reply to its own message; the refusal says how to add
+// to it instead (its thread, or a new message citing it when it has none).
+test("a sender replying to its own message is told how to add to it", () => {
+  const s = fresh();
+  const threaded = s.send({ fromAgent: "s", toAgent: "x", body: "please review", threadId: "t1" });
+  assert.throws(() => s.send({ fromAgent: "s", toAgent: "x", body: "补充", replyTo: threaded.id }),
+    new RegExp(`"s" sent message #${threaded.id}.*send a new message to "x" with threadId "t1" and without replyTo`));
+  const bare = s.send({ fromAgent: "s", toAgent: "x", body: "no thread" });
+  assert.throws(() => s.send({ fromAgent: "s", toAgent: "x", body: "更正", replyTo: bare.id }), (error: Error) => {
+    assert.ok(error instanceof ReplyLinkError);
+    assert.match(error.message, new RegExp(`send a new message to "x" without replyTo.*"Addendum to #${bare.id}:"`));
+    assert.match(error.message, /has no thread/);
+    assert.doesNotMatch(error.message, /with threadId/);
+    return true;
+  });
+  const broadcast = s.send({ fromAgent: "s", toAgent: "*", body: "anyone?", threadId: "all" });
+  assert.throws(() => s.send({ fromAgent: "s", toAgent: "*", body: "also", replyTo: broadcast.id }),
+    /its own broadcast.*send a new message to "\*" with threadId "all" and without replyTo/);
+  // A third party keeps the recipient-only refusal; the recipient still replies; the guidance works as given.
+  assert.throws(() => s.send({ fromAgent: "y", toAgent: "s", body: "me", replyTo: threaded.id }),
+    /Only "x", the recipient of message #\d+, may reply to it/);
+  assert.equal(s.send({ fromAgent: "s", toAgent: "x", body: "补充", threadId: "t1" }).replyTo, null);
+  assert.equal(s.send({ fromAgent: "x", toAgent: "s", body: "done", replyTo: threaded.id }).replyTo, threaded.id);
+  s.close();
+});

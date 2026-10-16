@@ -196,7 +196,8 @@ native runtime 的 `bridge_*` 工具。它不同于 `host-native-claude` 或 `ho
 `replyTo`，标了就会一直挂着。
 
 `bridge_send` 报名字“记在一个 Codex 任务名下”时，按 `collab` 的身份规则用原名重新登记后重发同一条（D209），不改名、
-不问用户；报 `Transport closed` 时停止重试，按 `collab` 请用户重开应用（D210）。
+不问用户；报 `Transport closed` 时停止重试，按 `collab` 请用户重开应用（D210）。补充或更正自己发出的消息时发一条新消息，
+带原消息的 `threadId`（没有线程就在正文开头写明补充哪一条），不用 `replyTo` 指向自己的消息（D211）。
 
 bridge 的状态保持四段证据，而不是一个“成功”：
 

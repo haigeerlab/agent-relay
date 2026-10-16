@@ -346,7 +346,7 @@ export class BridgeStore {
         | { thread_id: string | null; from_agent: string; to_agent: string }
         | undefined;
       if (!original) throw new ReplyLinkError(`No message #${replyTo} to reply to.`);
-      assertMayReply(replyTo, original.from_agent, original.to_agent, input.fromAgent);
+      assertMayReply(replyTo, original.from_agent, original.to_agent, input.fromAgent, original.thread_id);
       threadId = replyThread(replyTo, original.thread_id, input.threadId);
       answersOwnMessage = original.to_agent === input.fromAgent;
     }

@@ -304,3 +304,15 @@ test("bridge_send takes expectsReply and bridge_outbox awaitingReply lists the o
     assert.equal(plain.entries[0].recipientPresence, undefined, "the normal view looks up no presence");
   });
 });
+
+// agent-relay reply-own-message-guidance D211: the sender adds to its request as the refusal says; that is not an
+// answer, so the request stays open.
+test("a sender's addendum on the thread leaves its own request open (D211)", () => {
+  const s = fresh();
+  const question = s.send({ fromAgent: "asker", toAgent: "helper", body: "port?", threadId: "t", expectsReply: true });
+  assert.throws(() => s.send({ fromAgent: "asker", toAgent: "helper", body: "also host?", replyTo: question.id }),
+    /with threadId "t" and without replyTo/);
+  s.send({ fromAgent: "asker", toAgent: "helper", body: "also host?", threadId: "t" });
+  assert.deepEqual(awaiting(s).entries.map((entry) => entry.id), [question.id]);
+  s.close();
+});
