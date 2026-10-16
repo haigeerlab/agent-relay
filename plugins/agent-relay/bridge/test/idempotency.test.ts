@@ -280,3 +280,13 @@ test("a sender replying to its own message is told how to add to it", () => {
   assert.equal(s.send({ fromAgent: "x", toAgent: "s", body: "done", replyTo: threaded.id }).replyTo, threaded.id);
   s.close();
 });
+
+// round-2 review of #124: a message to oneself is still answered by its recipient, who is also its sender.
+test("a message an agent sent to itself can still be replied to (D211 edge)", () => {
+  const s = fresh();
+  const note = s.send({ fromAgent: "s", toAgent: "s", body: "remind me", expectsReply: true });
+  const reply = s.send({ fromAgent: "s", toAgent: "s", body: "done", replyTo: note.id });
+  assert.equal(reply.replyTo, note.id);
+  assert.equal(s.outbox("s", { awaitingReply: true }).totalAwaitingReply, 0);
+  s.close();
+});

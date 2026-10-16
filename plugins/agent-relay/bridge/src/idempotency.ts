@@ -32,7 +32,8 @@ export function assertMayReply(originalId: number, originalFrom: string, origina
     return;
   }
   // agent-relay reply-own-message-guidance D211: the rule stays; the sender is told how to add to its own message.
-  if (sender === originalFrom) {
+  // A message to oneself is still answered by its recipient (round-2 review of #124).
+  if (sender === originalFrom && sender !== originalTo) {
     throw new ReplyLinkError(`"${sender}" sent message #${originalId}, so it cannot reply to it (only its recipient ` +
       `"${originalTo}" may). ` + addendum(originalId, originalTo, originalThread));
   }
