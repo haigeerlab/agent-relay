@@ -71,19 +71,35 @@ mailbox for stuck exchanges.
   `waitingSeconds` (whole seconds from `createdAt` to the read) and `recipientPresence` (as in `bridge_agents`, read once
   per distinct recipient, in parallel, only in this mode; a retired or hostless recipient is not looked up). Every
   normal outbox entry also carries `expectsReply`. The result adds `totalAwaitingReply` (count of open requests).
+  **Cost cap (round-2 review of #117):** presence is read only for the recipients on the returned page (within
+  `limit`), never for every open request counted in `totalAwaitingReply`; a Codex lookup in this view waits at most
+  2 s (`codexOwner` `responseTimeoutMs`; a loaded task answers in milliseconds) and a silence reads as `unknown` with
+  the detail "the ChatGPT app did not answer within 2 s", so one slow recipient cannot hold the call near the 10 s IPC
+  timeout. `bridge_agents` presence keeps its 10 s behaviour (out of scope here, see Not in scope).
 - **D204 the asked view is `owesReplies` on `bridge_agents`.** For every non-retired agent with open requests addressed
   to it: `{count, ids (oldest 20), oldestAt}`; absent when zero. Within 2.x its fields are only added to.
 - **D205 interface 2.1, schema 6.** `interface.json` says `2.1`; the interface document lists `expectsReply`,
   `awaitingReply`, `totalAwaitingReply`, `waitingSeconds`, `recipientPresence`, `owesReplies`.
   `MAILBOX_SCHEMA_VERSIONS` becomes `(2, 3, 4, 5, 6)`; the rollback caveat names schema 6. A 0.6.x bridge still running
   beside a migrated mailbox opens it in its compatible mode and stores its sends with the column default (not marked).
-- **D206 skills mark and read.** `collab` and `session-routing`: mark questions and work requests; tell the recipient
-  of a marked message to answer with `replyTo` when done; route the questions in assumption 6 to the views. The MCP
-  server instructions add one sentence: answer a message marked `expectsReply` with `replyTo` when done.
+- **D206 skills mark and read.** `collab` and `session-routing`: mark questions and work requests **sent through the
+  mailbox**; a request delivered natively (Claude `SendMessage`, a Codex thread turn, including a same-turn Codex →
+  Codex `ask` routed natively by D195) is never marked, because a native answer creates no `replyTo` (round-2 review of
+  #117). Tell the recipient of a marked message to answer with `replyTo` when done; route the questions in assumption 6
+  to the views. The MCP server instructions add one sentence: answer a message marked `expectsReply` with `replyTo`
+  when done.
 - **D207 the deferred bridge documents ride along.** `INSTRUCTIONS.md` rewritten to the current rules (wake null by
   default, `bridge_wait` allowed for unbound agents in an active turn, mark requests), `bridge/CHANGELOG.md` entry
   "agent-relay 0.5.0" without "(unreleased)" plus a 0.7.0 line, `docs/ALTERNATIVES.md` deleted with its link in
   `bridge/README.md`; `UPSTREAM.md` row and manifest (D24) in the same commit.
+
+- **D208 upgrade order: plugins first, then the runtime** (round-2 review of #117). The 0.6.11 hooks accept mailbox
+  schemas 2–5 only and are already shipped: on schema 6 their doctor says to update the plugin, but `retire` stops with
+  a bare "unsupported native mailbox schema" and the delegation backend silently finds no result route. So the
+  CHANGELOG "upgrading from 0.6.11" and the README say: update the plugin on **both** hosts to 0.7.0 (new sessions,
+  ChatGPT restarted) before `upgrade --confirm`. From 0.7.0 on, every hook that meets a schema newer than it knows
+  says so with the next step "update the agent-relay plugin" (doctor already does; `retire` and the delegation backend
+  get the same wording), so the next schema bump is not silent.
 
 ## Requirements
 
@@ -95,12 +111,14 @@ mailbox for stuck exchanges.
    recipient acked it — and drops it on reply, `failed`, `expired`, or retirement of the recipient; unmarked messages
    never appear; order is oldest first; `waitingSeconds` uses an injected clock; `totalAwaitingReply` counts all open
    ones beyond `limit`.
-4. Red first: `bridge_outbox` with `awaitingReply` reads presence once per distinct recipient (a counting fake) and not
-   for a retired one; without `awaitingReply` it reads none.
+4. Red first: `bridge_outbox` with `awaitingReply` reads presence once per distinct recipient on the returned page (a
+   counting fake), not for recipients beyond `limit` and not for a retired one; without `awaitingReply` it reads none;
+   a Codex recipient whose socket never answers costs at most about 2 s and reads `unknown` with the 2 s detail.
 5. Red first: `bridge_agents` gives `owesReplies` only for agents with open requests, ids oldest first (at most 20),
    `oldestAt` of the oldest; a reply or expiry removes it.
 6. Python: `MAILBOX_SCHEMA_VERSIONS` includes 6; doctor, retire and the delegation backend read a schema-6 mailbox
-   (tests with a fixture); rollback caveat text.
+   (tests with a fixture); on a schema newer than they know, `retire` and the delegation backend report "update the
+   agent-relay plugin" (D208); rollback caveat text.
 7. Skills and docs: `collab`, `session-routing` (D206), server instructions, `docs/collaboration-interface.md` (D205),
    README and `README.en.md` (how to ask "who owes me a reply"), CHANGELOG with "bridge changed, `upgrade --confirm`",
    the bridge documents (D207), `UPSTREAM.md` and manifest (D24); `interface.json` 2.1.
@@ -128,6 +146,15 @@ mailbox for stuck exchanges.
 - "谁欠我回复" and "别人在等我回复什么" asked in natural language give the two views.
 - doctor ok on schema 6; `bridge/INSTRUCTIONS.md` matches the server instructions.
 
+## Not in scope and known limits
+
+- Notices, reminders, automatic resends and a manual close for open requests.
+- During the transition a recipient still running a 0.6.x bridge does not see the server sentence about answering
+  with `replyTo` and may handle a marked request without replying; that request stays open until it expires (round-2
+  review of #117). CHANGELOG states it.
+- `bridge_agents` presence can take up to the 10 s IPC timeout per unloaded Codex task (observed by the round-2
+  coordinator 2026-10-16); a cap there is a separate item.
+
 ## Open questions
 
-None. (Manual close and notices are out of scope by decision; they come back as their own items if needed.)
+None.
