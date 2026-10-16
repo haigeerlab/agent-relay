@@ -92,7 +92,7 @@ test("a claimed host grants nothing: no takeover, no wake for another thread, no
     // The claim does not prove the name to a process that did not register it.
     const impersonated = await second.call("bridge_send", { from: "cx", to: "peer", body: "x" });
     assert.equal(impersonated.ok, false);
-    assert.match(impersonated.text, /not an identity of this session/);
+    assert.match(impersonated.text, /is recorded for a Codex task/); // codex-identity-recovery D209 wording
     assert.ok((await first.call("bridge_send", { from: "cx", to: "peer", body: "x" })).ok, "the registering process can");
   } finally {
     await Promise.all([first.close(), second.close()]);
