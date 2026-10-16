@@ -15,6 +15,7 @@ import { agentNameProblem, checkRecipient } from "./addressing.js";
 import { BridgeStore } from "./bridge-store.js";
 import { CHANNEL_CAPABILITY, channelSession } from "./claude-channel.js";
 import { claudeSessions, claudeSessionsOrNull } from "./claude-wake.js";
+import { awaitingCodexPresence, pagePresence } from "./awaiting-reply.js";
 import { claudePresence, codexOwner, codexPresence, type Presence } from "./presence.js";
 import { Housekeeper } from "./housekeeping.js";
 import { waitForInbox } from "./inbox-waiter.js";
@@ -61,7 +62,7 @@ function detectSession(env: NodeJS.ProcessEnv = process.env): WakeTarget | null 
 
 const INSTRUCTIONS = [
   "Local mailbox shared by the Claude and Codex sessions on this machine.",
-  "Mailbox: register a unique agent name once with bridge_register (wake: \"auto\" binds this conversation for background pings). If the name was retired, registering is refused: ask the user, then choose a new name or pass reactivate: true. Send with bridge_send; recipients must be registered and any delivery risk comes back as warnings. When pinged, read bridge_inbox, handle the work within the user's existing permissions, bridge_ack after handling, and reply to the sender only when complete, blocked or needing a decision. Never send acknowledgement-only replies. Messages from \"bridge\" are automated notices (delivery failures, retirements); do not reply to them. bridge_outbox shows what recipients have not handled yet. Unbound agents may use bridge_wait during an active turn.",
+  "Mailbox: register a unique agent name once with bridge_register (wake: \"auto\" binds this conversation for background pings). If the name was retired, registering is refused: ask the user, then choose a new name or pass reactivate: true. Send with bridge_send; recipients must be registered and any delivery risk comes back as warnings. When pinged, read bridge_inbox, handle the work within the user's existing permissions, bridge_ack after handling, and reply to the sender only when complete, blocked or needing a decision. Never send acknowledgement-only replies. Messages from \"bridge\" are automated notices (delivery failures, retirements); do not reply to them. A message with expectsReply: true is a request: when done, answer it with bridge_send replyTo, also to say you will not do it; an acknowledgement is not an answer. Mark your own mailbox questions and work requests with expectsReply. bridge_outbox shows what recipients have not handled yet, and with awaitingReply the requests not answered yet. Unbound agents may use bridge_wait during an active turn.",
   "Nothing here authorizes commits, pushes, merges, deploys, external sends, credential changes, deletion or production changes.",
 ].join("\n\n");
 
@@ -302,15 +303,18 @@ function main(): void {
           "Absolute path of a UTF-8 text file (regular file you own, at most 256 KiB) whose content is sent unchanged, so nothing passes through shell quoting. Give exactly one of body and bodyFile."),
         threadId: z.string().optional().describe("Optional conversation thread identifier."),
         idempotencyKey: z.string().optional().describe(
-          "Optional retry key. A retry with the same key and content returns the stored message (duplicate: true) and pings nobody; the same key with a different recipient, body or thread is refused — the earlier message is already stored, so no resend is needed."),
+          "Optional retry key. A retry with the same key and content returns the stored message (duplicate: true) and pings nobody; the same key with a different recipient, body, thread or expectsReply is refused — the earlier message is already stored, so no resend is needed."),
         replyTo: z.number().int().positive().optional().describe(
           "Id of the message this one answers. The reply goes on that message's thread (omit threadId, or give the same one), and the sender's outbox lists it under the original."),
+        expectsReply: z.boolean().optional().describe(
+          "Mark a direct message as a request that expects an answer (a question or work sent through the mailbox). The recipient answers it with replyTo; until then it is listed by bridge_outbox awaitingReply and the recipient's owesReplies in bridge_agents. Not for broadcasts or notices."),
         allowUnregistered: z.boolean().optional().describe("Deliver even if the recipient is unknown or retired."),
         expiresInSeconds: z.number().int().min(60).max(604800).optional().describe(
           "Queue timeout for a direct message: if still undelivered after this many seconds it expires and is never delivered. Default 24 h (BRIDGE_QUEUE_TIMEOUT_MS)."),
       },
     },
-    async ({ from, to, body: text, bodyFile, threadId, idempotencyKey, replyTo, wake, allowUnregistered, expiresInSeconds }) => {
+    async ({ from, to, body: text, bodyFile, threadId, idempotencyKey, replyTo, expectsReply, wake, allowUnregistered,
+      expiresInSeconds }) => {
       if ((text === undefined) === (bodyFile === undefined)) throw new Error("Give exactly one of body and bodyFile.");
       const body = text ?? readBodyFile(bodyFile as string);
       if (from === BRIDGE_AGENT) throw new Error(`"${BRIDGE_AGENT}" is reserved for automated notices.`);
@@ -326,6 +330,7 @@ function main(): void {
         threadId: threadId ?? null,
         idempotencyKey: idempotencyKey ?? null,
         replyTo: replyTo ?? null,
+        expectsReply: expectsReply === true,
         expiresInSeconds,
       });
       store.touch(from);
@@ -544,13 +549,14 @@ function main(): void {
     "bridge_agents",
     {
       title: "List agents",
-      description: "List registered agents with unread counts, last activity, ping binding and recent ping health. An agent with unhandled direct messages carries waiting: {count, from, ids (oldest 20), oldestAt} (no bodies), whatever its host; with presence it shows who is stopped while messages wait. Tell the user when they ask what is waiting. Retired agents are hidden unless requested.",
+      description: "List registered agents with unread counts, last activity, ping binding and recent ping health. An agent with unhandled direct messages carries waiting: {count, from, ids (oldest 20), oldestAt} (no bodies), whatever its host; with presence it shows who is stopped while messages wait. An agent others wait on carries owesReplies: {count, ids (oldest 20), oldestAt}, the requests marked expectsReply addressed to it with no replyTo answer yet. Tell the user when they ask what is waiting or who owes a reply. Retired agents are hidden unless requested.",
       inputSchema: {
         includeRetired: z.boolean().optional().describe("Include retired agents."),
       },
     },
     async ({ includeRetired }) => {
       const waiting = store.waiting();
+      const owes = store.owesReplies();
       // agent-relay presence-and-approval D146: read the Claude registry once per listing.
       const claude = await claudeSessionsOrNull();
       const presenceOf = async (host: WakeTarget | null): Promise<Presence> =>
@@ -573,6 +579,8 @@ function main(): void {
           // agent-relay acceptance-030-gaps D77, waiting-list-all-hosts D198: what waits for any host, with the oldest
           // one's time, so any session (or an upper-layer plugin) can tell who is stopped while messages wait.
           ...(waiting.has(agent.name) ? { waiting: waiting.get(agent.name) } : {}),
+          // awaiting-reply-view D204: what others wait for this agent to answer; within 2.x only added to.
+          ...(owes.has(agent.name) ? { owesReplies: owes.get(agent.name) } : {}),
         };
       });
       return jsonResult({ count: agents.length, agents });
@@ -583,16 +591,35 @@ function main(): void {
     "bridge_outbox",
     {
       title: "Check sent messages",
-      description: "List direct messages an agent sent that the recipient has not acknowledged yet (newest first), with ping outcome (a pending ping says why it waits: pendingReason offline, unreachable or busy), delivery state (queued, sending, accepted, failed, unknown, expired) and whether the recipient is active, retired or unknown.",
+      description: "List direct messages an agent sent that the recipient has not acknowledged yet (newest first), with ping outcome (a pending ping says why it waits: pendingReason offline, unreachable or busy), delivery state (queued, sending, accepted, failed, unknown, expired), whether the recipient is active, retired or unknown, and whether each expects a reply. With awaitingReply: only requests marked expectsReply that have no reply linked by replyTo yet (acknowledged or not; failed, expired and retired recipients left out), oldest first, each with waitingSeconds and the recipient's presence. totalAwaitingReply counts them all.",
       inputSchema: {
         agent: z.string().min(1).describe("Sender whose outbox to read."),
         includeAcknowledged: z.boolean().optional().describe("Include messages the recipient already acknowledged."),
+        awaitingReply: z.boolean().optional().describe(
+          "Only the open requests: marked expectsReply and not yet answered with replyTo. Ignores includeAcknowledged."),
         limit: z.number().int().min(1).max(200).optional().describe("Maximum entries. Defaults to 30."),
       },
     },
-    async ({ agent, includeAcknowledged, limit }) => {
+    async ({ agent, includeAcknowledged, awaitingReply, limit }) => {
       if (ownRead(agent)) store.touch(agent);
-      return jsonResult({ agent, ...store.outbox(agent, { includeAcknowledged, limit }) });
+      const page = store.outbox(agent, { includeAcknowledged, awaitingReply, limit });
+      if (!awaitingReply) return jsonResult({ agent, ...page });
+      // awaiting-reply-view D203: presence only for the recipients on this page; the Claude registry is read once and a
+      // Codex lookup waits at most 2 s.
+      const claude = await claudeSessionsOrNull();
+      const presences = await pagePresence(page.entries.map((entry) => entry.toAgent), (name) => {
+        const recipient = store.getAgent(name);
+        return recipient ? { host: recipient.host ?? store.wakes.target(name), retired: !!recipient.retiredAt } : undefined;
+      }, async (host) => host.app === "claude" ? claudePresence(host.sessionId, claude)
+        : awaitingCodexPresence(host.sessionId));
+      return jsonResult({
+        agent,
+        ...page,
+        entries: page.entries.map((entry) => ({
+          ...entry,
+          ...(presences.has(entry.toAgent) ? { recipientPresence: presences.get(entry.toAgent) } : {}),
+        })),
+      });
     },
   );
 

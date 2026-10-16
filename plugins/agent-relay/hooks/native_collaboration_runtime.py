@@ -19,8 +19,19 @@ from typing import Any, Callable, Sequence
 
 
 # Mailbox schemas the Python readers understand: 2 (upstream 8f12c88) and 3 (delivery-state-machine adds
-# nullable delivery columns only). A newer, unknown schema is refused rather than guessed at.
-MAILBOX_SCHEMA_VERSIONS = (2, 3, 4, 5)
+# nullable delivery columns only), then 4, 5 and 6 (awaiting-reply-view: expects_reply), all additive. A newer, unknown
+# schema is refused rather than guessed at.
+MAILBOX_SCHEMA_VERSIONS = (2, 3, 4, 5, 6)
+
+
+def newer_mailbox_schema(version: object) -> str | None:
+    """awaiting-reply-view D208: what to say when a newer bridge moved the mailbox past what this plugin reads."""
+    if not isinstance(version, int) or version <= max(MAILBOX_SCHEMA_VERSIONS):
+        return None
+    return (f"mailbox schema {version} is newer than this agent-relay plugin reads (up to {max(MAILBOX_SCHEMA_VERSIONS)}): "
+            "update the agent-relay plugin on both hosts (open new sessions; quit and reopen the ChatGPT app)")
+
+
 # Seconds a mailbox reader waits for a bridge's write lock, the bridge's own busy_timeout (identity-check D40).
 MAILBOX_BUSY_TIMEOUT = 5.0
 # Upstream commit the vendored bridge descends from (plugins/agent-relay/bridge/UPSTREAM.md).
@@ -335,9 +346,9 @@ def probe_runtime(root: Path, *, node: str = "node", scratch: Path | None = None
 
 
 ROLLBACK_CAVEAT = (
-    "The previous runtime's bridge opens the upgraded (schema 5) mailbox in compatible mode, but an older agent-relay "
-    "plugin's hooks read only schema 2 (to 4): roll the plugin back too, or restore the mailbox from the backup "
-    "(messages sent since are lost).")
+    "The previous runtime's bridge opens the upgraded (schema 6) mailbox in compatible mode, but an older agent-relay "
+    "plugin's hooks read only up to schema 5 (0.6.x) or 4 (earlier): roll the plugin back too, or restore the mailbox "
+    "from the backup (messages sent since are lost).")
 # upgrade-codex-restart-check D196: a Codex task that ran before the upgrade keeps a closed mailbox connection
 # ("Transport closed") until the ChatGPT app is quit and opened again; doctor repeats it while that is still due.
 RESTART_NEXT = ("Quit the ChatGPT desktop app completely (⌘Q) and open it again so Codex reconnects to the upgraded "

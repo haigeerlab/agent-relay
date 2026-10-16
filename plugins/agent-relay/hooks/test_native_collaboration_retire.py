@@ -76,15 +76,16 @@ class NativeRetireTests(unittest.TestCase):
         self.assertEqual(identity_state(self.database, "old")["state"], "retired")
         self.assertEqual(identity_state(self.database, "nobody"), {"state": "absent"})
 
-    def test_mailbox_schemas_v3_to_v5_are_read_and_an_unknown_newer_one_is_refused(self):
-        for version, readable in ((3, True), (4, True), (5, True), (6, False)):
+    def test_mailbox_schemas_v3_to_v6_are_read_and_an_unknown_newer_one_is_refused(self):
+        for version, readable in ((3, True), (4, True), (5, True), (6, True), (7, False)):
             with self.subTest(version=version):
                 with sqlite3.connect(self.database) as connection:
                     connection.execute(f"PRAGMA user_version = {version}")
                 if readable:
                     self.assertEqual(identity_state(self.database, "busy")["unacknowledged"], 1)
                 else:
-                    with self.assertRaisesRegex(Exception, "mailbox is unavailable"):
+                    # awaiting-reply-view D208: say why and what to do, not a bare "unavailable".
+                    with self.assertRaisesRegex(Exception, "schema 7 is newer .*update the agent-relay plugin"):
                         identity_state(self.database, "busy")
 
     def test_retires_a_clear_identity_with_the_backlog_kept(self):

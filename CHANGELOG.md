@@ -2,6 +2,33 @@
 
 ## [Unreleased]
 
+- **待回复请求视图**（模块 `awaiting-reply-view`，D201–D208，七项清单第 6 项，用户 2026-10-16 决定）：**bridge 有改动，
+  要 `upgrade --confirm` 升级运行时，而且要先更新插件再升级**（见下）。接口 **2.0 → 2.1**（只新增内容，Spec Guard 的
+  `>=1.0,<3.0` 照样接受），信箱 schema **5 → 6**，委派库仍为 schema 3。
+  - 发信时可以标明“这条要回复”：`bridge_send` 的 `expectsReply`。会话经信箱提问或派活时自己会标上；只是告知的消息不标，
+    广播不能标，走原生通道的请求也不标（原生的回答不会带 `replyTo`）。
+  - 收到标了要回复的消息，处理完必须带 `replyTo` 回复，结论是“不做”也要回复；ack 不算回复。
+  - 等待方：`bridge_outbox` 带 `awaitingReply` 列出还没收到回复的请求（对方 ack 过的也算），最老的在前，每条写已等多少秒
+    （`waitingSeconds`）和对方的在线状态（`recipientPresence`）；在线状态只查这一页的收件方，Codex 最多等 2 秒，没回应
+    记为 `unknown`，说明“多半是这次启动后还没打开过”。普通发件箱的每条消息也会写明 `expectsReply`。
+  - 交付方：`bridge_agents` 里每个身份带 `owesReplies: {count, ids, oldestAt}`，即别人在等它回复的请求。字段在接口
+    2.x 内只增不改，供上层插件巡视。
+  - 只展示：不发通知、不催、不重发，也不提供手动关闭；没人回的请求会挂到它过期为止。
+  - Python 钩子能读 schema 6；从这一版起，遇到比自己认识的更新的 schema 时，退役命令和委派都会说明原因并提示更新插件
+    （以前退役只报一句“unavailable”，委派则什么都不说）。
+  - **已知限制**：过渡期里收件方如果还在跑 0.6.x 的旧 bridge，看不到“用 replyTo 回复”这条说明，可能处理完不回，这条请求
+    就会一直挂到过期。`bridge_agents` 查 Codex 在线状态仍可能为每个没打开的会话等满 10 秒，另外排期。
+  - 顺带改了之前推迟的三份 bridge 文档：`bridge/INSTRUCTIONS.md` 改为现行规则（默认不绑定唤醒、等待时不自动确认、
+    要回复的请求），`bridge/CHANGELOG.md` 的 0.5.0 去掉“(unreleased)” 并加上 0.7.0 一节，删除已过时的
+    `bridge/docs/ALTERNATIVES.md` 及其链接。
+
+### 从 0.6.11 升级
+
+**先更新插件，再升级运行时**：0.6.11 的钩子读不了 schema 6，先升运行时的话，还没更新的那个宿主上退役命令和委派会出错。
+
+1. 两个宿主都更新插件到 0.7.0（详见 README“更新插件”），然后新开 Claude Code 会话，⌘Q 退出 ChatGPT 应用再打开。
+2. 关掉所有用到信箱的会话，执行 `upgrade --confirm`（详见 README“升级运行时”）；之后 doctor 各项应为 ok。
+
 - **英文 README**：新增 [README.en.md](README.en.md)，内容与中文版一致，两份开头互相链接，默认仍是中文；
   [RELEASING.md](RELEASING.md) 写明发版和改 README 时两份要一起改。
 
@@ -13,8 +40,8 @@
   `wake-any-mode`），补上 doctor、升级、回滚、恢复，排障加了 not-loaded 和重新登记两条；验收清单的 A2、B7、D11
   改为 `wake-any-mode` 之后的预期，新增 F 节覆盖 0.6.x 的行为；拆分简报标为历史文档并去掉本机路径。新增
   [RELEASING.md](RELEASING.md)（发版流程）和 [SECURITY.md](SECURITY.md)（防护范围与报告方式）。
-  bridge 目录里的过时文档（`INSTRUCTIONS.md`、`CHANGELOG.md`、`docs/ALTERNATIVES.md`）留到下次 bridge 代码改动时一起改：
-  bridge 里改任何文件都会让运行时显示需要升级。
+  bridge 目录里的过时文档留到了下次 bridge 代码改动时一起改（bridge 里改任何文件都会让运行时显示需要升级），已在上面的
+  待回复请求视图里一并改掉。
 
 ## [0.6.11] - 2026-10-16
 

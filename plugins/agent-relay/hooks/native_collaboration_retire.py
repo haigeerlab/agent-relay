@@ -17,8 +17,8 @@ import stat
 import subprocess
 from typing import Any, Sequence
 
-from native_collaboration_runtime import (MAILBOX_SCHEMA_VERSIONS, StateHomeError, default_root, open_mailbox_read_only,
-                                          status)
+from native_collaboration_runtime import (MAILBOX_SCHEMA_VERSIONS, StateHomeError, default_root, newer_mailbox_schema,
+                                          open_mailbox_read_only, status)
 
 
 class RetireError(ValueError):
@@ -38,7 +38,11 @@ def identity_state(database: Path, name: str) -> dict[str, Any]:
     try:
         with closing(_open_read_only(Path(database))) as connection:
             connection.execute("BEGIN")
-            if connection.execute("PRAGMA user_version").fetchone()[0] not in MAILBOX_SCHEMA_VERSIONS:
+            version = connection.execute("PRAGMA user_version").fetchone()[0]
+            newer = newer_mailbox_schema(version)
+            if newer:
+                raise RetireError(newer)
+            if version not in MAILBOX_SCHEMA_VERSIONS:
                 raise ValueError("unsupported native mailbox schema")
             row = connection.execute(
                 "SELECT registered_at, retired_at FROM agents WHERE name=?", (name,)).fetchone()
@@ -56,6 +60,8 @@ def identity_state(database: Path, name: str) -> dict[str, Any]:
                  ORDER BY m.id
             """ % (("COALESCE(m.delivery_state, 'queued')", "COALESCE(m.delivery_state, '') != 'expired'")
                    if states else ("'queued'", "1")), (name, name, row[0], name)).fetchall()
+    except RetireError:
+        raise
     except (OSError, sqlite3.Error, ValueError) as error:
         raise RetireError("native mailbox is unavailable: " + type(error).__name__) from error
     found = {"state": "retired" if row[1] else "active", "unacknowledged": len(blocking)}

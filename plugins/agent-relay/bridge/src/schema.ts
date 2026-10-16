@@ -7,7 +7,7 @@ import type { DatabaseSync } from "node:sqlite";
  * with defaults. Older bridge processes that are still running against the
  * same database must keep working after a newer process migrates it.
  */
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 function columns(db: DatabaseSync, table: string): Set<string> {
   const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
@@ -157,6 +157,12 @@ const MIGRATIONS: Array<(db: DatabaseSync) => void> = [
   (db) => {
     addColumn(db, "agents", "host_app", "TEXT");
     addColumn(db, "agents", "host_session", "TEXT");
+  },
+
+  // v6 (agent-relay awaiting-reply-view D201): the sender marked this message as expecting an answer. Defaults to 0, so
+  // rows and processes from before schema 6 write unmarked messages.
+  (db) => {
+    addColumn(db, "messages", "expects_reply", "INTEGER NOT NULL DEFAULT 0");
   },
 ];
 

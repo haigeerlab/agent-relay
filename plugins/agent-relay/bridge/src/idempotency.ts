@@ -6,6 +6,8 @@ export interface MessageContent {
   body: string;
   threadId: string | null;
   replyTo: number | null;
+  /** agent-relay awaiting-reply-view D201: a retry that changes the mark is a different message. */
+  expectsReply: boolean;
 }
 
 export class IdempotencyConflictError extends Error {}
@@ -47,7 +49,7 @@ export function replyThread(originalId: number, originalThread: string | null, r
 
 /** Names of the content fields in which a retry differs from the stored message. */
 export function contentDifferences(stored: MessageContent, retry: MessageContent): string[] {
-  return (["toAgent", "body", "threadId", "replyTo"] as const).filter((field) => stored[field] !== retry[field]);
+  return (["toAgent", "body", "threadId", "replyTo", "expectsReply"] as const).filter((field) => stored[field] !== retry[field]);
 }
 
 /**

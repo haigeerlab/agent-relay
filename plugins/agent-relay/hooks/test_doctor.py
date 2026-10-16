@@ -197,6 +197,13 @@ class DoctorTests(unittest.TestCase):
         self.assertEqual(self.find(report, "mailbox")["state"], "warn")
         self.assertIn("reviewer: 80", self.find(report, "mailbox")["detail"])
 
+    def test_a_schema_6_mailbox_is_read(self):
+        # awaiting-reply-view D205: the expects_reply column is additive; doctor reads it as before.
+        with sqlite3.connect(self.database) as connection:
+            connection.executescript(
+                "ALTER TABLE messages ADD COLUMN expects_reply INTEGER NOT NULL DEFAULT 0; PRAGMA user_version = 6;")
+        self.assertNotEqual(self.find(self.run_doctor(), "mailbox")["state"], "fail")
+
     def test_a_schema_2_mailbox_says_the_backlog_is_not_measured(self):
         with sqlite3.connect(self.database) as connection:
             connection.executescript("ALTER TABLE messages DROP COLUMN delivery_state; PRAGMA user_version = 2;")
