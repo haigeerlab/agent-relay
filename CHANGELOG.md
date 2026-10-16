@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- **英文 README**：新增 [README.en.md](README.en.md)，内容与中文版一致，两份开头互相链接，默认仍是中文；
+  [RELEASING.md](RELEASING.md) 写明发版和改 README 时两份要一起改。
+
 - **安全问题改走私密报告**：仓库已开启 GitHub 的私密漏洞报告，[SECURITY.md](SECURITY.md) 的报告方式改为
   Security → Report a vulnerability，不再让报告人先开公开 Issue。
 
