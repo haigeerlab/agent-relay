@@ -498,6 +498,9 @@ export class BridgeStore {
        FROM messages m
        WHERE m.id = ? AND ${DELIVERED_TO("?")}`,
     );
+    // agent-relay ack-records-read D197: handling a message (for example from its wake preview) is also reading it,
+    // so a newly acknowledged direct message gets read_at if it had none; an earlier read time is kept.
+    const read = this.db.prepare("UPDATE messages SET read_at = COALESCE(read_at, ?) WHERE id = ? AND to_agent = ?");
     const ackedAt = this.now();
     // agent-relay ack-wake-atomic D130: every acknowledgement and its wake closure commit together, or none does,
     // so an acknowledged message never keeps an open wake job that could ping its recipient again.
@@ -506,7 +509,10 @@ export class BridgeStore {
       for (const id of messageIds) {
         const result = stmt.run(agent, ackedAt, note, id, ...deliveredParams(agent));
         acknowledged += Number(result.changes);
-        if (Number(result.changes) === 1) this.wakes.acknowledge(agent, id);
+        if (Number(result.changes) === 1) {
+          read.run(Date.now(), id, agent);
+          this.wakes.acknowledge(agent, id);
+        }
       }
       return acknowledged;
     });
