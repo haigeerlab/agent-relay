@@ -122,7 +122,7 @@ class RouteSelectionTests(unittest.TestCase):
         # The same text is a valid public nextStep.
         validate_public_outcome({
             "transport": "agent-relay-bridge",
-            "target": {"host": "codex", "name": "live-saas-fe", "project": "live-saas"},
+            "target": {"host": "codex", "name": "project-a-fe", "project": "project-a"},
             "dispatch": "rejected", "wake": "not-applicable", "receipt": "unavailable", "response": "failed",
             "routeReason": "target-missing", "nextStep": JOIN_HINT,
         })
@@ -222,7 +222,7 @@ class RouteSelectionTests(unittest.TestCase):
         for field in ("name", "targetName", "suggestedName"):
             with self.subTest(field=field):
                 with self.assertRaises(RoutingError):
-                    select_route(self.facts(**{field: "LIVE-SAAS｜前端基础架构"}))
+                    select_route(self.facts(**{field: "项目 A｜前端基础架构"}))
 
     def test_cross_host_bridge_failure_never_switches_to_native_or_another_backend(self):
         for state in ("invalid", "unavailable"):

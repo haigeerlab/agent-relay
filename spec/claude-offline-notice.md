@@ -2,7 +2,7 @@
 
 ## Objective
 
-Only module of 0.6.7 (bridge). From a problem report relayed on 2026-10-15 by the session "Codex LIVE-SAAS 前端基础架构监测"
+Only module of 0.6.7 (bridge). From a problem report relayed on 2026-10-15 by a Codex monitoring session
 (mailbox name `spec-guard-monitor`), with the user's consent to hand it over, and the user's decision the same day ("做，按你
 的建议，离线五分钟后通知"; "确认，八条假设通过"): when the recipient is a Claude desktop session that has gone idle, messages
 wait silently until the user happens to open that session. Nobody is told; a multi-session collaboration just stops.
@@ -12,9 +12,9 @@ Readers: the user; the round-2 coordinator (reviews, re-checks after release); t
 ## What exists today (main e934c19, v0.6.6)
 
 - Evidence (read-only, `~/.agent-relay/runtime/mailbox/bridge.sqlite`, 2026-10-13 to 10-15): wake jobs for the Claude
-  recipients `live-saas-hub` and `live-saas-arch-review` stayed `pending` with `pending_reason = offline` for 9 to 53
+  recipients `project-a-hub` and `project-a-arch-review` stayed `pending` with `pending_reason = offline` for 9 to 53
   minutes (13 to 57 attempts) before they were acknowledged; `notified_at` is empty on every one. The process of
-  `live-saas-arch-review`'s session (registry entry `entrypoint: claude-desktop`) started at 15:24:49; message #1309,
+  `project-a-arch-review`'s session (registry entry `entrypoint: claude-desktop`) started at 15:24:49; message #1309,
   sent 15:15:54, was delivered right after. So the Claude desktop app stops an idle session's process, and the bridge
   can deliver only to a live process.
 - `bridge/src/claude-wake.ts` returns `pending` without a reason when the session has no unique live local inbox or its
@@ -37,7 +37,7 @@ Readers: the user; the round-2 coordinator (reviews, re-checks after release); t
 2. **Five minutes from the message's creation.** Retries run at least once a minute, so the notice comes at most about
    six minutes after the message was sent.
 3. **One notice per session, not per message.** While one Claude recipient is offline with several waiting messages,
-   one notice names: the session (its mailbox name, e.g. `live-saas-hub`), how many messages wait, and when the
+   one notice names: the session (its mailbox name, e.g. `project-a-hub`), how many messages wait, and when the
    earliest was sent. Once its messages are delivered, a later offline spell notifies again.
 4. **No click action.** The bridge cannot tell a desktop session from a terminal one once the process is gone, so the
    notice has no click action (as the offline Codex notice today).
