@@ -22,7 +22,10 @@ Problem: a recipient that handles a message from its wake preview and acknowledg
    acknowledgement; a `read_at` already set is kept.
 2. Only messages this call acknowledges change (an id already acknowledged, or not delivered to the agent, changes
    nothing). Broadcasts keep today's behaviour (`read_at` belongs to direct messages).
-3. Release with the other two modules as 0.6.10; bridge change, `upgrade --confirm`; schema 5 unchanged.
+3. `read_at` therefore means "fetched or handled", not "the body was certainly read": acknowledging a backlog in bulk
+   (for example after taking over an old name) marks it read too. `bridge_ack` already means "handled", so this is
+   accepted (round-2 review of #107).
+4. Release with the other two modules as 0.6.10; bridge change, `upgrade --confirm`; schema 5 unchanged.
 
 ## Decisions
 

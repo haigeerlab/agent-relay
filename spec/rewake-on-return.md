@@ -27,9 +27,18 @@ running stay unread after the recipient comes back, until the user tells it to r
    binding) and its result says how many unread messages had an expired ping and were pinged again.
 3. **Trigger 2, Claude:** when the periodic check sees a live session bound for an agent whose job expired before that
    process started, it re-arms the agent's expired jobs. A job re-armed after that start is newer than the process, so
-   one process start re-arms at most once.
+   one process start re-arms at most once. `procStart` is `ps -o lstart=` text printed under `TZ=UTC`, so it is
+   parsed as UTC before it is compared with the expiry time (the same trap as D196; round-2 review of #107).
 4. Messages expired by their queue timeout (24 h default) are not re-armed.
-5. Release with the other two modules as 0.6.10; bridge change, `upgrade --confirm`; schema 5 unchanged.
+5. **The recipient is told the request is old:** a re-armed ping says when the message was first sent (`HH:MM`, as the
+   D193 offline notice does with `clockTime`) and that it is pinged again because the session was not running then,
+   so the recipient can judge whether the request still stands (round-2 review of #107).
+6. **One offline notice per batch:** if a re-armed job goes offline again, the D193 notice key
+   (`claude-offline-<agent>-<first message id>`) is the same as before, so the user is not told a second time about the
+   same messages. Intended: one reminder, no repeated disturbance (round-2 review of #107).
+7. **Order stays by job id:** durable ordering picks the oldest job by id (`older.id < wake_jobs.id`, `ORDER BY id`),
+   not by `created_at`, so a re-armed old message keeps its place ahead of newer ones.
+8. Release with the other two modules as 0.6.10; bridge change, `upgrade --confirm`; schema 5 unchanged.
 
 ## Decisions
 
@@ -43,9 +52,12 @@ running stay unread after the recipient comes back, until the user tells it to r
 2. Red first, register: result counts the re-armed messages in `next`; no wake binding → nothing re-armed, the count is
    still reported.
 3. Red first, dispatcher: a live Claude session whose process started after the expiry → re-armed once; a process
-   started before the expiry → not; a second check after re-arming → nothing more.
-4. `docs/BACKGROUND-WAKE.md`, CHANGELOG, `UPSTREAM.md` and manifest (D24).
-5. `scripts/validate.sh` green on Python 3.9, 3.10, 3.14; CI green.
+   started before the expiry → not; a second check after re-arming → nothing more. A +08:00 case: a process start a
+   few hours from the expiry is judged in absolute time, not local clock time.
+4. Red first: the re-armed ping text names the first-sent time; a re-armed job that goes offline again raises no second
+   D193 notice; a re-armed old job is claimed before a newer pending job to the same recipient.
+5. `docs/BACKGROUND-WAKE.md`, CHANGELOG, `UPSTREAM.md` and manifest (D24).
+6. `scripts/validate.sh` green on Python 3.9, 3.10, 3.14; CI green.
 
 ## Boundaries
 
