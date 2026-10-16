@@ -61,6 +61,12 @@ inbox cannot be reached or fails the ownership checks — waits as `pendingReaso
 and expires like an offline one, but it never raises the offline notice. Once any notice was attempted for a message
 (Codex) or an offline spell (Claude), every later retry's detail keeps saying so; there is still only one notice.
 
+A ping that expired while its recipient was away is pinged once more when the recipient comes back: when it registers
+again, or when the 30-second check finds its Claude session running in a process that started after the expiry. Only
+messages it has not read or acknowledged, and that have not expired themselves, are pinged again; the ping says when the
+message was first sent so the recipient can check the request still applies. One process start does this at most once,
+and the sender and the user are not told a second time.
+
 ## Why Claude pings expire
 
 Claude Code gates cross-session input by permission mode. When the recipient session runs in **Bypass permissions** and the sender does not state a permission mode, the message is held for the user's approval (Claude Code calls this a permission-mode parity hold). A terminal session shows it for review. The desktop app has no approval surface for it, so it expires. Claude Code's `crossSessionInbound` setting controls this: `"accept"` delivers held messages.

@@ -270,12 +270,18 @@ function main(): void {
       caller.prove(agent);
       localAgents.splice(0, localAgents.length, ...localAgents.filter((name) => name !== agent), agent);
       const unread = store.countUnread(agent);
+      // rewake-on-return D199: coming back re-arms pings that expired while this session was away (for its current
+      // wake target), and says so; without a wake binding they are only counted.
+      const expired = store.wakes.countExpired(agent);
+      const rearmed = store.wakes.rearm(agent, store.wakes.target(agent), Date.now());
+      const lapsed = expired === 0 ? "" : ` ${expired} of them had a background ping that expired while this session was away` +
+        (rearmed > 0 ? `; ${rearmed === 1 ? "it was" : "they were"} pinged again.` : "; read them now.");
       return jsonResult({
         ...registered,
         wake: store.wakes.target(agent),
         ...(existing?.retiredAt ? { reactivated: true } : {}),
         unread,
-        ...(unread > 0 ? { next: `${unread} unread message(s) are waiting. Read them with bridge_inbox.` } : {}),
+        ...(unread > 0 ? { next: `${unread} unread message(s) are waiting. Read them with bridge_inbox.${lapsed}` } : {}),
         ...(notes.length ? { notes } : {}),
       });
     },
