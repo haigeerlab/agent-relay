@@ -32,7 +32,8 @@
    "agent-relay/runtime/dist/server.js"` 没有输出，再执行 `python3 -B <插件目录>/hooks/native_collaboration_runtime.py
    upgrade --confirm`，输出应为 `"state": "upgraded"`。信箱 schema 仍是 6，不做迁移。
 3. 新开 Claude Code 会话；Codex 用 ⌘Q 完全退出 ChatGPT 应用再打开（之后 `doctor` 的 `codex-restart` 应为 ok）。
-   新的报错和读回规则在 bridge 里，升级后所有会话都生效；技能里的新说明要新开的会话才读得到。
+   bridge 里的新报错和读回规则，对升级后重新连上 bridge 的会话生效（新开的 Claude Code 会话、⌘Q 重开后的 Codex）；
+   没重开、报 `Transport closed` 的会话按 D210 重开。技能里的新说明只有新开的会话读得到。
 
 ### 想退回 0.7.0
 
@@ -43,7 +44,6 @@
 
 - bridge 仍认不出调用它的 Codex 任务，所以 Codex 会话在 ChatGPT 重启或任务重新打开后，第一次信箱调用照样会被拒一次，
   然后按报错重新登记、重做；这一版只是让报错把它引到对的做法上。
-- 升级后还没重开的会话仍连着旧的 bridge 进程，看到的还是旧报错，重开后才换成新的。
 
 ## [0.7.0] - 2026-10-16
 
