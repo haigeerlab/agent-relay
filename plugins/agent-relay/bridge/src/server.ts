@@ -538,13 +538,13 @@ function main(): void {
     "bridge_agents",
     {
       title: "List agents",
-      description: "List registered agents with unread counts, last activity, ping binding and recent ping health. An agent whose recorded host is Codex and has messages waiting carries waiting: {count, from, ids} (no bodies); tell the user when they ask what is waiting for Codex. Retired agents are hidden unless requested.",
+      description: "List registered agents with unread counts, last activity, ping binding and recent ping health. An agent with unhandled direct messages carries waiting: {count, from, ids (oldest 20), oldestAt} (no bodies), whatever its host; with presence it shows who is stopped while messages wait. Tell the user when they ask what is waiting. Retired agents are hidden unless requested.",
       inputSchema: {
         includeRetired: z.boolean().optional().describe("Include retired agents."),
       },
     },
     async ({ includeRetired }) => {
-      const waiting = store.codexWaiting();
+      const waiting = store.waiting();
       // agent-relay presence-and-approval D146: read the Claude registry once per listing.
       const claude = await claudeSessionsOrNull();
       const presenceOf = async (host: WakeTarget | null): Promise<Presence> =>
@@ -564,7 +564,8 @@ function main(): void {
           host: agent.host ? { ...agent.host, verified: agent.host.app === "claude" } : null,
           wake: store.wakes.target(agent.name),
           ...(health ? { lastPing: { state: health.state, detail: health.detail } } : {}),
-          // agent-relay acceptance-030-gaps D77: what waits for a Codex host, so any session can tell the user.
+          // agent-relay acceptance-030-gaps D77, waiting-list-all-hosts D198: what waits for any host, with the oldest
+          // one's time, so any session (or an upper-layer plugin) can tell who is stopped while messages wait.
           ...(waiting.has(agent.name) ? { waiting: waiting.get(agent.name) } : {}),
         };
       });
