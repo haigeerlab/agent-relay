@@ -9,6 +9,16 @@ import { DATA_DIR_NAME, ensurePrivateDirectory, restrictToOwner } from "./fs-saf
 import { bodyPart, clampLimit, fitMessages, type FitOptions, type MessageView } from "./paging.js";
 import { migrate, SCHEMA_VERSION, type MigrationResult } from "./schema.js";
 
+/**
+ * agent-relay awaiting-reply-view D202: an open request (aliased `m`) is a direct message its sender marked
+ * expectsReply that has no linked reply, did not fail or expire, and whose recipient is not retired. An
+ * acknowledgement does not close it. Only the recipient can link a reply (identity-check).
+ */
+const OPEN_REQUEST = `m.expects_reply = 1 AND m.to_agent != '*'
+  AND COALESCE(m.delivery_state, 'queued') NOT IN ('failed', 'expired')
+  AND NOT EXISTS (SELECT 1 FROM messages x WHERE x.reply_to = m.id)
+  AND NOT EXISTS (SELECT 1 FROM agents ra WHERE ra.name = m.to_agent AND ra.retired_at IS NOT NULL)`;
+
 /** A message as stored and returned by the bridge. */
 export interface BridgeMessage {
   id: number;
@@ -117,6 +127,10 @@ export interface OutboxEntry {
   /** agent-relay idempotency: the message this one replies to, and the ids of the replies it received. */
   replyTo: number | null;
   replies: number[];
+  /** agent-relay awaiting-reply-view D203: the sender marked it as expecting an answer. */
+  expectsReply: boolean;
+  /** Whole seconds since it was sent; only in the awaiting-reply view. */
+  waitingSeconds?: number;
 }
 
 /** agent-relay ops-commands (D45): where one message stands. */
@@ -581,13 +595,18 @@ export class BridgeStore {
     };
   }
 
-  /** Direct messages `agent` sent, newest first, with the recipient's handling state. */
+  /**
+   * Direct messages `agent` sent, newest first, with the recipient's handling state. awaiting-reply-view D203: with
+   * `awaitingReply`, only its open requests (D202), oldest first, acknowledged or not, each with the seconds waited.
+   */
   outbox(
     agent: string,
-    options: { includeAcknowledged?: boolean; limit?: number } = {},
-  ): { totalUnacknowledged: number; hasMore: boolean; entries: OutboxEntry[] } {
+    options: { includeAcknowledged?: boolean; limit?: number; awaitingReply?: boolean; now?: number } = {},
+  ): { totalUnacknowledged: number; totalAwaitingReply: number; hasMore: boolean; entries: OutboxEntry[] } {
     const limit = clampLimit(options.limit, 30);
-    const ackFilter = options.includeAcknowledged ? "" : "AND a.acked_at IS NULL";
+    const awaitingReply = options.awaitingReply === true;
+    const filter = awaitingReply ? `AND ${OPEN_REQUEST}` : options.includeAcknowledged ? "" : "AND a.acked_at IS NULL";
+    const now = options.now ?? Date.now();
     expireDue(this.db);
     const rows = this.db
       .prepare(
@@ -598,15 +617,15 @@ export class BridgeStore {
                   SELECT o.pending_reason FROM wake_jobs o WHERE o.agent = w.agent
                     AND o.state IN ('pending', 'sending') AND o.pending_reason IS NOT NULL ORDER BY o.id LIMIT 1))
                 END AS wake_reason,
-                m.delivery_state, m.expires_at, m.reply_to,
+                m.delivery_state, m.expires_at, m.reply_to, m.expects_reply,
                 (SELECT json_group_array(id) FROM (SELECT x.id FROM messages x WHERE x.reply_to = m.id ORDER BY x.id))
                   AS replies
          FROM messages m
          LEFT JOIN acknowledgements a ON a.message_id = m.id AND a.agent = m.to_agent
          LEFT JOIN wake_jobs w ON w.message_id = m.id AND w.agent = m.to_agent
          LEFT JOIN agents r ON r.name = m.to_agent
-         WHERE m.from_agent = ? AND m.to_agent != ? ${ackFilter}
-         ORDER BY m.id DESC LIMIT ?`,
+         WHERE m.from_agent = ? AND m.to_agent != ? ${filter}
+         ORDER BY m.id ${awaitingReply ? "ASC" : "DESC"} LIMIT ?`,
       )
       .all(agent, BROADCAST, limit + 1) as Array<Record<string, string | number | bigint | null>>;
     const total = this.db
@@ -617,8 +636,12 @@ export class BridgeStore {
          )`,
       )
       .get(agent, BROADCAST) as { n: number | bigint };
+    const open = this.db
+      .prepare(`SELECT COUNT(*) AS n FROM messages m WHERE m.from_agent = ? AND ${OPEN_REQUEST}`)
+      .get(agent) as { n: number | bigint };
     return {
       totalUnacknowledged: Number(total.n),
+      totalAwaitingReply: Number(open.n),
       hasMore: rows.length > limit,
       entries: rows.slice(0, limit).map((row) => ({
         id: Number(row.id),
@@ -643,6 +666,10 @@ export class BridgeStore {
         expiresAt: row.expires_at == null ? null : new Date(Number(row.expires_at)).toISOString(),
         replyTo: row.reply_to == null ? null : Number(row.reply_to),
         replies: JSON.parse(row.replies as string) as number[],
+        expectsReply: Number(row.expects_reply ?? 0) === 1,
+        ...(awaitingReply
+          ? { waitingSeconds: Math.max(0, Math.floor((now - Date.parse(row.created_at as string)) / 1000)) }
+          : {}),
       })),
     };
   }

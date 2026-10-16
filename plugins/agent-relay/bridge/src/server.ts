@@ -15,6 +15,7 @@ import { agentNameProblem, checkRecipient } from "./addressing.js";
 import { BridgeStore } from "./bridge-store.js";
 import { CHANNEL_CAPABILITY, channelSession } from "./claude-channel.js";
 import { claudeSessions, claudeSessionsOrNull } from "./claude-wake.js";
+import { awaitingCodexPresence, pagePresence } from "./awaiting-reply.js";
 import { claudePresence, codexOwner, codexPresence, type Presence } from "./presence.js";
 import { Housekeeper } from "./housekeeping.js";
 import { waitForInbox } from "./inbox-waiter.js";
@@ -587,16 +588,35 @@ function main(): void {
     "bridge_outbox",
     {
       title: "Check sent messages",
-      description: "List direct messages an agent sent that the recipient has not acknowledged yet (newest first), with ping outcome (a pending ping says why it waits: pendingReason offline, unreachable or busy), delivery state (queued, sending, accepted, failed, unknown, expired) and whether the recipient is active, retired or unknown.",
+      description: "List direct messages an agent sent that the recipient has not acknowledged yet (newest first), with ping outcome (a pending ping says why it waits: pendingReason offline, unreachable or busy), delivery state (queued, sending, accepted, failed, unknown, expired), whether the recipient is active, retired or unknown, and whether each expects a reply. With awaitingReply: only requests marked expectsReply that have no reply linked by replyTo yet (acknowledged or not; failed, expired and retired recipients left out), oldest first, each with waitingSeconds and the recipient's presence. totalAwaitingReply counts them all.",
       inputSchema: {
         agent: z.string().min(1).describe("Sender whose outbox to read."),
         includeAcknowledged: z.boolean().optional().describe("Include messages the recipient already acknowledged."),
+        awaitingReply: z.boolean().optional().describe(
+          "Only the open requests: marked expectsReply and not yet answered with replyTo. Ignores includeAcknowledged."),
         limit: z.number().int().min(1).max(200).optional().describe("Maximum entries. Defaults to 30."),
       },
     },
-    async ({ agent, includeAcknowledged, limit }) => {
+    async ({ agent, includeAcknowledged, awaitingReply, limit }) => {
       if (ownRead(agent)) store.touch(agent);
-      return jsonResult({ agent, ...store.outbox(agent, { includeAcknowledged, limit }) });
+      const page = store.outbox(agent, { includeAcknowledged, awaitingReply, limit });
+      if (!awaitingReply) return jsonResult({ agent, ...page });
+      // awaiting-reply-view D203: presence only for the recipients on this page; the Claude registry is read once and a
+      // Codex lookup waits at most 2 s.
+      const claude = await claudeSessionsOrNull();
+      const presences = await pagePresence(page.entries.map((entry) => entry.toAgent), (name) => {
+        const recipient = store.getAgent(name);
+        return recipient ? { host: recipient.host ?? store.wakes.target(name), retired: !!recipient.retiredAt } : undefined;
+      }, async (host) => host.app === "claude" ? claudePresence(host.sessionId, claude)
+        : awaitingCodexPresence(host.sessionId));
+      return jsonResult({
+        agent,
+        ...page,
+        entries: page.entries.map((entry) => ({
+          ...entry,
+          ...(presences.has(entry.toAgent) ? { recipientPresence: presences.get(entry.toAgent) } : {}),
+        })),
+      });
     },
   );
 
