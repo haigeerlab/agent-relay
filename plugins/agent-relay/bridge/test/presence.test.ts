@@ -180,6 +180,10 @@ test("the sender is told when the recipient waits for the user's approval or is 
   assert.ok(stopped.warnings.some((w) => /"cc"'s Claude session is not running/.test(w)));
   const codexStopped = await checkRecipient(store, "cx", { presenceOf: as("stopped") });
   assert.ok(codexStopped.warnings.some((w) => /"cx"'s Codex task is not open/.test(w)), codexStopped.warnings.join("\n"));
+  // codex-not-loaded D200: the app did not answer for the task; the warning says to open it (or that it may be gone).
+  const notLoaded = await checkRecipient(store, "cx", { presenceOf: as("not-loaded") });
+  assert.ok(notLoaded.warnings.some((w) => /"cx"'s Codex task did not answer: open it in the ChatGPT app/.test(w) &&
+    /deleted/.test(w)), notLoaded.warnings.join("\n"));
   for (const state of ["running", "waiting-input", "unknown"] as const) {
     const quiet = await checkRecipient(store, "cc", { presenceOf: as(state) });
     assert.deepEqual(quiet.warnings, [], state);

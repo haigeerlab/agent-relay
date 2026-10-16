@@ -12,8 +12,11 @@ export async function privatePath(path: string, kind: "socket" | "file" | "direc
 }
 
 export class IpcError extends Error {
-  constructor(message: string, readonly sent = false) { super(message); }
+  constructor(message: string, readonly sent = false, readonly timedOut = false) { super(message); }
 }
+
+/** How long a request waits for the app's answer. */
+export const IPC_RESPONSE_TIMEOUT_MS = 10_000;
 
 type Packet = Record<string, any>;
 export class CodexIpc {
@@ -21,6 +24,8 @@ export class CodexIpc {
   private buffer = Buffer.alloc(0);
   private clientId = "initializing-client";
   private pending = new Map<string, { resolve: (p: Packet) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
+
+  constructor(private readonly options: { responseTimeoutMs?: number } = {}) {}
 
   async connect(path: string): Promise<void> {
     await privatePath(dirname(path), "directory");
@@ -83,8 +88,8 @@ export class CodexIpc {
       const requestId = randomUUID();
       const timer = setTimeout(() => {
         this.pending.delete(requestId);
-        reject(new IpcError("Codex IPC response timed out", true));
-      }, 10_000);
+        reject(new IpcError("Codex IPC response timed out", true, true));
+      }, this.options.responseTimeoutMs ?? IPC_RESPONSE_TIMEOUT_MS);
       this.pending.set(requestId, { resolve, reject, timer });
       this.write({ type: "request", requestId, sourceClientId: this.clientId, version, method, params,
         ...(targetClientId ? { targetClientId } : {}) });

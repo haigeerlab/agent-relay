@@ -115,6 +115,10 @@ export async function checkRecipient(
     warnings.push(host!.app === "claude"
       ? `"${to}"'s Claude session is not running. The message will wait in its inbox until that conversation reads it.`
       : `"${to}"'s Codex task is not open. The message will wait in its inbox until that task reads it.`);
+  } else if (presence?.state === "not-loaded") {
+    // codex-not-loaded D200: usually not opened since the ChatGPT app started; a deleted task looks the same.
+    warnings.push(`"${to}"'s Codex task did not answer: open it in the ChatGPT app and the message is delivered. If the ` +
+      "task can no longer be found, it may have been deleted and has to join the mailbox again.");
   }
   if (!target) {
     const last = store.lastActivity(to);

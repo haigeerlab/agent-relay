@@ -1,7 +1,7 @@
 # Todo: codex-not-loaded
 
-- [ ] Task 1: wake detail and presence
-- [ ] Task 2: notice
-- [ ] Task 3: docs and bookkeeping
-- [ ] Checkpoint (report): local validation
+- [x] Task 1: wake detail and presence — red first (`CODEX_NOT_LOADED` did not exist), then `IpcError.timedOut`, `CodexIpc` `responseTimeoutMs`, `silentAboutTask` (a timeout after connect and handshake), `CODEX_NOT_LOADED` in `wakeCodex`, `codexOwner` → `"not-loaded"`, `presence.state: "not-loaded"` with the same detail. Tests with a fake socket that completes the handshake and never answers: a task id and a nonexistent id both give pending/offline/`CODEX_NOT_LOADED`, nothing submitted; a missing socket keeps "Codex local connection unavailable" and `unknown`
+- [x] Task 2: notice — red first, then `codexNoticeReason` ("this Codex task is not open; open it in the ChatGPT app") and a send-time warning in `addressing.ts` for `not-loaded`
+- [x] Task 3: docs and bookkeeping — `docs/BACKGROUND-WAKE.md`, `skills/collab` (re-register after a new bridge process; the bridge cannot tell which Codex task calls it), `docs/collaboration-interface.md` (presence values; unknown values read as `unknown`), CHANGELOG, `UPSTREAM.md`, manifest
+- [x] Checkpoint (report): local validation — `scripts/validate.sh` pass on Python 3.9.6, 3.10.7, 3.14.3 with Node v24.18.0 first on PATH (47 files, 806 tests each; bridge `npm run check` 206 ok). Real read-only check with the new `codexOwner` against the ChatGPT app: an open test task `running`, a task not opened since the app restarted and a nonexistent id `not-loaded`
 - [ ] Checkpoint (gate): module review

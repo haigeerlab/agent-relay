@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+- **Codex 会话在 ChatGPT 里没打开时，说清楚该做什么**（模块 `codex-not-loaded`，D200，会话 spec-guard-monitor 报告、用户
+  2026-10-16 决定）：bridge 改动，**要用 `upgrade --confirm` 升级运行时才生效**。
+  - ChatGPT 应用重启或会话长时间空闲后，没被重新打开的 Codex 会话不会回应 bridge 的查询。以前这被说成“Codex local
+    connection unavailable”，在线状态是 `unknown`，看起来像连接或身份出了问题。
+  - 现在唤醒说明改为：ChatGPT 没有回应这个 Codex 会话，通常是这次启动后还没打开过，打开它消息就会送达；如果已经找不到
+    这个会话，可能已被删除，需要从新会话重新加入联调。`bridge_agents` 里显示为 `presence: not-loaded`，发送时会提醒，Codex
+    离线通知也写明“在 ChatGPT 里打开它”。本机接口真的连不上时仍说连接不可用；重试规则不变。
+  - `presence.state` 可能在接口 2.x 内增加新取值，上层遇到不认识的取值按 `unknown` 处理（写进了接口文档）。
+  - 没有做的：bridge 认不出是哪个 Codex 会话在调用它（Codex 的 bridge 进程环境里没有会话编号），所以身份失效后仍要会话
+    自己用原名重新登记一次；Codex 会话会自己做，技能里写明了。
+
 ## [0.6.10] - 2026-10-16
 
 接口仍为 **2.0**（`interface.json` 不变，Spec Guard 0.56.0 或更新），信箱 schema 仍为 5，委派库仍为 schema 3。这一版有三项

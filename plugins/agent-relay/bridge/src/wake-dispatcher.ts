@@ -1,7 +1,7 @@
 import type { BridgeStore } from "./bridge-store.js";
 import { channelNotification, type ChannelNotification } from "./claude-channel.js";
 import { ClaudeWake, claudeSessionsOrNull, type ClaudeSession } from "./claude-wake.js";
-import { wakeCodex } from "./codex-wake.js";
+import { CODEX_NOT_LOADED, wakeCodex } from "./codex-wake.js";
 import { claudeLocation, type Location } from "./location.js";
 import { BUSY_NOTIFY_AFTER_MS, CLAUDE_OFFLINE_NOTIFY_AFTER_MS, NOTIFIED_TEXT, alreadyNotified, noticesOff, notifyUndelivered,
   waitingEpisode } from "./notify.js";
@@ -27,6 +27,17 @@ export interface DispatcherOptions {
   locationOf?: (sessionId: string) => Promise<Location | undefined>;
   /** rewake-on-return D199: the live Claude sessions; defaults to Claude Code's registry. */
   claudeSessions?: () => Promise<ClaudeSession[] | null>;
+}
+
+/**
+ * Why a Codex ping that did not get through is told to the user (D67), busy aside. codex-not-loaded D200: a task the app
+ * did not answer for is usually one the user has not opened yet, so the notice says to open it.
+ */
+export function codexNoticeReason(result: WakeResult): string | null {
+  if (result.state === "held") return "Codex could not be woken; the message waits";
+  if (result.state !== "pending") return null;
+  return result.detail === CODEX_NOT_LOADED ? "this Codex task is not open; open it in the ChatGPT app"
+    : "Codex is not running; the message waits";
 }
 
 /** How often a bridge looks for Claude sessions waiting for the user's approval (D148). */
@@ -100,11 +111,9 @@ export class WakeDispatcher {
 
   /** agent-relay codex-gated-wake D67: held or offline at once, busy after ten minutes; once per message. */
   private noticeUndelivered(job: WakeJob, result: WakeResult, now = Date.now()): WakeResult {
-    const why = result.state === "held"
-      ? "Codex could not be woken; the message waits"
-      : result.state === "pending" && result.reason === "busy"
-        ? (now - job.createdAt >= BUSY_NOTIFY_AFTER_MS ? "Codex has been busy for ten minutes" : null)
-        : result.state === "pending" ? "Codex is not running; the message waits" : null;
+    const why = result.state === "pending" && result.reason === "busy"
+      ? (now - job.createdAt >= BUSY_NOTIFY_AFTER_MS ? "Codex has been busy for ten minutes" : null)
+      : codexNoticeReason(result);
     if (!why) return result.state === "pending" ? this.keepNotified(job, result, false, String(job.messageId)) : result;
     // notice-location D188: "busy" is the Codex app answering on its own socket that it holds this thread; in every
     // other case nothing confirms where the Codex side is, so the notice says only "Codex" and has no click action.
