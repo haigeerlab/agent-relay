@@ -7,9 +7,10 @@ import test from "node:test";
 import { BridgeStore } from "../src/bridge-store.js";
 import { CHANNEL_METHOD, channelSession, type ChannelNotification } from "../src/claude-channel.js";
 import { dailyBackup, Housekeeper } from "../src/housekeeping.js";
-import { sweepDeliveryFailures } from "../src/notices.js";
+import { CLAUDE_EXPIRED_RECEIPT } from "../src/claude-wake.js";
+import { CLAUDE_OFFLINE_EXPLANATION, explainFailure, isClaudeHold, sweepDeliveryFailures } from "../src/notices.js";
 import { WakeDispatcher } from "../src/wake-dispatcher.js";
-import { BUSY_WAKE_WINDOW_MS, OFFLINE_WAKE_WINDOW_MS } from "../src/wake-queue.js";
+import { BUSY_WAKE_WINDOW_MS, OFFLINE_WAKE_WINDOW_MS, REARMED_DETAIL } from "../src/wake-queue.js";
 
 const HOUR = 3_600_000;
 
@@ -166,4 +167,48 @@ test("the housekeeper sweeps failed pings on its first tick", async () => {
   assert.equal(store.inbox("sender").length, 1);
   assert.deepEqual(logs, []);
   store.close();
+});
+
+// agent-relay expiry-notice-reason D215: only Claude's own word makes a hold.
+function expiredClaudePing(reason: "offline" | "unreachable") {
+  const store = new BridgeStore(":memory:");
+  store.register("sender");
+  store.register("claude-recipient");
+  store.wakes.bind("claude-recipient", { app: "claude", sessionId: "stopped-session" });
+  const message = store.send({ fromAgent: "sender", toAgent: "claude-recipient", body: "please review" });
+  const now = Date.now();
+  const job = store.wakes.claim(now);
+  store.wakes.finish(job!, { state: "pending", reason, detail: reason });
+  const later = now + OFFLINE_WAKE_WINDOW_MS + HOUR;
+  assert.equal(store.wakes.claim(later), null);
+  const expired = store.wakes.forMessage(message.id)!;
+  assert.equal(expired.state, "expired");
+  return { store, expired, later };
+}
+
+test("a Claude ping that expired because the session was not running is not explained as a hold", () => {
+  const { store, expired, later } = expiredClaudePing("offline");
+  assert.equal(isClaudeHold({ app: "claude", state: expired.state, detail: expired.detail }), false);
+  assert.equal(sweepDeliveryFailures(store, later), 1);
+  const body = store.inbox("sender")[0]?.body ?? "";
+  assert.match(body, /not running/);
+  assert.match(body, /open/);
+  assert.doesNotMatch(body, /crossSessionInbound|Bypass/);
+  assert.match(explainFailure(expired), new RegExp(CLAUDE_OFFLINE_EXPLANATION.slice(0, 40).replace(/[()]/g, "\\$&")));
+  store.close();
+});
+
+test("an unreachable Claude expiry keeps the unreachable text; real holds keep the hold text", () => {
+  const { store, expired } = expiredClaudePing("unreachable");
+  assert.match(explainFailure(expired), /unreachable/);
+  assert.doesNotMatch(explainFailure(expired), /crossSessionInbound/);
+  store.close();
+
+  assert.equal(isClaudeHold({ app: "claude", state: "refused", detail: CLAUDE_EXPIRED_RECEIPT }), true);
+  assert.equal(isClaudeHold({ app: "claude", state: "held", detail: "anything" }), true);
+  assert.equal(isClaudeHold({ app: "claude", state: "refused", detail: "Claude denied this peer message" }), false);
+  assert.equal(isClaudeHold({ app: "claude", state: "expired", detail: "Wake retry window expired; message remains unread" }), false);
+  assert.equal(isClaudeHold({ app: "claude", state: "pending", detail: REARMED_DETAIL }), false);
+  assert.equal(isClaudeHold({ app: "codex", state: "held", detail: "held" }), false);
+  assert.equal(isClaudeHold({ app: "codex", state: "refused", detail: CLAUDE_EXPIRED_RECEIPT }), false);
 });

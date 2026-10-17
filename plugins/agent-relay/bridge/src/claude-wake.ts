@@ -93,6 +93,8 @@ export const CLAUDE_NOT_RUNNING = "Claude session is not running (the Claude app
  */
 export const CLAUDE_SEVERAL_SESSIONS = "Several running Claude sessions claim this recipient; the message waits and is " +
   "retried until only one does";
+/** agent-relay expiry-notice-reason D215: Claude's own receipt for a peer message it let expire unread (a hold). */
+export const CLAUDE_EXPIRED_RECEIPT = "Claude expired this peer message";
 export const CLAUDE_UNREACHABLE = "Claude session's local inbox cannot be reached or failed ownership checks; " +
   "the message waits and is retried";
 

@@ -1,5 +1,5 @@
 import type { BridgeStore } from "./bridge-store.js";
-import { BRIDGE_AGENT, CLAUDE_HOLD_EXPLANATION } from "./notices.js";
+import { BRIDGE_AGENT, CLAUDE_HOLD_EXPLANATION, CLAUDE_OFFLINE_EXPLANATION, isClaudeHold, isClaudeOfflineExpiry } from "./notices.js";
 import type { Presence } from "./presence.js";
 import type { WakeTarget } from "./wake-queue.js";
 
@@ -100,7 +100,9 @@ export async function checkRecipient(
 
   const recent = store.wakes.health(to, 3);
   if (recent.length === 3 && recent.every((job) => ["refused", "expired", "held"].includes(job.state))) {
-    const hold = recent[0].app === "claude" ? ` ${CLAUDE_HOLD_EXPLANATION}` : "";
+    // agent-relay expiry-notice-reason D215: explain by the latest failure, as the delivery-failure notice does.
+    const hold = isClaudeHold(recent[0]) ? ` ${CLAUDE_HOLD_EXPLANATION}`
+      : isClaudeOfflineExpiry(recent[0]) ? ` ${CLAUDE_OFFLINE_EXPLANATION}` : "";
     warnings.push(
       `The last 3 background pings to "${to}" were not delivered (latest: ${recent[0].state}: ${recent[0].detail}). Expect no automatic pickup.${hold}`,
     );

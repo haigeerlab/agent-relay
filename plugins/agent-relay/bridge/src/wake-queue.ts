@@ -308,10 +308,11 @@ export class WakeQueue {
   }
 
   /** Most recent ping outcomes for one recipient, newest first. */
-  health(agent: string, limit = 5): Array<{ state: WakeState; detail: string; app: string }> {
-    return this.db.prepare(`SELECT state, detail, json_extract(target, '$.app') AS app FROM wake_jobs
+  health(agent: string, limit = 5): Array<{ state: WakeState; detail: string; app: string; pendingReason: PendingReason | null }> {
+    return this.db.prepare(`SELECT state, detail, pending_reason, json_extract(target, '$.app') AS app FROM wake_jobs
       WHERE agent = ? ORDER BY id DESC LIMIT ?`).all(agent, limit)
-      .map(row => ({ state: row.state as WakeState, detail: row.detail as string, app: row.app as string }));
+      .map(row => ({ state: row.state as WakeState, detail: row.detail as string, app: row.app as string,
+        pendingReason: (row.pending_reason as PendingReason | null) ?? null }));
   }
 
   /** Atomically take one failed ping that nobody has told its sender about. */

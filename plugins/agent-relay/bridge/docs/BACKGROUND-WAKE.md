@@ -75,6 +75,8 @@ and the sender and the user are not told a second time.
 
 ## Why Claude pings expire
 
+A Claude ping can expire for two different reasons. If the recipient session was not running for the whole one-hour retry window (the Claude app stops idle sessions), the ping expires with `pendingReason: "offline"`; the message stays in the inbox and the fix is to open that session. The bridge's notice, `bridge_wake_status` and the send-time warning say so and do not mention permissions. Only a ping Claude held, or that Claude itself reported as expired, is the permission-mode hold described below.
+
 Claude Code gates cross-session input by permission mode. When the recipient session runs in **Bypass permissions** and the sender does not state a permission mode, the message is held for the user's approval (Claude Code calls this a permission-mode parity hold). A terminal session shows it for review. The desktop app has no approval surface for it, so it expires. Claude Code's `crossSessionInbound` setting controls this: `"accept"` delivers held messages.
 
 The bridge does not state a permission mode, because it has none. Claiming one would let any local process inject input into a bypass session. So the options belong to the user:
