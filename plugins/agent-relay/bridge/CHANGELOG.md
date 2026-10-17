@@ -1,5 +1,13 @@
 # Changelog
 
+## agent-relay 0.8.0
+
+Requests close as they are really handled (module `request-closing`, D216–D222), mailbox schema 7: one answer can
+close further requests addressed to its sender (`bridge_send` `alsoAnswers`), a sender can withdraw its own requests
+(`withdraws`, recorded as withdrawn, not answered), the result echoes `closed`, and another sender whose request was
+answered this way gets one notice and may read the answer. `awaitingReply` and `owesReplies` no longer count closed
+requests.
+
 ## agent-relay 0.7.2
 
 Delivery-failure explanations follow the real cause (module `expiry-notice-reason`, D215), schema 6 unchanged: a

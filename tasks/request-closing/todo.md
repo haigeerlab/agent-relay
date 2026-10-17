@@ -5,8 +5,8 @@
 - [x] Task 3: the other requester (D218) — one `bridge` notice per requester and answer on the first request's thread (none to the answer's recipient, the answerer, a retired or unknown requester), `messagePart` reads the answer with `direction: "answer"`; red against a build without the notice call
 - [x] Task 4: `withdraws` (D219) — red first (five cases), then the sender's own open requests to this recipient only, outcome `withdrawn` (a `replyTo` still wins, `closedBy` keeps withdrawn), no read and no notice, retries and a conflict with a later `alsoAnswers`; plus a forced failure after the closures rolls everything back, and an acknowledgement still closes nothing
 - [x] Checkpoint (report): bridge green — `npm run typecheck` clean, `npm test` 249 pass
-- [ ] Task 5: hooks, skills and instructions (assumption 4, D221)
-- [ ] Task 6: interface 2.3 and bookkeeping
+- [x] Task 5: hooks, skills and instructions (assumption 4, D221) — red first (doctor on a schema 7 file), then `MAILBOX_SCHEMA_VERSIONS` adds 7 and the rollback caveat names schema 7; the retire and delegation-backend tests that used 7 as "newer" now use the next version; `collab`, `session-routing`, the server instructions and `INSTRUCTIONS.md` say to list every answered request, withdraw what is not needed and trust `closed`; an MCP test sends both lists through the server
+- [x] Task 6: interface 2.3 and bookkeeping — `interface.json` 2.3, `test_packaging`, `relay_status.py` docstring, `docs/collaboration-interface.md` (version line, `bridge_send`, `bridge_outbox`, `bridge_wake_status`, `bridge_inbox`), `UPSTREAM.md` row and manifest, `bridge/CHANGELOG.md` 0.8.0, CHANGELOG `[Unreleased]` with the upgrade order and both upgrade-window caveats; README status lines move to 2.3 in the release PR
 - [ ] Checkpoint (report): local validation
 - [ ] Task 7: PR and CI
 - [ ] Checkpoint (gate): module review
