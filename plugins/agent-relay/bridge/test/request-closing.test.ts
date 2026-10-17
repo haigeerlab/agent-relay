@@ -283,3 +283,30 @@ test("an acknowledgement still closes nothing (D202 unchanged)", () => {
   assert.deepEqual(store.owesReplies().get("helper")?.ids, [r.id]);
   store.close();
 });
+
+// Round-2 review of #130: D35 must not swallow a new list (D217, D219).
+test("the same reply resent with an alsoAnswers list is not folded into the earlier one (D35, D217)", () => {
+  const store = fresh();
+  const a = store.send({ fromAgent: "asker", toAgent: "helper", body: "q", expectsReply: true });
+  const b = store.send({ fromAgent: "twin", toAgent: "helper", body: "q too", expectsReply: true });
+  const first = store.deliver({ fromAgent: "helper", toAgent: "asker", body: "done", replyTo: a.id });
+  const second = store.deliver({ fromAgent: "helper", toAgent: "asker", body: "done", replyTo: a.id, alsoAnswers: [b.id] });
+  assert.equal(second.duplicate, false);
+  assert.notEqual(second.message.id, first.message.id);
+  assert.deepEqual(second.closed, [{ id: b.id, kind: "answered" }]);
+  assert.equal(store.owesReplies().get("helper"), undefined);
+  const third = store.deliver({ fromAgent: "helper", toAgent: "asker", body: "done", replyTo: a.id, alsoAnswers: [b.id] });
+  assert.equal(third.duplicate, true, "the same reply with the same list still folds (D35)");
+  assert.equal(third.message.id, second.message.id);
+  store.close();
+});
+
+test("a request past its queue timeout cannot be closed even before the sweep ran (review of #130)", () => {
+  const store = fresh();
+  const r = store.send({ fromAgent: "asker", toAgent: "helper", body: "q", expectsReply: true, expiresInSeconds: 60 });
+  const raw = (store as unknown as { db: DatabaseSync }).db;
+  raw.prepare("UPDATE messages SET expires_at = ? WHERE id = ?").run(Date.now() - 1000, r.id);
+  assert.throws(() => store.deliver({ fromAgent: "helper", toAgent: "asker", body: "late", alsoAnswers: [r.id] }),
+    new RegExp(`#${r.id}.*expired before delivery`));
+  store.close();
+});

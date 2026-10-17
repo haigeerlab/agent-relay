@@ -414,20 +414,32 @@ export class BridgeStore {
 
     // agent-relay idempotency (D35): the same reply to the same message is stored once, unless the earlier one
     // never arrived (failed or expired), so a lost reply can be sent again.
+    // request-closing (round-2 review of #130): only an earlier reply that closed exactly the same lists folds, so a
+    // reply resent to add alsoAnswers or withdraws is stored and checked as a new message instead of being swallowed.
     if (replyTo !== null) {
       expireDue(this.db);
-      const earlier = this.db
+      const candidates = this.db
         .prepare(
           `SELECT * FROM messages WHERE reply_to = ? AND from_agent = ? AND to_agent = ? AND body = ?
              AND COALESCE(delivery_state, 'queued') NOT IN ('failed', 'expired')
-           ORDER BY id LIMIT 1`,
+           ORDER BY id`,
         )
-        .get(replyTo, input.fromAgent, input.toAgent, input.body) as unknown as MessageRow | undefined;
-      if (earlier) return { message: this.toMessage(earlier), duplicate: true, closed: this.closuresBy(Number(earlier.id)) };
+        .all(replyTo, input.fromAgent, input.toAgent, input.body) as unknown as MessageRow[];
+      for (const earlier of candidates) {
+        const closed = this.closuresBy(Number(earlier.id));
+        const same = !contentDifferences(
+          { toAgent: "", body: "", threadId: null, replyTo: null, expectsReply: false,
+            alsoAnswers: closed.filter((c) => c.kind === "answered").map((c) => c.id),
+            withdraws: closed.filter((c) => c.kind === "withdrawn").map((c) => c.id) },
+          { toAgent: "", body: "", threadId: null, replyTo: null, expectsReply: false, alsoAnswers, withdraws }).length;
+        if (same) return { message: this.toMessage(earlier), duplicate: true, closed };
+      }
     }
 
     // agent-relay request-closing D217: checked here, inside deliver()'s write transaction and after the idempotent
-    // returns, so another bridge process cannot close the same request in between.
+    // returns, so another bridge process cannot close the same request in between. A request past its timeout is
+    // expired first, so it is refused as expired even when no sweep ran yet (round-2 review of #130).
+    if (alsoAnswers.length || withdraws.length) expireDue(this.db);
     for (const id of alsoAnswers) this.assertClosable(id, "answer", input.fromAgent);
     for (const id of withdraws) this.assertClosable(id, "withdraw", input.fromAgent, input.toAgent);
 
