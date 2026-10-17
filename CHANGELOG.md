@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-10-17
+
 接口仍为 **2.2**，信箱 schema 仍为 **6**，委派库仍为 schema 3。来自 2026-10-17 的使用观测：
 
 - **bridge 有改动，要 `upgrade --confirm` 升级运行时**，顺序同 0.7.1：先在两个宿主更新插件，再升级运行时。
@@ -10,6 +12,29 @@
   解决不了问题。现在通知、`bridge_wake_status` 和发送时的“最近 3 次后台唤醒都没送达”警告统一只认 Claude 自己的
   结果（ping 被 held，或 Claude 回执说它让消息过期）才算扣下；离线到期改说“会话没在运行，消息还在收件箱，请用户
   打开那个会话”。会话回来后被重新唤醒的任务也不再带扣下的说明。`bridge/INSTRUCTIONS.md` 同步改正。
+
+### 从 0.7.1 升级
+
+1. 两个宿主都更新插件（详见 README“更新插件”）：Claude Code 从 GitHub 装的，先 `claude plugin marketplace update
+   agent-relay-marketplace`，再 `claude plugin update --scope user agent-relay@agent-relay-marketplace`；Codex 把
+   `~/.codex/config.toml` 里的 `ref` 改成 `"v0.7.2"` 后 `codex plugin marketplace upgrade`、`codex plugin add
+   agent-relay@agent-relay-marketplace`；从本地克隆装的先 `git -C <克隆> pull --ff-only`，Codex 再 `codex plugin add`。
+2. **升级运行时**：关闭所有使用信箱的会话或只结束 bridge（见 README“升级运行时”），确认 `pgrep -fl
+   "agent-relay/runtime/dist/server.js"` 没有输出，再执行 `python3 -B <插件目录>/hooks/native_collaboration_runtime.py
+   upgrade --confirm`，输出应为 `"state": "upgraded"`。信箱 schema 仍是 6，不做迁移。
+3. 新开 Claude Code 会话；Codex 用 ⌘Q 完全退出 ChatGPT 应用再打开（之后 `doctor` 的 `codex-restart` 应为 ok）。
+   新的说明都由 bridge 给出（通知、发送时警告、`bridge_wake_status`），升级后所有会话都生效；`INSTRUCTIONS.md`
+   的新说法要新开的会话才读得到。
+
+### 想退回 0.7.1
+
+关掉所有会话后 `rollback --confirm` 退回运行时，并把两个宿主的插件退回 v0.7.1，然后新开会话。schema 相同，只退插件或
+只退运行时都还能读信箱。
+
+### 已知问题
+
+- 升级前已经发出的离线到期通知不会重发，那些旧通知里的“被扣下”说明仍是错的，以对方会话是否在运行为准。
+- 真正被 Claude 扣下（会话开着 Bypass permissions）时，说明和以前一样，仍建议调整权限模式或 `crossSessionInbound`。
 
 ## [0.7.1] - 2026-10-16
 
