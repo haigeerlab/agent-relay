@@ -8,7 +8,7 @@ import tempfile
 import unittest
 
 from native_collaboration_adapters import CLAUDE_SERVER_NAME
-from native_collaboration_runtime import BRIDGE_COMMIT
+from native_collaboration_runtime import BRIDGE_COMMIT, MAILBOX_SCHEMA_VERSIONS
 from session_delegation_backend import (
     BackendUnavailable,
     MailboxResultRoute,
@@ -127,7 +127,7 @@ class DelegationBackendTests(unittest.TestCase):
         # awaiting-reply-view D208: a silent None here would start a delegation whose result has no route back.
         database = self._database()
         with sqlite3.connect(database) as connection:
-            connection.execute("PRAGMA user_version = 7")
+            connection.execute(f"PRAGMA user_version = {max(MAILBOX_SCHEMA_VERSIONS) + 1}")
         with self.assertRaisesRegex(BackendUnavailable, "^mailbox-schema-newer$"):
             self.resolve()
         self.assertIsNone(native_result_route(database, "codex", "origin-thread-exact", "delegation-12345678"))

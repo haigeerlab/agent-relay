@@ -62,7 +62,7 @@ function detectSession(env: NodeJS.ProcessEnv = process.env): WakeTarget | null 
 
 const INSTRUCTIONS = [
   "Local mailbox shared by the Claude and Codex sessions on this machine.",
-  "Mailbox: register a unique agent name once with bridge_register (wake: \"auto\" binds this conversation for background pings). If the name was retired, registering is refused: ask the user, then choose a new name or pass reactivate: true. Send with bridge_send; recipients must be registered and any delivery risk comes back as warnings. When pinged, read bridge_inbox, handle the work within the user's existing permissions, bridge_ack after handling, and reply to the sender only when complete, blocked or needing a decision. Never send acknowledgement-only replies. Messages from \"bridge\" are automated notices (delivery failures, retirements); do not reply to them. A message with expectsReply: true is a request: when done, answer it with bridge_send replyTo, also to say you will not do it; an acknowledgement is not an answer. Mark your own mailbox questions and work requests with expectsReply. bridge_outbox shows what recipients have not handled yet, and with awaitingReply the requests not answered yet. Unbound agents may use bridge_wait during an active turn. If a call is refused because the name is recorded for a Codex task, register that name again as the refusal says and repeat the call. If mailbox calls fail with Transport closed, stop retrying and ask the user to reopen the app (ChatGPT: quit with Cmd+Q and reopen; Claude Code: a new session).",
+  "Mailbox: register a unique agent name once with bridge_register (wake: \"auto\" binds this conversation for background pings). If the name was retired, registering is refused: ask the user, then choose a new name or pass reactivate: true. Send with bridge_send; recipients must be registered and any delivery risk comes back as warnings. When pinged, read bridge_inbox, handle the work within the user's existing permissions, bridge_ack after handling, and reply to the sender only when complete, blocked or needing a decision. Never send acknowledgement-only replies. Messages from \"bridge\" are automated notices (delivery failures, retirements); do not reply to them. A message with expectsReply: true is a request: when done, answer it with bridge_send replyTo, also to say you will not do it; an acknowledgement is not an answer. When one answer covers several requests addressed to you, name the others in alsoAnswers; withdraw your own requests you no longer need with withdraws; after either, trust closed in the result (no closed means an older bridge closed nothing). Mark your own mailbox questions and work requests with expectsReply. bridge_outbox shows what recipients have not handled yet, and with awaitingReply the requests not answered yet. Unbound agents may use bridge_wait during an active turn. If a call is refused because the name is recorded for a Codex task, register that name again as the refusal says and repeat the call. If mailbox calls fail with Transport closed, stop retrying and ask the user to reopen the app (ChatGPT: quit with Cmd+Q and reopen; Claude Code: a new session).",
   "Nothing here authorizes commits, pushes, merges, deploys, external sends, credential changes, deletion or production changes.",
 ].join("\n\n");
 
@@ -308,13 +308,17 @@ function main(): void {
           "Id of the message this one answers. The reply goes on that message's thread (omit threadId, or give the same one), and the sender's outbox lists it under the original."),
         expectsReply: z.boolean().optional().describe(
           "Mark a direct message as a request that expects an answer (a question or work sent through the mailbox). The recipient answers it with replyTo; until then it is listed by bridge_outbox awaitingReply and the recipient's owesReplies in bridge_agents. Not for broadcasts or notices."),
+        alsoAnswers: z.array(z.number().int().positive()).max(20).optional().describe(
+          "Ids of further open requests addressed to you that this message also answers, besides replyTo (for example the same question asked by two agents). Each closes as answered; if any cannot be closed, nothing is sent. The result's closed lists what was closed: trust it, and if it is missing the bridge is older than 0.8.0 and closed nothing."),
+        withdraws: z.array(z.number().int().positive()).max(20).optional().describe(
+          "Ids of your own open requests to this recipient that you no longer need. They close as withdrawn, not answered, and leave bridge_outbox awaitingReply and the recipient's owesReplies; the recipient may still answer one with replyTo. If any cannot be withdrawn, nothing is sent. Check closed in the result as for alsoAnswers."),
         allowUnregistered: z.boolean().optional().describe("Deliver even if the recipient is unknown or retired."),
         expiresInSeconds: z.number().int().min(60).max(604800).optional().describe(
           "Queue timeout for a direct message: if still undelivered after this many seconds it expires and is never delivered. Default 24 h (BRIDGE_QUEUE_TIMEOUT_MS)."),
       },
     },
-    async ({ from, to, body: text, bodyFile, threadId, idempotencyKey, replyTo, expectsReply, wake, allowUnregistered,
-      expiresInSeconds }) => {
+    async ({ from, to, body: text, bodyFile, threadId, idempotencyKey, replyTo, expectsReply, alsoAnswers, withdraws,
+      wake, allowUnregistered, expiresInSeconds }) => {
       if ((text === undefined) === (bodyFile === undefined)) throw new Error("Give exactly one of body and bodyFile.");
       const body = text ?? readBodyFile(bodyFile as string);
       if (from === BRIDGE_AGENT) throw new Error(`"${BRIDGE_AGENT}" is reserved for automated notices.`);
@@ -322,7 +326,7 @@ function main(): void {
       const check = await checkRecipient(store, to, { allowUnregistered, presenceOf });
       if (!check.ok) throw new Error(check.error);
       const warnings = [...check.warnings];
-      const { message, duplicate } = store.deliver({
+      const { message, duplicate, closed } = store.deliver({
         wake,
         fromAgent: from,
         toAgent: to,
@@ -331,6 +335,8 @@ function main(): void {
         idempotencyKey: idempotencyKey ?? null,
         replyTo: replyTo ?? null,
         expectsReply: expectsReply === true,
+        alsoAnswers,
+        withdraws,
         expiresInSeconds,
       });
       store.touch(from);
@@ -361,6 +367,8 @@ function main(): void {
         bodyLength: message.body.length,
         wake: store.wakes.forMessage(message.id),
         ...(duplicate ? { duplicate } : {}),
+        // agent-relay request-closing D222: what this send closed, so a session can tell an old bridge that dropped it.
+        ...(alsoAnswers !== undefined || withdraws !== undefined ? { closed } : {}),
         ...(warnings.length ? { warnings } : {}),
       });
     },

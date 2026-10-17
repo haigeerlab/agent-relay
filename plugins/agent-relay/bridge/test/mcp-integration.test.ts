@@ -218,3 +218,30 @@ test("bridge_wake_status explains a hold only for a real Claude hold", async () 
     await client.close();
   }
 });
+
+// agent-relay request-closing D217, D219, D222: through the server, the result says what was closed.
+test("bridge_send takes alsoAnswers and withdraws and echoes closed", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "claude-codex-bridge-mcp-"));
+  const dbPath = join(dir, "bridge.sqlite");
+  const client = await connect("closing-client", dbPath);
+  try {
+    for (const agent of ["asker", "twin", "helper"]) {
+      await client.callTool({ name: "bridge_register", arguments: { agent } });
+    }
+    const send = async (args: Record<string, unknown>) => payload(await client.callTool({ name: "bridge_send", arguments: args }));
+    const a = await send({ from: "asker", to: "helper", body: "q", expectsReply: true });
+    const b = await send({ from: "twin", to: "helper", body: "q too", expectsReply: true });
+    const answer = await send({ from: "helper", to: "asker", body: "done", replyTo: a.id, alsoAnswers: [b.id] });
+    assert.deepEqual(answer.closed, [{ id: b.id, kind: "answered" }]);
+    const plain = await send({ from: "helper", to: "asker", body: "fyi" });
+    assert.equal(plain.closed, undefined, "no closed field when neither list is given");
+    const c = await send({ from: "asker", to: "helper", body: "another", expectsReply: true });
+    const withdrawn = await send({ from: "asker", to: "helper", body: "never mind", withdraws: [c.id] });
+    assert.deepEqual(withdrawn.closed, [{ id: c.id, kind: "withdrawn" }]);
+    const refused = await client.callTool({ name: "bridge_send", arguments: { from: "helper", to: "asker", body: "x",
+      alsoAnswers: [b.id] } });
+    assert.match(errorText(refused), new RegExp(`#${b.id}.*already answered`));
+  } finally {
+    await client.close();
+  }
+});

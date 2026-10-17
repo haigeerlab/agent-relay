@@ -193,7 +193,8 @@ native runtime 的 `bridge_*` 工具。它不同于 `host-native-claude` 或 `ho
 **标记要回复**（awaiting-reply-view D206）：经信箱发出的是问题或派活（`exchange` 为 `ask` 或 `assign`，或用户就是
 在问对方、请对方做事）时，`bridge_send` 带 `expectsReply: true`；只是告知、转达结果或回复别人时不带。走原生通道投递的
 请求（Claude `SendMessage`、Codex 线程，包括 D195 里当场问答走原生的 Codex → Codex）一律不标，因为原生的回答不会带
-`replyTo`，标了就会一直挂着。
+`replyTo`，标了就会一直挂着。回复时一份答复覆盖了几条请求，就把 `replyTo` 之外的编号放进 `alsoAnswers`；自己的请求不再
+需要时用 `withdraws` 撤回；以结果里的 `closed` 为准，没有 `closed` 说明 bridge 早于 0.8.0（request-closing D217、D219、D222）。
 
 `bridge_send` 报名字“记在一个 Codex 任务名下”时，按 `collab` 的身份规则用原名重新登记后重发同一条（D209），不改名、
 不问用户；报 `Transport closed` 时停止重试，按 `collab` 请用户重开应用（D210）。补充或更正自己发出的消息时发一条新消息，

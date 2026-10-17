@@ -27,7 +27,7 @@ function fresh(): BridgeStore {
 }
 
 test("schema 6 adds messages.expects_reply; rows from an older schema read as unmarked", () => {
-  assert.equal(SCHEMA_VERSION, 6);
+  assert.ok(SCHEMA_VERSION >= 6);
   const dir = mkdtempSync(join(tmpdir(), "bridge-v5-v6-"));
   const path = join(dir, "bridge.sqlite");
   const first = new BridgeStore(path, { backupDir: join(dir, "backups") });
@@ -37,11 +37,12 @@ test("schema 6 adds messages.expects_reply; rows from an older schema read as un
   first.close();
   const raw = new DatabaseSync(path);
   raw.exec("ALTER TABLE messages DROP COLUMN expects_reply");
+  raw.exec("DROP TABLE IF EXISTS request_closures");
   raw.exec("PRAGMA user_version = 5");
   raw.close();
 
   const store = new BridgeStore(path, { backupDir: join(dir, "backups") });
-  assert.deepEqual(store.migration, { from: 5, to: 6, newer: false });
+  assert.deepEqual(store.migration, { from: 5, to: SCHEMA_VERSION, newer: false });
   assert.equal(store.messageById(old.id)?.expectsReply, false);
   store.close();
 });
@@ -268,6 +269,8 @@ async function withServer(run: (call: (name: string, args: Record<string, unknow
     // codex-identity-recovery D209, D210: the same server instructions tell sessions how to recover.
     assert.match(client.getInstructions() ?? "", /recorded for a Codex task, register that name again as the refusal says and repeat the call/);
     assert.match(client.getInstructions() ?? "", /Transport closed, stop retrying and ask the user to reopen the app/);
+    // request-closing D217, D219, D222: and how to close several requests or withdraw one.
+    assert.match(client.getInstructions() ?? "", /name the others in alsoAnswers; withdraw your own requests you no longer need with withdraws; after either, trust closed/);
     await run(async (name, args) => {
       const result = await client.callTool({ name, arguments: args });
       const text = (result.content as Array<{ text: string }>)[0]!.text;

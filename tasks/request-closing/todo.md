@@ -1,12 +1,12 @@
 # Todo: request-closing
 
-- [ ] Task 1: schema 7 and the closure rule (D216)
-- [ ] Task 2: `alsoAnswers` (D217)
-- [ ] Task 3: the other requester (D218)
-- [ ] Task 4: `withdraws` (D219)
-- [ ] Checkpoint (report): bridge green
-- [ ] Task 5: hooks, skills and instructions (assumption 4, D221)
-- [ ] Task 6: interface 2.3 and bookkeeping
-- [ ] Checkpoint (report): local validation
-- [ ] Task 7: PR and CI
+- [x] Task 1: schema 7 and the closure rule (D216) — red first (`SCHEMA_VERSION` was 6, no table), then the v7 step and `OPEN_REQUEST` with no closure row; the two older tests that pinned schema 6 now migrate to the current schema (they drop `request_closures` when faking an old file)
+- [x] Task 2: `alsoAnswers` (D217) — red first (six cases), then the list shape check up front, the open checks inside `deliver()`'s transaction after the idempotent returns, closure rows with a primary-key conflict turned into the readable refusal, `contentDifferences` comparing sorted lists, `replies`/`closedBy` in the outbox and status, `closed` in the `bridge_send` result (D222); two stores on one file cannot close one request twice
+- [x] Task 3: the other requester (D218) — one `bridge` notice per requester and answer on the first request's thread (none to the answer's recipient, the answerer, a retired or unknown requester), `messagePart` reads the answer with `direction: "answer"`; red against a build without the notice call
+- [x] Task 4: `withdraws` (D219) — red first (five cases), then the sender's own open requests to this recipient only, outcome `withdrawn` (a `replyTo` still wins, `closedBy` keeps withdrawn), no read and no notice, retries and a conflict with a later `alsoAnswers`; plus a forced failure after the closures rolls everything back, and an acknowledgement still closes nothing
+- [x] Checkpoint (report): bridge green — `npm run typecheck` clean, `npm test` 249 pass
+- [x] Task 5: hooks, skills and instructions (assumption 4, D221) — red first (doctor on a schema 7 file), then `MAILBOX_SCHEMA_VERSIONS` adds 7 and the rollback caveat names schema 7; the retire and delegation-backend tests that used 7 as "newer" now use the next version; `collab`, `session-routing`, the server instructions and `INSTRUCTIONS.md` say to list every answered request, withdraw what is not needed and trust `closed`; an MCP test sends both lists through the server
+- [x] Task 6: interface 2.3 and bookkeeping — `interface.json` 2.3, `test_packaging`, `relay_status.py` docstring, `docs/collaboration-interface.md` (version line, `bridge_send`, `bridge_outbox`, `bridge_wake_status`, `bridge_inbox`), `UPSTREAM.md` row and manifest, `bridge/CHANGELOG.md` 0.8.0, CHANGELOG `[Unreleased]` with the upgrade order and both upgrade-window caveats; README status lines move to 2.3 in the release PR
+- [x] Checkpoint (report): local validation — `scripts/validate.sh` pass on Python 3.9.6, 3.10.7, 3.14.3 with Node v24.18.0 first on PATH (47 files, 854 tests each; bridge `npm run check` 250 ok)
+- [ ] Task 7: PR and CI — #130 opened; round-2 review (#4551): D35 swallowed a resent reply's new `alsoAnswers`/`withdraws` (fixed: it folds only when the earlier reply closed the same lists, red first), and an overdue request is now expired before the closure checks (red first); item 3 ("closed shorter than the list") cannot happen any more, so the wording stays
 - [ ] Checkpoint (gate): module review
