@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-10-17
+
 接口 **2.5**（只新增内容，Spec Guard 0.56.0 或更新照样接受），信箱 schema 仍为 **7**，委派库仍为 schema 3。来自 2026-10-17
 的反馈：升级时 bridge 进程被结束，一个 Codex 任务的信箱连接断开（Transport closed），ChatGPT 应用照样确认“已开始新一轮”，
 消息被记为 accepted，却在那一轮里读不到，发件方和巡视看到的一直是“已送达、对方在运行”。
@@ -14,6 +16,32 @@
   重新登记前就读了，读取没被记下。Claude 收件方不变；不加新状态，accepted 仍是终态。
 - **含义澄清**（D231，只改文档）：接口文档写清 `bridge_agents` 的 `lastSeen`／`lastActivity` 不是心跳、
   `presence.state` 的 `running` 不代表信箱连接正常、`waiting` 和 `owesReplies` 各在什么时候清零。
+
+### 从 0.8.1 升级
+
+schema 不变，插件和运行时先升哪个都行。
+
+1. 两个宿主都更新插件（详见 README“更新插件”）：Claude Code 从 GitHub 装的，先 `claude plugin marketplace update
+   agent-relay-marketplace`，再 `claude plugin update --scope user agent-relay@agent-relay-marketplace`；Codex 把
+   `~/.codex/config.toml` 里的 `ref` 改成 `"v0.8.2"` 后 `codex plugin marketplace upgrade`、`codex plugin add
+   agent-relay@agent-relay-marketplace`；从本地克隆装的先 `git -C <克隆> pull --ff-only`，Codex 再 `codex plugin add`。
+2. **升级运行时**：关闭所有使用信箱的会话或只结束 bridge（见 README“升级运行时”），确认 `pgrep -fl
+   "agent-relay/runtime/dist/server.js"` 没有输出，再执行 `python3 -B <插件目录>/hooks/native_collaboration_runtime.py
+   upgrade --confirm`，输出应为 `"state": "upgraded"`。信箱 schema 仍是 7，不做迁移。
+3. 新开 Claude Code 会话；Codex 用 ⌘Q 完全退出 ChatGPT 应用再打开（之后 `doctor` 的 `codex-restart` 应为 ok）。
+
+### 想退回 0.8.1
+
+关掉所有会话后 `rollback --confirm` 退回运行时，并把两个宿主的插件退回 v0.8.1，然后新开会话。schema 相同，只退一边也
+能读信箱。
+
+### 已知问题
+
+- 升级后、重启 ChatGPT 之前被唤醒的 Codex 任务，正是本版要提示的情况：5 分钟后会收到“送达存疑”通知，照第 3 步
+  重启 ChatGPT 即可。
+- Codex 任务在新的 bridge 进程里没先重新登记就读信箱，读取不会被记下，5 分钟后同样会被判为存疑；通知里列出了这种
+  可能，collab 技能也要求先重新登记再读一次。
+- 发件方本身也是信箱连接已断开的 Codex 任务时，它同样收不到 `bridge` 发来的存疑通知。
 
 ## [0.8.1] - 2026-10-17
 
