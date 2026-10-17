@@ -12,11 +12,13 @@ import { migrate, SCHEMA_VERSION, type MigrationResult } from "./schema.js";
 /**
  * agent-relay awaiting-reply-view D202: an open request (aliased `m`) is a direct message its sender marked
  * expectsReply that has no linked reply, did not fail or expire, and whose recipient is not retired. An
- * acknowledgement does not close it. Only the recipient can link a reply (identity-check).
+ * acknowledgement does not close it. Only the recipient can link a reply (identity-check). request-closing D216: nor
+ * is it closed by a row in `request_closures` (answered through `alsoAnswers`, or withdrawn by its sender).
  */
 const OPEN_REQUEST = `m.expects_reply = 1 AND m.to_agent != '*'
   AND COALESCE(m.delivery_state, 'queued') NOT IN ('failed', 'expired')
   AND NOT EXISTS (SELECT 1 FROM messages x WHERE x.reply_to = m.id)
+  AND NOT EXISTS (SELECT 1 FROM request_closures rc WHERE rc.request_id = m.id)
   AND NOT EXISTS (SELECT 1 FROM agents ra WHERE ra.name = m.to_agent AND ra.retired_at IS NOT NULL)`;
 
 /** A message as stored and returned by the bridge. */

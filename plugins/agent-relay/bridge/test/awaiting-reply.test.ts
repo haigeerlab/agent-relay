@@ -27,7 +27,7 @@ function fresh(): BridgeStore {
 }
 
 test("schema 6 adds messages.expects_reply; rows from an older schema read as unmarked", () => {
-  assert.equal(SCHEMA_VERSION, 6);
+  assert.ok(SCHEMA_VERSION >= 6);
   const dir = mkdtempSync(join(tmpdir(), "bridge-v5-v6-"));
   const path = join(dir, "bridge.sqlite");
   const first = new BridgeStore(path, { backupDir: join(dir, "backups") });
@@ -37,11 +37,12 @@ test("schema 6 adds messages.expects_reply; rows from an older schema read as un
   first.close();
   const raw = new DatabaseSync(path);
   raw.exec("ALTER TABLE messages DROP COLUMN expects_reply");
+  raw.exec("DROP TABLE IF EXISTS request_closures");
   raw.exec("PRAGMA user_version = 5");
   raw.close();
 
   const store = new BridgeStore(path, { backupDir: join(dir, "backups") });
-  assert.deepEqual(store.migration, { from: 5, to: 6, newer: false });
+  assert.deepEqual(store.migration, { from: 5, to: SCHEMA_VERSION, newer: false });
   assert.equal(store.messageById(old.id)?.expectsReply, false);
   store.close();
 });
