@@ -8,7 +8,7 @@
 agent-relay 原来是 [Spec Guard](https://github.com/haigeerlab/spec-guard-plugin) 的可选协作能力，现在拆成独立插件：
 只想让会话互相通信的项目（例如设计项目）装它就够了。
 
-> 状态：0.7.2（接口 2.2，需要 Spec Guard 0.56.0 或更新）。变化、升级步骤和已知问题见 [CHANGELOG.md](CHANGELOG.md)；
+> 状态：0.8.0（接口 2.3，需要 Spec Guard 0.56.0 或更新）。变化、升级步骤和已知问题见 [CHANGELOG.md](CHANGELOG.md)；
 > 各项目标见 [docs/collaboration-interface.md](docs/collaboration-interface.md) 的“加固目标”栏。
 
 ## 能做什么
@@ -42,7 +42,7 @@ claude plugin install agent-relay@agent-relay-marketplace
 Codex（固定到发布的版本）：
 
 ```bash
-codex plugin marketplace add haigeerlab/agent-relay --ref v0.7.2
+codex plugin marketplace add haigeerlab/agent-relay --ref v0.8.0
 codex plugin add agent-relay@agent-relay-marketplace
 ```
 
@@ -235,7 +235,7 @@ Claude Code 会话卡在授权上时，这台 Mac 会弹一条通知，会话目
 ## 与 Spec Guard 的关系
 
 两个插件互相独立，可以只装其中一个。同时安装时，Spec Guard 读取本插件根目录的
-[`interface.json`](plugins/agent-relay/interface.json)（接口 2.2；Spec Guard 0.56.0 起接受 `>=1.0,<3.0`）判断 agent-relay 是否可用，只通过 agent-relay 的
+[`interface.json`](plugins/agent-relay/interface.json)（接口 2.3；Spec Guard 0.56.0 起接受 `>=1.0,<3.0`）判断 agent-relay 是否可用，只通过 agent-relay 的
 skill 名使用协作；未安装时 Spec Guard 的工作流照常运行，只在需要协作的步骤提示安装。
 
 ### 从 Spec Guard 的协作能力迁移
@@ -286,8 +286,8 @@ Claude Code 会话在**启动时**定下用哪一份插件，之后一直用这�
 插件更新带来新版 bridge 时，`status` 会报告 `bridge.current: false`。agent 会先问你，在你关掉所有正在用信箱的
 会话后再执行 `python3 -B <插件目录>/hooks/native_collaboration_runtime.py upgrade --confirm`：先把邮箱备份到 `~/.agent-relay/backups/<时间>/`，
 在旁边装好新版，把 `mailbox/` 和 `data/` 挪过去再整体替换，核对通过才算完成，失败会自动换回。旧目录
-`runtime.previous-<时间>` 保留，确认无误后由你删除；宿主接入不用动。新版 bridge 会把邮箱升级到 schema 6（从更早的 schema 一次升到位，升级前自动备份）：
-回到旧运行时还能打开它，但旧版 agent-relay 插件读不了新 schema（0.6.11 最多认到 5），所以回滚时要连插件一起回滚，或者用备份恢复邮箱
+`runtime.previous-<时间>` 保留，确认无误后由你删除；宿主接入不用动。新版 bridge 会把邮箱升级到 schema 7（从更早的 schema 一次升到位，升级前自动备份）：
+回到旧运行时还能打开它，但旧版 agent-relay 插件读不了新 schema（0.7.x 最多认到 6），所以回滚时要连插件一起回滚，或者用备份恢复邮箱
 （之后收到的消息会丢失）。
 
 停 bridge 有两种方式，升级前任选其一，然后在“终端”里用 `pgrep -fl "agent-relay/runtime/dist/server.js"` 确认没有输出：

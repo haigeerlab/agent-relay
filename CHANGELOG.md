@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-17
+
 接口 **2.3**（只新增内容，Spec Guard 0.56.0 或更新照样接受），信箱 schema **7**，委派库仍为 schema 3。来自 2026-10-17
 的使用观测：欠回复数只增不减，真实信箱里开着的 53 条请求全部发给同一个审查方，主要是两方各问一次、一份答复只能用
 `replyTo` 挂一条，或者答复没带 `replyTo`。
@@ -17,6 +19,30 @@
 - **升级窗口里的两点**：还在跑的 0.7.x bridge 看不到关闭记录，重启前它的视图仍会统计已关闭的请求；新会话连着旧 bridge
   发 `alsoAnswers` 或 `withdraws` 时，旧 bridge 会悄悄丢掉这两个参数，结果里不会有 `closed`，以此判断什么都没关。
   所以升级前要按惯例结束所有 bridge 进程。
+
+### 从 0.7.2 升级
+
+**顺序不能反：先插件，后运行时。** 0.7.x 的钩子只认到 schema 6，先升运行时的话，doctor、`retire` 和委派会提示更新插件。
+
+1. 两个宿主都更新插件（详见 README“更新插件”）：Claude Code 从 GitHub 装的，先 `claude plugin marketplace update
+   agent-relay-marketplace`，再 `claude plugin update --scope user agent-relay@agent-relay-marketplace`；Codex 把
+   `~/.codex/config.toml` 里的 `ref` 改成 `"v0.8.0"` 后 `codex plugin marketplace upgrade`、`codex plugin add
+   agent-relay@agent-relay-marketplace`；从本地克隆装的先 `git -C <克隆> pull --ff-only`，Codex 再 `codex plugin add`。
+2. **升级运行时**：关闭所有使用信箱的会话或只结束 bridge（见 README“升级运行时”），确认 `pgrep -fl
+   "agent-relay/runtime/dist/server.js"` 没有输出，再执行 `python3 -B <插件目录>/hooks/native_collaboration_runtime.py
+   upgrade --confirm`，输出应为 `"state": "upgraded"`。新 bridge 第一次打开信箱时把它从 6 升到 7，升级前自动备份。
+3. 新开 Claude Code 会话；Codex 用 ⌘Q 完全退出 ChatGPT 应用再打开（之后 `doctor` 的 `codex-restart` 应为 ok）。
+
+### 想退回 0.7.2
+
+关掉所有会话后 `rollback --confirm` 退回运行时，**并且**把两个宿主的插件退回 v0.7.2，然后新开会话。0.7.2 的 bridge
+能以兼容模式打开 schema 7 的信箱，但看不到关闭记录；0.7.2 的钩子读不了 schema 7，所以插件必须一起退，或者用备份恢复
+信箱（之后收到的消息会丢失）。
+
+### 已知问题
+
+- 已经开着的请求不会自动关闭，要由收件方用 `alsoAnswers` 或发件方用 `withdraws` 清理。
+- 用了新参数后，以结果里的 `closed` 为准；结果里没有 `closed` 说明还连着旧 bridge，什么都没关。
 
 ## [0.7.2] - 2026-10-17
 
