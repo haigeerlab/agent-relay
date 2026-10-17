@@ -310,13 +310,15 @@ function main(): void {
           "Mark a direct message as a request that expects an answer (a question or work sent through the mailbox). The recipient answers it with replyTo; until then it is listed by bridge_outbox awaitingReply and the recipient's owesReplies in bridge_agents. Not for broadcasts or notices."),
         alsoAnswers: z.array(z.number().int().positive()).max(20).optional().describe(
           "Ids of further open requests addressed to you that this message also answers, besides replyTo (for example the same question asked by two agents). Each closes as answered; if any cannot be closed, nothing is sent. The result's closed lists what was closed: trust it, and if it is missing the bridge is older than 0.8.0 and closed nothing."),
+        withdraws: z.array(z.number().int().positive()).max(20).optional().describe(
+          "Ids of your own open requests to this recipient that you no longer need. They close as withdrawn, not answered, and leave bridge_outbox awaitingReply and the recipient's owesReplies; the recipient may still answer one with replyTo. If any cannot be withdrawn, nothing is sent. Check closed in the result as for alsoAnswers."),
         allowUnregistered: z.boolean().optional().describe("Deliver even if the recipient is unknown or retired."),
         expiresInSeconds: z.number().int().min(60).max(604800).optional().describe(
           "Queue timeout for a direct message: if still undelivered after this many seconds it expires and is never delivered. Default 24 h (BRIDGE_QUEUE_TIMEOUT_MS)."),
       },
     },
-    async ({ from, to, body: text, bodyFile, threadId, idempotencyKey, replyTo, expectsReply, alsoAnswers, wake,
-      allowUnregistered, expiresInSeconds }) => {
+    async ({ from, to, body: text, bodyFile, threadId, idempotencyKey, replyTo, expectsReply, alsoAnswers, withdraws,
+      wake, allowUnregistered, expiresInSeconds }) => {
       if ((text === undefined) === (bodyFile === undefined)) throw new Error("Give exactly one of body and bodyFile.");
       const body = text ?? readBodyFile(bodyFile as string);
       if (from === BRIDGE_AGENT) throw new Error(`"${BRIDGE_AGENT}" is reserved for automated notices.`);
@@ -334,6 +336,7 @@ function main(): void {
         replyTo: replyTo ?? null,
         expectsReply: expectsReply === true,
         alsoAnswers,
+        withdraws,
         expiresInSeconds,
       });
       store.touch(from);
@@ -365,7 +368,7 @@ function main(): void {
         wake: store.wakes.forMessage(message.id),
         ...(duplicate ? { duplicate } : {}),
         // agent-relay request-closing D222: what this send closed, so a session can tell an old bridge that dropped it.
-        ...(alsoAnswers !== undefined ? { closed } : {}),
+        ...(alsoAnswers !== undefined || withdraws !== undefined ? { closed } : {}),
         ...(warnings.length ? { warnings } : {}),
       });
     },

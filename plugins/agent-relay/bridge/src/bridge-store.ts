@@ -80,6 +80,8 @@ export interface SendInput {
   expectsReply?: boolean;
   /** agent-relay request-closing D217: further open requests addressed to the sender that this message answers. */
   alsoAnswers?: number[];
+  /** agent-relay request-closing D219: the sender's own open requests to this recipient that it withdraws. */
+  withdraws?: number[];
 }
 
 /** agent-relay request-closing D216: how a request was closed other than by a `replyTo` link. */
@@ -161,7 +163,7 @@ export interface OutboxEntry {
 }
 
 /** agent-relay ops-commands (D45): where one message stands. */
-export type MessageOutcome = "pending" | "acknowledged" | "replied" | "failed" | "expired";
+export type MessageOutcome = "pending" | "acknowledged" | "replied" | "withdrawn" | "failed" | "expired";
 
 export interface MessageStatus {
   message: { id: number; fromAgent: string; toAgent: string; threadId: string | null; createdAt: string;
@@ -170,8 +172,10 @@ export interface MessageStatus {
   expiresAt: string | null;
   acknowledgedAt: string | null;
   replies: number[];
+  /** agent-relay request-closing D220: the message that closed this request other than by `replyTo`. */
+  closedBy?: { messageId: number; kind: ClosureKind };
   wake: WakeJob | null;
-  /** replied, else acknowledged, else failed or expired, else pending (`unknown` may still resolve by evidence). */
+  /** replied, else withdrawn, else acknowledged, else failed or expired, else pending (`unknown` may still resolve). */
   outcome: MessageOutcome;
 }
 
@@ -371,6 +375,10 @@ export class BridgeStore {
     if (replyTo !== null && alsoAnswers.includes(replyTo)) {
       throw new RequestCloseError(`#${replyTo} is also the replyTo; list only the other requests in alsoAnswers.`);
     }
+    const withdraws = input.withdraws ?? [];
+    closureListShape("withdraws", withdraws, input.toAgent);
+    const both = withdraws.find((id) => alsoAnswers.includes(id));
+    if (both !== undefined) throw new RequestCloseError(`#${both} is named in both alsoAnswers and withdraws.`);
     let threadId = input.threadId ?? null;
     let answersOwnMessage = false;
     if (replyTo !== null) {
@@ -394,8 +402,9 @@ export class BridgeStore {
         // closed its requests returns the stored message instead of refusing itself.
         const closed = this.closuresBy(stored.id);
         const differs = contentDifferences(
-          { ...stored, alsoAnswers: closed.filter((c) => c.kind === "answered").map((c) => c.id) },
-          { toAgent: input.toAgent, body: input.body, threadId, replyTo, expectsReply, alsoAnswers });
+          { ...stored, alsoAnswers: closed.filter((c) => c.kind === "answered").map((c) => c.id),
+            withdraws: closed.filter((c) => c.kind === "withdrawn").map((c) => c.id) },
+          { toAgent: input.toAgent, body: input.body, threadId, replyTo, expectsReply, alsoAnswers, withdraws });
         if (differs.length && input.fromAgent !== "bridge") {
           throw conflictError(idempotencyKey, input.fromAgent, stored.id, stored.deliveryState, differs);
         }
@@ -420,6 +429,7 @@ export class BridgeStore {
     // agent-relay request-closing D217: checked here, inside deliver()'s write transaction and after the idempotent
     // returns, so another bridge process cannot close the same request in between.
     for (const id of alsoAnswers) this.assertClosable(id, "answer", input.fromAgent);
+    for (const id of withdraws) this.assertClosable(id, "withdraw", input.fromAgent, input.toAgent);
 
     const direct = input.toAgent !== "*";
     // agent-relay durable-ordering (D30, D31): after the idempotent return, so a retry of a stored message passes.
@@ -441,7 +451,9 @@ export class BridgeStore {
     if (input.wake !== false) this.wakes.enqueue(message);
     // agent-relay mailbox-polish D155: the recipient answering a direct message has it, as surely as a fetch.
     if (answersOwnMessage && replyTo !== null) this.wakes.recordRead(input.fromAgent, [replyTo]);
-    const closed = this.closeRequests(message.id, alsoAnswers, "answered");
+    // D219: a withdrawal is neither an answer nor delivery evidence, so it records no read and sends no notice.
+    const closed = [...this.closeRequests(message.id, alsoAnswers, "answered"),
+      ...this.closeRequests(message.id, withdraws, "withdrawn")].sort((a, b) => a.id - b.id);
     if (alsoAnswers.length) {
       this.wakes.recordRead(input.fromAgent, alsoAnswers);
       this.noticeOtherRequesters(message, alsoAnswers);
@@ -545,7 +557,11 @@ export class BridgeStore {
       UNION SELECT message_id FROM request_closures WHERE request_id = ? AND kind = 'answered' ORDER BY 1`)
       .all(id, id) as Array<{ id: number | bigint }>).map((row) => Number(row.id));
     const acknowledgedAt = ack?.acked_at ?? null;
+    const closure = this.db.prepare("SELECT message_id, kind FROM request_closures WHERE request_id = ?").get(id) as
+      { message_id: number | bigint; kind: ClosureKind } | undefined;
+    // request-closing D220: a reply wins over a withdrawal; closedBy keeps what was recorded.
     const outcome: MessageOutcome = replies.length ? "replied"
+      : closure?.kind === "withdrawn" ? "withdrawn"
       : acknowledgedAt ? "acknowledged"
       : message.deliveryState === "failed" ? "failed"
       : message.deliveryState === "expired" ? "expired"
@@ -558,6 +574,7 @@ export class BridgeStore {
       expiresAt: message.expiresAt,
       acknowledgedAt,
       replies,
+      ...(closure ? { closedBy: { messageId: Number(closure.message_id), kind: closure.kind } } : {}),
       wake: this.wakes.forMessage(id),
       outcome,
     };

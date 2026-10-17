@@ -177,3 +177,109 @@ test("no notice when the answer goes to the requester itself, or the requester i
   assert.equal(store.inbox("other", { includeAcknowledged: true }).some((m) => m.fromAgent === "bridge"), false);
   store.close();
 });
+
+// D219: a sender withdraws its own open request, recorded as withdrawn, never as answered.
+test("withdraws closes the sender's own request as withdrawn; no read, no answer (D219, D220)", () => {
+  const store = fresh();
+  const r = store.send({ fromAgent: "asker", toAgent: "helper", body: "review X", expectsReply: true });
+  const { message: w, closed } = store.deliver({ fromAgent: "asker", toAgent: "helper", body: "no longer needed",
+    withdraws: [r.id] });
+  assert.deepEqual(closed, [{ id: r.id, kind: "withdrawn" }]);
+  assert.equal(store.owesReplies().get("helper"), undefined);
+  const status = store.messageStatus(r.id);
+  assert.equal(status?.outcome, "withdrawn");
+  assert.deepEqual(status?.replies, []);
+  assert.equal(status?.deliveryState, "queued", "a withdrawal is not delivery evidence");
+  const entry = store.outbox("asker", { includeAcknowledged: true }).entries.find((e) => e.id === r.id);
+  assert.deepEqual(entry?.closedBy, { messageId: w.id, kind: "withdrawn" });
+  assert.deepEqual(entry?.replies, []);
+  store.close();
+});
+
+test("only the sender withdraws, only to the request's recipient, only while open; nothing stored on refusal (D219)", () => {
+  const store = fresh();
+  const theirs = store.send({ fromAgent: "twin", toAgent: "helper", body: "q", expectsReply: true });
+  const toOther = store.send({ fromAgent: "asker", toAgent: "other", body: "q", expectsReply: true });
+  const answered = store.send({ fromAgent: "asker", toAgent: "helper", body: "q", expectsReply: true });
+  const reply = store.send({ fromAgent: "helper", toAgent: "asker", body: "a", replyTo: answered.id });
+  const sent = () => store.outbox("asker", { includeAcknowledged: true }).entries.length;
+  const before = sent();
+  const cases: Array<[number, RegExp]> = [
+    [theirs.id, new RegExp(`#${theirs.id}.*sent by "twin"`)],
+    [toOther.id, new RegExp(`#${toOther.id}.*addressed to "other"`)],
+    [answered.id, new RegExp(`#${answered.id}.*already answered by #${reply.id}`)],
+  ];
+  for (const [id, pattern] of cases) {
+    assert.throws(() => store.deliver({ fromAgent: "asker", toAgent: "helper", body: "withdraw", withdraws: [id] }), pattern);
+  }
+  assert.equal(sent(), before);
+  store.close();
+});
+
+test("withdraw and ask anew in one message; a withdrawn request cannot be answered through alsoAnswers (D219)", () => {
+  const store = fresh();
+  const old = store.send({ fromAgent: "asker", toAgent: "helper", body: "review v1", expectsReply: true });
+  const { message: fresh2, closed } = store.deliver({ fromAgent: "asker", toAgent: "helper", body: "review v2 instead",
+    withdraws: [old.id], expectsReply: true });
+  assert.deepEqual(closed, [{ id: old.id, kind: "withdrawn" }]);
+  assert.deepEqual(store.owesReplies().get("helper")?.ids, [fresh2.id]);
+  assert.throws(() => store.deliver({ fromAgent: "helper", toAgent: "asker", body: "a", replyTo: fresh2.id,
+    alsoAnswers: [old.id] }), new RegExp(`#${old.id}.*withdrawn by #${fresh2.id}`));
+  store.close();
+});
+
+test("a replyTo on a withdrawn request is allowed and wins the outcome (D220)", () => {
+  const store = fresh();
+  const r = store.send({ fromAgent: "asker", toAgent: "helper", body: "q", expectsReply: true });
+  const { message: w } = store.deliver({ fromAgent: "asker", toAgent: "helper", body: "withdrawn", withdraws: [r.id] });
+  const reply = store.send({ fromAgent: "helper", toAgent: "asker", body: "already done", replyTo: r.id });
+  const status = store.messageStatus(r.id);
+  assert.equal(status?.outcome, "replied");
+  assert.deepEqual(status?.replies, [reply.id]);
+  const entry = store.outbox("asker", { includeAcknowledged: true }).entries.find((e) => e.id === r.id);
+  assert.deepEqual(entry?.closedBy, { messageId: w.id, kind: "withdrawn" });
+  store.close();
+});
+
+test("withdraws: retries, conflicts with an answer, and the list shape (D219)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "bridge-withdraw-race-"));
+  const path = join(dir, "bridge.sqlite");
+  const one = fresh(path);
+  const two = new BridgeStore(path);
+  const r = one.send({ fromAgent: "asker", toAgent: "helper", body: "q", expectsReply: true });
+  const first = one.deliver({ fromAgent: "asker", toAgent: "helper", body: "withdrawn", idempotencyKey: "w", withdraws: [r.id] });
+  const again = one.deliver({ fromAgent: "asker", toAgent: "helper", body: "withdrawn", idempotencyKey: "w", withdraws: [r.id] });
+  assert.equal(again.duplicate, true);
+  assert.equal(again.message.id, first.message.id);
+  assert.deepEqual(again.closed, [{ id: r.id, kind: "withdrawn" }]);
+  assert.throws(() => one.deliver({ fromAgent: "asker", toAgent: "helper", body: "withdrawn", idempotencyKey: "w",
+    withdraws: [] }), /withdraws/);
+  assert.throws(() => two.deliver({ fromAgent: "helper", toAgent: "asker", body: "late answer", alsoAnswers: [r.id] }),
+    new RegExp(`#${r.id}.*withdrawn by #${first.message.id}`));
+  assert.throws(() => one.deliver({ fromAgent: "asker", toAgent: "*", body: "all", withdraws: [r.id] }), /broadcast/);
+  one.close();
+  two.close();
+});
+
+test("a failure after the closures are written rolls back the message and the closures (D216)", () => {
+  const store = fresh();
+  const b = store.send({ fromAgent: "twin", toAgent: "helper", body: "q", expectsReply: true });
+  const before = store.outbox("helper", { includeAcknowledged: true }).entries.length;
+  const wakes = store.wakes as unknown as { recordRead: (agent: string, ids: number[]) => void };
+  const original = wakes.recordRead.bind(store.wakes);
+  wakes.recordRead = () => { throw new Error("forced after the closures"); };
+  assert.throws(() => store.deliver({ fromAgent: "helper", toAgent: "asker", body: "a", alsoAnswers: [b.id] }), /forced/);
+  wakes.recordRead = original;
+  assert.equal(store.outbox("helper", { includeAcknowledged: true }).entries.length, before);
+  assert.deepEqual(store.owesReplies().get("helper")?.ids, [b.id]);
+  assert.equal(store.messageStatus(b.id)?.closedBy, undefined);
+  store.close();
+});
+
+test("an acknowledgement still closes nothing (D202 unchanged)", () => {
+  const store = fresh();
+  const r = store.send({ fromAgent: "asker", toAgent: "helper", body: "q", expectsReply: true });
+  store.ack("helper", [r.id]);
+  assert.deepEqual(store.owesReplies().get("helper")?.ids, [r.id]);
+  store.close();
+});
