@@ -334,8 +334,9 @@ export class WakeQueue {
 
   /**
    * accepted-unread-notice D228: Codex pings the app accepted at least five minutes (and at most a day) ago whose
-   * direct message is still unread and unacknowledged, oldest first; `agent` limits them to one recipient. The job's own
-   * target decides, not the recipient's current binding. Premise: a task that read its message proved its name in that
+   * direct message is still unread and unacknowledged, oldest first; `agent` limits them to one recipient. A retired
+   * recipient is left out (round-2 review of #137: its task is no longer used). The job's own target decides, not the
+   * recipient's current binding. Premise: a task that read its message proved its name in that
    * bridge process first, so the read was recorded (a read by an unproven name is not).
    */
   acceptedUnread(now = Date.now(), agent?: string): AcceptedUnread[] {
@@ -345,6 +346,7 @@ export class WakeQueue {
         AND m.delivery_state = 'accepted' AND m.read_at IS NULL
         AND m.delivery_changed_at <= ? AND m.delivery_changed_at > ?
         AND NOT EXISTS (SELECT 1 FROM acknowledgements a WHERE a.message_id = m.id AND a.agent = w.agent)
+        AND NOT EXISTS (SELECT 1 FROM agents ra WHERE ra.name = w.agent AND ra.retired_at IS NOT NULL)
         ${agent === undefined ? "" : "AND w.agent = ?"}
       ORDER BY m.id`)
       .all(now - ACCEPTED_UNREAD_AFTER_MS, now - ACCEPTED_UNREAD_WINDOW_MS, ...(agent === undefined ? [] : [agent]));

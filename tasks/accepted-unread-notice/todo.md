@@ -7,5 +7,5 @@
 - [x] Checkpoint (report): bridge green — `npm run typecheck` clean, `npm test` 265 pass
 - [x] Task 5: interface 2.5, docs and bookkeeping (D231) — `interface.json` 2.5, `test_packaging`, `relay_status.py`; `docs/collaboration-interface.md` (version line, `wake.doubt` in `bridge_outbox` and `bridge_wake_status`, `waiting.doubtfulIds` and the D231 field meanings in `bridge_agents`, the missing full stop); `bridge/docs/BACKGROUND-WAKE.md`; `skills/collab` (doubtful delivery, register again and read once more); `UPSTREAM.md` row, manifest regenerated after the last bridge edit; `bridge/CHANGELOG.md` 0.8.2; CHANGELOG `[Unreleased]` with “new marker” and “clarified meaning” separately
 - [x] Checkpoint (report): local validation — `scripts/validate.sh` pass on Python 3.9.6, 3.10.7, 3.14.3 with Node v24.18.0 first on PATH (47 files, 869 tests each; bridge `npm run check` 265 ok)
-- [ ] Task 6: PR and CI
+- [x] Task 6: PR and CI — #137, the four CI jobs green on 51ab01e; the round-2 coordinator's review (#5015, mergeable, one low item) fixed red first in the same PR: a retired recipient's accepted messages are never doubtful (`acceptedUnread` leaves retired recipients out, as `OPEN_REQUEST` does); `validate.sh` pass again on Python 3.9, 3.10, 3.14 (870 tests each)
 - [ ] Checkpoint (gate): module review

@@ -64,6 +64,13 @@ test("D228: a read, acknowledged, old or Claude-targeted message is never doubtf
   assert.deepEqual(doubtful(s), []);
 });
 
+test("D228 (round-2 review of #137): a retired recipient's messages are never doubtful", () => {
+  const s = store();
+  accepted(s, 6 * MIN, "to a task no longer used");
+  s.retire("c", { by: "a", closeBacklog: false });
+  assert.deepEqual(doubtful(s), []);
+});
+
 test("D228 (round-2 review of #135): the job's own target decides, not the recipient's current binding", () => {
   const s = store();
   const toCodex = accepted(s, 6 * MIN, "pinged through Codex");
