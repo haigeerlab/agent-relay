@@ -114,3 +114,24 @@ test("a plain bridge_agents call is never paged and keeps every field (D223)", a
     await client.close();
   }
 });
+
+test("any caller may read a message's status by id (D224)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "bridge-status-open-"));
+  const dbPath = join(dir, "bridge.sqlite");
+  const parties = await connect(dbPath);
+  const third = await connect(dbPath);
+  try {
+    for (const agent of ["asker", "helper"]) await parties.callTool({ name: "bridge_register", arguments: { agent } });
+    await third.callTool({ name: "bridge_register", arguments: { agent: "observer" } });
+    const sent = payload(await parties.callTool({ name: "bridge_send",
+      arguments: { from: "asker", to: "helper", body: "q", expectsReply: true, wake: false } }));
+    const status = payload(await third.callTool({ name: "bridge_wake_status", arguments: { messageId: sent.id } }));
+    assert.equal(status.message.id, sent.id);
+    assert.equal(status.outcome, "pending");
+    assert.match(errorText(await third.callTool({ name: "bridge_wake_status", arguments: { messageId: 999999 } })),
+      /No message #999999/);
+  } finally {
+    await parties.close();
+    await third.close();
+  }
+});

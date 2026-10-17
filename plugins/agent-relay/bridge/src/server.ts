@@ -98,15 +98,11 @@ function main(): void {
       ...(host ? {} : { note: "This bridge cannot see its session (Codex does not pass one to MCP servers): host, title and project are unknown, and only names registered through this connection are listed." }),
     };
   };
-  // agent-relay ops-commands (D45): one message's status, for its sender or recipient only.
-  const statusFor = (id: number, as?: string): MessageStatus => {
+  // agent-relay ops-commands (D45): one message's status. agents-view-polish D224: for any caller, as bridge_inbox
+  // already shows any message in full; reading a status records nothing.
+  const statusFor = (id: number, _as?: string): MessageStatus => {
     const status = store.messageStatus(id);
     if (!status) throw new Error(`No message #${id}.`);
-    const { fromAgent, toAgent } = status.message;
-    const party = (name: string) => (as === undefined ? caller.owns(name, store.getAgent(name)) : as === name);
-    if (!(party(fromAgent) || toAgent === "*" || party(toAgent))) {
-      throw new Error(`Message #${id} can be checked only by its sender or recipient ("${fromAgent}", "${toAgent}") from their own session.`);
-    }
     return status;
   };
   const defaultAgent = () => localAgents.at(-1) ?? "claude-main";
@@ -397,7 +393,7 @@ function main(): void {
     inputSchema: {
       agent: z.string().min(1).optional(),
       messageId: z.number().int().positive().optional().describe(
-        "Status of one message you sent or received: delivery state, ping, acknowledgement, replies and outcome (pending, acknowledged, replied, failed, expired)."),
+        "Status of one message by id, for any caller (as bridge_inbox shows any message): delivery state, ping, acknowledgement, replies and outcome (pending, acknowledged, replied, withdrawn, failed, expired). Reading it records nothing."),
     },
   }, async ({ agent, messageId }) => {
     if (messageId !== undefined) return jsonResult(statusFor(messageId));

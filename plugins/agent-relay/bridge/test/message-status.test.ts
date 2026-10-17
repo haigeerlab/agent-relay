@@ -45,7 +45,8 @@ test("a message's status names its outcome: pending, acknowledged, replied, fail
   s.close();
 });
 
-test("bridge_wake_status and bridge_wait answer by message id for its sender or recipient only", async () => {
+// agents-view-polish D224: by id, any caller may read a status (bridge_inbox already shows any message in full).
+test("bridge_wake_status and bridge_wait answer by message id for any caller", async () => {
   const dir = mkdtempSync(join(tmpdir(), "agent-relay-status-"));
   const a = await session(dir, "claude-session-a");
   const b = await session(dir, "claude-session-b");
@@ -60,14 +61,13 @@ test("bridge_wake_status and bridge_wait answer by message id for its sender or 
     assert.equal(status.outcome, "pending");
     assert.ok((await b.call("bridge_wake_status", { messageId: id })).ok, "the recipient may ask");
     const stranger = await c.call("bridge_wake_status", { messageId: id });
-    assert.equal(stranger.ok, false);
-    assert.match(stranger.text, /only by its sender or recipient/);
+    assert.equal(stranger.ok, true, "a third session may ask too (D224)");
     assert.match((await a.call("bridge_wake_status", { messageId: 9999 })).text, /No message #9999/);
 
     const timedOut = (await a.call("bridge_wait", { agent: "alice", messageId: id, timeoutSeconds: 1 })).json();
     assert.equal(timedOut.timedOut, true);
     assert.equal(timedOut.outcome, "pending");
-    assert.equal((await c.call("bridge_wait", { agent: "carol", messageId: id, timeoutSeconds: 1 })).ok, false);
+    assert.equal((await c.call("bridge_wait", { agent: "carol", messageId: id, timeoutSeconds: 1 })).ok, true, "D224");
     assert.equal((await a.call("bridge_wait", { agent: "bob", messageId: id, timeoutSeconds: 1 })).ok, false, "only as its own name");
 
     const waiting = a.call("bridge_wait", { agent: "alice", messageId: id, timeoutSeconds: 10 });
