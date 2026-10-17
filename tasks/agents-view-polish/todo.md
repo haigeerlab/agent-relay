@@ -7,5 +7,5 @@
 - [x] Checkpoint (report): bridge green — `npm run typecheck` clean, `npm test` 256 pass
 - [x] Task 5: interface 2.4 and bookkeeping (D227) — `interface.json` 2.4, `test_packaging`, `relay_status.py`, `docs/collaboration-interface.md` (version line, `bridge_agents` incl. `activity` and the 2 s `not-loaded` note, `bridge_wake_status`), `UPSTREAM.md` row, manifest regenerated after the last bridge edit, `bridge/CHANGELOG.md` 0.8.1, CHANGELOG `[Unreleased]`
 - [x] Checkpoint (report): local validation — `scripts/validate.sh` pass on Python 3.9.6, 3.10.7, 3.14.3 with Node v24.18.0 first on PATH (47 files, 860 tests each; bridge `npm run check` 256 ok)
-- [ ] Task 6: PR and CI
-- [ ] Checkpoint (gate): module review
+- [x] Task 6: PR and CI — #133, the four CI jobs green; the user merged it (ed0ca8b) on 2026-10-17
+- [x] Checkpoint (gate): module review — the round-2 coordinator reviewed spec/plan #132 (two additions, both in it) and #133 (mergeable, no blockers; one non-blocking note: a paged listing looks up presence for every active agent after the cursor before cutting the page, at most 2 s more); the user merged #132 (ae9aec7) and #133 (ed0ca8b)
