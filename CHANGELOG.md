@@ -13,7 +13,7 @@
   24 小时）仍未读也未 ack，就给用户发一次桌面通知，并由 `bridge` 给发件方发一条自动通知；`bridge_outbox` 和
   `bridge_wake_status` 的 `wake` 带 `doubt`，`bridge_agents` 的 `waiting` 带 `doubtfulIds`，读到或 ack 后消失。
   可能原因有两种：任务的信箱连接已断开（完全退出 ChatGPT 再打开，然后打开那个任务），或任务在新的 bridge 进程里
-  重新登记前就读了，读取没被记下。Claude 收件方不变；不加新状态，accepted 仍是终态。
+  重新登记前就读了，读取没被记下。已退役的收件方不算；Claude 收件方不变；不加新状态，accepted 仍是终态。
 - **含义澄清**（D231，只改文档）：接口文档写清 `bridge_agents` 的 `lastSeen`／`lastActivity` 不是心跳、
   `presence.state` 的 `running` 不代表信箱连接正常、`waiting` 和 `owesReplies` 各在什么时候清零。
 
