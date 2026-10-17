@@ -143,3 +143,37 @@ test("an answer through alsoAnswers counts as read by its recipient (D217, D155)
   assert.equal(store.messageStatus(b.id)?.deliveryState, "accepted");
   store.close();
 });
+
+// D218: the other requester of a twin pair hears of the answer and may read it.
+test("the other requester gets one notice and can read the answer by id (D218)", () => {
+  const store = fresh();
+  const a = store.send({ fromAgent: "asker", toAgent: "helper", body: "review X", expectsReply: true, threadId: "t-a" });
+  const b1 = store.send({ fromAgent: "twin", toAgent: "helper", body: "review X too", expectsReply: true, threadId: "t-b" });
+  const b2 = store.send({ fromAgent: "twin", toAgent: "helper", body: "and Y", expectsReply: true, threadId: "t-b" });
+  const { message: answer } = store.deliver({ fromAgent: "helper", toAgent: "asker", body: "X and Y are fine",
+    replyTo: a.id, alsoAnswers: [b1.id, b2.id] });
+  const notices = store.inbox("twin").filter((m) => m.fromAgent === "bridge");
+  assert.equal(notices.length, 1, "one notice per requester and answer");
+  assert.equal(notices[0]?.threadId, "t-b");
+  assert.match(notices[0]?.body ?? "", new RegExp(`#${b1.id}.*#${b2.id}`, "s"));
+  assert.match(notices[0]?.body ?? "", new RegExp(`answered by #${answer.id}`));
+  assert.match(notices[0]?.body ?? "", /X and Y are fine/);
+  const read = store.messagePart("twin", answer.id);
+  assert.equal(read?.direction, "answer");
+  assert.equal(read?.body, "X and Y are fine");
+  assert.equal(store.inbox("asker").some((m) => m.fromAgent === "bridge"), false, "no notice to the answered requester");
+  assert.equal(store.messagePart("other", answer.id), undefined, "an unrelated agent still cannot read it");
+  store.close();
+});
+
+test("no notice when the answer goes to the requester itself, or the requester is retired (D218)", () => {
+  const store = fresh();
+  const b = store.send({ fromAgent: "twin", toAgent: "helper", body: "q", expectsReply: true });
+  store.deliver({ fromAgent: "helper", toAgent: "twin", body: "a", alsoAnswers: [b.id] });
+  assert.equal(store.inbox("twin").some((m) => m.fromAgent === "bridge"), false);
+  const c = store.send({ fromAgent: "other", toAgent: "helper", body: "q", expectsReply: true });
+  store.retire("other", { by: "test" });
+  store.deliver({ fromAgent: "helper", toAgent: "asker", body: "a", alsoAnswers: [c.id] });
+  assert.equal(store.inbox("other", { includeAcknowledged: true }).some((m) => m.fromAgent === "bridge"), false);
+  store.close();
+});

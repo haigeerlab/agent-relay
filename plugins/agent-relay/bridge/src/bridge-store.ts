@@ -442,8 +442,47 @@ export class BridgeStore {
     // agent-relay mailbox-polish D155: the recipient answering a direct message has it, as surely as a fetch.
     if (answersOwnMessage && replyTo !== null) this.wakes.recordRead(input.fromAgent, [replyTo]);
     const closed = this.closeRequests(message.id, alsoAnswers, "answered");
-    if (alsoAnswers.length) this.wakes.recordRead(input.fromAgent, alsoAnswers);
+    if (alsoAnswers.length) {
+      this.wakes.recordRead(input.fromAgent, alsoAnswers);
+      this.noticeOtherRequesters(message, alsoAnswers);
+    }
     return { message, duplicate: false, closed };
+  }
+
+  /**
+   * request-closing D218: a request closed through alsoAnswers whose sender is not the answer's recipient would never
+   * show it the answer. One `bridge` notice per such requester and answer, in the same transaction; it pings like every
+   * notice. Retired or unregistered requesters get none.
+   */
+  private noticeOtherRequesters(answer: BridgeMessage, requestIds: number[]): void {
+    const rows = this.db.prepare(`SELECT id, from_agent, thread_id FROM messages WHERE id IN (${requestIds.map(() => "?").join(",")})
+      ORDER BY id`).all(...requestIds) as Array<{ id: number | bigint; from_agent: string; thread_id: string | null }>;
+    const byRequester = new Map<string, { ids: number[]; threadId: string | null }>();
+    for (const row of rows) {
+      const requester = row.from_agent;
+      if (requester === answer.toAgent || requester === answer.fromAgent || requester === "bridge") continue;
+      const agent = this.getAgent(requester);
+      if (!agent || agent.retiredAt) continue;
+      const entry = byRequester.get(requester) ?? { ids: [], threadId: row.thread_id };
+      entry.ids.push(Number(row.id));
+      byRequester.set(requester, entry);
+    }
+    for (const [requester, { ids, threadId }] of byRequester) {
+      const which = ids.length === 1 ? `Your request #${ids[0]}` : `Your requests ${ids.map((id) => `#${id}`).join(", ")}`;
+      this.insertMessage({
+        fromAgent: "bridge",
+        toAgent: requester,
+        threadId,
+        idempotencyKey: `answered:${answer.id}:${requester}`,
+        body: [
+          `${which} to ${JSON.stringify(answer.fromAgent)} ${ids.length === 1 ? "was" : "were"} answered by #${answer.id} ` +
+            `(sent to ${JSON.stringify(answer.toAgent)}).`,
+          `Read it with bridge_inbox {agent: ${JSON.stringify(requester)}, messageId: ${answer.id}}. Preview: ` +
+            answer.body.slice(0, 280),
+          "This is an automated bridge notice. Do not reply to it.",
+        ].join("\n\n"),
+      });
+    }
   }
 
   /** request-closing D222: the requests a message closed other than by `replyTo`, in id order. */
@@ -597,12 +636,16 @@ export class BridgeStore {
    * fits a page. Undefined when the message is not in that agent's inbox (same rule as inbox()).
    */
   messagePart(agent: string, messageId: number, options: { bodyOffset?: number; maxChars?: number } = {}):
-    (MessageView & { direction: "received" | "sent" }) | undefined {
+    (MessageView & { direction: "received" | "sent" | "answer" }) | undefined {
     // agent-relay read-own-sent D212: also a message `agent` sent; delivered to it wins (a message to oneself).
-    const row = this.db.prepare(`SELECT m.*, CASE WHEN ${DELIVERED_TO("?")} THEN 'received' ELSE 'sent' END AS direction
-      FROM messages m WHERE m.id = ? AND (${DELIVERED_TO("?")} OR m.from_agent = ?)`)
-      .get(...deliveredParams(agent), messageId, ...deliveredParams(agent), agent) as
-      unknown as (MessageRow & { direction: "received" | "sent" }) | undefined;
+    // request-closing D218: also an answer that closed one of `agent`'s requests through alsoAnswers.
+    const answered = `EXISTS (SELECT 1 FROM request_closures rc JOIN messages q ON q.id = rc.request_id
+      WHERE rc.message_id = m.id AND rc.kind = 'answered' AND q.from_agent = ?)`;
+    const row = this.db.prepare(`SELECT m.*, CASE WHEN ${DELIVERED_TO("?")} THEN 'received' WHEN m.from_agent = ? THEN 'sent'
+      ELSE 'answer' END AS direction
+      FROM messages m WHERE m.id = ? AND (${DELIVERED_TO("?")} OR m.from_agent = ? OR ${answered})`)
+      .get(...deliveredParams(agent), agent, messageId, ...deliveredParams(agent), agent, agent) as
+      unknown as (MessageRow & { direction: "received" | "sent" | "answer" }) | undefined;
     return row ? { ...bodyPart(this.toMessage(row), options.bodyOffset ?? 0, options.maxChars), direction: row.direction } : undefined;
   }
 
