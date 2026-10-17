@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import type { BridgeMessage } from "./bridge-store.js";
 import { DeliveryTransitionError, type DeliveryState, atomically, expireDue, transition } from "./delivery.js";
-import { clockTime } from "./notify.js";
+import { ACCEPTED_UNREAD_AFTER_MS, ACCEPTED_UNREAD_WINDOW_MS, clockTime } from "./notify.js";
 
 /**
  * agent-relay delivery-state-machine: what a wake job's state says about its message. A wake-window `expired`
@@ -52,6 +52,31 @@ export interface WakeJob {
   deliveryState?: DeliveryState | null;
   /** rewake-on-return D199: when the message was sent (ISO), to tell an old message's recipient. */
   sentAt?: string;
+}
+
+/** accepted-unread-notice D230: what a doubtful delivery adds to a message's wake in the views. */
+export interface WakeDoubt {
+  reason: "accepted-unread";
+  /** When the ping was accepted (ISO). */
+  since: string;
+}
+export const ACCEPTED_UNREAD_DETAIL = "Accepted but not read for five minutes: the task's mailbox connection may be " +
+  "closed, or it read before registering its name again, so the read was not recorded; see wake.doubt.";
+
+/** accepted-unread-notice D230: `wake` with its doubt marker and the added sentence while the delivery is doubtful. */
+export function withDoubt<W extends { detail: string }>(wake: W, acceptedAt: number | undefined): W & { doubt?: WakeDoubt } {
+  return acceptedAt === undefined ? wake : { ...wake, detail: `${wake.detail} ${ACCEPTED_UNREAD_DETAIL}`,
+    doubt: { reason: "accepted-unread", since: new Date(acceptedAt).toISOString() } };
+}
+
+/** accepted-unread-notice D228: a doubtful delivery, see `WakeQueue.acceptedUnread`. */
+export interface AcceptedUnread {
+  messageId: number;
+  agent: string;
+  fromAgent: string;
+  threadId: string | null;
+  /** When the message became `accepted` (ms). */
+  acceptedAt: number;
 }
 
 /** An unreachable recipient keeps its ping for an hour. */
@@ -305,6 +330,32 @@ export class WakeQueue {
       { message_id: number; created_at: number; from_agent: string | null };
     return { count: Number(row.n),
       first: { messageId: Number(first.message_id), createdAt: Number(first.created_at), fromAgent: first.from_agent } };
+  }
+
+  /**
+   * accepted-unread-notice D228: Codex pings the app accepted at least five minutes (and at most a day) ago whose
+   * direct message is still unread and unacknowledged, oldest first; `agent` limits them to one recipient. The job's own
+   * target decides, not the recipient's current binding. Premise: a task that read its message proved its name in that
+   * bridge process first, so the read was recorded (a read by an unproven name is not).
+   */
+  acceptedUnread(now = Date.now(), agent?: string): AcceptedUnread[] {
+    const rows = this.db.prepare(`SELECT w.message_id, w.agent, m.from_agent, m.thread_id, m.delivery_changed_at
+      FROM wake_jobs w JOIN messages m ON m.id = w.message_id AND m.to_agent = w.agent
+      WHERE w.state = 'accepted' AND json_extract(w.target, '$.app') = 'codex'
+        AND m.delivery_state = 'accepted' AND m.read_at IS NULL
+        AND m.delivery_changed_at <= ? AND m.delivery_changed_at > ?
+        AND NOT EXISTS (SELECT 1 FROM acknowledgements a WHERE a.message_id = m.id AND a.agent = w.agent)
+        ${agent === undefined ? "" : "AND w.agent = ?"}
+      ORDER BY m.id`)
+      .all(now - ACCEPTED_UNREAD_AFTER_MS, now - ACCEPTED_UNREAD_WINDOW_MS, ...(agent === undefined ? [] : [agent]));
+    return rows.map((row) => ({ messageId: Number(row.message_id), agent: row.agent as string,
+      fromAgent: row.from_agent as string, threadId: (row.thread_id as string | null) ?? null,
+      acceptedAt: Number(row.delivery_changed_at) }));
+  }
+
+  /** accepted-unread-notice D230: the doubtful deliveries by message id, with their accepted time. */
+  doubts(now = Date.now()): Map<number, number> {
+    return new Map(this.acceptedUnread(now).map((entry) => [entry.messageId, entry.acceptedAt]));
   }
 
   /** Most recent ping outcomes for one recipient, newest first. */

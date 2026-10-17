@@ -1,5 +1,5 @@
 import { type DeliveryState, assertBelowPendingCap, atomically, expireDue, sendTimeoutMs } from "./delivery.js";
-import { type PendingReason, type WakeJob, WakeQueue } from "./wake-queue.js";
+import { type PendingReason, type WakeDoubt, type WakeJob, WakeQueue, withDoubt } from "./wake-queue.js";
 import { assertMayReply, conflictError, contentDifferences, ReplyLinkError, replyThread, RequestCloseError } from "./idempotency.js";
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
@@ -146,7 +146,8 @@ export interface OutboxEntry {
   preview: string;
   bodyLength: number;
   acknowledgedAt: string | null;
-  wake: { state: string; detail: string; pendingReason?: PendingReason } | null;
+  /** accepted-unread-notice D230: `doubt` while an accepted Codex ping's message stays unread for five minutes. */
+  wake: { state: string; detail: string; pendingReason?: PendingReason; doubt?: WakeDoubt } | null;
   recipient: "active" | "retired" | "unknown";
   /** agent-relay delivery-state-machine (D29). */
   deliveryState: DeliveryState;
@@ -174,7 +175,8 @@ export interface MessageStatus {
   replies: number[];
   /** agent-relay request-closing D220: the message that closed this request other than by `replyTo`. */
   closedBy?: { messageId: number; kind: ClosureKind };
-  wake: WakeJob | null;
+  /** accepted-unread-notice D230: `doubt` while an accepted Codex ping's message stays unread for five minutes. */
+  wake: (WakeJob & { doubt?: WakeDoubt }) | null;
   /** replied, else withdrawn, else acknowledged, else failed or expired, else pending (`unknown` may still resolve). */
   outcome: MessageOutcome;
 }
@@ -587,7 +589,7 @@ export class BridgeStore {
       acknowledgedAt,
       replies,
       ...(closure ? { closedBy: { messageId: Number(closure.message_id), kind: closure.kind } } : {}),
-      wake: this.wakes.forMessage(id),
+      wake: wakeWithDoubt(this.wakes.forMessage(id), this.wakes.doubts().get(id)),
       outcome,
     };
   }
@@ -783,6 +785,7 @@ export class BridgeStore {
     const filter = awaitingReply ? `AND ${OPEN_REQUEST}` : options.includeAcknowledged ? "" : "AND a.acked_at IS NULL";
     const now = options.now ?? Date.now();
     expireDue(this.db);
+    const doubts = this.wakes.doubts(now);
     const rows = this.db
       .prepare(
         `SELECT m.id, m.to_agent, m.thread_id, m.created_at, substr(m.body, 1, 200) AS preview,
@@ -832,12 +835,12 @@ export class BridgeStore {
         wake:
           row.wake_state === null
             ? null
-            : {
+            : withDoubt({
               state: row.wake_state as string, detail: row.wake_detail as string,
               // claude-offline-notice D193: why a pending ping waits; a message queued behind an earlier one to the
               // same recipient waits for that one's reason.
               ...(row.wake_reason == null ? {} : { pendingReason: row.wake_reason as PendingReason }),
-            },
+            }, doubts.get(Number(row.id))),
         recipient:
           row.recipient_name === null ? "unknown" : row.recipient_retired ? "retired" : "active",
         deliveryState: ((row.delivery_state as string | null) ?? "queued") as DeliveryState,
@@ -955,7 +958,7 @@ export class BridgeStore {
    * not failed or expired), oldest first: count, senders and at most 20 ids, never bodies. waiting-list-all-hosts
    * D198: for every host, not only Codex, and with the oldest one's creation time (`oldestAt`).
    */
-  waiting(): Map<string, { count: number; from: string[]; ids: number[]; oldestAt: string }> {
+  waiting(): Map<string, { count: number; from: string[]; ids: number[]; oldestAt: string; doubtfulIds?: number[] }> {
     const rows = this.db
       .prepare(
         `SELECT m.id, m.from_agent, m.to_agent, m.created_at FROM messages m JOIN agents ag ON ag.name = m.to_agent
@@ -965,13 +968,20 @@ export class BridgeStore {
          ORDER BY m.to_agent, m.id`,
       )
       .all() as Array<{ id: number | bigint; from_agent: string; to_agent: string; created_at: string }>;
-    const waiting = new Map<string, { count: number; from: string[]; ids: number[]; oldestAt: string }>();
+    const waiting = new Map<string, { count: number; from: string[]; ids: number[]; oldestAt: string; doubtfulIds?: number[] }>();
     for (const row of rows) {
       const entry = waiting.get(row.to_agent) ?? { count: 0, from: [], ids: [], oldestAt: row.created_at };
       entry.count += 1;
       if (!entry.from.includes(row.from_agent)) entry.from.push(row.from_agent);
       if (entry.ids.length < 20) entry.ids.push(Number(row.id));
       waiting.set(row.to_agent, entry);
+    }
+    // accepted-unread-notice D230: the waiting messages whose accepted Codex ping went unread, oldest first, at most 20.
+    for (const doubt of this.wakes.acceptedUnread()) {
+      const entry = waiting.get(doubt.agent);
+      if (!entry) continue;
+      entry.doubtfulIds ??= [];
+      if (entry.doubtfulIds.length < 20) entry.doubtfulIds.push(doubt.messageId);
     }
     return waiting;
   }
@@ -1119,4 +1129,9 @@ export class BridgeStore {
   close(): void {
     this.db.close();
   }
+}
+
+/** accepted-unread-notice D230: a message status's wake job, marked while its delivery is doubtful. */
+function wakeWithDoubt(job: WakeJob | null, acceptedAt: number | undefined): (WakeJob & { doubt?: WakeDoubt }) | null {
+  return job ? withDoubt(job, acceptedAt) : null;
 }

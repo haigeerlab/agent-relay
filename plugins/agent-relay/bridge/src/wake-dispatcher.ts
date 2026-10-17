@@ -3,6 +3,7 @@ import { channelNotification, type ChannelNotification } from "./claude-channel.
 import { ClaudeWake, claudeSessionsOrNull, type ClaudeSession } from "./claude-wake.js";
 import { CODEX_NOT_LOADED, wakeCodex } from "./codex-wake.js";
 import { claudeLocation, type Location } from "./location.js";
+import { noticeAcceptedUnread } from "./notices.js";
 import { BUSY_NOTIFY_AFTER_MS, CLAUDE_OFFLINE_NOTIFY_AFTER_MS, NOTIFIED_TEXT, alreadyNotified, noticesOff, notifyUndelivered,
   waitingEpisode } from "./notify.js";
 import { claudePresence, type Presence } from "./presence.js";
@@ -74,7 +75,10 @@ export class WakeDispatcher {
     this.timer = setInterval(() => {
       this.heartbeat();
       void this.flush().catch(() => {});
-      if (Date.now() - this.approvalsCheckedAt >= APPROVAL_CHECK_MS) void this.checkApprovals().catch(() => {});
+      if (Date.now() - this.approvalsCheckedAt >= APPROVAL_CHECK_MS) {
+        try { this.checkAcceptedUnread(); } catch { /* next check */ }
+        void this.checkApprovals().catch(() => {});
+      }
     }, 2000);
     this.timer.unref();
     void this.flush().catch(() => {});
@@ -162,6 +166,21 @@ export class WakeDispatcher {
       const started = found ? parseProcStart(found.procStart) : null;
       if (started === null) continue;
       try { this.store.wakes.rearm(entry.agent, this.store.wakes.target(entry.agent), started); } catch { /* next check */ }
+    }
+  }
+
+  /**
+   * accepted-unread-notice D229, D230: a Codex ping the app accepted five minutes ago whose message is still unread may
+   * have reached a task whose mailbox connection is closed. Tell the user (once per message, the `notified/` mark) and
+   * the sender (once, the idempotency key). Every bridge on the mailbox may run this.
+   */
+  checkAcceptedUnread(now = Date.now()): void {
+    if (this.stopped) return;
+    for (const entry of this.store.wakes.acceptedUnread(now)) {
+      notifyUndelivered(this.store.dbPath, { kind: "accepted-unread", messageId: entry.messageId, fromAgent: entry.fromAgent,
+        agent: entry.agent, why: "accepted but not read", since: entry.acceptedAt,
+        body: this.store.messageById(entry.messageId)?.body, key: `accepted-unread-${entry.messageId}` }, this.env);
+      noticeAcceptedUnread(this.store, entry);
     }
   }
 
