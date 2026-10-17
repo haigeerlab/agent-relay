@@ -31,6 +31,13 @@ The same misjudgement sits in two more places that attach the same explanation:
 2. `addressing.ts`, the send-time warning "The last 3 background pings … were not delivered": the explanation is
    appended whenever the recipient is a Claude session, whatever the three failures were.
 
+Found in the round-2 review of #126 (coordinator, 2026-10-17), accepted by the user:
+
+3. `bridge/INSTRUCTIONS.md:16`, the guidance agents read, says pings to a Claude session that were "held or expired"
+   mean Bypass permissions — after the code fix an agent would still send the user to change permissions.
+4. `REARMED_DETAIL` (`wake-queue.ts`) also contains *expired* ("the earlier ping expired while it was away"), so a
+   re-armed Claude job that is still pending or accepted already adds the hold `explanation` in `bridge_wake_status`.
+
 ## Assumptions (accepted by the user 2026-10-17)
 
 1. **Scope is only how the explanation is chosen**: `notices.ts` (`isClaudeHold`, `explainFailure`), the
@@ -50,12 +57,17 @@ The same misjudgement sits in two more places that attach the same explanation:
 6. **Verification**: a failing test first reproduces "offline expiry gets the hold explanation", then the fix; a
    real-host re-check is arranged separately.
 
+7. **Review additions (accepted by the user 2026-10-17)**: `bridge/INSTRUCTIONS.md` is corrected the same way (hold =
+   `held` or Claude's own expiry receipt; an offline expiry = not running, ask the user to open it); a re-armed job is
+   covered by a test; and when the latest of the three failures in the send-time warning is a Claude offline expiry,
+   the warning carries the same "not running; ask the user to open it" sentence as the notice.
+
 ## Decisions
 
 - **D215 only Claude's own word makes a hold.** One predicate, shared by the delivery-failure notice, the
   `bridge_wake_status` list explanation and the send-time warning, says a Claude ping was held: state `held`, or state
   `refused` with Claude's expiry receipt. A Claude ping that expired because the session was not running is explained
-  as "not running; ask the user to open it". Assumptions 1–4.
+  as "not running; ask the user to open it", in the notice and in the send-time warning alike. Assumptions 1–4, 7.
 
 ## Requirements
 
@@ -66,13 +78,16 @@ The same misjudgement sits in two more places that attach the same explanation:
    - the existing case (`refused`, `"Claude expired this peer message"`) still gets `CLAUDE_HOLD_EXPLANATION`;
    - a `held` Claude job still gets it; a Codex job never does.
 2. Red first, `bridge_wake_status` list mode (`bridge/test/mcp-integration.test.ts`): a list holding only offline
-   expiries has no `explanation`; a list holding one real Claude hold has it.
+   expiries has no `explanation`; a list holding only a re-armed Claude job (detail `REARMED_DETAIL`) has none; a list
+   holding one real Claude hold has it.
 3. Red first, `bridge/test/lifecycle.test.ts`: three Claude offline expiries give the "last 3 background pings" warning
-   without the hold explanation; three Claude expiry receipts (the existing case) still include it.
+   without the hold explanation and with the "not running; ask the user to open it" sentence; three Claude expiry
+   receipts (the existing case) still include the hold explanation.
 4. `notices.ts` exports the single predicate (D215); `server.ts` and `addressing.ts` use it instead of their own checks.
-   `explainFailure` gains the Claude-offline branch (assumption 3).
+   `explainFailure` gains the Claude-offline branch (assumption 3); the notice and the warning share that sentence.
 5. Bridge bookkeeping in the same commit (D24): `UPSTREAM.md`, `python3 -B scripts/bridge-manifest.py`; CHANGELOG
-   `[Unreleased]`; `docs/BACKGROUND-WAKE.md` if it describes when the hold explanation appears.
+   `[Unreleased]`; `bridge/INSTRUCTIONS.md` (the "held or expired" sentence, assumption 7); `docs/BACKGROUND-WAKE.md`
+   if it describes when the hold explanation appears.
 6. `scripts/validate.sh` green on Python 3.9, 3.10, 3.14 with Node 24 first on PATH; bridge `npm run check`; CI green.
 
 ## Boundaries

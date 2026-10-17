@@ -1,7 +1,8 @@
 # Plan: expiry-notice-reason
 
 Based on [`spec/expiry-notice-reason.md`](../../spec/expiry-notice-reason.md) (accepted by the user on 2026-10-17:
-assumptions 1–6, D215, including the send-time warning in `addressing.ts`). This branch carries the map row, spec and
+assumptions 1–6, D215, including the send-time warning in `addressing.ts`; assumption 7 added after the round-2 review
+of #126 and accepted the same day). This branch carries the map row, spec and
 plan as one PR; the implementation goes on `claude/expiry-notice-impl` from main after that PR is merged. Only module of
 0.7.2; the release PR waits until the implementation PR is merged. The round-2 coordinator and the usage observer are
 told every PR number.
@@ -17,10 +18,11 @@ state `held`, or state `refused` with Claude's expiry receipt — and give `expl
 receipt detail becomes a named constant in `claude-wake.ts` so the predicate compares with it, not with a regex.
 
 ### Task 2: the same predicate in `bridge_wake_status` and the send-time warning
-Red first in `test/mcp-integration.test.ts` (requirement 2: offline expiries only → no `explanation`; one real hold →
-`explanation`) and `test/lifecycle.test.ts` (requirement 3: three Claude offline expiries → the "last 3 background
-pings" warning without the hold text; three expiry receipts → with it). Green: `server.ts` list mode and
-`addressing.ts` use the predicate; `addressing.ts` attaches the text only when the latest of the three is a hold.
+Red first in `test/mcp-integration.test.ts` (requirement 2: offline expiries only → no `explanation`; a re-armed job
+only → none; one real hold → `explanation`) and `test/lifecycle.test.ts` (requirement 3: three Claude offline expiries → the "last 3 background
+pings" warning without the hold text and with the not-running sentence; three expiry receipts → with the hold text).
+Green: `server.ts` list mode and `addressing.ts` use the predicate; `addressing.ts` attaches the hold text only when the
+latest of the three is a hold, and the shared not-running sentence when it is a Claude offline expiry.
 `health()` already returns `state`, `detail` and `app`, so the predicate takes `{ app, state, detail }` and works on both a
 `WakeJob` and a `health()` row; no query change.
 
@@ -29,8 +31,8 @@ pings" warning without the hold text; three expiry receipts → with it). Green:
 
 ### Task 3: bookkeeping
 `UPSTREAM.md` row and `python3 -B scripts/bridge-manifest.py` (D24); `bridge/CHANGELOG.md` and root CHANGELOG
-`[Unreleased]` (bridge change, needs `upgrade --confirm`); `docs/BACKGROUND-WAKE.md` if it says when the hold
-explanation appears.
+`[Unreleased]` (bridge change, needs `upgrade --confirm`); `bridge/INSTRUCTIONS.md` line on "held or expired"
+(assumption 7); `docs/BACKGROUND-WAKE.md` if it says when the hold explanation appears.
 
 ### Checkpoint (report): local validation
 `scripts/validate.sh` green on Python 3.9, 3.10, 3.14 with Node 24 first on PATH; bridge `npm run check`.
