@@ -1,6 +1,7 @@
 // agent-relay agents-view-polish (D223–D226): bridge_agents pages, message status is open, presence activity, 2 s cap.
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -133,5 +134,60 @@ test("any caller may read a message's status by id (D224)", async () => {
   } finally {
     await parties.close();
     await third.close();
+  }
+});
+
+/** A ChatGPT app socket under `home` that completes the handshake and never answers about any thread (D226). */
+async function silentApp(home: string): Promise<Server> {
+  const dir = join(home, ".codex", "ipc");
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  chmodSync(join(home, ".codex"), 0o700);
+  const path = join(dir, "ipc.sock");
+  const server = createServer(socket => {
+    let buffer = Buffer.alloc(0);
+    socket.on("error", () => {});
+    socket.on("data", chunk => {
+      buffer = Buffer.concat([buffer, chunk]);
+      while (buffer.length >= 4) {
+        const size = buffer.readUInt32LE(0);
+        if (buffer.length < size + 4) return;
+        const r = JSON.parse(buffer.subarray(4, size + 4).toString());
+        buffer = buffer.subarray(size + 4);
+        if (r.method !== "initialize") continue;
+        const body = Buffer.from(JSON.stringify({ type: "response", requestId: r.requestId, resultType: "success",
+          result: { clientId: "test-client" } }));
+        const header = Buffer.alloc(4); header.writeUInt32LE(body.length);
+        socket.write(Buffer.concat([header, body]));
+      }
+    });
+  });
+  await new Promise<void>(ok => server.listen(path, ok));
+  chmodSync(path, 0o600);
+  return server;
+}
+
+test("bridge_agents and bridge_send wait at most 2 s for a silent ChatGPT app (D226)", { skip: process.platform !== "darwin" }, async () => {
+  const home = mkdtempSync("/tmp/ar-");
+  const app = await silentApp(home);
+  const dbPath = join(home, "bridge.sqlite");
+  const store = new BridgeStore(dbPath);
+  store.register("sender");
+  store.register("codex-task", [], { app: "codex", sessionId: "not-opened-task" });
+  store.close();
+  const client = await connect(dbPath, { HOME: home });
+  try {
+    let started = Date.now();
+    const listing = payload(await client.callTool({ name: "bridge_agents", arguments: {} }));
+    assert.ok(Date.now() - started < 3000, `bridge_agents took ${Date.now() - started} ms`);
+    assert.equal(listing.agents.find((a: { name: string }) => a.name === "codex-task")?.presence?.state, "not-loaded");
+    await client.callTool({ name: "bridge_register", arguments: { agent: "sender" } });
+    started = Date.now();
+    payload(await client.callTool({ name: "bridge_send",
+      arguments: { from: "sender", to: "codex-task", body: "hi", wake: false } }));
+    assert.ok(Date.now() - started < 3000, `bridge_send took ${Date.now() - started} ms`);
+  } finally {
+    await client.close();
+    await new Promise<void>(ok => app.close(() => ok()));
+    rmSync(home, { recursive: true, force: true });
   }
 });
