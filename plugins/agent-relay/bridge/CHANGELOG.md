@@ -1,5 +1,13 @@
 # Changelog
 
+## agent-relay 0.8.2
+
+Doubtful deliveries (module `accepted-unread-notice`, D228–D231), schema 7 unchanged: a Codex ping the ChatGPT app
+accepted five minutes ago whose message is still unread and unacknowledged is told to the user once (a desktop notice
+naming both possible causes: a closed mailbox connection, or a read before the task registered again in a new bridge
+process) and to the sender once (a `bridge` message); `bridge_outbox` and `bridge_wake_status` show `wake.doubt`,
+`bridge_agents` shows `waiting.doubtfulIds`, until the recipient reads or acknowledges it.
+
 ## agent-relay 0.8.1
 
 Listing and status polish (module `agents-view-polish`, D223–D227), schema 7 unchanged: `bridge_agents` pages when

@@ -130,6 +130,12 @@ Codex 给 Codex 派活时，`session-routing` 的 selector 可能返回 `codex-w
 oldestAt}`），并带上它的 `presence`（例如 `stopped`），不读正文；没有就说没有。发件结果里的“已尝试通知”只表示
 bridge 尝试过桌面通知，macOS 可能没显示，不要说成用户已经看到。
 
+送达存疑（accepted-unread-notice D228–D230）：Codex 收件方的唤醒已 `accepted`（应用确认开始新一轮），但 5 分钟后消息
+仍未读也未 ack 时，`bridge_outbox`／`bridge_wake_status` 里这条的 `wake` 带 `doubt`，`bridge_agents` 里收件方的
+`waiting` 带 `doubtfulIds`，发件方还会收到一条 `bridge` 自动通知。向用户说明有两种可能：那个 Codex 任务的信箱连接已断开
+（常见于升级或 bridge 进程被结束之后；请用户完全退出 ChatGPT 再打开，然后打开那个任务），或它在新的 bridge 进程里没先
+重新登记就读了，读取没被记下（请用户先看一眼那个任务）。不要重发这条消息；收件方读到或 ack 后标记自动消失。
+
 长消息只用信箱工具读完，不用 Bash：结果里有 `continue` 行或某条消息带 `nextOffset` 时，按那一行调用
 `bridge_inbox`（`agent`、`messageId`、`bodyOffset`），一直读到不再返回 `nextOffset`，把各段按顺序拼起来再处理。
 发送结果只有编号和 `bodyLength`，不回显正文；要看自己发出的某条原文，用 `bridge_inbox`（`agent` 为本会话的名字、
@@ -137,7 +143,8 @@ bridge 尝试过桌面通知，macOS 可能没显示，不要说成用户已经�
 报错会写出发件人和收件人，向他们要原文。读取用 `bridge_inbox`；处理后才调用 `bridge_ack`。主动等待使用 `bridge_wait` 且
 `acknowledge: false`，返回后仍需实际处理再确认。被唤醒后只处理当前权限允许的请求，有副作用的动作仍向用户取权。
 结果里 `readRecorded: false` 表示这次读取没有算作已读：读的是别人的身份（不影响对方的投递和唤醒），或读的是自己
-的名字但 bridge 重启后还没重新注册——后一种照 `readNote` 用 `bridge_register` 重新注册本会话的名字再读。
+的名字但 bridge 重启后还没重新注册——后一种照 `readNote` 用 `bridge_register` 重新注册本会话的名字，再读一次；
+不读第二次的话，这次读取不算数，5 分钟后发件方和用户会看到“送达存疑”（accepted-unread-notice，审查 #135 补充）。
 
 ## 与同宿主原生通信的边界
 

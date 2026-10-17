@@ -12,6 +12,13 @@ export const BUSY_NOTIFY_AFTER_MS = 10 * 60_000;
  * told to the user after this long, once per offline spell (the user's choice, 2026-10-15).
  */
 export const CLAUDE_OFFLINE_NOTIFY_AFTER_MS = 5 * 60_000;
+/**
+ * accepted-unread-notice D228: a Codex ping the ChatGPT app accepted this long ago whose message is still unread and
+ * unacknowledged is a doubtful delivery (the user's choice, 2026-10-17: no measured normal read took 3 to 5 minutes).
+ */
+export const ACCEPTED_UNREAD_AFTER_MS = 5 * 60_000;
+/** accepted-unread-notice D228: older accepted pings are history, so a release does not raise notices about them. */
+export const ACCEPTED_UNREAD_WINDOW_MS = 24 * 3_600_000;
 
 /** Local wall-clock time as HH:MM, for "the first was sent at …". */
 export function clockTime(ms: number): string {
@@ -32,8 +39,11 @@ export interface UndeliveredNotice {
    * presence-and-approval D148: a Claude session waiting for the user's approval, not undelivered Codex work.
    * claude-offline-notice D193: `offline` — a Claude session that is not running; `messageId` is the first waiting one.
    */
-  kind?: "approval" | "offline";
-  /** claude-offline-notice D193: how many messages wait, and when the first was sent (ms). */
+  kind?: "approval" | "offline" | "accepted-unread";
+  /**
+   * claude-offline-notice D193: how many messages wait, and when the first was sent (ms). accepted-unread-notice D229:
+   * `since` is when the ping was accepted.
+   */
   count?: number;
   since?: number;
   /** notice-location D188: where the session is; shown in the text and, for terminal-notifier, used for the click. */
@@ -86,6 +96,15 @@ export function noticeFields(notice: UndeliveredNotice, { preview }: { preview: 
       subtitle: `Claude · ${count} waiting · first sent ${clockTime(notice.since ?? Date.now())}`,
       body: noticeText(notice) };
   }
+  if (notice.kind === "accepted-unread") {
+    // accepted-unread-notice D229: nothing confirms where the task is, so no click; the preview (D89) goes in the
+    // subtitle, because the body says what to do.
+    const from = `#${notice.messageId} from ${oneLine(notice.fromAgent ?? "a peer", NAME_CHARS) || "a peer"}`;
+    return { title: `agent-relay · ${oneLine(notice.agent, NAME_CHARS)} has not read it`,
+      subtitle: preview && notice.body !== undefined ? `Codex · ${from} · ${oneLine(notice.body, PREVIEW_CHARS) || "(empty message)"}`
+        : `Codex · ${from}`,
+      body: noticeText(notice) };
+  }
   // The title already says Codex; only a confirmed app is worth a word more, and it comes first (D190).
   const app = place?.kind === "codex-app" ? placeLabel(place) + " · " : "";
   if (!preview) return { title: "agent-relay", subtitle: app.replace(/ · $/, ""), body: noticeText(notice) };
@@ -110,12 +129,26 @@ export function noticeText(notice: UndeliveredNotice): string {
       `#${notice.messageId} from ${JSON.stringify(notice.fromAgent ?? "a peer")}, was sent at ` +
       `${clockTime(notice.since ?? Date.now())}. Open that session to deliver them.`;
   }
+  if (notice.kind === "accepted-unread") return acceptedUnreadText(notice.agent, notice.messageId, notice.fromAgent,
+    notice.since ?? Date.now());
   if (notice.kind === "approval") {
     return `${oneLine(notice.agent, NAME_CHARS)} is ${notice.why}; message #${notice.messageId} from ` +
       `${JSON.stringify(notice.fromAgent ?? "a peer")} waits until you answer it there.`;
   }
   return `${JSON.stringify(notice.fromAgent ?? "a peer")} gave Codex work: message #${notice.messageId} to ` +
     `${JSON.stringify(notice.agent)} (${notice.why}).`;
+}
+
+/**
+ * accepted-unread-notice D229 (wording widened at the round-2 review of #135): what a doubtful delivery means and what to
+ * do, for the desktop notice and the sender's bridge message alike.
+ */
+export function acceptedUnreadText(agent: string, messageId: number, fromAgent: string | undefined, acceptedAt: number): string {
+  return `Codex confirmed a new turn for ${JSON.stringify(agent)} at ${clockTime(acceptedAt)}, but no read of message ` +
+    `#${messageId} from ${JSON.stringify(fromAgent ?? "a peer")} has been confirmed on the mailbox for five minutes. ` +
+    "Either the task's mailbox connection is closed (common after an upgrade or after bridge processes were ended): " +
+    "quit ChatGPT completely (Cmd+Q), open it again and open that task; or the task read it before registering its " +
+    "name again in a new bridge process, so the read was not recorded: check that task first.";
 }
 
 // agent-relay notify-channel D83: Homebrew's terminal-notifier (Apple silicon, then Intel prefix), never found via PATH.

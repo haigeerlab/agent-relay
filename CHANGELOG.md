@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+接口 **2.5**（只新增内容，Spec Guard 0.56.0 或更新照样接受），信箱 schema 仍为 **7**，委派库仍为 schema 3。来自 2026-10-17
+的反馈：升级时 bridge 进程被结束，一个 Codex 任务的信箱连接断开（Transport closed），ChatGPT 应用照样确认“已开始新一轮”，
+消息被记为 accepted，却在那一轮里读不到，发件方和巡视看到的一直是“已送达、对方在运行”。
+
+- **bridge 有改动，要 `upgrade --confirm` 升级运行时**；schema 不变，插件和运行时先升哪个都行。
+- **新标记：送达存疑**（模块 `accepted-unread-notice`，D228–D230）：Codex 收件方的唤醒 accepted 满 5 分钟（只看最近
+  24 小时）仍未读也未 ack，就给用户发一次桌面通知，并由 `bridge` 给发件方发一条自动通知；`bridge_outbox` 和
+  `bridge_wake_status` 的 `wake` 带 `doubt`，`bridge_agents` 的 `waiting` 带 `doubtfulIds`，读到或 ack 后消失。
+  可能原因有两种：任务的信箱连接已断开（完全退出 ChatGPT 再打开，然后打开那个任务），或任务在新的 bridge 进程里
+  重新登记前就读了，读取没被记下。Claude 收件方不变；不加新状态，accepted 仍是终态。
+- **含义澄清**（D231，只改文档）：接口文档写清 `bridge_agents` 的 `lastSeen`／`lastActivity` 不是心跳、
+  `presence.state` 的 `running` 不代表信箱连接正常、`waiting` 和 `owesReplies` 各在什么时候清零。
+
 ## [0.8.1] - 2026-10-17
 
 接口 **2.4**（只新增内容，Spec Guard 0.56.0 或更新照样接受），信箱 schema 仍为 **7**，委派库仍为 schema 3。来自 2026-10-17

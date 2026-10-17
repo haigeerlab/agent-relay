@@ -1,6 +1,7 @@
 import type { BridgeStore } from "./bridge-store.js";
 import { CLAUDE_EXPIRED_RECEIPT } from "./claude-wake.js";
-import type { WakeJob } from "./wake-queue.js";
+import { acceptedUnreadText } from "./notify.js";
+import type { AcceptedUnread, WakeJob } from "./wake-queue.js";
 
 /**
  * Reserved sender for automated notices: delivery failures, retirements and
@@ -50,6 +51,29 @@ export function explainFailure(job: WakeJob): string {
       : "The recipient's app session was unreachable for the whole one-hour retry window.";
   }
   return `The recipient app reported: ${job.detail}`;
+}
+
+/**
+ * accepted-unread-notice D230: tell the sender, once per message, that its accepted Codex message has not been read.
+ * The idempotency key keeps it to one message across bridges; the same rules as delivery failures decide who is told.
+ */
+export function noticeAcceptedUnread(store: BridgeStore, entry: AcceptedUnread): void {
+  const sender = entry.fromAgent;
+  if (!sender || sender === BRIDGE_AGENT || sender === entry.agent) return;
+  const agent = store.getAgent(sender);
+  if (!agent || agent.retiredAt) return;
+  store.send({
+    fromAgent: BRIDGE_AGENT,
+    toAgent: sender,
+    threadId: entry.threadId,
+    body: [
+      `Delivery in doubt: your message #${entry.messageId} to ${JSON.stringify(entry.agent)} was accepted but has not been read.`,
+      acceptedUnreadText(entry.agent, entry.messageId, sender, entry.acceptedAt),
+      "The user was told on this Mac (desktop notifications allowing). bridge_outbox shows wake.doubt until it is read.",
+      "This is an automated bridge notice. Do not reply to it.",
+    ].join("\n\n"),
+    idempotencyKey: `accepted-unread:${entry.messageId}`,
+  });
 }
 
 export function deliveryFailureNotice(job: WakeJob): string {
