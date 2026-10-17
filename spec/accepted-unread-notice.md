@@ -1,6 +1,6 @@
 # Spec: accepted-unread-notice
 
-<!-- spec-guard: review pending -->
+<!-- spec-guard: review approved 89ba9d7480f9 -->
 
 ## Objective
 
