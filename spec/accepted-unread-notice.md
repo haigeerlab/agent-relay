@@ -1,6 +1,6 @@
 # Spec: accepted-unread-notice
 
-<!-- spec-guard: review approved 55c59e9a0fd2 -->
+<!-- spec-guard: review pending -->
 
 ## Objective
 
@@ -59,17 +59,21 @@ Readers: the user; the round-2 coordinator and the usage observer (review, re-ch
 1. **N = 5 minutes from `accepted`.** It catches all nine slow Codex messages and none of the six slow-but-normal ones;
    nothing fell between three and five minutes. Same as D193. With the 30-second check the notice comes at most about
    5.5 minutes after the ping was accepted. Ten minutes would miss #1394, #3978 and #3994.
-2. **The condition**: the recipient's wake target is Codex; its wake job for the message is still `accepted` (not
+2. **The condition**: the wake job's own target is Codex (`target.app`, not the recipient's current binding, which a
+   takeover or rebind may have changed; amended at review, item 2 below); the job for the message is still `accepted` (not
    `read`, not `acknowledged`); the message is direct, has no `read_at`, no acknowledgement and is not expired; its
    accepted time is known and at least five minutes old. Each message counts once.
 3. **No false alarm for a slow task**: a turn woken by a ping reads the mailbox first, which sets `read_at` and moves
    the job to `read`. A task that read and then works for an hour is never flagged; only one that did not even read is.
-   Presence is not consulted: it can only say `running`.
+   Presence is not consulted: it can only say `running`. One exception is known: a read by a name this bridge process
+   has not proven is not recorded (assumption 11).
 4. **Who is told**:
    - (a) the user, by a desktop notice as D67: once per message, the same switches (`notify.off`,
-     `AGENT_RELAY_NOTIFY=off`) and preview rule (D89). Meaning: Codex confirmed a new turn but has not read message #N in
-     five minutes; its mailbox connection may be closed (common after an upgrade or after bridge processes were ended);
-     quit ChatGPT completely (⌘Q), open it again and open that task.
+     `AGENT_RELAY_NOTIFY=off`) and preview rule (D89). Meaning (wording widened at review, assumption 11): Codex
+     confirmed a new turn, but no read of message #N has been confirmed on the mailbox in five minutes. Either its
+     mailbox connection is closed (common after an upgrade or after bridge processes were ended): quit ChatGPT
+     completely (⌘Q), open it again and open that task; or the task read it before registering its name again in a new
+     bridge process, so the read was not recorded: check that task first.
    - (b) the sender, in `bridge_outbox` and `bridge_wake_status`: the message's `wake` gains an optional marker and its
      detail says the same.
    - (c) the sender, by one automated message from `bridge`, once per message, as the failure notices are, because a
@@ -81,7 +85,9 @@ Readers: the user; the round-2 coordinator and the usage observer (review, re-ch
    away its process is gone too, which D193 already reports.
 7. **Not built**: using D196's "ChatGPT started before the newest upgrade" to shorten N or change the wording (it cannot
    see a bridge ended without an upgrade); re-pinging automatically (`bridge_register` already reports unread
-   messages); reading Codex private state.
+   messages); reading Codex private state; recording a read by an unproven name (option (a) at review: it would sit
+   next to D99's read semantics). Known limit: the D230 `bridge` message wakes the sender by the usual rules, so a sender
+   that is itself a Codex task with a closed connection does not get it either.
 8. **Release**: bridge change, 0.8.2, `upgrade --confirm`. Interface 2.4 → 2.5; mailbox schema 7 unchanged.
 9. Module id `accepted-unread-notice`; depends on codex-gated-wake, delivery-state-machine, claude-offline-notice,
    codex-not-loaded, agents-view-polish.
@@ -100,11 +106,25 @@ Readers: the user; the round-2 coordinator and the usage observer (review, re-ch
     - The missing full stop before "Since interface 2.4".
     Counted in interface 2.5 together with the new marker; the CHANGELOG lists the two separately ("new marker",
     "clarified meaning").
+11. **Review additions (round-2 review of #135, #4998, accepted by the user 2026-10-17)**:
+    - **A read in a new bridge process can go unrecorded.** A read is recorded only when the caller has proven the name
+      (`caller.owns`, `server.ts` `ownRead`); a Codex name is proven per bridge process (D200, D209). After a ChatGPT
+      restart or a reopened task, a woken task that calls `bridge_inbox` before registering again gets
+      `readRecorded: false` and a `readNote`. If it then works for five minutes before acknowledging, D228 flags a
+      message it did read. Handled by (b) and (c), not by recording unproven reads: the `collab` skill says that when
+      `readRecorded` is false and the `readNote` says to register, register again and read once more; D228 states the
+      premise; the notice wording (assumption 4(a)) names this as a possible cause; tests and acceptance include
+      "read in a new process before registering".
+    - The condition uses the wake job's own `target.app` (assumption 2).
+    - The acceptance says how the test task's bridge process is found, so no other task's bridge is ended.
+    - The known limit of the sender message is written down (assumption 7).
 
 ## Decisions
 
 - **D228 a Codex ping accepted five minutes ago whose message is still unread and unacknowledged is a doubtful
-  delivery.** Assumptions 1–3, 6. Decided when read, from the stored times (`delivery_changed_at`, `read_at`,
+  delivery.** Assumptions 1–3, 6, 11. The job's own `target.app` is `codex`. Premise: a task that read its message has
+  proven its name in this bridge process (it registers again when `readNote` says so), so its read is recorded. Decided
+  when read, from the stored times (`delivery_changed_at`, `read_at`,
   acknowledgements, the job state); nothing new is stored. Only jobs accepted in the last 24 hours count, so the
   release does not raise notices about old messages. Constant `ACCEPTED_UNREAD_AFTER_MS = 5 * 60_000` next to the other
   thresholds in `notify.ts`.
@@ -129,7 +149,11 @@ Readers: the user; the round-2 coordinator and the usage observer (review, re-ch
    - a Codex job `accepted` 4 min 59 s ago with the message unread → nothing; at 5 min → one notice naming the message,
      sender and recipient; further checks and a second bridge add none;
    - the message read (`read_at`, job `read`) or acknowledged before five minutes → nothing, ever;
-   - a Claude target, a job in any other state, an expired message, a job accepted more than 24 hours ago, or one with
+   - read in a new bridge process before the name was registered again (`readRecorded: false`) → after five minutes it
+     is flagged, and the notice names "read before registering again" as a possible cause; registering again and reading
+     once more before five minutes → nothing;
+   - a job whose own target is Claude while the recipient is now bound to Codex, and the reverse (the job's target
+     decides), a Claude target, a job in any other state, an expired message, a job accepted more than 24 hours ago, or one with
      no accepted time → nothing;
    - `notify.off` and `AGENT_RELAY_NOTIFY=off` silence the desktop notice but not the outbox marker or the sender
      message; the preview follows D89.
@@ -140,7 +164,8 @@ Readers: the user; the round-2 coordinator and the usage observer (review, re-ch
    every other field unchanged.
 4. Docs: `docs/collaboration-interface.md` (the new marker in `bridge_outbox`, `bridge_wake_status` and `bridge_agents`,
    and the assumption 10 wording), `docs/BACKGROUND-WAKE.md`, the `collab` skill (what a doubtful delivery means and what
-   to tell the user), CHANGELOG `[Unreleased]`, `interface.json` 2.5, `UPSTREAM.md` and manifest (D24).
+   to tell the user; when a read returns `readRecorded: false` with a `readNote` asking to register, register again and
+   read once more), CHANGELOG `[Unreleased]`, `interface.json` 2.5, `UPSTREAM.md` and manifest (D24).
 5. `scripts/validate.sh` green on Python 3.9, 3.10, 3.14 with Node 24 first on PATH; bridge `npm run check`; CI green.
 
 ## Boundaries
@@ -153,11 +178,16 @@ Readers: the user; the round-2 coordinator and the usage observer (review, re-ch
 
 ## Acceptance (coordinator, after 0.8.2)
 
-- On the real host, with a test Codex task whose bridge process was ended while the ChatGPT app keeps running: a message
+- Finding the test task's bridge process: note the running bridge pids, open the test Codex task and let it call one
+  mailbox tool; the pid that appeared is its bridge. End only that one; the coordinator asks the user before each test
+  notice.
+- On the real host, with that test Codex task whose bridge process was ended while the ChatGPT app keeps running: a message
   to it becomes `accepted`, and about five minutes later the user gets one notice, the sender one `bridge` message, and
   `bridge_outbox`/`bridge_agents` show the marker; after the user restarts ChatGPT and the task reads the message, the
   marker is gone and nothing more is sent.
 - A normal Codex task that reads within a minute shows no marker.
+- After a ChatGPT restart, a woken test task that reads before registering again: if it registers again and reads once
+  more as the skill says, no marker; if not, the notice names the unrecorded read as a possible cause.
 
 ## Open questions
 
