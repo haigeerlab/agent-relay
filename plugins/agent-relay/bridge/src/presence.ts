@@ -16,6 +16,8 @@ export interface Presence {
   since?: string;
   /** What the session waits for, in Claude Code's words. */
   detail?: string;
+  /** agents-view-polish D225: for a running Claude session, whether it is in a turn (`busy`) or between turns (`idle`). */
+  activity?: "busy" | "idle";
 }
 
 /** `sessions` are the live Claude sessions (claudeSessions()), or null where they cannot be read. */
@@ -24,7 +26,8 @@ export function claudePresence(sessionId: string, sessions: ClaudeSession[] | nu
   const found = sessions.find((s) => s.sessionId === sessionId || s.bridgeSessionId === sessionId);
   if (!found) return { state: "stopped" };
   const since = found.statusUpdatedAt === undefined ? {} : { since: new Date(found.statusUpdatedAt).toISOString() };
-  if (found.status !== "waiting") return { state: "running", ...since };
+  const activity = found.status === "busy" || found.status === "idle" ? { activity: found.status as "busy" | "idle" } : {};
+  if (found.status !== "waiting") return { state: "running", ...since, ...activity };
   const detail = found.waitingFor ? { detail: found.waitingFor } : {};
   return { state: /permission/i.test(found.waitingFor ?? "") ? "waiting-approval" : "waiting-input", ...since, ...detail };
 }

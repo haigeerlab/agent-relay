@@ -22,9 +22,11 @@ function live(overrides: Partial<ClaudeSession>): ClaudeSession {
 
 test("a live Claude session maps to running, waiting-approval or waiting-input; a missing one is stopped", () => {
   const at = Date.UTC(2026, 9, 9, 2, 12, 10);
-  assert.deepEqual(claudePresence("desktop-1", [live({ status: "idle" })]), { state: "running" });
+  // agents-view-polish D225: a running session says whether it is in a turn.
+  assert.deepEqual(claudePresence("desktop-1", [live({ status: "idle" })]), { state: "running", activity: "idle" });
   assert.deepEqual(claudePresence("internal-1", [live({ status: "busy", statusUpdatedAt: at })]),
-    { state: "running", since: "2026-10-09T02:12:10.000Z" });
+    { state: "running", since: "2026-10-09T02:12:10.000Z", activity: "busy" });
+  assert.deepEqual(claudePresence("desktop-1", [live({})]), { state: "running" }, "no status, no activity");
   assert.deepEqual(claudePresence("desktop-1", [live({ status: "waiting", waitingFor: "permission prompt", statusUpdatedAt: at })]),
     { state: "waiting-approval", since: "2026-10-09T02:12:10.000Z", detail: "permission prompt" });
   assert.deepEqual(claudePresence("desktop-1", [live({ status: "waiting", waitingFor: "user input" })]),
