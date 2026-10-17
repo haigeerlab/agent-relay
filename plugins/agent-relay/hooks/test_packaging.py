@@ -34,7 +34,7 @@ class ManifestTests(unittest.TestCase):
     def test_interface_marker_declares_version_two_and_the_same_status_command(self):
         marker = load(PLUGIN / "interface.json")
         # delegation-hygiene D170: 2.0 for the round-2 batch; only the version string changed (Spec Guard >=1.0,<3.0).
-        self.assertEqual(marker, {"interface": "2.3", "status": ["python3", "-B", "hooks/relay_status.py"]})
+        self.assertEqual(marker, {"interface": "2.4", "status": ["python3", "-B", "hooks/relay_status.py"]})
         self.assertEqual(marker["status"][:2], ["python3", "-B"])
         self.assertTrue((PLUGIN / marker["status"][2]).is_file())
 

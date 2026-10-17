@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+接口 **2.4**（只新增内容，Spec Guard 0.56.0 或更新照样接受），信箱 schema 仍为 **7**，委派库仍为 schema 3。来自 2026-10-17
+使用观测剩下的三条低优先级改进，加上 0.8.0 验收时测到的 `bridge_agents` 慢：
+
+- **bridge 有改动，要 `upgrade --confirm` 升级运行时**；schema 不变，插件和运行时先升哪个都行。
+- **`bridge_agents` 可以分页**（模块 `agents-view-polish`，D223）：带 `includeRetired`、`maxChars` 或 `afterName` 时
+  分页，结果带 `hasMore`，有下一页时带 `nextAfterName`，`count` 是本页条数；退役身份只给精简条目。不带参数的调用和
+  以前一样，返回全部活跃身份，`count` 是总数。
+- **按编号查消息状态谁都能查**（D224）：`bridge_wake_status` 和 `bridge_wait` 的 `messageId` 不再只限收发双方，
+  和 `bridge_inbox` 一致；查询不记已读。
+- **Claude 在线状态区分空闲和忙碌**（D225）：`running` 时多一个 `activity`（`busy` 正在跑一轮，`idle` 空闲）。
+- **不再等十秒**（D226）：`bridge_agents` 和 `bridge_send` 问 ChatGPT 应用最多等 2 秒；没打开的 Codex 任务仍报
+  `not-loaded`，所以 `not-loaded` 也可能只是应用 2 秒内没回应，下次会纠正。
+
 ## [0.8.0] - 2026-10-17
 
 接口 **2.3**（只新增内容，Spec Guard 0.56.0 或更新照样接受），信箱 schema **7**，委派库仍为 schema 3。来自 2026-10-17

@@ -1,5 +1,12 @@
 # Changelog
 
+## agent-relay 0.8.1
+
+Listing and status polish (module `agents-view-polish`, D223–D227), schema 7 unchanged: `bridge_agents` pages when
+asked (`includeRetired`, `maxChars`, `afterName`) and keeps retired entries short, a plain call stays whole; message
+status by id answers any caller; a running Claude presence says `activity` busy or idle; the ChatGPT app is asked for at
+most 2 s, so a listing or a send to a task that is not open no longer waits ten seconds.
+
 ## agent-relay 0.8.0
 
 Requests close as they are really handled (module `request-closing`, D216–D222), mailbox schema 7: one answer can
