@@ -1,5 +1,7 @@
 # Spec: accepted-unread-notice
 
+<!-- spec-guard: review approved 55c59e9a0fd2 -->
+
 ## Objective
 
 Only module of 0.8.2 (bridge, docs). From a report relayed on 2026-10-17 and the user's decision the same day ("十条假设
