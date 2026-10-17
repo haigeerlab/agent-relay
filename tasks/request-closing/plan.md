@@ -1,7 +1,8 @@
 # Plan: request-closing
 
 Based on [`spec/request-closing.md`](../../spec/request-closing.md) (accepted by the user on 2026-10-17: assumptions
-1–7, D216–D221, with D218 and D219 as written). This branch carries the map row, spec and plan as one PR; the
+1–8, D216–D222, with D218 and D219 as written; assumption 8 and D222 from the round-2 review of #129, accepted the
+same day). This branch carries the map row, spec and plan as one PR; the
 implementation goes on `claude/request-closing-impl` from main after that PR is merged. Only module of 0.8.0; the
 release PR waits until the implementation PR is merged. The round-2 coordinator and the usage observer are told every PR
 number.
@@ -18,8 +19,11 @@ rows have no closure; a second open is a no-op. Green: `SCHEMA_VERSION = 7`, the
 Red first in the new `test/request-closing.test.ts`: one answer with `replyTo` A and `alsoAnswers` [B] closes both,
 B's outbox entry carries `closedBy {kind: answered}` and the answer in `replies`, outcome `replied`, B counts as read by
 its recipient; each refusal of D217 names the id and stores nothing (also the message itself is not stored); without
-`replyTo` it still works; refused on a broadcast. Green: `SendInput.alsoAnswers`, validation and the closure rows in
-`insertMessage`'s transaction (`bridge-store.ts`), the `replies` and `closedBy` queries, `MessageOutcome`, and the
+`replyTo` it still works; refused on a broadcast; `closed` in the result (D222); the same key and list retried →
+`duplicate: true` and no second closure, a different list → refused; two `BridgeStore` instances on one file
+committing alternately cannot close one request twice, and the loser gets the readable refusal. Green: `SendInput.alsoAnswers`, validation **after** the idempotency check and the closure rows inside
+`deliver()`'s `BEGIN IMMEDIATE` transaction (`bridge-store.ts`), the primary-key conflict turned into the refusal,
+`contentDifferences` comparing the lists (`idempotency.ts`), the `replies` and `closedBy` queries, `MessageOutcome`, and the
 `bridge_send` parameter in `server.ts`.
 
 ### Task 3: the other requester (D218)
@@ -33,20 +37,22 @@ message closed as `answered`.
 Red first: the sender withdraws its own open request addressed to this message's recipient → `withdrawn`, outcome
 `withdrawn`, no read recorded, the recipient's `owesReplies` drops; refused for another's request, for a request to
 another recipient, for a closed or linked one, and nothing is stored; `withdraws` with `expectsReply` in one message
-works; a withdrawn request then named in `alsoAnswers` is refused ("withdrawn by #M"). Green in the same places as
-Task 2.
+works; a withdrawn request then named in `alsoAnswers` is refused ("withdrawn by #M"), but a `replyTo` on it is
+allowed, outcome `replied`, `closedBy` withdrawn (D220); retry and two-store cases as in Task 2. Green in the same
+places as Task 2.
 
 ### Checkpoint (report): bridge green
 `npm run typecheck`, `npm test`; an acknowledgement still closes nothing (existing tests unchanged).
 
 ### Task 5: hooks, skills and instructions (assumption 4, D221)
 `MAILBOX_SCHEMA_VERSIONS` adds 7 (doctor, `retire`, delegation backend tests on a schema 7 file); `collab` and
-`session-routing` say to list every request an answer covers and to withdraw what is no longer needed; the server
+`session-routing` say to list every request an answer covers, to withdraw what is no longer needed, and to trust
+`closed` (no `closed` = a bridge older than 0.8.0, nothing closed, D222); the server
 instructions sentence; `bridge/INSTRUCTIONS.md`.
 
 ### Task 6: interface 2.3 and bookkeeping
 `interface.json` 2.3 and `test_packaging`; `docs/collaboration-interface.md` (version line, `bridge_send`,
-`bridge_outbox`, `bridge_wake_status`, `bridge_inbox` direction `answer`); `UPSTREAM.md` row and manifest (D24);
+`bridge_outbox`, `bridge_wake_status`, `bridge_inbox` direction `answer`, `bridge_send` result `closed`); `UPSTREAM.md` row and manifest (D24);
 `bridge/CHANGELOG.md` and CHANGELOG `[Unreleased]` (plugins first, then `upgrade --confirm`; compatible-mode caveat;
 rollback names schema 7).
 
@@ -67,4 +73,5 @@ owner that interface 2.3 ships.
 | A send passes validation but fails half-way | a closure without its message, or the reverse | message, closures and notice in one `atomically` step; a test forces a failure after the closures |
 | `direction: "answer"` is a new value for read-own-sent's field | a consumer that only knows `sent`/`received` | documented as an addition in 2.3; the interface table says consumers treat unknown values as `received` |
 | 0.7.x bridges keep running after the upgrade | their views still count closed requests | CHANGELOG caveat (D221); upgrade order plugins first, all bridges stopped before `upgrade --confirm` |
+| A 0.8.0 session talks to a 0.7.x bridge during the upgrade | its `alsoAnswers` is dropped silently | `closed` in the result (D222); acceptance checks it on the real host |
 | Notice flood when one answer closes many twins | one notice per other requester | at most 20 ids per send; one notice per closed request, coalesced per requester and answer |
