@@ -5,5 +5,5 @@
 - [x] Checkpoint (report): bridge green — `npm run check` (typecheck, build, 232 tests pass); no `/expired|held/` regex left in `src`
 - [x] Task 3: bookkeeping — `UPSTREAM.md` row and manifest (D24), `bridge/CHANGELOG.md` 0.7.2 section, CHANGELOG `[Unreleased]`, `bridge/INSTRUCTIONS.md` (the "held or expired" sentence) and `docs/BACKGROUND-WAKE.md` ("Why Claude pings expire" now opens with the offline case)
 - [x] Checkpoint (report): local validation — `scripts/validate.sh` pass on Python 3.9.6, 3.10.7, 3.14.3 with Node v24.18.0 first on PATH (47 files, 835 tests each; bridge `npm run check` 232 ok)
-- [ ] Task 4: PR and CI
-- [ ] Checkpoint (gate): module review
+- [x] Task 4: PR and CI — #127, the four CI jobs green; the user merged it (3d81b63) on 2026-10-17
+- [x] Checkpoint (gate): module review — the round-2 coordinator reviewed spec/plan #126 (mergeable, three additions, all made in #127); the user merged #126 (0a7ca60) and #127 (3d81b63); the coordinator's review of #127 had not arrived when the user merged it, so the tag waits for it (RELEASING.md, before release 2)
