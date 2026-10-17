@@ -1,6 +1,6 @@
 import { type DeliveryState, assertBelowPendingCap, atomically, expireDue, sendTimeoutMs } from "./delivery.js";
 import { type PendingReason, type WakeJob, WakeQueue } from "./wake-queue.js";
-import { assertMayReply, conflictError, contentDifferences, ReplyLinkError, replyThread } from "./idempotency.js";
+import { assertMayReply, conflictError, contentDifferences, ReplyLinkError, replyThread, RequestCloseError } from "./idempotency.js";
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -78,6 +78,29 @@ export interface SendInput {
   replyTo?: number | null;
   /** agent-relay awaiting-reply-view D201: mark a direct message as expecting an answer; refused on a broadcast. */
   expectsReply?: boolean;
+  /** agent-relay request-closing D217: further open requests addressed to the sender that this message answers. */
+  alsoAnswers?: number[];
+}
+
+/** agent-relay request-closing D216: how a request was closed other than by a `replyTo` link. */
+export type ClosureKind = "answered" | "withdrawn";
+export interface Closure { id: number; kind: ClosureKind }
+
+/** At most this many ids in alsoAnswers or withdraws (D217, D219). */
+export const MAX_CLOSURES = 20;
+
+/** request-closing D217, D219: what a list of request ids may look like before any of them is read. */
+function closureListShape(field: "alsoAnswers" | "withdraws", ids: number[], toAgent: string): void {
+  if (!ids.length) return;
+  if (toAgent === "*") {
+    throw new RequestCloseError(`A broadcast cannot carry ${field}: send it in a direct message.`);
+  }
+  if (ids.length > MAX_CLOSURES) throw new RequestCloseError(`${field} takes at most ${MAX_CLOSURES} ids.`);
+  const seen = new Set<number>();
+  for (const id of ids) {
+    if (seen.has(id)) throw new RequestCloseError(`${field} names #${id} twice.`);
+    seen.add(id);
+  }
 }
 
 export interface InboxOptions {
@@ -129,6 +152,8 @@ export interface OutboxEntry {
   /** agent-relay idempotency: the message this one replies to, and the ids of the replies it received. */
   replyTo: number | null;
   replies: number[];
+  /** agent-relay request-closing D220: the message that closed this request other than by `replyTo`. */
+  closedBy?: { messageId: number; kind: ClosureKind };
   /** agent-relay awaiting-reply-view D203: the sender marked it as expecting an answer. */
   expectsReply: boolean;
   /** Whole seconds since it was sent; only in the awaiting-reply view. */
@@ -323,7 +348,7 @@ export class BridgeStore {
    * agent-relay idempotency (D33, D34): like `send`, and says whether the result is an already stored message.
    * A reused key with different content is refused, except for the bridge's own notices, which fold by key.
    */
-  deliver(input: SendInput): { message: BridgeMessage; duplicate: boolean } {
+  deliver(input: SendInput): { message: BridgeMessage; duplicate: boolean; closed: Closure[] } {
     this.db.exec("BEGIN IMMEDIATE");
     try {
       const result = this.insertMessage(input);
@@ -335,11 +360,16 @@ export class BridgeStore {
     }
   }
 
-  private insertMessage(input: SendInput): { message: BridgeMessage; duplicate: boolean } {
+  private insertMessage(input: SendInput): { message: BridgeMessage; duplicate: boolean; closed: Closure[] } {
     const replyTo = input.replyTo ?? null;
     const expectsReply = input.expectsReply === true;
     if (expectsReply && input.toAgent === "*") {
       throw new Error("A broadcast cannot carry expectsReply: send the request to one recipient.");
+    }
+    const alsoAnswers = input.alsoAnswers ?? [];
+    closureListShape("alsoAnswers", alsoAnswers, input.toAgent);
+    if (replyTo !== null && alsoAnswers.includes(replyTo)) {
+      throw new RequestCloseError(`#${replyTo} is also the replyTo; list only the other requests in alsoAnswers.`);
     }
     let threadId = input.threadId ?? null;
     let answersOwnMessage = false;
@@ -360,12 +390,16 @@ export class BridgeStore {
         .get(input.fromAgent, idempotencyKey) as unknown as MessageRow | undefined;
       if (existing) {
         const stored = this.toMessage(existing);
-        const differs = contentDifferences(stored,
-          { toAgent: input.toAgent, body: input.body, threadId, replyTo, expectsReply });
+        // request-closing D217: a retry compares the lists it closed, after which a retry of a send that already
+        // closed its requests returns the stored message instead of refusing itself.
+        const closed = this.closuresBy(stored.id);
+        const differs = contentDifferences(
+          { ...stored, alsoAnswers: closed.filter((c) => c.kind === "answered").map((c) => c.id) },
+          { toAgent: input.toAgent, body: input.body, threadId, replyTo, expectsReply, alsoAnswers });
         if (differs.length && input.fromAgent !== "bridge") {
           throw conflictError(idempotencyKey, input.fromAgent, stored.id, stored.deliveryState, differs);
         }
-        return { message: stored, duplicate: true };
+        return { message: stored, duplicate: true, closed };
       }
     }
 
@@ -380,8 +414,12 @@ export class BridgeStore {
            ORDER BY id LIMIT 1`,
         )
         .get(replyTo, input.fromAgent, input.toAgent, input.body) as unknown as MessageRow | undefined;
-      if (earlier) return { message: this.toMessage(earlier), duplicate: true };
+      if (earlier) return { message: this.toMessage(earlier), duplicate: true, closed: this.closuresBy(Number(earlier.id)) };
     }
+
+    // agent-relay request-closing D217: checked here, inside deliver()'s write transaction and after the idempotent
+    // returns, so another bridge process cannot close the same request in between.
+    for (const id of alsoAnswers) this.assertClosable(id, "answer", input.fromAgent);
 
     const direct = input.toAgent !== "*";
     // agent-relay durable-ordering (D30, D31): after the idempotent return, so a retry of a stored message passes.
@@ -403,7 +441,58 @@ export class BridgeStore {
     if (input.wake !== false) this.wakes.enqueue(message);
     // agent-relay mailbox-polish D155: the recipient answering a direct message has it, as surely as a fetch.
     if (answersOwnMessage && replyTo !== null) this.wakes.recordRead(input.fromAgent, [replyTo]);
-    return { message, duplicate: false };
+    const closed = this.closeRequests(message.id, alsoAnswers, "answered");
+    if (alsoAnswers.length) this.wakes.recordRead(input.fromAgent, alsoAnswers);
+    return { message, duplicate: false, closed };
+  }
+
+  /** request-closing D222: the requests a message closed other than by `replyTo`, in id order. */
+  private closuresBy(messageId: number): Closure[] {
+    return (this.db.prepare("SELECT request_id, kind FROM request_closures WHERE message_id = ? ORDER BY request_id")
+      .all(messageId) as Array<{ request_id: number | bigint; kind: ClosureKind }>)
+      .map((row) => ({ id: Number(row.request_id), kind: row.kind }));
+  }
+
+  /**
+   * request-closing D217, D219: refuse, naming the id, a request that `sender` may not close as `role`, or that is no
+   * longer open. Runs inside the send's transaction.
+   */
+  private assertClosable(id: number, role: "answer" | "withdraw", sender: string, recipient?: string): void {
+    const refuse = (why: string) => new RequestCloseError(`Cannot close request #${id}: ${why}. Nothing was sent.`);
+    const row = this.db.prepare("SELECT from_agent, to_agent, expects_reply, delivery_state FROM messages WHERE id = ?")
+      .get(id) as { from_agent: string; to_agent: string; expects_reply: number | bigint; delivery_state: string | null } | undefined;
+    if (!row) throw refuse(`there is no message #${id}`);
+    if (role === "answer" && row.to_agent !== sender) throw refuse(`it is addressed to "${row.to_agent}", not to "${sender}"`);
+    if (role === "withdraw" && row.from_agent !== sender) throw refuse(`it was sent by "${row.from_agent}", not by "${sender}"`);
+    if (role === "withdraw" && row.to_agent !== recipient) {
+      throw refuse(`it is addressed to "${row.to_agent}"; send the withdrawal to "${row.to_agent}"`);
+    }
+    if (Number(row.expects_reply) !== 1) throw refuse("it is not a request (it was not sent with expectsReply)");
+    const closure = this.db.prepare("SELECT message_id, kind FROM request_closures WHERE request_id = ?").get(id) as
+      { message_id: number | bigint; kind: ClosureKind } | undefined;
+    if (closure) throw refuse(`it was ${closure.kind === "answered" ? "already answered" : "withdrawn"} by #${Number(closure.message_id)}`);
+    const reply = this.db.prepare("SELECT MIN(id) AS id FROM messages WHERE reply_to = ?").get(id) as { id: number | bigint | null };
+    if (reply.id !== null) throw refuse(`it was already answered by #${Number(reply.id)}`);
+    if (row.delivery_state === "failed") throw refuse("its delivery failed");
+    if (row.delivery_state === "expired") throw refuse("it expired before delivery");
+  }
+
+  /** request-closing D216: one closure row per request; a lost race becomes the same readable refusal. */
+  private closeRequests(messageId: number, ids: number[], kind: ClosureKind): Closure[] {
+    const insert = this.db.prepare("INSERT INTO request_closures (request_id, message_id, kind, closed_at) VALUES (?, ?, ?, ?)");
+    const now = this.now();
+    for (const id of ids) {
+      try {
+        insert.run(id, messageId, kind, now);
+      } catch (error) {
+        if (!/constraint/i.test(String((error as Error).message))) throw error;
+        const other = this.db.prepare("SELECT message_id, kind FROM request_closures WHERE request_id = ?").get(id) as
+          { message_id: number | bigint; kind: ClosureKind } | undefined;
+        throw new RequestCloseError(`Cannot close request #${id}: it was ${other?.kind === "withdrawn" ? "withdrawn" : "already answered"} ` +
+          `by #${Number(other?.message_id)}. Nothing was sent.`);
+      }
+    }
+    return ids.map((id) => ({ id, kind })).sort((a, b) => a.id - b.id);
   }
 
   /** agent-relay ops-commands (D45): the status of one message, or undefined when it does not exist. */
@@ -413,8 +502,9 @@ export class BridgeStore {
     if (!message) return undefined;
     const ack = this.db.prepare("SELECT acked_at FROM acknowledgements WHERE message_id = ? AND agent = ?")
       .get(id, message.toAgent) as { acked_at: string } | undefined;
-    const replies = (this.db.prepare("SELECT id FROM messages WHERE reply_to = ? ORDER BY id").all(id) as Array<{ id: number | bigint }>)
-      .map((row) => Number(row.id));
+    const replies = (this.db.prepare(`SELECT id FROM messages WHERE reply_to = ?
+      UNION SELECT message_id FROM request_closures WHERE request_id = ? AND kind = 'answered' ORDER BY 1`)
+      .all(id, id) as Array<{ id: number | bigint }>).map((row) => Number(row.id));
     const acknowledgedAt = ack?.acked_at ?? null;
     const outcome: MessageOutcome = replies.length ? "replied"
       : acknowledgedAt ? "acknowledged"
@@ -631,8 +721,11 @@ export class BridgeStore {
                     AND o.state IN ('pending', 'sending') AND o.pending_reason IS NOT NULL ORDER BY o.id LIMIT 1))
                 END AS wake_reason,
                 m.delivery_state, m.expires_at, m.reply_to, m.expects_reply,
-                (SELECT json_group_array(id) FROM (SELECT x.id FROM messages x WHERE x.reply_to = m.id ORDER BY x.id))
-                  AS replies
+                (SELECT json_group_array(id) FROM (SELECT x.id AS id FROM messages x WHERE x.reply_to = m.id
+                  UNION SELECT rc.message_id FROM request_closures rc WHERE rc.request_id = m.id AND rc.kind = 'answered'
+                  ORDER BY id)) AS replies,
+                (SELECT json_object('messageId', rc.message_id, 'kind', rc.kind) FROM request_closures rc
+                  WHERE rc.request_id = m.id) AS closed_by
          FROM messages m
          LEFT JOIN acknowledgements a ON a.message_id = m.id AND a.agent = m.to_agent
          LEFT JOIN wake_jobs w ON w.message_id = m.id AND w.agent = m.to_agent
@@ -679,6 +772,7 @@ export class BridgeStore {
         expiresAt: row.expires_at == null ? null : new Date(Number(row.expires_at)).toISOString(),
         replyTo: row.reply_to == null ? null : Number(row.reply_to),
         replies: JSON.parse(row.replies as string) as number[],
+        ...(row.closed_by == null ? {} : { closedBy: JSON.parse(row.closed_by as string) as { messageId: number; kind: ClosureKind } }),
         expectsReply: Number(row.expects_reply ?? 0) === 1,
         ...(awaitingReply
           ? { waitingSeconds: Math.max(0, Math.floor((now - Date.parse(row.created_at as string)) / 1000)) }

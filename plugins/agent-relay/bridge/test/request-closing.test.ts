@@ -47,3 +47,99 @@ test("a closure row closes a request in every view (D216)", () => {
   assert.equal(store.outbox("asker", { awaitingReply: true }).entries.length, 0);
   store.close();
 });
+
+// D217: one answer closes several requests addressed to its sender.
+test("alsoAnswers closes further requests with the replyTo answer, in every view (D217, D220, D222)", () => {
+  const store = fresh();
+  const a = store.send({ fromAgent: "asker", toAgent: "helper", body: "review X", expectsReply: true });
+  const b = store.send({ fromAgent: "twin", toAgent: "helper", body: "review X too", expectsReply: true });
+  assert.equal(store.owesReplies().get("helper")?.count, 2);
+  const { message: answer, closed } = store.deliver({ fromAgent: "helper", toAgent: "asker", body: "X is fine",
+    replyTo: a.id, alsoAnswers: [b.id] });
+  assert.deepEqual(closed, [{ id: b.id, kind: "answered" }]);
+  assert.equal(store.owesReplies().get("helper"), undefined);
+  const entry = store.outbox("twin", { includeAcknowledged: true }).entries.find((e) => e.id === b.id);
+  assert.deepEqual(entry?.closedBy, { messageId: answer.id, kind: "answered" });
+  assert.deepEqual(entry?.replies, [answer.id]);
+  assert.equal(store.messageStatus(b.id)?.outcome, "replied");
+  assert.equal(store.outbox("twin", { awaitingReply: true }).entries.length, 0);
+  assert.equal(store.outbox("asker", { includeAcknowledged: true }).entries.find((e) => e.id === a.id)?.closedBy, undefined);
+  store.close();
+});
+
+test("alsoAnswers works without replyTo and is refused on a broadcast (D217)", () => {
+  const store = fresh();
+  const b = store.send({ fromAgent: "twin", toAgent: "helper", body: "q", expectsReply: true });
+  const { closed } = store.deliver({ fromAgent: "helper", toAgent: "other", body: "done", alsoAnswers: [b.id] });
+  assert.deepEqual(closed, [{ id: b.id, kind: "answered" }]);
+  const c = store.send({ fromAgent: "twin", toAgent: "helper", body: "q2", expectsReply: true });
+  assert.throws(() => store.deliver({ fromAgent: "helper", toAgent: "*", body: "all", alsoAnswers: [c.id] }),
+    /broadcast/);
+  store.close();
+});
+
+test("every alsoAnswers refusal names the id and stores nothing (D217)", () => {
+  const store = fresh();
+  const mine = store.send({ fromAgent: "asker", toAgent: "helper", body: "q", expectsReply: true });
+  const notMine = store.send({ fromAgent: "asker", toAgent: "other", body: "q", expectsReply: true });
+  const plain = store.send({ fromAgent: "asker", toAgent: "helper", body: "fyi" });
+  const answered = store.send({ fromAgent: "twin", toAgent: "helper", body: "q", expectsReply: true });
+  const reply = store.send({ fromAgent: "helper", toAgent: "twin", body: "a", replyTo: answered.id });
+  const count = () => store.outbox("helper", { includeAcknowledged: true }).entries.length;
+  const before = count();
+  const cases: Array<[number[], RegExp]> = [
+    [[999_999], /#999999.*no message/i],
+    [[notMine.id], new RegExp(`#${notMine.id}.*addressed to "other"`)],
+    [[plain.id], new RegExp(`#${plain.id}.*not a request`)],
+    [[answered.id], new RegExp(`#${answered.id}.*already answered by #${reply.id}`)],
+    [[mine.id, mine.id], /twice/],
+    [Array.from({ length: 21 }, (_, i) => mine.id + i), /at most 20/],
+  ];
+  for (const [ids, pattern] of cases) {
+    assert.throws(() => store.deliver({ fromAgent: "helper", toAgent: "asker", body: "x", alsoAnswers: ids }), pattern);
+  }
+  assert.throws(() => store.deliver({ fromAgent: "helper", toAgent: "asker", body: "x", replyTo: mine.id,
+    alsoAnswers: [mine.id] }), /also the replyTo/);
+  assert.equal(count(), before, "nothing was stored");
+  assert.equal(store.owesReplies().get("helper")?.ids.includes(mine.id), true);
+  store.close();
+});
+
+test("a retry with the same key and list is a duplicate; a different list is refused (D217)", () => {
+  const store = fresh();
+  const b = store.send({ fromAgent: "twin", toAgent: "helper", body: "q", expectsReply: true });
+  const c = store.send({ fromAgent: "other", toAgent: "helper", body: "q", expectsReply: true });
+  const first = store.deliver({ fromAgent: "helper", toAgent: "asker", body: "done", idempotencyKey: "k",
+    alsoAnswers: [b.id] });
+  const again = store.deliver({ fromAgent: "helper", toAgent: "asker", body: "done", idempotencyKey: "k",
+    alsoAnswers: [b.id] });
+  assert.equal(again.duplicate, true);
+  assert.equal(again.message.id, first.message.id);
+  assert.deepEqual(again.closed, [{ id: b.id, kind: "answered" }]);
+  assert.throws(() => store.deliver({ fromAgent: "helper", toAgent: "asker", body: "done", idempotencyKey: "k",
+    alsoAnswers: [b.id, c.id] }), /alsoAnswers/);
+  assert.equal(store.owesReplies().get("helper")?.ids.includes(c.id), true);
+  store.close();
+});
+
+test("two bridge processes cannot both close one request (D217)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "bridge-closing-race-"));
+  const path = join(dir, "bridge.sqlite");
+  const one = fresh(path);
+  const two = new BridgeStore(path);
+  const b = one.send({ fromAgent: "twin", toAgent: "helper", body: "q", expectsReply: true });
+  one.deliver({ fromAgent: "helper", toAgent: "asker", body: "first answer", alsoAnswers: [b.id] });
+  assert.throws(() => two.deliver({ fromAgent: "helper", toAgent: "other", body: "second answer", alsoAnswers: [b.id] }),
+    new RegExp(`#${b.id}.*already answered by #`));
+  assert.equal(two.outbox("helper", { includeAcknowledged: true }).entries.filter((e) => e.toAgent === "other").length, 0);
+  one.close();
+  two.close();
+});
+
+test("an answer through alsoAnswers counts as read by its recipient (D217, D155)", () => {
+  const store = fresh();
+  const b = store.send({ fromAgent: "twin", toAgent: "helper", body: "q", expectsReply: true });
+  store.deliver({ fromAgent: "helper", toAgent: "asker", body: "done", alsoAnswers: [b.id] });
+  assert.equal(store.messageStatus(b.id)?.deliveryState, "accepted");
+  store.close();
+});

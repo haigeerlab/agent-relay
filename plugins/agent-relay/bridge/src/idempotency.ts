@@ -8,9 +8,15 @@ export interface MessageContent {
   replyTo: number | null;
   /** agent-relay awaiting-reply-view D201: a retry that changes the mark is a different message. */
   expectsReply: boolean;
+  /** agent-relay request-closing D217, D219: the requests the message closes; compared as sorted lists. */
+  alsoAnswers?: number[];
+  withdraws?: number[];
 }
 
 export class IdempotencyConflictError extends Error {}
+
+/** agent-relay request-closing D217, D219: a request named in alsoAnswers or withdraws cannot be closed. */
+export class RequestCloseError extends Error {}
 
 /** A reply that names no stored message, or a thread other than its original's (D36). */
 export class ReplyLinkError extends Error {}
@@ -65,7 +71,11 @@ export function replyThread(originalId: number, originalThread: string | null, r
 
 /** Names of the content fields in which a retry differs from the stored message. */
 export function contentDifferences(stored: MessageContent, retry: MessageContent): string[] {
-  return (["toAgent", "body", "threadId", "replyTo", "expectsReply"] as const).filter((field) => stored[field] !== retry[field]);
+  const list = (ids: number[] | undefined) => [...(ids ?? [])].sort((a, b) => a - b).join(",");
+  return [
+    ...(["toAgent", "body", "threadId", "replyTo", "expectsReply"] as const).filter((field) => stored[field] !== retry[field]),
+    ...(["alsoAnswers", "withdraws"] as const).filter((field) => list(stored[field]) !== list(retry[field])),
+  ];
 }
 
 /**
