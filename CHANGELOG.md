@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-10-17
+
 接口 **2.4**（只新增内容，Spec Guard 0.56.0 或更新照样接受），信箱 schema 仍为 **7**，委派库仍为 schema 3。来自 2026-10-17
 使用观测剩下的三条低优先级改进，加上 0.8.0 验收时测到的 `bridge_agents` 慢：
 
@@ -14,6 +16,30 @@
 - **Claude 在线状态区分空闲和忙碌**（D225）：`running` 时多一个 `activity`（`busy` 正在跑一轮，`idle` 空闲）。
 - **不再等十秒**（D226）：`bridge_agents` 和 `bridge_send` 问 ChatGPT 应用最多等 2 秒；没打开的 Codex 任务仍报
   `not-loaded`，所以 `not-loaded` 也可能只是应用 2 秒内没回应，下次会纠正。
+
+### 从 0.8.0 升级
+
+schema 不变，插件和运行时先升哪个都行。
+
+1. 两个宿主都更新插件（详见 README“更新插件”）：Claude Code 从 GitHub 装的，先 `claude plugin marketplace update
+   agent-relay-marketplace`，再 `claude plugin update --scope user agent-relay@agent-relay-marketplace`；Codex 把
+   `~/.codex/config.toml` 里的 `ref` 改成 `"v0.8.1"` 后 `codex plugin marketplace upgrade`、`codex plugin add
+   agent-relay@agent-relay-marketplace`；从本地克隆装的先 `git -C <克隆> pull --ff-only`，Codex 再 `codex plugin add`。
+2. **升级运行时**：关闭所有使用信箱的会话或只结束 bridge（见 README“升级运行时”），确认 `pgrep -fl
+   "agent-relay/runtime/dist/server.js"` 没有输出，再执行 `python3 -B <插件目录>/hooks/native_collaboration_runtime.py
+   upgrade --confirm`，输出应为 `"state": "upgraded"`。信箱 schema 仍是 7，不做迁移。升级时若有会话中途又启动了
+   bridge，升级会报“行数变了”并自动回滚，结束 bridge 后再跑一次即可。
+3. 新开 Claude Code 会话；Codex 用 ⌘Q 完全退出 ChatGPT 应用再打开（之后 `doctor` 的 `codex-restart` 应为 ok）。
+
+### 想退回 0.8.0
+
+关掉所有会话后 `rollback --confirm` 退回运行时，并把两个宿主的插件退回 v0.8.0，然后新开会话。schema 相同，只退一边也
+能读信箱。
+
+### 已知问题
+
+- `not-loaded` 现在也可能只是 ChatGPT 应用 2 秒内没回应（例如应用刚启动、正在加载很多任务），下一次调用会纠正。
+- 分页时，本页之后的活跃身份也会被查一次在线状态；因为有 2 秒上限、查询又是并行的，最多多等 2 秒。
 
 ## [0.8.0] - 2026-10-17
 
