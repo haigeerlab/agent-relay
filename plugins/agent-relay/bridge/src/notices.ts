@@ -1,4 +1,5 @@
 import type { BridgeStore } from "./bridge-store.js";
+import { CLAUDE_EXPIRED_RECEIPT } from "./claude-wake.js";
 import type { WakeJob } from "./wake-queue.js";
 
 /**
@@ -19,13 +20,31 @@ export const CLAUDE_HOLD_EXPLANATION =
   'deliberately set "crossSessionInbound": "accept" in ~/.claude/settings.json. The bridge never ' +
   "changes that setting.";
 
-function isClaudeHold(job: WakeJob): boolean {
-  return job.target.app === "claude" && (job.state === "held" || /\b(expired|held)\b/i.test(job.detail));
+/** agent-relay expiry-notice-reason D215: a Claude ping that expired because its session was not running. */
+export const CLAUDE_OFFLINE_EXPLANATION =
+  "The recipient's Claude session was not running for the whole one-hour retry window (the Claude app may stop idle " +
+  "sessions). The message stays in its inbox and is delivered once that session is opened: ask the user to open it.";
+
+/**
+ * agent-relay expiry-notice-reason D215: only Claude's own word makes a hold: the ping is `held`, or Claude's receipt
+ * said it expired the message. Bridge-written details (an offline expiry, a re-armed ping) never count, whatever words
+ * they contain. Takes a wake job's fields or a `health()` row.
+ */
+export function isClaudeHold(ping: { app: string; state: string; detail: string }): boolean {
+  return ping.app === "claude" && (ping.state === "held" || (ping.state === "refused" && ping.detail === CLAUDE_EXPIRED_RECEIPT));
+}
+
+/** A Claude ping that expired while its session was not running (D215). */
+export function isClaudeOfflineExpiry(ping: { app: string; state: string; pendingReason?: string | null }): boolean {
+  return ping.app === "claude" && ping.state === "expired" && (ping.pendingReason ?? "offline") === "offline";
 }
 
 export function explainFailure(job: WakeJob): string {
-  if (isClaudeHold(job)) return CLAUDE_HOLD_EXPLANATION;
+  if (isClaudeHold({ app: job.target.app, state: job.state, detail: job.detail })) return CLAUDE_HOLD_EXPLANATION;
   if (job.state === "expired") {
+    if (isClaudeOfflineExpiry({ app: job.target.app, state: job.state, pendingReason: job.pendingReason })) {
+      return CLAUDE_OFFLINE_EXPLANATION;
+    }
     return job.pendingReason === "busy"
       ? "The recipient stayed busy for the whole 24-hour retry window."
       : "The recipient's app session was unreachable for the whole one-hour retry window.";

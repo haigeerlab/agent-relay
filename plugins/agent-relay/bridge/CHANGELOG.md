@@ -1,5 +1,12 @@
 # Changelog
 
+## agent-relay 0.7.2
+
+Delivery-failure explanations follow the real cause (module `expiry-notice-reason`, D215), schema 6 unchanged: a
+Claude ping that expired because the recipient session was not running is explained as "not running; open that
+session" instead of a Bypass permissions / `crossSessionInbound` hold, in the notice, `bridge_wake_status` and the
+send-time warning; only a `held` ping or Claude's own expiry receipt counts as a hold.
+
 ## agent-relay 0.7.1
 
 Three fixes from a usage report (modules `codex-identity-recovery`, `reply-own-message-guidance`, `read-own-sent`),

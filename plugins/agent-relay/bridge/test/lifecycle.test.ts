@@ -4,6 +4,8 @@ import test from "node:test";
 import { agentNameProblem, checkRecipient, editDistance, suggestNames } from "../src/addressing.js";
 import { BridgeStore } from "../src/bridge-store.js";
 import { retireAgent } from "../src/lifecycle.js";
+import { CLAUDE_OFFLINE_EXPLANATION } from "../src/notices.js";
+import { OFFLINE_WAKE_WINDOW_MS } from "../src/wake-queue.js";
 
 const DAY = 24 * 3_600_000;
 
@@ -15,6 +17,26 @@ function failPings(store: BridgeStore, from: string, to: string, count: number, 
     store.wakes.finish(job, { state: "refused", detail });
   }
 }
+
+// agent-relay expiry-notice-reason D215: three Claude offline expiries are "not running", not a hold.
+test("the send-time warning says a stopped Claude session is not running, not held", async () => {
+  const store = new BridgeStore(":memory:");
+  store.register("sender");
+  store.register("claude-worker");
+  store.wakes.bind("claude-worker", { app: "claude", sessionId: "gone-session" });
+  for (let index = 0; index < 3; index += 1) {
+    store.send({ fromAgent: "sender", toAgent: "claude-worker", body: `ping ${index}` });
+    const job = store.wakes.claim(Date.now());
+    assert.ok(job);
+    store.wakes.finish(job, { state: "pending", reason: "offline", detail: "not running" });
+    assert.equal(store.wakes.claim(Date.now() + OFFLINE_WAKE_WINDOW_MS + 3_600_000), null);
+  }
+  const check = await checkRecipient(store, "claude-worker");
+  const warning = check.warnings.find((line) => /last 3 background pings/.test(line)) ?? "";
+  assert.ok(warning.includes(CLAUDE_OFFLINE_EXPLANATION), warning);
+  assert.doesNotMatch(warning, /crossSessionInbound|Bypass/);
+  store.close();
+});
 
 test("agent names reject reserved words, session IDs and stray whitespace", () => {
   assert.equal(agentNameProblem("review-claude"), null);

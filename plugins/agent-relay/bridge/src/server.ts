@@ -19,7 +19,7 @@ import { awaitingCodexPresence, pagePresence } from "./awaiting-reply.js";
 import { claudePresence, codexOwner, codexPresence, type Presence } from "./presence.js";
 import { Housekeeper } from "./housekeeping.js";
 import { waitForInbox } from "./inbox-waiter.js";
-import { BRIDGE_AGENT, CLAUDE_HOLD_EXPLANATION } from "./notices.js";
+import { BRIDGE_AGENT, CLAUDE_HOLD_EXPLANATION, isClaudeHold } from "./notices.js";
 import { clampLimit, continueLines, fitMessages } from "./paging.js";
 import { VERSION } from "./version.js";
 import { WakeDispatcher } from "./wake-dispatcher.js";
@@ -396,7 +396,8 @@ function main(): void {
     const jobs = store.wakes.list(agent);
     const summary: Record<string, number> = {};
     for (const job of jobs) summary[job.state] = (summary[job.state] ?? 0) + 1;
-    const claudeHolds = jobs.some((job) => job.target.app === "claude" && (job.state === "held" || /expired|held/i.test(job.detail)));
+    // agent-relay expiry-notice-reason D215: only Claude's own word makes a hold, not words in a bridge-written detail.
+    const claudeHolds = jobs.some((job) => isClaudeHold({ app: job.target.app, state: job.state, detail: job.detail }));
     return jsonResult({ summary, ...(claudeHolds ? { explanation: CLAUDE_HOLD_EXPLANATION } : {}), jobs });
   });
 

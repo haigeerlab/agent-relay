@@ -9,7 +9,10 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 import { BridgeStore } from "../src/bridge-store.js";
+import { CLAUDE_EXPIRED_RECEIPT } from "../src/claude-wake.js";
 import { retireAgent } from "../src/lifecycle.js";
+import { CLAUDE_HOLD_EXPLANATION } from "../src/notices.js";
+import { OFFLINE_WAKE_WINDOW_MS, REARMED_DETAIL } from "../src/wake-queue.js";
 
 const projectRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -181,6 +184,36 @@ test("wake: auto binds the conversation that hosts the bridge process", async ()
     assert.deepEqual(sessions.thisSession, { app: "claude", sessionId: "session-under-test" });
     const unbound = payload(await client.callTool({ name: "bridge_register", arguments: { agent: "auto-agent", wake: null } }));
     assert.equal(unbound.wake, null);
+  } finally {
+    await client.close();
+  }
+});
+
+// agent-relay expiry-notice-reason D215: the list explanation follows Claude's own word, not words in a detail.
+test("bridge_wake_status explains a hold only for a real Claude hold", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "claude-codex-bridge-mcp-"));
+  const dbPath = join(dir, "bridge.sqlite");
+  const store = new BridgeStore(dbPath);
+  const ping = (to: string) => {
+    store.wakes.bind(to, { app: "claude", sessionId: `${to}-session` });
+    store.send({ fromAgent: "sender", toAgent: to, body: "hi" });
+    return store.wakes.claim(Date.now())!;
+  };
+  store.wakes.finish(ping("offline-only"), { state: "pending", reason: "offline", detail: "not running" });
+  assert.equal(store.wakes.claim(Date.now() + OFFLINE_WAKE_WINDOW_MS + 3_600_000), null);
+  store.wakes.finish(ping("rearmed-only"), { state: "accepted", detail: REARMED_DETAIL });
+  store.wakes.finish(ping("really-held"), { state: "refused", detail: CLAUDE_EXPIRED_RECEIPT });
+  store.close();
+
+  const client = await connect("wake-status-client", dbPath);
+  try {
+    const status = async (agent: string) =>
+      payload(await client.callTool({ name: "bridge_wake_status", arguments: { agent } }));
+    const offline = await status("offline-only");
+    assert.equal((offline.jobs as Array<{ state: string }>)[0]?.state, "expired");
+    assert.equal(offline.explanation, undefined);
+    assert.equal((await status("rearmed-only")).explanation, undefined);
+    assert.equal((await status("really-held")).explanation, CLAUDE_HOLD_EXPLANATION);
   } finally {
     await client.close();
   }
