@@ -15,12 +15,12 @@ import { agentNameProblem, checkRecipient } from "./addressing.js";
 import { BridgeStore } from "./bridge-store.js";
 import { CHANNEL_CAPABILITY, channelSession } from "./claude-channel.js";
 import { claudeSessions, claudeSessionsOrNull } from "./claude-wake.js";
-import { awaitingCodexPresence, pagePresence } from "./awaiting-reply.js";
+import { AWAITING_PRESENCE_TIMEOUT_MS, awaitingCodexPresence, pagePresence } from "./awaiting-reply.js";
 import { claudePresence, codexOwner, codexPresence, type Presence } from "./presence.js";
 import { Housekeeper } from "./housekeeping.js";
 import { waitForInbox } from "./inbox-waiter.js";
 import { BRIDGE_AGENT, CLAUDE_HOLD_EXPLANATION, isClaudeHold } from "./notices.js";
-import { clampLimit, continueLines, fitMessages } from "./paging.js";
+import { clampLimit, continueLines, DEFAULT_PAGE_CHARS, fitMessages, textCost } from "./paging.js";
 import { VERSION } from "./version.js";
 import { WakeDispatcher } from "./wake-dispatcher.js";
 import type { WakeTarget } from "./wake-queue.js";
@@ -46,8 +46,11 @@ async function isClaudeSessionLive(sessionId: string): Promise<boolean> {
 }
 
 /** agent-relay presence-and-approval D146, D147: one host session's state, read on demand. */
+// agents-view-polish D226: the ChatGPT app is asked for at most 2 s; silence after connecting stays not-loaded.
+const CODEX_ASK = { responseTimeoutMs: AWAITING_PRESENCE_TIMEOUT_MS };
+
 async function presenceOf(host: WakeTarget): Promise<Presence> {
-  if (host.app === "codex") return codexPresence(await codexOwner(host.sessionId));
+  if (host.app === "codex") return codexPresence(await codexOwner(host.sessionId, undefined, CODEX_ASK));
   return claudePresence(host.sessionId, await claudeSessionsOrNull());
 }
 
@@ -98,15 +101,11 @@ function main(): void {
       ...(host ? {} : { note: "This bridge cannot see its session (Codex does not pass one to MCP servers): host, title and project are unknown, and only names registered through this connection are listed." }),
     };
   };
-  // agent-relay ops-commands (D45): one message's status, for its sender or recipient only.
-  const statusFor = (id: number, as?: string): MessageStatus => {
+  // agent-relay ops-commands (D45): one message's status. agents-view-polish D224: for any caller, as bridge_inbox
+  // already shows any message in full; reading a status records nothing.
+  const statusFor = (id: number, _as?: string): MessageStatus => {
     const status = store.messageStatus(id);
     if (!status) throw new Error(`No message #${id}.`);
-    const { fromAgent, toAgent } = status.message;
-    const party = (name: string) => (as === undefined ? caller.owns(name, store.getAgent(name)) : as === name);
-    if (!(party(fromAgent) || toAgent === "*" || party(toAgent))) {
-      throw new Error(`Message #${id} can be checked only by its sender or recipient ("${fromAgent}", "${toAgent}") from their own session.`);
-    }
     return status;
   };
   const defaultAgent = () => localAgents.at(-1) ?? "claude-main";
@@ -350,7 +349,7 @@ function main(): void {
         if (!duplicate && wake !== false && recipient?.host?.app === "codex" && !store.wakes.target(to)
             && notifyUndelivered(dbPath, { messageId: message.id, fromAgent: from, agent: to,
               why: "its Codex session has no wake binding; the message waits", body,
-              where: { place: { kind: (await codexOwner(recipient.host.sessionId)) === true ? "codex-app" : "codex" } } })) {
+              where: { place: { kind: (await codexOwner(recipient.host.sessionId, undefined, CODEX_ASK)) === true ? "codex-app" : "codex" } } })) {
           warnings.push(`${JSON.stringify(to)} is a Codex session without a wake binding. ${NOTIFIED_TEXT}`);
         }
         // agent-relay acceptance-030-gaps D72: with no binding and no recorded host nobody can be woken or notified.
@@ -397,7 +396,7 @@ function main(): void {
     inputSchema: {
       agent: z.string().min(1).optional(),
       messageId: z.number().int().positive().optional().describe(
-        "Status of one message you sent or received: delivery state, ping, acknowledgement, replies and outcome (pending, acknowledged, replied, failed, expired)."),
+        "Status of one message by id, for any caller (as bridge_inbox shows any message): delivery state, ping, acknowledgement, replies and outcome (pending, acknowledged, replied, withdrawn, failed, expired). Reading it records nothing."),
     },
   }, async ({ agent, messageId }) => {
     if (messageId !== undefined) return jsonResult(statusFor(messageId));
@@ -572,10 +571,12 @@ function main(): void {
       title: "List agents",
       description: "List registered agents with unread counts, last activity, ping binding and recent ping health. An agent with unhandled direct messages carries waiting: {count, from, ids (oldest 20), oldestAt} (no bodies), whatever its host; with presence it shows who is stopped while messages wait. An agent others wait on carries owesReplies: {count, ids (oldest 20), oldestAt}, the requests marked expectsReply addressed to it with no replyTo answer yet. Tell the user when they ask what is waiting or who owes a reply. Retired agents are hidden unless requested.",
       inputSchema: {
-        includeRetired: z.boolean().optional().describe("Include retired agents."),
+        includeRetired: z.boolean().optional().describe("Include retired agents, each as a short entry (name, retiredAt, retiredBy, retireNote, unread, lastActivity, wake). The result is then paged."),
+        maxChars: z.number().int().min(1000).max(400000).optional().describe("Budget for one page in units: an ASCII character counts 1, any other character 4. Defaults to 48000 when the result is paged."),
+        afterName: z.string().min(1).optional().describe("Continue a paged listing after this agent (the previous page's nextAfterName)."),
       },
     },
-    async ({ includeRetired }) => {
+    async ({ includeRetired, maxChars, afterName }) => {
       const waiting = store.waiting();
       const owes = store.owesReplies();
       // agent-relay presence-and-approval D146: read the Claude registry once per listing.
@@ -583,12 +584,28 @@ function main(): void {
       const presenceOf = async (host: WakeTarget | null): Promise<Presence> =>
         !host ? { state: "unknown", detail: "no recorded host session" }
           : host.app === "claude" ? claudePresence(host.sessionId, claude)
-            : codexPresence(await codexOwner(host.sessionId));
-      const summaries = store.agentSummaries({ includeRetired });
+            : codexPresence(await codexOwner(host.sessionId, undefined, CODEX_ASK));
+      // agents-view-polish D223: only a call that asks for retired agents, a budget or a cursor is paged; a plain call
+      // returns every active agent, as upper layers read it whole.
+      const paged = includeRetired === true || maxChars !== undefined || afterName !== undefined;
+      let summaries = store.agentSummaries({ includeRetired });
+      if (afterName !== undefined) {
+        const at = summaries.findIndex((agent) => agent.name === afterName);
+        if (at < 0) throw new Error(`No agent named "${afterName}" in this listing; start again without afterName.`);
+        summaries = summaries.slice(at + 1);
+      }
       // presence-polish D176: a retired identity is never looked up, so a stuck host cannot slow the listing.
       const presences = await Promise.all(summaries.map((agent) =>
         agent.retiredAt ? null : presenceOf(agent.host ?? store.wakes.target(agent.name))));
-      const agents = summaries.map((agent, index) => {
+      const entries = summaries.map((agent, index) => {
+        // D223: a retired agent's entry keeps only what identifies it and the fields promised stable.
+        if (agent.retiredAt) {
+          return {
+            name: agent.name, retiredAt: agent.retiredAt, retiredBy: agent.retiredBy, retireNote: agent.retireNote,
+            unread: agent.unread, lastActivity: agent.lastActivity, wake: store.wakes.target(agent.name),
+            ...(waiting.has(agent.name) ? { waiting: waiting.get(agent.name) } : {}),
+          };
+        }
         const health = store.wakes.health(agent.name, 1)[0];
         return {
           ...agent,
@@ -604,7 +621,18 @@ function main(): void {
           ...(owes.has(agent.name) ? { owesReplies: owes.get(agent.name) } : {}),
         };
       });
-      return jsonResult({ count: agents.length, agents });
+      if (!paged) return jsonResult({ count: entries.length, agents: entries, hasMore: false });
+      const budget = maxChars ?? DEFAULT_PAGE_CHARS;
+      let used = 200;
+      const agents: typeof entries = [];
+      for (const entry of entries) {
+        const cost = textCost(JSON.stringify(entry)) + 1;
+        if (agents.length && used + cost > budget) break;
+        agents.push(entry);
+        used += cost;
+      }
+      const hasMore = agents.length < entries.length;
+      return jsonResult({ count: agents.length, agents, hasMore, ...(hasMore ? { nextAfterName: agents.at(-1)!.name } : {}) });
     },
   );
 
