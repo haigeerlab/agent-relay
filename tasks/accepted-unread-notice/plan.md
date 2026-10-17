@@ -1,6 +1,6 @@
 # Plan: accepted-unread-notice
 
-<!-- spec-guard: review pending -->
+<!-- spec-guard: review approved -->
 
 Based on [`spec/accepted-unread-notice.md`](../../spec/accepted-unread-notice.md) (accepted by the user on 2026-10-17:
 assumptions 1–10 including 4(c), D228–D231, and the four details chosen in the spec: the 24-hour window, the field
