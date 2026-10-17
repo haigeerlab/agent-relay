@@ -45,16 +45,21 @@ Readers: the user; the round-2 coordinator and the usage observer (review, re-ch
    **`bridge_send` gets the same cap** for its recipient presence check and its notice-location lookup (added by the
    user on 2026-10-17 when approving this spec: a send to a task that is not open also waited ten seconds).
 6. **Not in scope**: the meaning of `running`, Codex busy tracking, schema changes, deleting retired identities.
-7. **Verification**: red first for each; D against a fake ChatGPT socket that never answers, with a time bound; on the
+7. **Review additions (round-2 review of #132, accepted by the user 2026-10-17)**: a call with none of `includeRetired`,
+   `maxChars` or `afterName` is not paged and `count` stays the total (an upper layer reads the plain call whole); the
+   interface document says `not-loaded` may also mean the app did not answer within 2 s.
+8. **Verification**: red first for each; D against a fake ChatGPT socket that never answers, with a time bound; on the
    real host the coordinator checks `bridge_agents` returns within 3 s and `includeRetired` pages to the end.
 
 ## Decisions
 
-- **D223 `bridge_agents` pages and keeps retired entries short (A).** `maxChars` budget in the inbox's units
-  (`textCost`, 1 000 … 400 000, default 48 000) and `afterName` cursor, continuing in the listing's own order
-  (registration time, then name) after the named identity; an unknown `afterName` is refused. A page always holds at
-  least one entry. `count` is the entries on this page; `hasMore` is always present; `nextAfterName` only when
-  `hasMore`. Retired entries carry only the fields in assumption 2; presence is never looked up for them (D176 stays).
+- **D223 `bridge_agents` pages and keeps retired entries short (A).** Paging applies only when the call carries
+  `includeRetired`, `maxChars` or `afterName`; a call with none of them returns every active identity as today, with
+  `count` the total and `hasMore: false` (an upper layer's patrol reads the plain call whole and ignores `hasMore`). A
+  paged call uses a `maxChars` budget in the inbox's units (`textCost`, 1 000 … 400 000, default 48 000) and an
+  `afterName` cursor, continuing in the listing's own order (registration time, then name) after the named identity;
+  an unknown `afterName` is refused. A page always holds at least one entry; `count` is the entries on that page;
+  `hasMore` is always present; `nextAfterName` only when `hasMore`. Retired entries carry only the fields in assumption 2; presence is never looked up for them (D176 stays).
 - **D224 message status is open to every caller (B).** `statusFor` drops the sender/recipient check; a nonexistent id
   still says `No message #N.` The `bridge_wake_status` description says so. Interface table row updated.
 - **D225 Claude presence says whether a running session is in a turn (C).** `activity: "busy" | "idle"` on a Claude
@@ -63,7 +68,9 @@ Readers: the user; the round-2 coordinator and the usage observer (review, re-ch
 - **D226 the ChatGPT app is asked for at most 2 s (D).** `codexOwner(…, { responseTimeoutMs:
   AWAITING_PRESENCE_TIMEOUT_MS })` in `bridge_agents`, in `bridge_send`'s recipient presence check (`presenceOf`, used
   by `checkRecipient`) and in its notice-location lookup; silence after connecting stays `not-loaded` with the D200
-  detail. The awaiting view keeps its own mapping (silence → `unknown`, D203).
+  detail. The awaiting view keeps its own mapping (silence → `unknown`, D203). Wake dispatch does not use these lookups
+  (checked: `wake-dispatcher.ts` has its own Claude-only presence), so a wrong `not-loaded` changes only a listing or a
+  warning. The interface document's presence row says `not-loaded` may also mean the app did not answer within 2 s.
 - **D227 interface 2.4, plugins in any order.** `interface.json` 2.4; the interface document lists `maxChars`,
   `afterName`, `hasMore`, `nextAfterName`, the compact retired entry, the open message status and `activity`. No schema
   change, so plugin and runtime may be updated in either order; the CHANGELOG says so, and that the runtime needs
@@ -75,7 +82,8 @@ Readers: the user; the round-2 coordinator and the usage observer (review, re-ch
    - 30 retired identities with long notes and capabilities: `includeRetired` with a small `maxChars` returns pages with
      `hasMore`/`nextAfterName` until the last page, every identity exactly once, in registration order; retired entries
      have only the compact fields; an unknown `afterName` is refused;
-   - without `includeRetired` the active entries keep every field they had;
+   - a call with no parameters is not paged: every active identity with every field it had, `count` the total and
+     `hasMore: false`, even past the default budget;
    - `bridge_wake_status {messageId}` from a session that is neither sender nor recipient returns the status (MCP test);
    - presence: registry `busy` → `running` + `activity: busy`; `idle` → `activity: idle`; `waiting` and unknown status →
      no `activity`; Codex → no `activity`;

@@ -1,7 +1,8 @@
 # Plan: agents-view-polish
 
 Based on [`spec/agents-view-polish.md`](../../spec/agents-view-polish.md) (accepted by the user on 2026-10-17:
-assumptions 1–7 with item 5 = (a), D223–D227, D226 widened to `bridge_send` at approval). This branch carries the map
+assumptions 1–7 with item 5 = (a), D223–D227, D226 widened to `bridge_send` at approval; assumption 7 from the round-2 review of #132, accepted the
+same day). This branch carries the map
 row, spec and plan as one PR; the implementation goes on `claude/agents-view-polish-impl` from main after that PR is
 merged. Only module of 0.8.1; the release PR waits until the implementation PR is merged. The round-2 coordinator and
 the usage observer are told every PR number.
@@ -11,10 +12,11 @@ the usage observer are told every PR number.
 ### Task 1: `bridge_agents` pages; retired entries compact (D223)
 Red first in the new `test/agents-view.test.ts` through the MCP server: 30 retired identities with long notes and
 capabilities, `includeRetired` with a small `maxChars` pages with `hasMore`/`nextAfterName` to the end, every identity
-once, in registration order; retired entries carry only the compact fields; an unknown `afterName` is refused; without
-`includeRetired` the active entries keep every field. Green: `agentSummaries` gains an `afterName` cursor on
+once, in registration order; retired entries carry only the compact fields; an unknown `afterName` is refused; a call with no
+parameters is not paged even past the default budget (every active identity, every field, `count` the total,
+`hasMore: false`). Green: `agentSummaries` gains an `afterName` cursor on
 (registered_at, name); `server.ts` builds entries, compacts retired ones and fits the page with `textCost` (at least one
-entry per page).
+entry per page) only when `includeRetired`, `maxChars` or `afterName` is given.
 
 ### Task 2: message status open to every caller (D224)
 Red first: a third session's `bridge_wake_status {messageId}` returns the status (MCP test); a nonexistent id still
@@ -35,7 +37,7 @@ that identity `not-loaded`; `bridge_send` to it returns within 3 s with its not-
 
 ### Task 5: interface 2.4 and bookkeeping (D227)
 `interface.json` 2.4, `test_packaging`, `relay_status.py` docstring; `docs/collaboration-interface.md` (version line,
-`bridge_agents`, `bridge_wake_status`, presence `activity`); `UPSTREAM.md` row and manifest (D24, regenerated after the
+`bridge_agents`, `bridge_wake_status`, presence `activity`, and `not-loaded` possibly meaning no answer within 2 s); `UPSTREAM.md` row and manifest (D24, regenerated after the
 last bridge edit); `bridge/CHANGELOG.md` 0.8.1; CHANGELOG `[Unreleased]` (no schema change, either order; runtime needs
 `upgrade --confirm`).
 
@@ -53,6 +55,6 @@ owner that interface 2.4 ships.
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| A consumer relied on `count` being the total | it now counts one page | documented in 2.4; without `includeRetired` the default budget holds every active identity, so `count` is unchanged in practice |
+| A consumer relied on `count` being the total | it counts one page in a paged call | a plain call is never paged and keeps `count` the total (round-2 review of #132) |
 | 2 s is too short for a busy ChatGPT app | a loaded task shows `not-loaded` for one listing | H2 measured millisecond answers; the next call corrects it; the coordinator's acceptance watches for it |
 | The fake socket test is timing-sensitive on CI | flaky | the bound is 3 s against a 2 s cap; the fake never answers, so the result does not depend on scheduling |
