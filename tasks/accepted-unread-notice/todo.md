@@ -5,7 +5,7 @@
 - [x] Task 3: the sender message (D230, part 1) — red first, then `noticeAcceptedUnread` in `notices.ts`: one `bridge` message in the original thread, key `accepted-unread:<id>`, once across two bridges and three ticks, sent with notices off; none to `bridge`, the recipient itself or a retired sender
 - [x] Task 4: the views (D230, part 2) — red first through the MCP server: a new Codex bridge process reads before registering again (`readRecorded: false`), the message stays doubtful; then `wake.doubt` and the added detail in `bridge_outbox` and `bridge_wake_status`, `waiting.doubtfulIds` in `bridge_agents`, computed on read; registering again and reading once more clears all three
 - [x] Checkpoint (report): bridge green — `npm run typecheck` clean, `npm test` 265 pass
-- [ ] Task 5: interface 2.5, docs and bookkeeping (D231)
-- [ ] Checkpoint (report): local validation
+- [x] Task 5: interface 2.5, docs and bookkeeping (D231) — `interface.json` 2.5, `test_packaging`, `relay_status.py`; `docs/collaboration-interface.md` (version line, `wake.doubt` in `bridge_outbox` and `bridge_wake_status`, `waiting.doubtfulIds` and the D231 field meanings in `bridge_agents`, the missing full stop); `bridge/docs/BACKGROUND-WAKE.md`; `skills/collab` (doubtful delivery, register again and read once more); `UPSTREAM.md` row, manifest regenerated after the last bridge edit; `bridge/CHANGELOG.md` 0.8.2; CHANGELOG `[Unreleased]` with “new marker” and “clarified meaning” separately
+- [x] Checkpoint (report): local validation — `scripts/validate.sh` pass on Python 3.9.6, 3.10.7, 3.14.3 with Node v24.18.0 first on PATH (47 files, 869 tests each; bridge `npm run check` 265 ok)
 - [ ] Task 6: PR and CI
 - [ ] Checkpoint (gate): module review

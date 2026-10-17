@@ -67,6 +67,16 @@ opening it delivers the message (a deleted task, or a wrong id, looks the same; 
 `bridge_agents` shows such a task as `presence: not-loaded`, a send warns about it, and the Codex notice says to open the
 task in the ChatGPT app. A socket that cannot be reached at all still reads "Codex local connection unavailable".
 
+A Codex ping the ChatGPT app accepted (it confirmed a new turn) can still go unread: the task's mailbox connection may
+be closed ("Transport closed", common after an upgrade or after bridge processes were ended) while the app keeps the
+task loaded, so `presence` still reads `running`. When such a message is still unread and unacknowledged five minutes
+after the ping was accepted (pings accepted more than a day ago are left alone), the 30-second check tells the user once
+with a desktop notification and the sender once with a `bridge` message, and `bridge_outbox`, `bridge_wake_status` and
+`bridge_agents` mark the delivery as in doubt (`wake.doubt`, `waiting.doubtfulIds`) until the recipient reads or
+acknowledges it. A read is recorded only for a name the calling bridge process has proven, so a task that reads in a new
+bridge process before registering again is flagged too; the notice names both causes. Claude recipients are not
+checked: a Claude session whose bridge goes away loses its process, which the offline notice already covers.
+
 A ping that expired while its recipient was away is pinged once more when the recipient comes back: when it registers
 again, or when the 30-second check finds its Claude session running in a process that started after the expiry. Only
 messages it has not read or acknowledged, and that have not expired themselves, are pinged again; the ping says when the
