@@ -11,3 +11,9 @@
 - [x] Checkpoint (report): local validation — `scripts/validate.sh` pass on Python 3.9.6, 3.10.7, 3.14.3 with Node v24.18.0 first on PATH (47 files, 877 tests each; bridge `npm run check` 273 ok)
 - [x] Task 7: PR and CI — #142, the four CI jobs green; review asked of the round-2 coordinator (#8057, waiting in its inbox while its session is not running); Auto-fix on
 - [x] Checkpoint (gate): module review — the user merged #141 (74fea52) and #142 (1780fb3) on 2026-10-19 without waiting for the round-2 coordinator, whose review was asked (#8057) and turned into a post-merge review (#8079); released as 0.8.3 at the user's request
+
+## Rework after the round-2 post-merge review (#8194, 2026-10-19; the user asked for it the same day)
+
+- [x] Task 8: an oversized follower frame no longer drops the connection, so the unfollow still goes out (spec assumption 6, requirement 3) — red first: the oversize cases in `test/local-ipc.test.ts` and `test/presence.test.ts` assert the connection stays usable and the sent frames end with `following: false`; then `CodexIpc` skips a frame over 8 MiB without buffering it and rejects only the follower waiters
+- [x] Task 9: docs — `waiting-input` from `item/tool/requestUserInput` carries no `since` (its params have no `startedAtMs`, seen in the acceptance); CHANGELOG: known issue 3 of 0.8.3 answered (a ping during a pending approval queues and is delivered after the turn); bridge CHANGELOG, `UPSTREAM.md` row, manifest
+- [x] Checkpoint (report): local validation and PR — red first (both oversize tests failed: no unfollow), then green; `scripts/validate.sh` pass on Python 3.9.6, 3.10.7, 3.14.3 with Node v24.18.0 (877 tests each, bridge 273); PR opened for the user to merge

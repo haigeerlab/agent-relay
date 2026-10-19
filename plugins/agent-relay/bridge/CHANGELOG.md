@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+`codex-approval-presence` rework after the round-2 post-merge review: a follower frame over 8 MiB is discarded without
+buffering it and without dropping the connection, so `codexTaskPresence` still sends `following: false` (before, the
+connection was destroyed and the unfollow never went out). Docs: a `waiting-input` from `item/tool/requestUserInput`
+has no `since`.
+
 ## agent-relay 0.8.3
 
 Codex waiting states (module `codex-approval-presence`, D232–D236), schema 7 unchanged: for a Codex task the ChatGPT app
