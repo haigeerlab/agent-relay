@@ -15,13 +15,13 @@ import { agentNameProblem, checkRecipient } from "./addressing.js";
 import { BridgeStore } from "./bridge-store.js";
 import { CHANNEL_CAPABILITY, channelSession } from "./claude-channel.js";
 import { claudeSessions, claudeSessionsOrNull } from "./claude-wake.js";
-import { AWAITING_PRESENCE_TIMEOUT_MS, awaitingCodexPresence, pagePresence } from "./awaiting-reply.js";
 import { claudePresence, codexOwner, codexTaskPresence, type Presence } from "./presence.js";
 import { Housekeeper } from "./housekeeping.js";
 import { waitForInbox } from "./inbox-waiter.js";
 import { BRIDGE_AGENT, CLAUDE_HOLD_EXPLANATION, isClaudeHold } from "./notices.js";
-import { clampLimit, continueLines, DEFAULT_PAGE_CHARS, fitMessages, textCost } from "./paging.js";
+import { clampLimit, continueLines, fitMessages } from "./paging.js";
 import { VERSION } from "./version.js";
+import { agentsView, CODEX_ASK, outboxView, sessionsView } from "./views.js";
 import { WakeDispatcher } from "./wake-dispatcher.js";
 import type { WakeTarget } from "./wake-queue.js";
 
@@ -47,7 +47,6 @@ async function isClaudeSessionLive(sessionId: string): Promise<boolean> {
 
 /** agent-relay presence-and-approval D146, D147: one host session's state, read on demand. */
 // agents-view-polish D226: the ChatGPT app is asked for at most 2 s; silence after connecting stays not-loaded.
-const CODEX_ASK = { responseTimeoutMs: AWAITING_PRESENCE_TIMEOUT_MS };
 
 async function presenceOf(host: WakeTarget): Promise<Presence> {
   // codex-approval-presence D232: a loaded task may also be waiting for the user.
@@ -381,15 +380,8 @@ function main(): void {
     inputSchema: {},
   }, async () => {
     const claude = await claudeSessions();
-    return jsonResult({
-    mailboxPath: dbPath,
-    thisSession: detectSession(),
-    whoami: whoami(claude),
-    claude,
-    codexSessionId: process.env.CODEX_THREAD_ID ?? null,
-    channelMode: channelSessionId ? "enabled" : "off",
-    note: "bridge_register with wake: \"auto\" uses thisSession. Codex does not expose its task ID to MCP servers in every version; pass it explicitly when thisSession is null. Background adapters are experimental macOS local interfaces.",
-    });
+    return jsonResult(sessionsView(claude, { mailboxPath: dbPath, thisSession: detectSession(), whoami: whoami(claude),
+      codexSessionId: process.env.CODEX_THREAD_ID ?? null, channelMode: channelSessionId ? "enabled" : "off" }));
   });
 
   server.registerTool("bridge_wake_status", {
@@ -578,64 +570,7 @@ function main(): void {
         afterName: z.string().min(1).optional().describe("Continue a paged listing after this agent (the previous page's nextAfterName)."),
       },
     },
-    async ({ includeRetired, maxChars, afterName }) => {
-      const waiting = store.waiting();
-      const owes = store.owesReplies();
-      // agent-relay presence-and-approval D146: read the Claude registry once per listing.
-      const claude = await claudeSessionsOrNull();
-      const presenceOf = async (host: WakeTarget | null): Promise<Presence> =>
-        !host ? { state: "unknown", detail: "no recorded host session" }
-          : host.app === "claude" ? claudePresence(host.sessionId, claude)
-            : codexTaskPresence(host.sessionId, undefined, CODEX_ASK);
-      // agents-view-polish D223: only a call that asks for retired agents, a budget or a cursor is paged; a plain call
-      // returns every active agent, as upper layers read it whole.
-      const paged = includeRetired === true || maxChars !== undefined || afterName !== undefined;
-      let summaries = store.agentSummaries({ includeRetired });
-      if (afterName !== undefined) {
-        const at = summaries.findIndex((agent) => agent.name === afterName);
-        if (at < 0) throw new Error(`No agent named "${afterName}" in this listing; start again without afterName.`);
-        summaries = summaries.slice(at + 1);
-      }
-      // presence-polish D176: a retired identity is never looked up, so a stuck host cannot slow the listing.
-      const presences = await Promise.all(summaries.map((agent) =>
-        agent.retiredAt ? null : presenceOf(agent.host ?? store.wakes.target(agent.name))));
-      const entries = summaries.map((agent, index) => {
-        // D223: a retired agent's entry keeps only what identifies it and the fields promised stable.
-        if (agent.retiredAt) {
-          return {
-            name: agent.name, retiredAt: agent.retiredAt, retiredBy: agent.retiredBy, retireNote: agent.retireNote,
-            unread: agent.unread, lastActivity: agent.lastActivity, wake: store.wakes.target(agent.name),
-            ...(waiting.has(agent.name) ? { waiting: waiting.get(agent.name) } : {}),
-          };
-        }
-        const health = store.wakes.health(agent.name, 1)[0];
-        return {
-          ...agent,
-          ...(presences[index] ? { presence: presences[index] } : {}),
-          // agent-relay acceptance-030-gaps D75a: only a Claude host comes from a verified environment.
-          host: agent.host ? { ...agent.host, verified: agent.host.app === "claude" } : null,
-          wake: store.wakes.target(agent.name),
-          ...(health ? { lastPing: { state: health.state, detail: health.detail } } : {}),
-          // agent-relay acceptance-030-gaps D77, waiting-list-all-hosts D198: what waits for any host, with the oldest
-          // one's time, so any session (or an upper-layer plugin) can tell who is stopped while messages wait.
-          ...(waiting.has(agent.name) ? { waiting: waiting.get(agent.name) } : {}),
-          // awaiting-reply-view D204: what others wait for this agent to answer; within 2.x only added to.
-          ...(owes.has(agent.name) ? { owesReplies: owes.get(agent.name) } : {}),
-        };
-      });
-      if (!paged) return jsonResult({ count: entries.length, agents: entries, hasMore: false });
-      const budget = maxChars ?? DEFAULT_PAGE_CHARS;
-      let used = 200;
-      const agents: typeof entries = [];
-      for (const entry of entries) {
-        const cost = textCost(JSON.stringify(entry)) + 1;
-        if (agents.length && used + cost > budget) break;
-        agents.push(entry);
-        used += cost;
-      }
-      const hasMore = agents.length < entries.length;
-      return jsonResult({ count: agents.length, agents, hasMore, ...(hasMore ? { nextAfterName: agents.at(-1)!.name } : {}) });
-    },
+    async ({ includeRetired, maxChars, afterName }) => jsonResult(await agentsView(store, { includeRetired, maxChars, afterName })),
   );
 
   server.registerTool(
@@ -653,24 +588,7 @@ function main(): void {
     },
     async ({ agent, includeAcknowledged, awaitingReply, limit }) => {
       if (ownRead(agent)) store.touch(agent);
-      const page = store.outbox(agent, { includeAcknowledged, awaitingReply, limit });
-      if (!awaitingReply) return jsonResult({ agent, ...page });
-      // awaiting-reply-view D203: presence only for the recipients on this page; the Claude registry is read once and a
-      // Codex lookup waits at most 2 s.
-      const claude = await claudeSessionsOrNull();
-      const presences = await pagePresence(page.entries.map((entry) => entry.toAgent), (name) => {
-        const recipient = store.getAgent(name);
-        return recipient ? { host: recipient.host ?? store.wakes.target(name), retired: !!recipient.retiredAt } : undefined;
-      }, async (host) => host.app === "claude" ? claudePresence(host.sessionId, claude)
-        : awaitingCodexPresence(host.sessionId));
-      return jsonResult({
-        agent,
-        ...page,
-        entries: page.entries.map((entry) => ({
-          ...entry,
-          ...(presences.has(entry.toAgent) ? { recipientPresence: presences.get(entry.toAgent) } : {}),
-        })),
-      });
+      return jsonResult(await outboxView(store, { agent, includeAcknowledged, awaitingReply, limit }));
     },
   );
 
