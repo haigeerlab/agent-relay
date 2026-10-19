@@ -2,7 +2,12 @@
 
 ## [Unreleased]
 
-- **bridge 有改动，要 `upgrade --confirm` 升级运行时**；接口仍为 2.6，schema 仍为 7。
+## [0.8.4] - 2026-10-19
+
+接口仍为 **2.6**，信箱 schema 仍为 **7**，委派库仍为 schema 3。修的是 0.8.3（`codex-approval-presence`）合并后复查发现的
+一个低级别问题，并补上验收得到的两点说明。
+
+- **bridge 有改动，要 `upgrade --confirm` 升级运行时**；接口与 schema 都不变。
 - **修正**（模块 `codex-approval-presence` 合并后复查发现）：查询 Codex 等待状态时，快照超过 8 MiB（很长的对话）
   会让 bridge 断开连接，最后那次“取消跟随”发不出去。现在超大的帧直接跳过、连接保留，取消跟随照常发出；结果仍是
   `running`。
@@ -10,6 +15,28 @@
   因为这类请求没有开始时间。
 - **0.8.3 已知问题第 3 条已核实**（真实宿主验收）：对一个正在等批准的 Codex 任务发信，唤醒会排队，等这一轮结束后
   送达，与 `bridge_send` 提醒的说法一致。
+
+### 从 0.8.3 升级
+
+schema 不变，插件和运行时先升哪个都行。
+
+1. 两个宿主都更新插件（详见 README“更新插件”）：Claude Code 从 GitHub 装的，先 `claude plugin marketplace update
+   agent-relay-marketplace`，再 `claude plugin update --scope user agent-relay@agent-relay-marketplace`；Codex 把
+   `~/.codex/config.toml` 里的 `ref` 改成 `"v0.8.4"` 后 `codex plugin marketplace upgrade`、`codex plugin add
+   agent-relay@agent-relay-marketplace`；从本地克隆装的先 `git -C <克隆> pull --ff-only`，Codex 再 `codex plugin add`。
+2. **升级运行时**：关闭所有使用信箱的会话或只结束 bridge（见 README“升级运行时”），确认 `pgrep -fl
+   "agent-relay/runtime/dist/server.js"` 没有输出，再执行 `python3 -B <插件目录>/hooks/native_collaboration_runtime.py
+   upgrade --confirm`，输出应为 `"state": "upgraded"`。信箱 schema 仍是 7，不做迁移。
+3. 新开 Claude Code 会话；Codex 用 ⌘Q 完全退出 ChatGPT 应用再打开（之后 `doctor` 的 `codex-restart` 应为 ok）。
+
+### 想退回 0.8.3
+
+关掉所有会话后 `rollback --confirm` 退回运行时，并把两个宿主的插件退回 v0.8.3，然后新开会话。
+
+### 已知问题
+
+- 0.8.3 的已知问题第 1、2 条仍然有效：真实宿主上已核对命令批准和 `requestUserInput`，改文件、权限申请、MCP 工具提问
+  只有单元测试；ChatGPT 刚重启、还没加载的任务照旧报 `not-loaded`。
 
 ## [0.8.3] - 2026-10-19
 
