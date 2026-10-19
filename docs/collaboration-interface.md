@@ -36,7 +36,7 @@ How to read it:
   retired entries, message status for any caller, presence `activity`, a 2 s cap on asking the ChatGPT app; schema 7
   unchanged). agent-relay 0.8.2 implements `2.5` (`accepted-unread-notice`: `wake.doubt` in `bridge_outbox` and
   `bridge_wake_status`, `waiting.doubtfulIds` in `bridge_agents`, and the meaning of `bridge_agents`' fields written down;
-  schema 7 unchanged). The next release implements `2.6` (`codex-approval-presence`: a Codex task the ChatGPT app has
+  schema 7 unchanged). agent-relay 0.8.3 implements `2.6` (`codex-approval-presence`: a Codex task the ChatGPT app has
   loaded may also read `waiting-approval` or `waiting-input`; schema 7 unchanged).
 - **Plugin version.** agent-relay follows its own semver, independent of Spec Guard. Its release notes state
   the interface version it implements.

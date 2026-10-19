@@ -2,7 +2,11 @@
 
 ## [Unreleased]
 
-接口 **2.6**（只新增内容），信箱 schema 仍为 **7**。
+## [0.8.3] - 2026-10-19
+
+接口 **2.6**（只新增内容，Spec Guard 0.56.0 或更新照样接受），信箱 schema 仍为 **7**，委派库仍为 schema 3。来自
+2026-10-19 转来的需求：Codex 任务停在宿主批准框上时，决策收件箱要提醒用户去那个任务里点，但 bridge 以前只能报
+Codex 任务 `running`。
 
 - **bridge 有改动，要 `upgrade --confirm` 升级运行时**；schema 不变。
 - **Codex 也报等待状态**（模块 `codex-approval-presence`，D232–D236）：ChatGPT 应用已加载的 Codex 任务停在批准框上
@@ -10,6 +14,32 @@
   `waiting-input`，`bridge_send` 的提醒和 `bridge_outbox` 的 `awaitingReply` 同样看得到。bridge 通过应用本机连接跟随
   该任务一次，只读待处理请求的种类和开始时间，读完取消跟随，仍在 2 秒上限内；对话内容不读、不存、不转发，
   也从不替用户回应批准框。协议不符或读不到时照旧报 `running`。
+
+### 从 0.8.2 升级
+
+schema 不变，插件和运行时先升哪个都行。
+
+1. 两个宿主都更新插件（详见 README“更新插件”）：Claude Code 从 GitHub 装的，先 `claude plugin marketplace update
+   agent-relay-marketplace`，再 `claude plugin update --scope user agent-relay@agent-relay-marketplace`；Codex 把
+   `~/.codex/config.toml` 里的 `ref` 改成 `"v0.8.3"` 后 `codex plugin marketplace upgrade`、`codex plugin add
+   agent-relay@agent-relay-marketplace`；从本地克隆装的先 `git -C <克隆> pull --ff-only`，Codex 再 `codex plugin add`。
+2. **升级运行时**：关闭所有使用信箱的会话或只结束 bridge（见 README“升级运行时”），确认 `pgrep -fl
+   "agent-relay/runtime/dist/server.js"` 没有输出，再执行 `python3 -B <插件目录>/hooks/native_collaboration_runtime.py
+   upgrade --confirm`，输出应为 `"state": "upgraded"`。信箱 schema 仍是 7，不做迁移。
+3. 新开 Claude Code 会话；Codex 用 ⌘Q 完全退出 ChatGPT 应用再打开（之后 `doctor` 的 `codex-restart` 应为 ok）。
+
+### 想退回 0.8.2
+
+关掉所有会话后 `rollback --confirm` 退回运行时，并把两个宿主的插件退回 v0.8.2，然后新开会话。schema 相同，只退一边也
+能读信箱。
+
+### 已知问题
+
+- 真实宿主上只核对过“运行命令”这一种批准；改文件、权限申请、问答（`requestUserInput`、MCP 工具提问）按应用协议里的
+  请求名实现，单元测试覆盖，验收时再看。
+- ChatGPT 应用刚重启、还没加载某个任务时，照旧报 `not-loaded`，不会报等待状态。
+- 对一个正在等批准的 Codex 任务发信时，提醒文字沿用 Claude 的说法（“等用户答复后才会处理”）；Codex 在这期间收到
+  唤醒是排队还是被拒，还没在真实宿主上核对。
 
 ## [0.8.2] - 2026-10-17
 
