@@ -8,6 +8,6 @@
 - [x] Task 5: the views (D232) — red first in `test/codex-approval-presence.test.ts` through the MCP server: `bridge_agents` shows Codex `waiting-approval` (with `since` and detail) and `waiting-input`; `bridge_send` gives the existing waiting warning; `bridge_outbox` `awaitingReply` shows it while a silent app stays `unknown`; no conversation content in any file under the test HOME; wiring in `server.ts` (`presenceOf`, `bridge_agents`) and `awaiting-reply.ts`; `checkApprovals` untouched. Warning wording kept (ping-while-pending not checked on the real host)
 - [x] Checkpoint (report): bridge green — `npm run typecheck` clean, `npm test` 273 pass
 - [x] Task 6: interface 2.6, docs and bookkeeping (D236) — `interface.json` 2.6, `test_packaging`, `relay_status.py`; `docs/collaboration-interface.md` (version line, `bridge_agents` presence since 2.6); `bridge/docs/BACKGROUND-WAKE.md`; `skills/collab` (Codex tasks can wait too); `UPSTREAM.md` row, manifest regenerated after the last bridge edit; `bridge/CHANGELOG.md` and CHANGELOG `[Unreleased]` (version left to the release)
-- [ ] Checkpoint (report): local validation
+- [x] Checkpoint (report): local validation — `scripts/validate.sh` pass on Python 3.9.6, 3.10.7, 3.14.3 with Node v24.18.0 first on PATH (47 files, 877 tests each; bridge `npm run check` 273 ok)
 - [ ] Task 7: PR and CI
 - [ ] Checkpoint (gate): module review
