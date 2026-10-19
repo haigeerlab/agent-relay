@@ -34,7 +34,12 @@ class ManifestTests(unittest.TestCase):
     def test_interface_marker_declares_version_two_and_the_same_status_command(self):
         marker = load(PLUGIN / "interface.json")
         # delegation-hygiene D170: 2.0 for the round-2 batch; only the version string changed (Spec Guard >=1.0,<3.0).
-        self.assertEqual(marker, {"interface": "2.7", "status": ["python3", "-B", "hooks/relay_status.py"]})
+        # script-access D245: 2.8 adds the script commands beside status; status is unchanged.
+        launcher = "~/.agent-relay/bin/agent-relay"
+        self.assertEqual(marker, {"interface": "2.8", "status": ["python3", "-B", "hooks/relay_status.py"],
+                                  "script": {"agents": [launcher, "agents"], "outbox": [launcher, "outbox", "<agent>"],
+                                             "sessions": [launcher, "sessions"],
+                                             "send": [launcher, "send", "--from", "<script identity>", "--to", "<agent>"]}})
         self.assertEqual(marker["status"][:2], ["python3", "-B"])
         self.assertTrue((PLUGIN / marker["status"][2]).is_file())
 

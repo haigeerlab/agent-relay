@@ -40,6 +40,8 @@ How to read it:
   loaded may also read `waiting-approval` or `waiting-input`; schema 7 unchanged); 0.8.4 keeps `2.6` (a fix only).
   agent-relay 0.8.5 implements `2.7` (`request-closing` revision: an already closed request in `alsoAnswers` or
   `withdraws` is skipped and listed in `skipped` instead of refusing the send; schema 7 unchanged).
+  agent-relay 0.9.0 implements `2.8` (`script-access`: the script commands of §2.4 and script identities; schema 7
+  unchanged).
 - **Plugin version.** agent-relay follows its own semver, independent of Spec Guard. Its release notes state
   the interface version it implements.
 - **Spec Guard requirement.** Spec Guard requires interface `>= 1.0, < 3.0` (since Spec Guard 0.56.0; before it,
@@ -81,6 +83,35 @@ The MCP server exposes exactly these ten tools to hosts. Current server name `sp
 | Identity retire | `native_collaboration_retire.py --name <exact> --confirm-retire`; refuses unacknowledged deliveries (cleanup-gaps D59: expired ones do not count; the refusal lists up to ten blocking ids with their state); keeps backlog. S:plugins/spec-guard/references/collaboration-runtime.md:84-94; 12 retirements [BL §Cleanup] | Unchanged |
 | Delegation controller | `session_delegation_control.py [--state-root --native-root --node --claude-bin --codex-package-root] list \| permissions \| create \| continue \| status \| cancel`. `python3 -B …/session_delegation_control.py --help` | Unchanged (fixes in section 10 targets); node = `--node`, else the one the host entries pin, else PATH, refused below 22.5.0 before any write (round 2 R2-7, R2-1, `round2-fixes` D50) |
 | `whoami`, status/wait by message id, body from file | None (gaps h, i) [BL §Gap analysis, items h and i] | Provided — `ops-commands` (done: `bridge_sessions.whoami`, `bridge_wake_status`/`bridge_wait` with `messageId`, `bridge_send.bodyFile`; no new MCP tool, so host entries stay valid) |
+
+### 2.4 Script commands (since interface 2.8, `script-access` D240–D245)
+
+For scripts and launchd jobs, which have no PATH entry for node and cannot read `~/Documents`. `interface.json`'s
+`script` block lists each command's argv; `~` is `$HOME`, and `<agent>` / `<script identity>` are placeholders.
+
+| Command | Output (one JSON object on stdout) | Notes |
+|---|---|---|
+| `agents` | `bridge_agents` without parameters, field for field (same code) | read-only |
+| `outbox <agent>` | `bridge_outbox {agent}`, field for field | read-only; records no activity for `<agent>` |
+| `sessions` | `bridge_sessions`; `thisSession` and `codexSessionId` are `null`, `whoami.identities` lists the script identities | read-only |
+| `send --from <script identity> --to <agent>` | `bridge_send`'s result (`warnings`, `closed`, `skipped`, `wake` after one dispatch) | body from `--body-file <absolute path>` or stdin, never argv; options `--expects-reply`, `--reply-to`, `--thread`, `--also-answers 1,2`, `--withdraws 3`, `--idempotency-key`, `--no-wake` |
+| `register-script-identity <name> [--confirm]` | `{registered, host}` | without `--confirm` it only says what it would do; run by the user (or with the user's explicit agreement) |
+
+- **Launcher.** `install`, `upgrade` and `rollback` write `~/.agent-relay/bin/agent-relay` (0700): `/bin/sh` with the
+  runtime path and an absolute node written in; `uninstall` removes it; `doctor`'s `script-launcher` check reports it.
+- **Exit codes.** 0 with the object; 2 for a usage error (missing `--from`, a body on argv, no `BRIDGE_DB_PATH`); 1 or 3
+  when the runtime is not installed, a swap is in progress, or the mailbox schema is not this runtime's — with one
+  sentence on stderr.
+- **Read-only.** The three reads open the mailbox with SQLite `readOnly`: no registration, read receipt,
+  acknowledgement, expiry sweep or migration. A message past its timeout that no bridge has swept yet may show as not
+  expired until a bridge sweeps it (every 2 s while one runs).
+- **Script identity.** Recorded with host `{app: "script", sessionId: <name>}` and no wake binding. Only `send` acts as
+  it; `bridge_register` from a session refuses its name unless the user agrees to `takeover`. Its presence is
+  `unknown` (detail "script identity"). A 0.8.x bridge shows it as `unknown` or `not-loaded` and cannot act as it.
+- **Wake limits.** `send` dispatches once like `bridge_send`. A Claude session is woken only while its process runs
+  (a session the desktop app stopped is not; the message waits and the user is notified after five minutes); a Codex
+  task only while the ChatGPT app has it loaded (else `not-loaded`). A script identity is never woken: replies to it
+  are read with `outbox` / `agents`.
 
 ## 3. Message structure
 

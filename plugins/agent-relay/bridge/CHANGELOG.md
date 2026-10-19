@@ -1,5 +1,13 @@
 # Changelog
 
+## agent-relay 0.9.0
+
+`script-access` (D240–D245), schema 7 unchanged: the runtime CLI gains `agents`, `outbox <agent>` and `sessions`
+(read-only store: SQLite `readOnly`, no migration, no expiry sweep), `send` as a script identity (body from
+`--body-file` or stdin; one dispatch, a late Claude receipt waited for up to 5 s) and `register-script-identity`.
+`bridge_agents`, `bridge_outbox` and `bridge_sessions` now build their results in `src/views.ts` and `bridge_send` in
+`src/send.ts`, shared with the CLI; MCP output unchanged. A recorded host `script` is owned by no session.
+
 ## agent-relay 0.8.5
 
 `request-closing` revision (D237–D239), schema 7 unchanged: a request named in `alsoAnswers` or `withdraws` that is

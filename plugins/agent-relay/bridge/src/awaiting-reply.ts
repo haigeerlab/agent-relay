@@ -2,7 +2,7 @@
 // cost. Claude presence is a registry read; a Codex lookup asks the ChatGPT app and waits at most 2 s here (a loaded task
 // answers in milliseconds), so one silent task cannot hold the call near the 10 s IPC timeout.
 import { codexTaskPresence, type Presence } from "./presence.js";
-import type { WakeTarget } from "./wake-queue.js";
+import type { AgentHost } from "./bridge-store.js";
 
 export const AWAITING_PRESENCE_TIMEOUT_MS = 2000;
 export const CODEX_NO_ANSWER_SHORT =
@@ -21,8 +21,8 @@ export async function awaitingCodexPresence(threadId: string, path?: string): Pr
  */
 export async function pagePresence(
   recipients: string[],
-  hostOf: (name: string) => { host: WakeTarget | null; retired: boolean } | undefined,
-  lookup: (host: WakeTarget) => Promise<Presence>,
+  hostOf: (name: string) => { host: AgentHost | null; retired: boolean } | undefined,
+  lookup: (host: AgentHost) => Promise<Presence>,
 ): Promise<Map<string, Presence>> {
   const result = new Map<string, Presence>();
   await Promise.all([...new Set(recipients)].map(async (name) => {

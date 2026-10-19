@@ -2,12 +2,12 @@ import { type DeliveryState, assertBelowPendingCap, atomically, expireDue, sendT
 import { type PendingReason, type WakeDoubt, type WakeJob, WakeQueue, withDoubt } from "./wake-queue.js";
 import { assertMayReply, conflictError, contentDifferences, ReplyLinkError, replyThread, RequestCloseError } from "./idempotency.js";
 import { DatabaseSync } from "node:sqlite";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
 import { DATA_DIR_NAME, ensurePrivateDirectory, restrictToOwner } from "./fs-safety.js";
 import { bodyPart, clampLimit, fitMessages, type FitOptions, type MessageView } from "./paging.js";
-import { migrate, SCHEMA_VERSION, type MigrationResult } from "./schema.js";
+import { migrate, SCHEMA_VERSION, schemaVersion, type MigrationResult } from "./schema.js";
 
 /**
  * agent-relay awaiting-reply-view D202: an open request (aliased `m`) is a direct message its sender marked
@@ -55,7 +55,8 @@ export interface BridgeAgent {
 
 /** A host session: Claude's id is verified from the bridge's environment, Codex's is claimed by the session. */
 export interface AgentHost {
-  app: "claude" | "codex";
+  /** script-access D244: `script` is a script identity, owned by no session; only the runtime CLI acts as it. */
+  app: "claude" | "codex" | "script";
   sessionId: string;
 }
 
@@ -201,7 +202,15 @@ export interface RetireRecord {
 export interface BridgeStoreOptions {
   /** Where pre-migration and daily backups go. Defaults to `<db dir>/backups`. */
   backupDir?: string;
+  /**
+   * agent-relay script-access D242: open the mailbox read-only (SQLite `readOnly`): no migration (a schema other than
+   * this runtime's is refused), no expiry sweep, and any write throws. For scripts that only read.
+   */
+  readOnly?: boolean;
 }
+
+/** script-access D242: the mailbox cannot be read as it is (missing, or a schema this runtime does not read). */
+export class ReadOnlyMailboxError extends Error {}
 
 /** Wildcard recipient: delivered to every agent except the sender. */
 const BROADCAST = "*";
@@ -272,10 +281,27 @@ export class BridgeStore {
   readonly dbPath: string;
   readonly backupDir: string | null;
   readonly migration: MigrationResult;
+  readonly readOnly: boolean;
 
   constructor(dbPath: string, options: BridgeStoreOptions = {}) {
     this.dbPath = dbPath;
+    this.readOnly = options.readOnly === true;
     const inMemory = dbPath === ":memory:";
+    if (this.readOnly) {
+      this.backupDir = null;
+      if (inMemory || !existsSync(dbPath)) throw new ReadOnlyMailboxError(`No mailbox at ${dbPath}.`);
+      this.db = new DatabaseSync(dbPath, { readOnly: true });
+      this.db.exec("PRAGMA busy_timeout = 5000;");
+      const version = schemaVersion(this.db);
+      if (version !== SCHEMA_VERSION) {
+        this.db.close();
+        throw new ReadOnlyMailboxError(`The mailbox is at schema ${version}, but this runtime reads schema ${SCHEMA_VERSION}; ` +
+          "upgrade or repair the runtime with native_collaboration_runtime.py.");
+      }
+      this.migration = { from: version, to: version, newer: false };
+      this.wakes = new WakeQueue(this.db, dbPath);
+      return;
+    }
     this.backupDir = inMemory ? null : options.backupDir ?? join(dirname(dbPath), "backups");
     if (!inMemory) {
       const directory = dirname(dbPath);
@@ -291,6 +317,11 @@ export class BridgeStore {
     this.migration = migrate(this.db, (from) => this.backupBeforeMigration(from));
     if (!inMemory) this.restrictDatabaseFiles();
     this.wakes = new WakeQueue(this.db, dbPath);
+  }
+
+  /** Expire what is due (delivery-state-machine), except on a read-only store (script-access D242). */
+  private sweep(): void {
+    if (!this.readOnly) expireDue(this.db);
   }
 
   /** Messages and history are private working data: keep them owner-only. */
@@ -424,7 +455,7 @@ export class BridgeStore {
     // request-closing (round-2 review of #130): only an earlier reply that closed exactly the same lists folds, so a
     // reply resent to add alsoAnswers or withdraws is stored and checked as a new message instead of being swallowed.
     if (replyTo !== null) {
-      expireDue(this.db);
+      this.sweep();
       const candidates = this.db
         .prepare(
           `SELECT * FROM messages WHERE reply_to = ? AND from_agent = ? AND to_agent = ? AND body = ?
@@ -452,7 +483,7 @@ export class BridgeStore {
     // returns, so another bridge process cannot close the same request in between. A request past its timeout is
     // expired first, so it is skipped as expired even when no sweep ran yet (round-2 review of #130).
     // Revision 2026-10-19 D237: a wrong id refuses the whole send; a request already closed is skipped.
-    if (alsoAnswers.length || withdraws.length) expireDue(this.db);
+    if (alsoAnswers.length || withdraws.length) this.sweep();
     const skipped: Skipped[] = [
       ...alsoAnswers.map((id) => this.assertClosable(id, "answer", input.fromAgent)),
       ...withdraws.map((id) => this.assertClosable(id, "withdraw", input.fromAgent, input.toAgent)),
@@ -603,7 +634,7 @@ export class BridgeStore {
 
   /** agent-relay ops-commands (D45): the status of one message, or undefined when it does not exist. */
   messageStatus(id: number): MessageStatus | undefined {
-    expireDue(this.db);
+    this.sweep();
     const message = this.messageById(id);
     if (!message) return undefined;
     const ack = this.db.prepare("SELECT acked_at FROM acknowledgements WHERE message_id = ? AND agent = ?")
@@ -648,7 +679,7 @@ export class BridgeStore {
    * in the sender's own inbox.
    */
   inbox(agent: string, options: InboxOptions = {}): BridgeMessage[] {
-    expireDue(this.db);
+    this.sweep();
     const clauses = [DELIVERED_TO("?")];
     const params: Param[] = deliveredParams(agent);
     if (!options.includeExpired) clauses.push("COALESCE(m.delivery_state, '') != 'expired'");
@@ -680,7 +711,7 @@ export class BridgeStore {
   }
 
   countUnread(agent: string): number {
-    expireDue(this.db);
+    this.sweep();
     const row = this.db
       .prepare(`SELECT COUNT(*) AS n FROM messages m WHERE ${UNREAD_FOR("?")}`)
       .get(...unreadParams(agent)) as { n: number | bigint };
@@ -825,7 +856,7 @@ export class BridgeStore {
     const awaitingReply = options.awaitingReply === true;
     const filter = awaitingReply ? `AND ${OPEN_REQUEST}` : options.includeAcknowledged ? "" : "AND a.acked_at IS NULL";
     const now = options.now ?? Date.now();
-    expireDue(this.db);
+    this.sweep();
     const doubts = this.wakes.doubts(now);
     const rows = this.db
       .prepare(
@@ -895,6 +926,23 @@ export class BridgeStore {
           : {}),
       })),
     };
+  }
+
+  /**
+   * agent-relay script-access D244: record `name` as a script identity (host `script`, no wake binding). Registering
+   * an existing script identity again changes nothing; a name held by a session, or retired, is refused.
+   */
+  registerScriptIdentity(name: string): BridgeAgent {
+    const existing = this.getAgent(name);
+    if (existing?.retiredAt) {
+      throw new Error(`"${name}" was retired at ${existing.retiredAt}; choose another name for the script identity.`);
+    }
+    if (existing?.host?.app === "script") return existing;
+    if (existing) {
+      const holder = existing.host ? `a ${existing.host.app} session` : "a session";
+      throw new Error(`"${name}" is registered by ${holder}; a script identity needs a name of its own.`);
+    }
+    return this.register(name, [], { app: "script", sessionId: name });
   }
 
   /**

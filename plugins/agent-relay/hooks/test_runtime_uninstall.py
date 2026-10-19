@@ -68,7 +68,8 @@ class RuntimeUninstallTests(unittest.TestCase):
         self.assertEqual((self.root / "mailbox" / "bridge.sqlite").read_bytes(), self.history)
         self.assertEqual((self.root / "data" / "keep.txt").read_text(), "data kept\n")
         self.assertTrue((self.root / "dist" / "server.js").exists())
-        self.assertEqual(sorted(path.name for path in self.home.iterdir()), ["runtime"], "no stage left behind")
+        # script-access D240: bin/ holds the script launcher, written again by the reinstall.
+        self.assertEqual(sorted(path.name for path in self.home.iterdir()), ["bin", "runtime"], "no stage left behind")
 
     def test_doctor_reports_an_uninstalled_runtime_with_its_history(self):
         uninstall_runtime(self.root, running=lambda _root: 0)
