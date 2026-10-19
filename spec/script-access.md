@@ -1,6 +1,7 @@
 # Spec: script-access
 
-<!-- spec-guard: review approved -->
+<!-- spec-guard: review approved 0098f6f76d83 -->
+
 
 ## Objective
 
