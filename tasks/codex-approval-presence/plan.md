@@ -1,6 +1,6 @@
 # Plan: codex-approval-presence
 
-<!-- spec-guard: review pending -->
+<!-- spec-guard: review approved -->
 
 Based on [`spec/codex-approval-presence.md`](../../spec/codex-approval-presence.md) (accepted by the user on 2026-10-19:
 assumptions 1–14 as drafted, D232–D236, the six open questions resolved as proposed). This branch carries the map row,
