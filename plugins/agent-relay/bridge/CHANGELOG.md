@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## agent-relay 0.8.3
 
 Codex waiting states (module `codex-approval-presence`, D232–D236), schema 7 unchanged: for a Codex task the ChatGPT app
 has loaded, presence follows the task once through the app's local connection, reads only the `method` (and start time)
