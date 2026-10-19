@@ -7,6 +7,6 @@
 - [x] Checkpoint (report): bridge green — `npm run check` 294 tests ok
 - [x] Task 5: launcher, doctor `script-launcher`, rollback, uninstall (D240) — red first (7 cases, import missing), then green; `write_launcher` never raises, it reports `{path, ok, node, diagnostic}` in the install, upgrade and rollback results and runs `--version` under `PATH=/usr/bin:/bin`; rollback keeps the node the old launcher named; doctor's fixture and the reinstall test now expect the launcher
 - [x] Task 6: interface 2.8 and docs (D245) — `interface.json` `script` block, interface document §2.4, README zh/en "脚本与 launchd", `collaboration-ops`, both CHANGELOGs, `UPSTREAM.md`, manifest
-- [ ] Checkpoint (report): local validation
+- [x] Checkpoint (report): local validation — `scripts/validate.sh` pass on Python 3.9.6, 3.10, 3.14 with Node v24.18.0 first on PATH (48 files, 905 tests each; bridge `npm run check` 294 ok)
 - [ ] Task 7: PR and CI
 - [ ] Checkpoint (gate): module review
