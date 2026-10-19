@@ -154,3 +154,71 @@ closed at all.
 
 - None. D218 (notify the other requester, answer readable by id) and D219 (a withdrawal goes to the requests'
   recipient) were accepted by the user as written on 2026-10-17.
+
+## Revision 2026-10-19: requests already closed are skipped, not refused
+
+### Why
+
+A report relayed on 2026-10-19 (checked on the real mailbox): a sender asked request A, then 40 seconds later sent
+request B with `withdraws: [A]` to replace it. The recipient, holding the user's answer, replied to B with
+`alsoAnswers: [A]`. D217 refused the whole send ("Cannot close request #A: it was withdrawn by #B. Nothing was sent."),
+so the user's answer was never delivered; the upper layer lost two answers this way. The refusal was meant to catch a
+wrong id; here the id was right and the request was already closed, so what the sender asked for already held.
+
+### Assumptions (accepted by the user 2026-10-19)
+
+1. An id in `alsoAnswers` or `withdraws` whose request is **already closed** is skipped and the message is sent.
+   Already closed means: withdrawn, answered by another message (`replyTo` or an earlier `alsoAnswers`), or its
+   delivery `failed` or `expired` (an overdue request is expired first, as today).
+2. The `bridge_send` result gains `skipped: [{id, reason, by?}]`, `reason` one of `withdrawn`, `answered`, `failed`,
+   `expired`; `by` is the message that closed it (absent for `failed` and `expired`).
+3. Still refused, the whole send: no such message; for `alsoAnswers`, a message not addressed to the sender; for
+   `withdraws`, a message not sent by the sender or not addressed to this message's recipient; a message that is not a
+   request; the list-shape checks (broadcast, more than 20, duplicates, equal to `replyTo`). These mean the id is wrong.
+4. Only requests this message actually closes get D218's notice and D155's read; skipped ones get neither. D35 and the
+   idempotency comparison are unchanged.
+5. Interface 2.6 → **2.7** (an addition; a send that used to be refused now goes through, a widening). Schema 7
+   unchanged; released as **0.8.5**; the runtime needs `upgrade --confirm`.
+6. No upgrade is asked of any consumer during its freeze; consumers keep their own fallback until they upgrade.
+
+### Decisions
+
+- **D237 already-closed ids are skipped (assumptions 1, 3).** `assertClosable` splits its checks: the identity and
+  type checks (exists, addressed to / sent by, recipient match for `withdraws`, `expectsReply`) still throw
+  `RequestCloseError`; the state checks (closure row, a `replyTo` answer, `failed`, `expired`) return a skip instead.
+  Checks run where they run today (inside `deliver()`'s `BEGIN IMMEDIATE`, after the idempotency check and D35). A
+  lost race in `closeRequests` (the primary-key conflict) also becomes a skip with the winner's `{reason, by}`, never a
+  refusal. A message whose every id is skipped is still sent.
+- **D238 the result says what was skipped (assumption 2).** `deliver` returns `skipped` beside `closed`; `bridge_send`
+  carries `skipped` whenever `alsoAnswers` or `withdraws` was given, `[]` when nothing was skipped, sorted by id. Skips
+  are not stored: a duplicate retry returns the stored message's `closed` (D222) and `skipped: []`. A pre-0.8.5 bridge
+  has no `skipped`; the skills say to treat a missing `skipped` as "an older bridge, which refuses instead of skipping".
+- **D239 interface 2.7, schema 7.** `interface.json` 2.7; the interface document's `bridge_send` row lists `skipped`
+  and the refusal list of D237; `relay_status.py` docstring; plugins and runtime in either order (no schema change).
+
+### Requirements
+
+1. Red first, in `bridge/test/request-closing.test.ts`: `alsoAnswers: [A]` where A was withdrawn → sent, `closed: []`,
+   `skipped: [{id: A, reason: "withdrawn", by: B}]`, A keeps its withdrawal; the same for A already answered by
+   `replyTo` and by another `alsoAnswers` (`answered`), for `failed` and for an overdue request (`expired`); `withdraws`
+   naming an already answered request → sent, skipped; a mix closes the open ones and skips the closed ones, and D218's
+   notice goes only for the closed ones; wrong ids (no message, wrong addressee or sender, not a request) still refuse
+   the whole send and store nothing; a duplicate retry returns `skipped: []`; the lost race becomes a skip (simulated
+   by inserting the closure between the check and the insert).
+2. MCP test: `bridge_send` returns `skipped`.
+3. Skills and instructions (`collab`, `session-routing`, server instructions, `INSTRUCTIONS.md`): a skipped id was
+   already closed, nothing to redo; a missing `skipped` means an older bridge.
+4. Interface 2.7 bookkeeping as D239; `UPSTREAM.md` row and manifest; `bridge/CHANGELOG.md` 0.8.5; CHANGELOG
+   `[Unreleased]`.
+5. `scripts/validate.sh` green on Python 3.9, 3.10, 3.14 with Node 24 first on PATH; CI green.
+
+### Boundaries
+
+- Always: tests first; a refusal still stores nothing.
+- Ask first: skipping any id that fails an identity or type check; storing skips.
+- Never: close or reopen a request as a side effect of skipping it; send D218's notice for a skipped request.
+
+### Acceptance (after 0.8.5)
+
+- On the real host, with test identities: B withdraws A; a reply to B with `alsoAnswers: [A]` is delivered and reports
+  A in `skipped` as `withdrawn` by B; a wrong id is still refused with nothing stored; Spec Guard accepts 2.7.
