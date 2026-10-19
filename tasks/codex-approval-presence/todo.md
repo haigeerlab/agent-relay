@@ -4,7 +4,7 @@
 - [x] Checkpoint (gate): shape matches the spec — the user confirmed 2026-10-19: read only `requests` (no `activeFlags`), `since` from `params.startedAtMs`; the missing `completed` key is harmless
 - [x] Task 2: `CodexIpc` can send a broadcast and receive the one follower snapshot it asked for (D234, D235) — red first (`nextChange` missing), then `broadcast()` and `nextChange()` in `local-ipc.ts`; other threads' broadcasts dropped; timeout and a dropped connection (oversized frame) reject with `IpcError`; shared fake app in `test/support/fake-codex-app.ts`
 - [x] Task 3: classify pending requests (D233) — red first, then `codexWaiting()` in `presence.ts`: the five methods, `completed: true` and unknown or malformed entries skipped, approval wins, `since` from the earliest `params.startedAtMs`, no request content in the result
-- [ ] Task 4: the Codex lookup follows, reads and unfollows within 2 s (D232, D234, D235)
+- [x] Task 4: the Codex lookup follows, reads and unfollows within 2 s (D232, D234, D235) — red first, then `codexTaskPresence()` in `presence.ts`: discovery as before; only with an owner one follow, the first change within what is left of the cap, always an unfollow and a flushed close (`CodexIpc.close(true)`); tests pin the sent frames (initialize, discovery, follow true/false), no content in the result, no follow for stopped/not-loaded/unknown, oversized or late snapshots read `running`. Known limit: after the app drops the connection (oversized frame) no unfollow can be sent; the app ends the follow with the client
 - [ ] Task 5: the views (D232)
 - [ ] Checkpoint (report): bridge green
 - [ ] Task 6: interface 2.6, docs and bookkeeping (D236)

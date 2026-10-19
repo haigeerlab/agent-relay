@@ -126,5 +126,13 @@ export class CodexIpc {
     });
   }
 
-  close(): void { this.socket?.destroy(); this.fail(); }
+  /** `flush`: let frames already written (an unfollow) reach the app before the socket goes (at most 1 s). */
+  close(flush = false): void {
+    const socket = this.socket;
+    if (flush && socket && !socket.destroyed) {
+      socket.end();
+      setTimeout(() => socket.destroy(), 1000).unref();
+    } else socket?.destroy();
+    this.fail();
+  }
 }

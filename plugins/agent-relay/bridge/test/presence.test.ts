@@ -250,3 +250,67 @@ test("pending Codex requests are classified by method only (codex-approval-prese
   assert.deepEqual(noTime, { state: "waiting-approval", detail: "waiting for your approval to run a command in its Codex task" });
   assert.ok(!JSON.stringify(codexWaiting({ requests: [req("item/commandExecution/requestApproval")] })).includes("secret"));
 });
+
+test("a loaded Codex task is followed once, read and unfollowed within the cap (codex-approval-presence D232, D235)",
+  { skip: process.platform === "win32" }, async () => {
+  const { codexTaskPresence } = await import("../src/presence.js");
+  const { fakeCodexApp, snapshot } = await import("./support/fake-codex-app.js");
+  const at = Date.UTC(2026, 9, 19, 6, 23, 24);
+  const pending = { method: "item/commandExecution/requestApproval", id: 3,
+    params: { startedAtMs: at, command: "MARKER-cmd", reason: "MARKER-reason" } };
+  const cases: Array<[string, Parameters<typeof fakeCodexApp>[0], string]> = [
+    ["pending approval", { onFollow: (id) => [snapshot(id, { requests: [pending], turns: [{ text: "MARKER-turn" }] })] },
+      "waiting-approval"],
+    ["no pending request", { onFollow: (id) => [snapshot(id, { requests: [] })] }, "running"],
+    ["no requests list", { onFollow: (id) => [snapshot(id, { turns: [] })] }, "running"],
+    ["patches first", { onFollow: (id) => [{ conversationId: id, hostId: "local",
+      change: { type: "patches", patches: [{ op: "add", path: ["requests", 0], value: pending }] } }] }, "running"],
+    ["no snapshot in time", { onFollow: () => [] }, "running"],
+  ];
+  for (const [name, options, expected] of cases) {
+    const app = await fakeCodexApp(options);
+    try {
+      const started = Date.now();
+      const presence = await codexTaskPresence("thread-1", app.path, { responseTimeoutMs: 400 });
+      assert.ok(Date.now() - started < 700, `${name}: took ${Date.now() - started} ms`);
+      assert.equal(presence.state, expected, name);
+      assert.ok(!JSON.stringify(presence).includes("MARKER"), `${name}: no conversation content in the result`);
+      if (expected === "waiting-approval") assert.equal(presence.since, new Date(at).toISOString());
+      for (let i = 0; i < 50 && !app.received.some((f) => f.params?.following === false); i++) {
+        await new Promise((ok) => setTimeout(ok, 10));
+      }
+      // Exactly what the presence code may send: the handshake, discovery and the two follow broadcasts.
+      assert.deepEqual(app.received.map((f) => `${f.type}:${f.method}${f.type === "broadcast" ? `:${f.params.following}` : ""}`),
+        ["request:initialize", "request:thread-owner-discovery", "broadcast:thread-stream-following-changed:true",
+          "broadcast:thread-stream-following-changed:false"], name);
+      assert.deepEqual(app.received[2].targetClientIds, ["owner"]);
+      assert.equal(app.received[3].params.conversationId, "thread-1");
+    } finally {
+      await app.close();
+    }
+  }
+});
+
+test("a Codex task without owner, a silent app or no app is not followed (codex-approval-presence D232)",
+  { skip: process.platform === "win32" }, async () => {
+  const { codexTaskPresence } = await import("../src/presence.js");
+  const { fakeCodexApp } = await import("./support/fake-codex-app.js");
+  for (const [owner, expected] of [["none", "stopped"], ["silent", "not-loaded"]] as const) {
+    const app = await fakeCodexApp({ owner, onFollow: () => { throw new Error("followed"); } });
+    try {
+      assert.equal((await codexTaskPresence("thread-1", app.path, { responseTimeoutMs: 200 })).state, expected);
+      assert.ok(!app.received.some((f) => f.type === "broadcast"), `${owner}: no follow sent`);
+    } finally {
+      await app.close();
+    }
+  }
+  assert.equal((await codexTaskPresence("thread-1", join(tmpdir(), "no-such-dir", "ipc.sock"))).state, "unknown");
+  const header = Buffer.alloc(4); header.writeUInt32LE(9 * 1024 * 1024);
+  const big = await fakeCodexApp({ onFollow: () => [{ raw: header }] });
+  try {
+    assert.equal((await codexTaskPresence("thread-1", big.path, { responseTimeoutMs: 400 })).state, "running",
+      "an oversized snapshot keeps the owner's answer");
+  } finally {
+    await big.close();
+  }
+});

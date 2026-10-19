@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ClaudeSession } from "./claude-wake.js";
 import { CODEX_NOT_LOADED, silentAboutTask } from "./codex-wake.js";
-import { CodexIpc } from "./local-ipc.js";
+import { CodexIpc, IPC_RESPONSE_TIMEOUT_MS } from "./local-ipc.js";
 
 /** codex-not-loaded D200: `not-loaded` is a Codex task the app does not answer for. A consumer treats a value it does not
  * know as `unknown` (more may be added within interface 2.x). */
@@ -83,6 +83,49 @@ export function codexWaiting(conversationState: unknown): Presence | null {
   if (!found) return null;
   return { state: found.state, ...(found.startedAt === undefined ? {} : { since: new Date(found.startedAt).toISOString() }),
     detail: found.detail };
+}
+
+const FOLLOW = "thread-stream-following-changed";
+
+/**
+ * codex-approval-presence D232, D235: a Codex task's presence, with its waiting state when the app has it loaded.
+ * Discovery as `codexOwner`; only with an owner, one follow broadcast to that owner, the first follower change read
+ * within what is left of `responseTimeoutMs`, then an unfollow. Anything unexpected keeps the owner's answer, `running`.
+ */
+export async function codexTaskPresence(threadId: string, path = join(homedir(), ".codex", "ipc", "ipc.sock"),
+  options: { responseTimeoutMs?: number } = {}): Promise<Presence> {
+  if (process.platform === "win32") return codexPresence(null);
+  const started = Date.now();
+  const cap = options.responseTimeoutMs ?? IPC_RESPONSE_TIMEOUT_MS;
+  const ipc = new CodexIpc(options);
+  let connected = false;
+  let owner: unknown;
+  try {
+    await ipc.connect(path);
+    connected = true;
+    const found = await ipc.request("thread-owner-discovery", { hostId: "local", conversationId: threadId }, 1);
+    owner = found.resultType === "success" ? found.handledByClientId : undefined;
+  } catch (error) {
+    ipc.close();
+    return codexPresence(silentAboutTask(error, connected) ? "not-loaded" : null);
+  }
+  if (!owner || typeof owner !== "string") {
+    ipc.close();
+    return codexPresence(!!owner);
+  }
+  const follow = (following: boolean) =>
+    ipc.broadcast(FOLLOW, { conversationId: threadId, hostId: "local", following }, [owner as string]);
+  try {
+    const change = ipc.nextChange(threadId, Math.max(0, cap - (Date.now() - started)));
+    follow(true);
+    const got = await change;
+    return (got.type === "snapshot" ? codexWaiting(got.conversationState) : null) ?? { state: "running" };
+  } catch {
+    return { state: "running" };
+  } finally {
+    follow(false);
+    ipc.close(true);
+  }
 }
 
 export function codexPresence(owner: boolean | "not-loaded" | null): Presence {
