@@ -19,4 +19,4 @@
 - [x] Task 9: install, upgrade and rollback say on stderr when the launcher was not written or did not run; the temporary file name is unique per process; the rollback test covers the node recorded in the old launcher and `launcher.ok`
 - [x] Task 10: the CLI's late-receipt wait reads the Claude adapter's exported detail constant instead of matching its text; a test covers a session that never sends a receipt (one ping, state `unknown`) — red first, then green
 - [x] Task 11: docs — a 0.8.x bridge warns "Codex task is not open" when a session sends to a script identity (spec D244, CHANGELOG); `send`'s one flush may dispatch another message's ping first, as `bridge_send` does (interface §2.4)
-- [ ] Checkpoint (report): local validation and PR
+- [x] Checkpoint (report): local validation and PR — `scripts/validate.sh` pass on Python 3.9.6 + Node 22.22.0, 3.10 + Node 24.18.0, 3.14 + Node 22.22.0 (48 files, 910 tests each); `test_node_everywhere` now parses the JSON line and expects the launcher warning its fake node causes
