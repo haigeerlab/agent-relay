@@ -25,7 +25,8 @@ from native_collaboration_adapters import CLAUDE_SERVER_NAME, CODEX_SERVER_NAME
 from node_select import NodeSelectError, select_node, toml_table
 from state_migration import _snapshot
 from native_collaboration_runtime import (MAILBOX_SCHEMA_VERSIONS, MAILBOX_TOOLS, RESTART_NEXT, NativeRuntimeError,
-                                          live_claude_sessions, open_mailbox_read_only, pid_alive, probe_runtime,
+                                          launcher_path, live_claude_sessions, open_mailbox_read_only, pid_alive,
+                                          probe_runtime,
                                           status)
 
 DEFAULT_MAX_PENDING = 100
@@ -593,6 +594,32 @@ def _overall(checks: Iterable[dict[str, str]]) -> str:
     return "fail" if "fail" in states else "warn" if "warn" in states else "ok"
 
 
+def _script_launcher(root: Path) -> dict[str, str]:
+    """script-access D240: the launcher scripts and launchd run exists, is private, and points at this runtime."""
+    import shlex
+
+    path = launcher_path(root)
+    again = "run native_collaboration_runtime.py upgrade --confirm (or install) to write it again"
+    if not path.is_file():
+        return _check("script-launcher", "warn", f"no script launcher at {path}", again)
+    if stat.S_IMODE(path.stat().st_mode) != 0o700 or path.stat().st_uid != os.getuid():
+        return _check("script-launcher", "warn", f"{path} is not owner-only (0700)", again)
+    values: dict[str, str] = {}
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            for key in ("RUNTIME", "NODE"):
+                if line.startswith(key + "="):
+                    values[key] = shlex.split(line[len(key) + 1:])[0]
+    except (OSError, ValueError, IndexError) as error:
+        return _check("script-launcher", "warn", f"cannot read {path}: {error}", again)
+    if values.get("RUNTIME") != str(root):
+        return _check("script-launcher", "warn", f"{path} points at {values.get('RUNTIME')}, not {root}", again)
+    node = values.get("NODE", "")
+    if not node or not os.access(node, os.X_OK):
+        return _check("script-launcher", "warn", f"{path} names node {node or '(none)'}, which is gone", again)
+    return _check("script-launcher", "ok", f"{path} runs this runtime with {node}")
+
+
 def doctor(root: Path, *, home: Path | None = None, node: str | None = None, codex_config: Path | None = None,
            claude_json: Path | None = None, claude_sessions: Path | None = None,
            probe: Callable[[Path], dict[str, Any]] | None = None,
@@ -626,5 +653,7 @@ def doctor(root: Path, *, home: Path | None = None, node: str | None = None, cod
     checks.append(_notifications(root / "mailbox", notification_prefs, platform, notifier_candidates))
     checks.append(_old_bridges(processes()))
     checks.append(_codex_restart(root, chatgpt_started()))
+    if ready:
+        checks.append(_script_launcher(root))
     checks.append(_claude_plugin(claude_plugins, _copy_version(PLUGIN_ROOT)))
     return {"state": _overall(checks), "root": str(root), "checks": checks}

@@ -228,11 +228,87 @@ def _run(command: list[str], *, cwd: Path | None = None, env: dict[str, str] | N
     return result.stdout.strip()
 
 
+def launcher_path(root: Path) -> Path:
+    """script-access D240: the script launcher, beside the runtime (``~/.agent-relay/bin/agent-relay`` by default)."""
+    return Path(root).parent / "bin" / "agent-relay"
+
+
+_LAUNCHER = """#!/bin/sh
+# agent-relay script launcher (script-access D240). Written by native_collaboration_runtime.py install, upgrade
+# and rollback; do not edit. It needs no PATH entry and reads nothing outside the runtime.
+RUNTIME={runtime}
+NODE={node}
+if [ -e {journal} ]; then
+  echo "agent-relay: a runtime upgrade, reinstall or rollback is in progress or stopped half way; run native_collaboration_runtime.py status" >&2
+  exit 3
+fi
+if [ ! -f "$RUNTIME/dist/cli.js" ]; then
+  echo "agent-relay: the runtime is not installed at $RUNTIME; install it with native_collaboration_runtime.py install" >&2
+  exit 3
+fi
+if [ ! -x "$NODE" ]; then
+  echo "agent-relay: node is gone from $NODE; run native_collaboration_runtime.py upgrade --confirm to write the launcher again" >&2
+  exit 3
+fi
+BRIDGE_DB_PATH="$RUNTIME/mailbox/bridge.sqlite" XDG_DATA_HOME="$RUNTIME/data" exec "$NODE" "$RUNTIME/dist/cli.js" "$@"
+"""
+
+
+def write_launcher(root: Path, *, node: str = "node") -> dict[str, Any]:
+    """Write the script launcher for ``root`` with an absolute node (D240); never raises, says what happened."""
+    import shlex
+
+    root = Path(root)
+    path = launcher_path(root)
+    found = node if os.sep in node else shutil.which(node)
+    resolved = Path(found).resolve() if found else None
+    if resolved is None or not resolved.is_absolute() or not os.access(resolved, os.X_OK):
+        return {"path": str(path), "ok": False, "diagnostic": f"no executable node found for {node!r}; the launcher "
+                "was not written"}
+    try:
+        if not path.parent.exists():
+            path.parent.mkdir(mode=0o700)
+        path.parent.chmod(0o700)
+        temporary = path.with_name(".agent-relay.tmp")
+        temporary.write_text(_LAUNCHER.format(runtime=shlex.quote(str(root)), node=shlex.quote(str(resolved)),
+                                              journal=shlex.quote(str(_journal_path(root)))), encoding="utf-8")
+        temporary.chmod(0o700)
+        temporary.replace(path)
+    except OSError as error:
+        return {"path": str(path), "ok": False, "diagnostic": f"cannot write the launcher: {error}"}
+    # Run it as launchd would: no PATH beyond /usr/bin:/bin.
+    try:
+        check = subprocess.run([str(path), "--version"], capture_output=True, text=True, timeout=60,
+                               env={"PATH": "/usr/bin:/bin", "HOME": os.environ.get("HOME", "")})
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return {"path": str(path), "ok": False, "node": str(resolved), "diagnostic": f"the launcher did not run: {error}"}
+    if check.returncode != 0:
+        return {"path": str(path), "ok": False, "node": str(resolved),
+                "diagnostic": (check.stderr or "").strip().splitlines()[-1:] and (check.stderr or "").strip().splitlines()[-1]
+                or f"the launcher exited {check.returncode}"}
+    return {"path": str(path), "ok": True, "node": str(resolved)}
+
+
+def _recorded_node(root: Path) -> str:
+    """The node an existing launcher names, so a rollback keeps it; else PATH's node."""
+    try:
+        for line in launcher_path(root).read_text(encoding="utf-8").splitlines():
+            if line.startswith("NODE="):
+                import shlex
+                return shlex.split(line[len("NODE="):])[0]
+    except (OSError, ValueError, IndexError):
+        pass
+    return "node"
+
+
 def install_runtime(root: Path, *, node: str = "node", npm: str = "npm",
                     source: Path = BRIDGE_SOURCE) -> dict[str, Any]:
     """Build the runtime from the verified vendored bridge; never run its broad setup command."""
     _refuse_when_interrupted(Path(root))
-    return _build_runtime(root, node=node, npm=npm, source=source)
+    result = _build_runtime(root, node=node, npm=npm, source=source)
+    if result.get("state") == "ready":
+        result = {**result, "launcher": write_launcher(Path(root), node=node)}
+    return result
 
 
 def _build_runtime(root: Path, *, node: str = "node", npm: str = "npm",
@@ -623,7 +699,8 @@ def upgrade_runtime(root: Path, *, node: str = "node", npm: str = "npm", source:
                           "promoting": lambda: stage.rename(root)}, verify)
     after = _status(root)
     return {"state": "upgraded", "bridge": after["bridge"], "counts": counts,
-            "previous": str(previous), "backup": str(backup), "rollback": UPGRADE_ROLLBACK, "next": RESTART_NEXT}
+            "previous": str(previous), "backup": str(backup), "rollback": UPGRADE_ROLLBACK, "next": RESTART_NEXT,
+            "launcher": write_launcher(root, node=node)}
 
 
 def _free_stamp(root: Path, backups: Path, *names: str) -> str:
@@ -683,7 +760,8 @@ def rollback_runtime(root: Path, *, backups: Path | None = None, running=_server
     _swap(root, journal, {"moving-history": move_history, "retiring-runtime": lambda: root.rename(outgoing),
                           "promoting": lambda: previous.rename(root)}, verify)
     return {"state": "rolled-back", "runtime": _status(root), "previous": str(previous),
-            "rolledBack": str(outgoing), "backup": str(backup), "counts": counts, "caveat": ROLLBACK_CAVEAT}
+            "rolledBack": str(outgoing), "backup": str(backup), "counts": counts, "caveat": ROLLBACK_CAVEAT,
+            "launcher": write_launcher(root, node=_recorded_node(root))}
 
 
 def uninstall_runtime(root: Path, *, running=_servers_running) -> dict[str, Any]:
@@ -705,6 +783,7 @@ def uninstall_runtime(root: Path, *, running=_servers_running) -> dict[str, Any]
             shutil.rmtree(entry)
         else:
             entry.unlink()
+    launcher_path(root).unlink(missing_ok=True)  # script-access D240: nothing left for a script to run
     return status(root)
 
 

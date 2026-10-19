@@ -17,7 +17,7 @@ from unittest.mock import patch
 from native_collaboration_adapters import CLAUDE_SERVER_NAME, codex_fragment
 from native_collaboration_doctor import TEST_NOTIFICATION_TEXT, codex_auto_approval, doctor, send_test_notification
 from node_select import SelectedNode
-from native_collaboration_runtime import BRIDGE_COMMIT, BRIDGE_SOURCE, bridge_tree, main
+from native_collaboration_runtime import BRIDGE_COMMIT, BRIDGE_SOURCE, bridge_tree, main, write_launcher
 
 NODE = Path(sys.executable)
 SCRIPT_EDITOR = "com.apple.ScriptEditor2"
@@ -65,6 +65,8 @@ class DoctorTests(unittest.TestCase):
         (self.root / "dist" / "server.js").write_text("server\n")
         (self.root / "manifest.json").write_text(json.dumps(
             {"commit": BRIDGE_COMMIT, "source": "vendored", "tree": bridge_tree(BRIDGE_SOURCE)}))
+        # script-access D240: install writes the script launcher; any executable stands in for node here.
+        write_launcher(self.root, node=sys.executable)
         self.database = self.root / "mailbox" / "bridge.sqlite"
         with sqlite3.connect(self.database) as connection:
             connection.executescript("""

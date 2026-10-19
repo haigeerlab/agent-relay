@@ -5,7 +5,7 @@
 - [x] Task 3: script identity (D244) — tests written first; `bridge_register` on a script identity's name says so and needs `takeover`
 - [x] Task 4: CLI `agents`, `outbox`, `sessions`, `send`, `register-script-identity` (D241–D244) — red first (5 cases), then green; `bridge_send`'s core moved to `src/send.ts` for both; `send` waits up to 5 s for a late Claude receipt; one flush like `bridge_send` (the next due ping, in per-recipient order); a race test with a running dispatcher pings once
 - [x] Checkpoint (report): bridge green — `npm run check` 294 tests ok
-- [ ] Task 5: launcher, doctor `script-launcher`, rollback, uninstall (D240) — red first
+- [x] Task 5: launcher, doctor `script-launcher`, rollback, uninstall (D240) — red first (7 cases, import missing), then green; `write_launcher` never raises, it reports `{path, ok, node, diagnostic}` in the install, upgrade and rollback results and runs `--version` under `PATH=/usr/bin:/bin`; rollback keeps the node the old launcher named; doctor's fixture and the reinstall test now expect the launcher
 - [ ] Task 6: interface 2.8 and docs (D245)
 - [ ] Checkpoint (report): local validation
 - [ ] Task 7: PR and CI
