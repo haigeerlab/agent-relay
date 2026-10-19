@@ -10,3 +10,12 @@
 - [x] Checkpoint (report): local validation — `scripts/validate.sh` pass on Python 3.9.6, 3.10.7, 3.14.3 with Node v24.18.0 first on PATH (47 files, 854 tests each; bridge `npm run check` 250 ok)
 - [x] Task 7: PR and CI — the four CI jobs green; the user merged #130 (9faf932) on 2026-10-17; #130 opened; round-2 review (#4551): D35 swallowed a resent reply's new `alsoAnswers`/`withdraws` (fixed: it folds only when the earlier reply closed the same lists, red first), and an overdue request is now expired before the closure checks (red first); item 3 ("closed shorter than the list") cannot happen any more, so the wording stays
 - [x] Checkpoint (gate): module review — the round-2 coordinator reviewed spec/plan #129 (six additions, all in it) and #130 (one fix and one small item, both in 6bc3cf4, re-checked and passed); the user merged #129 (32c85f0) and #130 (9faf932)
+
+## Revision 2026-10-19: already-closed requests are skipped (D237–D239; the user approved the spec the same day)
+
+- [x] Task 8: skip instead of refuse in the store (D237, D238) — red first (10 cases failed), then green; the D35 retry fold looks for an exact match before a lenient one, so a resend with the same list still folds onto the reply that closed it
+- [x] Task 9: `bridge_send` returns `skipped`; parameter descriptions, skills and instructions (D238) — red first (MCP test)
+- [x] Task 10: interface 2.7 and bookkeeping (D239)
+- [x] Checkpoint (report): local validation — `scripts/validate.sh` pass on Python 3.9.6, 3.10, 3.14 with Node v24.18.0 first on PATH (47 files, 883 tests each; bridge `npm run check` 279 ok)
+- [ ] Task 11: PR and CI
+- [ ] Checkpoint (gate): module review

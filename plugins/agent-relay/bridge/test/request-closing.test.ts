@@ -83,15 +83,12 @@ test("every alsoAnswers refusal names the id and stores nothing (D217)", () => {
   const mine = store.send({ fromAgent: "asker", toAgent: "helper", body: "q", expectsReply: true });
   const notMine = store.send({ fromAgent: "asker", toAgent: "other", body: "q", expectsReply: true });
   const plain = store.send({ fromAgent: "asker", toAgent: "helper", body: "fyi" });
-  const answered = store.send({ fromAgent: "twin", toAgent: "helper", body: "q", expectsReply: true });
-  const reply = store.send({ fromAgent: "helper", toAgent: "twin", body: "a", replyTo: answered.id });
   const count = () => store.outbox("helper", { includeAcknowledged: true }).entries.length;
   const before = count();
   const cases: Array<[number[], RegExp]> = [
     [[999_999], /#999999.*no message/i],
     [[notMine.id], new RegExp(`#${notMine.id}.*addressed to "other"`)],
     [[plain.id], new RegExp(`#${plain.id}.*not a request`)],
-    [[answered.id], new RegExp(`#${answered.id}.*already answered by #${reply.id}`)],
     [[mine.id, mine.id], /twice/],
     [Array.from({ length: 21 }, (_, i) => mine.id + i), /at most 20/],
   ];
@@ -122,16 +119,17 @@ test("a retry with the same key and list is a duplicate; a different list is ref
   store.close();
 });
 
-test("two bridge processes cannot both close one request (D217)", () => {
+test("two bridge processes cannot both close one request; the second skips it (D217, D237)", () => {
   const dir = mkdtempSync(join(tmpdir(), "bridge-closing-race-"));
   const path = join(dir, "bridge.sqlite");
   const one = fresh(path);
   const two = new BridgeStore(path);
   const b = one.send({ fromAgent: "twin", toAgent: "helper", body: "q", expectsReply: true });
-  one.deliver({ fromAgent: "helper", toAgent: "asker", body: "first answer", alsoAnswers: [b.id] });
-  assert.throws(() => two.deliver({ fromAgent: "helper", toAgent: "other", body: "second answer", alsoAnswers: [b.id] }),
-    new RegExp(`#${b.id}.*already answered by #`));
-  assert.equal(two.outbox("helper", { includeAcknowledged: true }).entries.filter((e) => e.toAgent === "other").length, 0);
+  const first = one.deliver({ fromAgent: "helper", toAgent: "asker", body: "first answer", alsoAnswers: [b.id] });
+  const second = two.deliver({ fromAgent: "helper", toAgent: "other", body: "second answer", alsoAnswers: [b.id] });
+  assert.deepEqual(second.closed, []);
+  assert.deepEqual(second.skipped, [{ id: b.id, reason: "answered", by: first.message.id }]);
+  assert.equal(two.outbox("helper", { includeAcknowledged: true }).entries.filter((e) => e.toAgent === "other").length, 1);
   one.close();
   two.close();
 });
@@ -196,18 +194,15 @@ test("withdraws closes the sender's own request as withdrawn; no read, no answer
   store.close();
 });
 
-test("only the sender withdraws, only to the request's recipient, only while open; nothing stored on refusal (D219)", () => {
+test("only the sender withdraws, only to the request's recipient; nothing stored on refusal (D219, D237)", () => {
   const store = fresh();
   const theirs = store.send({ fromAgent: "twin", toAgent: "helper", body: "q", expectsReply: true });
   const toOther = store.send({ fromAgent: "asker", toAgent: "other", body: "q", expectsReply: true });
-  const answered = store.send({ fromAgent: "asker", toAgent: "helper", body: "q", expectsReply: true });
-  const reply = store.send({ fromAgent: "helper", toAgent: "asker", body: "a", replyTo: answered.id });
   const sent = () => store.outbox("asker", { includeAcknowledged: true }).entries.length;
   const before = sent();
   const cases: Array<[number, RegExp]> = [
     [theirs.id, new RegExp(`#${theirs.id}.*sent by "twin"`)],
     [toOther.id, new RegExp(`#${toOther.id}.*addressed to "other"`)],
-    [answered.id, new RegExp(`#${answered.id}.*already answered by #${reply.id}`)],
   ];
   for (const [id, pattern] of cases) {
     assert.throws(() => store.deliver({ fromAgent: "asker", toAgent: "helper", body: "withdraw", withdraws: [id] }), pattern);
@@ -216,15 +211,19 @@ test("only the sender withdraws, only to the request's recipient, only while ope
   store.close();
 });
 
-test("withdraw and ask anew in one message; a withdrawn request cannot be answered through alsoAnswers (D219)", () => {
+test("withdraw and ask anew in one message; a withdrawn request in alsoAnswers is skipped (D219, D237)", () => {
   const store = fresh();
   const old = store.send({ fromAgent: "asker", toAgent: "helper", body: "review v1", expectsReply: true });
   const { message: fresh2, closed } = store.deliver({ fromAgent: "asker", toAgent: "helper", body: "review v2 instead",
     withdraws: [old.id], expectsReply: true });
   assert.deepEqual(closed, [{ id: old.id, kind: "withdrawn" }]);
   assert.deepEqual(store.owesReplies().get("helper")?.ids, [fresh2.id]);
-  assert.throws(() => store.deliver({ fromAgent: "helper", toAgent: "asker", body: "a", replyTo: fresh2.id,
-    alsoAnswers: [old.id] }), new RegExp(`#${old.id}.*withdrawn by #${fresh2.id}`));
+  const answer = store.deliver({ fromAgent: "helper", toAgent: "asker", body: "a", replyTo: fresh2.id,
+    alsoAnswers: [old.id] });
+  assert.deepEqual(answer.closed, []);
+  assert.deepEqual(answer.skipped, [{ id: old.id, reason: "withdrawn", by: fresh2.id }]);
+  assert.deepEqual(store.outbox("asker", { includeAcknowledged: true }).entries.find((e) => e.id === old.id)?.closedBy,
+    { messageId: fresh2.id, kind: "withdrawn" }, "the withdrawal stays");
   store.close();
 });
 
@@ -254,8 +253,8 @@ test("withdraws: retries, conflicts with an answer, and the list shape (D219)", 
   assert.deepEqual(again.closed, [{ id: r.id, kind: "withdrawn" }]);
   assert.throws(() => one.deliver({ fromAgent: "asker", toAgent: "helper", body: "withdrawn", idempotencyKey: "w",
     withdraws: [] }), /withdraws/);
-  assert.throws(() => two.deliver({ fromAgent: "helper", toAgent: "asker", body: "late answer", alsoAnswers: [r.id] }),
-    new RegExp(`#${r.id}.*withdrawn by #${first.message.id}`));
+  assert.deepEqual(two.deliver({ fromAgent: "helper", toAgent: "asker", body: "late answer", alsoAnswers: [r.id] }).skipped,
+    [{ id: r.id, reason: "withdrawn", by: first.message.id }]);
   assert.throws(() => one.deliver({ fromAgent: "asker", toAgent: "*", body: "all", withdraws: [r.id] }), /broadcast/);
   one.close();
   two.close();
@@ -301,12 +300,120 @@ test("the same reply resent with an alsoAnswers list is not folded into the earl
   store.close();
 });
 
-test("a request past its queue timeout cannot be closed even before the sweep ran (review of #130)", () => {
+test("a request past its queue timeout is skipped as expired even before the sweep ran (review of #130, D237)", () => {
   const store = fresh();
   const r = store.send({ fromAgent: "asker", toAgent: "helper", body: "q", expectsReply: true, expiresInSeconds: 60 });
   const raw = (store as unknown as { db: DatabaseSync }).db;
   raw.prepare("UPDATE messages SET expires_at = ? WHERE id = ?").run(Date.now() - 1000, r.id);
-  assert.throws(() => store.deliver({ fromAgent: "helper", toAgent: "asker", body: "late", alsoAnswers: [r.id] }),
-    new RegExp(`#${r.id}.*expired before delivery`));
+  const late = store.deliver({ fromAgent: "helper", toAgent: "asker", body: "late", alsoAnswers: [r.id] });
+  assert.deepEqual(late.skipped, [{ id: r.id, reason: "expired" }]);
+  assert.deepEqual(late.closed, []);
+  store.close();
+});
+
+// Revision 2026-10-19 (D237, D238): a request already closed is skipped, not refused, and the result says so.
+test("an alsoAnswers request already answered by replyTo or by another alsoAnswers is skipped (D237)", () => {
+  const store = fresh();
+  const byReply = store.send({ fromAgent: "twin", toAgent: "helper", body: "q1", expectsReply: true });
+  const reply = store.send({ fromAgent: "helper", toAgent: "twin", body: "a1", replyTo: byReply.id });
+  const byAlso = store.send({ fromAgent: "other", toAgent: "helper", body: "q2", expectsReply: true });
+  const earlier = store.deliver({ fromAgent: "helper", toAgent: "asker", body: "a2", alsoAnswers: [byAlso.id] });
+  const result = store.deliver({ fromAgent: "helper", toAgent: "asker", body: "a3", alsoAnswers: [byAlso.id, byReply.id] });
+  assert.equal(result.duplicate, false);
+  assert.deepEqual(result.closed, []);
+  assert.deepEqual(result.skipped, [{ id: byReply.id, reason: "answered", by: reply.id },
+    { id: byAlso.id, reason: "answered", by: earlier.message.id }]);
+  assert.equal(store.messageById(result.message.id)?.body, "a3");
+  store.close();
+});
+
+test("a failed request is skipped; withdraws of an answered request is skipped (D237)", () => {
+  const store = fresh();
+  const failed = store.send({ fromAgent: "twin", toAgent: "helper", body: "q", expectsReply: true });
+  const raw = (store as unknown as { db: DatabaseSync }).db;
+  raw.prepare("UPDATE messages SET delivery_state = 'failed' WHERE id = ?").run(failed.id);
+  assert.deepEqual(store.deliver({ fromAgent: "helper", toAgent: "asker", body: "a", alsoAnswers: [failed.id] }).skipped,
+    [{ id: failed.id, reason: "failed" }]);
+  const mine = store.send({ fromAgent: "asker", toAgent: "helper", body: "q", expectsReply: true });
+  const reply = store.send({ fromAgent: "helper", toAgent: "asker", body: "a", replyTo: mine.id });
+  const w = store.deliver({ fromAgent: "asker", toAgent: "helper", body: "never mind", withdraws: [mine.id] });
+  assert.deepEqual(w.closed, []);
+  assert.deepEqual(w.skipped, [{ id: mine.id, reason: "answered", by: reply.id }]);
+  assert.equal(store.outbox("asker", { includeAcknowledged: true }).entries.find((e) => e.id === mine.id)?.closedBy,
+    undefined, "skipping records no closure");
+  store.close();
+});
+
+test("a mix closes the open requests and skips the closed ones; no read and no notice for a skipped one (D237, D218)", () => {
+  const store = fresh();
+  const open = store.send({ fromAgent: "twin", toAgent: "helper", body: "open", expectsReply: true });
+  const gone = store.send({ fromAgent: "other", toAgent: "helper", body: "old", expectsReply: true });
+  store.deliver({ fromAgent: "other", toAgent: "helper", body: "withdrawn", withdraws: [gone.id] });
+  const raw = (store as unknown as { db: DatabaseSync }).db;
+  const readAt = () => (raw.prepare("SELECT read_at FROM messages WHERE id = ?").get(gone.id) as { read_at: unknown }).read_at;
+  const readBefore = readAt();
+  const notices = (to: string) => store.inbox(to).filter((m) => m.fromAgent === "bridge").length;
+  const otherBefore = notices("other");
+  const result = store.deliver({ fromAgent: "helper", toAgent: "asker", body: "both", alsoAnswers: [gone.id, open.id] });
+  assert.deepEqual(result.closed, [{ id: open.id, kind: "answered" }]);
+  assert.deepEqual(result.skipped.map((s) => s.id), [gone.id]);
+  assert.equal(notices("twin"), 1, "the closed request's sender is told");
+  assert.equal(notices("other"), otherBefore, "the skipped request's sender is not");
+  assert.equal(readAt(), readBefore, "a skipped request records no read");
+  store.close();
+});
+
+test("wrong ids still refuse the whole send and store nothing, even beside a closed one (D237)", () => {
+  const store = fresh();
+  const gone = store.send({ fromAgent: "twin", toAgent: "helper", body: "q", expectsReply: true });
+  store.deliver({ fromAgent: "twin", toAgent: "helper", body: "withdrawn", withdraws: [gone.id] });
+  const notMine = store.send({ fromAgent: "asker", toAgent: "other", body: "q", expectsReply: true });
+  const count = () => store.outbox("helper", { includeAcknowledged: true }).entries.length;
+  const before = count();
+  assert.throws(() => store.deliver({ fromAgent: "helper", toAgent: "asker", body: "x", alsoAnswers: [gone.id, 999_999] }),
+    /#999999.*no message/i);
+  assert.throws(() => store.deliver({ fromAgent: "helper", toAgent: "asker", body: "x", alsoAnswers: [gone.id, notMine.id] }),
+    new RegExp(`#${notMine.id}.*addressed to "other"`));
+  assert.equal(count(), before, "nothing was stored");
+  store.close();
+});
+
+test("a retry of a send that skipped a request is a duplicate, by key and by D35 (D238)", () => {
+  const store = fresh();
+  const old = store.send({ fromAgent: "asker", toAgent: "helper", body: "v1", expectsReply: true });
+  const { message: v2 } = store.deliver({ fromAgent: "asker", toAgent: "helper", body: "v2", withdraws: [old.id],
+    expectsReply: true });
+  const first = store.deliver({ fromAgent: "helper", toAgent: "asker", body: "answer", replyTo: v2.id,
+    alsoAnswers: [old.id], idempotencyKey: "user-answer" });
+  assert.deepEqual(first.skipped.map((s) => s.id), [old.id]);
+  const byKey = store.deliver({ fromAgent: "helper", toAgent: "asker", body: "answer", replyTo: v2.id,
+    alsoAnswers: [old.id], idempotencyKey: "user-answer" });
+  assert.equal(byKey.duplicate, true);
+  assert.equal(byKey.message.id, first.message.id);
+  assert.deepEqual(byKey.skipped, []);
+  const byReply = store.deliver({ fromAgent: "helper", toAgent: "asker", body: "answer", replyTo: v2.id,
+    alsoAnswers: [old.id] });
+  assert.equal(byReply.duplicate, true);
+  assert.equal(byReply.message.id, first.message.id);
+  store.close();
+});
+
+test("losing the race between the check and the closure becomes a skip, not a refusal (D237)", () => {
+  const store = fresh();
+  const b = store.send({ fromAgent: "twin", toAgent: "helper", body: "q", expectsReply: true });
+  const rival = store.send({ fromAgent: "helper", toAgent: "twin", body: "rival answer" });
+  const raw = (store as unknown as { db: DatabaseSync }).db;
+  const target = store as unknown as { assertClosable: (...args: unknown[]) => unknown };
+  const original = target.assertClosable.bind(store);
+  target.assertClosable = (...args: unknown[]) => {
+    const outcome = original(...args);
+    raw.prepare("INSERT INTO request_closures (request_id, message_id, kind, closed_at) VALUES (?, ?, 'answered', ?)")
+      .run(b.id, rival.id, new Date().toISOString());
+    return outcome;
+  };
+  const result = store.deliver({ fromAgent: "helper", toAgent: "asker", body: "late", alsoAnswers: [b.id] });
+  assert.deepEqual(result.closed, []);
+  assert.deepEqual(result.skipped, [{ id: b.id, reason: "answered", by: rival.id }]);
+  assert.equal(store.inbox("twin").filter((m) => m.fromAgent === "bridge").length, 0, "no notice for a lost race");
   store.close();
 });

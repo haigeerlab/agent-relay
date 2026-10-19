@@ -1,5 +1,12 @@
 # Changelog
 
+## agent-relay 0.8.5
+
+`request-closing` revision (D237–D239), schema 7 unchanged: a request named in `alsoAnswers` or `withdraws` that is
+already closed (withdrawn, answered, `failed` or `expired`) is skipped and the message is sent; `bridge_send` returns
+`skipped: [{id, reason, by?}]` beside `closed`. A wrong id (no message, wrong addressee or sender, not a request) still
+refuses the whole send. A lost closure race is a skip; retries still fold (idempotency key and D35).
+
 ## agent-relay 0.8.4
 
 `codex-approval-presence` rework after the round-2 post-merge review: a follower frame over 8 MiB is discarded without

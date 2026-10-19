@@ -112,7 +112,9 @@ Codex 给 Codex 派活时，`session-routing` 的 selector 可能返回 `codex-w
 结论是“不做”或“做不了”也要回复；ack 不算回复。一份答复同时回答了几条发给本会话的请求（例如两个会话问了同一件事）时，
 `replyTo` 挂其中一条，其余的编号放进 `alsoAnswers`，一条都不要漏；自己发出、已经不需要的请求，给原收件方发一条消息，
 把编号放进 `withdraws` 撤回（记为已撤回，不算对方答复）。用了这两个参数后，以结果里的 `closed` 为准；结果里没有
-`closed` 就说明连的是 0.8.0 以前的 bridge，什么都没关（request-closing D217、D219、D222）。用户问“我发出的哪些还没人回”“我在等谁”时，调用 `bridge_outbox` 带
+`closed` 就说明连的是 0.8.0 以前的 bridge，什么都没关（request-closing D217、D219、D222）。结果里 `skipped` 列出的
+是早已关闭（已撤回、已有人答复、失败或过期）而被跳过的请求，不用再处理；没有 `skipped` 说明 bridge 早于 0.8.5，这种
+情况会整条拒收，拒收理由指向已关闭的请求时，去掉那个编号重发即可（request-closing D237、D238）。用户问“我发出的哪些还没人回”“我在等谁”时，调用 `bridge_outbox` 带
 `awaitingReply: true`，逐条报告编号、收件方、已等多久（`waitingSeconds` 换算成分钟或小时）和收件方状态
 （`recipientPresence`），不读正文；`totalAwaitingReply` 是总数。用户问“谁欠回复”“别人在等我回复什么”时，调用
 `bridge_agents`，报告带 `owesReplies: {count, ids, oldestAt}` 的身份（自己的那一项就是别人在等本会话回复的请求）。
