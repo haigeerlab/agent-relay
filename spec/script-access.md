@@ -120,3 +120,8 @@ None left; resolved by the user 2026-10-20, as proposed:
 
 1. A script identity follows the normal idempotency rules (no `bridge`-style folding by key only).
 2. Only the CLI registers a script identity (`register-script-identity --confirm`); no MCP path.
+
+## Change log
+
+- 2026-10-19, round-2 post-merge review (#9193), in scope: D244 now also records that a 0.8.x bridge warns "Codex
+  task is not open" when a session sends to a script identity; delivery is not affected. No decision changed.
