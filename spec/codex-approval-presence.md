@@ -1,12 +1,12 @@
 # Spec: codex-approval-presence
 
-<!-- Draft for the user's review (2026-10-19). Not approved; no code until it is. -->
+<!-- spec-guard: review approved b94323853d94 -->
 
 ## Objective
 
 From a requirement relayed on 2026-10-19 by the Spec Guard monitoring session (mailbox name `spec-guard-monitor`, item
 AR-1 of its round 21), answered "能做" with the user's consent (mailbox message #8004), the user asking for a reviewed spec
-before any code: when a Codex task stops at a host approval prompt, the decision inbox wants to tell the user to go and
+before any code, and the user's decision on the spec the same day ("14 条假设按草稿通过，6 个待决问题都按你的建议定"): when a Codex task stops at a host approval prompt, the decision inbox wants to tell the user to go and
 click it in that task. It reads `bridge_agents` `presence`. Today a Claude session can be `waiting-approval` or
 `waiting-input` (presence-and-approval D146, D148); a Codex task can only be `running`, `stopped`, `not-loaded` or
 `unknown`. This module adds the two waiting values for Codex tasks the ChatGPT app has loaded.
@@ -37,7 +37,7 @@ Readers: the user; the round-2 coordinator (review, re-check after release); the
   text). **No pending entry has been seen yet**: the user's Codex has `approvals_reviewer = guardian_subagent`, so the
   probe's commands were approved automatically.
 
-## Assumptions (to be confirmed by the user)
+## Assumptions (accepted by the user 2026-10-19)
 
 1. **Signal source.** The ChatGPT app's own local IPC follower stream is the source; nothing else of Codex's is read
    (no private state files, no logs, no `~/.codex` database). If the app's protocol does not match (no owner, no snapshot,
@@ -51,7 +51,7 @@ Readers: the user; the round-2 coordinator (review, re-check after release); the
    | `item/fileChange/requestApproval` | `waiting-approval` | "waiting for your approval to change files in its Codex task" |
    | `item/permissions/requestApproval` | `waiting-approval` | "waiting for your approval of a permission request in its Codex task" |
    | `item/tool/requestUserInput` | `waiting-input` | "waiting for your answer in its Codex task" |
-   | `mcpServer/elicitation/request` | `waiting-input` (proposed; open question 1) | "waiting for your answer to a tool's question in its Codex task" |
+   | `mcpServer/elicitation/request` | `waiting-input` (resolved question 1) | "waiting for your answer to a tool's question in its Codex task" |
    | any other method | ignored (stays `running`) | — |
 
    Several pending entries: `waiting-approval` wins over `waiting-input`. The permissions request counts as an approval
@@ -81,16 +81,16 @@ Readers: the user; the round-2 coordinator (review, re-check after release); the
    unchanged; a follow is sent only to the owner client named in `handledByClientId`.
 9. **Frame size.** A snapshot larger than the existing 8 MiB frame limit makes `CodexIpc` drop the connection; the
    lookup then reports `running` (owner known). The limit is not raised: a long conversation simply loses the waiting
-   detail. (Open question 3 asks whether this is acceptable.)
+   detail (resolved question 3; task 1 records the test task's snapshot size).
 10. **Interface only grows.** No new `presence.state` value: Codex now may also be `waiting-approval` or `waiting-input`,
     with `detail` (and `since` when known). `interface.json` 2.5 → 2.6; the `bridge_agents` row of
     `docs/collaboration-interface.md` says that since 2.6 a Codex task the ChatGPT app has loaded may also be
     `waiting-approval` or `waiting-input`, read from the app's own pending-request list, and that a Codex `running`
     means no pending request was seen, or the list could not be read within 2 s. Mailbox schema 7 unchanged.
-11. **Out of scope** (proposed; open question 2): a desktop notice for a Codex task waiting for approval (`checkApprovals`
+11. **Out of scope** (resolved question 2): a desktop notice for a Codex task waiting for approval (`checkApprovals`
     stays Claude only — the decision inbox does the reminding for its user); approving anything; watching the stream
     continuously; reading Codex config (`approvals_reviewer` etc.).
-12. **Release**: bridge change, 0.8.3 or 0.9.0 (to be decided at release), `upgrade --confirm`; interface 2.6.
+12. **Release**: bridge change, version number decided by the user at release (resolved question 5), `upgrade --confirm`; interface 2.6.
 13. **Test task**: the existing test Codex task in the dedicated test project; never
     create or touch a test task in the user's working Codex projects. To make a command stop at the user's prompt there,
     that test task needs approvals that ask the user rather than `guardian_subagent`; how to set that for one task
@@ -99,7 +99,7 @@ Readers: the user; the round-2 coordinator (review, re-check after release); the
 14. Module id `codex-approval-presence`; depends on presence-and-approval, codex-not-loaded, agents-view-polish; build
     order: last, after accepted-unread-notice.
 
-## Decisions (proposed)
+## Decisions
 
 - **D232 a loaded Codex task's waiting state is read from the ChatGPT app's follower snapshot.** Assumptions 1, 7, 8:
   discovery first; only with an owner, one follow → first snapshot → unfollow, all within the 2 s cap. Anything
@@ -119,7 +119,8 @@ Readers: the user; the round-2 coordinator (review, re-check after release); the
    change and one user-input question) stop at the user's prompt, then follow the task once and record, from
    `conversationState.requests`, each entry's keys, `method`, `completed` and any time field — key names and types only,
    no values that carry conversation content — in the plan's notes. Also confirm: `following: false` ends the pushes;
-   whether the broadcast send gets a `response` frame; snapshot size for the test task. The user approves any change to
+   whether the broadcast send gets a `response` frame; snapshot size for the test task; whether a ping sent
+   while the approval is pending queues behind it or is refused. The user approves any change to
    the test task's approval setting first. If the shape differs from assumption 2/3, stop and bring the spec back.
 2. Red first, `bridge/test/` with a fake Codex IPC socket: an owner whose snapshot holds one pending
    `item/commandExecution/requestApproval` → `waiting-approval` with the fixed detail; `fileChange` and `permissions`
@@ -159,16 +160,15 @@ Readers: the user; the round-2 coordinator (review, re-check after release); the
 
 ## Open questions
 
-1. `mcpServer/elicitation/request` (an MCP server asking the user something through the app): `waiting-input` as
-   proposed, or ignored until seen on the real host?
-2. Should the bridge also give the user a desktop notice for a Codex task waiting for approval, like D148 does for
-   Claude? Proposed: no — this module only feeds `presence`, and the decision inbox reminds its user; a notice can be a
-   later module.
-3. Snapshots over 8 MiB (very long conversations) lose the waiting detail and read `running`. Acceptable, or measure
-   real snapshot sizes in task 1 first and decide then?
-4. How to make the test task ask the user while the user's Codex uses `guardian_subagent`: a per-task setting if the
-   app has one, or a temporary change to the test project's Codex config that the user makes and reverts?
-5. Release number: 0.8.3 (a patch-sized addition) or 0.9.0 (a new presence source)?
-6. `bridge_send` to a Codex task that waits for approval: the existing warning says the message "waits until the user
-   answers that prompt". For Codex it is not yet known whether a ping during a pending approval queues behind it or is
-   refused; task 1 checks it, and the wording is adjusted if Codex differs.
+None left; resolved by the user 2026-10-19, as proposed:
+
+1. `mcpServer/elicitation/request` counts as `waiting-input` (assumption 2).
+2. No desktop notice for a Codex task waiting for approval in this module; `checkApprovals` stays Claude only, the
+   decision inbox reminds its user; a notice can be a later module (assumption 11).
+3. Snapshots over 8 MiB read `running`; the 8 MiB limit is not raised; task 1 records the test task's snapshot size
+   (assumption 9).
+4. The test task asks the user through a per-task setting if the app has one; otherwise the user makes and later
+   reverts a temporary change to the test project's Codex config. Either way the user approves it first (assumption 13).
+5. The release number is decided at release (assumption 12).
+6. Task 1 checks whether a ping to a Codex task with a pending approval queues behind it or is refused; the existing
+   `bridge_send` warning wording is adjusted in this module if Codex differs (Requirements 1, 5).
