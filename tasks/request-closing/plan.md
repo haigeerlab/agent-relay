@@ -75,3 +75,47 @@ owner that interface 2.3 ships.
 | 0.7.x bridges keep running after the upgrade | their views still count closed requests | CHANGELOG caveat (D221); upgrade order plugins first, all bridges stopped before `upgrade --confirm` |
 | A 0.8.0 session talks to a 0.7.x bridge during the upgrade | its `alsoAnswers` is dropped silently | `closed` in the result (D222); acceptance checks it on the real host |
 | Notice flood when one answer closes many twins | one notice per other requester | at most 20 ids per send; one notice per closed request, coalesced per requester and answer |
+
+## Revision 2026-10-19: already-closed requests are skipped (spec "Revision 2026-10-19", D237–D239)
+
+Branch `claude/closed-request-skip` from main 1f1aea9 (v0.8.4). Bridge, skills and docs; schema 7 unchanged; interface
+2.7; released as 0.8.5 in a separate release PR.
+
+### Task 8: skip instead of refuse in the store (D237, D238)
+Red first in `bridge/test/request-closing.test.ts`, one case per requirement 1 bullet: withdrawn, answered by
+`replyTo`, answered by another `alsoAnswers`, `failed`, overdue (`expired`), `withdraws` of an answered request, a mix
+(open ones closed, closed ones skipped, D218 notice and D155 read only for the closed ones), wrong ids still refused
+with nothing stored, a duplicate retry with `skipped: []`, and the lost race (closure inserted between check and
+insert). Then in `bridge-store.ts`: `assertClosable` returns `null` or a `{id, reason, by?}` skip for the state checks
+and still throws for the identity and type checks; `deliver` filters the skipped ids out before `closeRequests`,
+`recordRead` and `noticeOtherRequesters`; `closeRequests` turns a primary-key conflict into a skip; `deliver` returns
+`skipped` (sorted by id). `idempotency.ts` unchanged.
+
+### Task 9: `bridge_send` result and skills (D238, requirement 2, 3)
+Red first: an MCP test that `bridge_send` with a withdrawn id in `alsoAnswers` returns `skipped` and a delivered
+message. Then `server.ts` adds `skipped` to the result whenever `alsoAnswers` or `withdraws` was given, and the
+parameter descriptions say an already closed id is skipped; `collab`, `session-routing`, the server instructions and
+`INSTRUCTIONS.md` say a skipped id was already closed (nothing to redo) and a missing `skipped` means an older bridge.
+
+### Task 10: interface 2.7 and bookkeeping (D239, requirement 4)
+`interface.json` 2.7, `test_packaging`, `relay_status.py` docstring, `docs/collaboration-interface.md` (version line,
+`bridge_send` row with `skipped` and the refusal list), `UPSTREAM.md` row and manifest, `bridge/CHANGELOG.md` 0.8.5,
+CHANGELOG `[Unreleased]` (plugins and runtime in either order; runtime needs `upgrade --confirm`).
+
+### Checkpoint (report): local validation
+`scripts/validate.sh` green on Python 3.9, 3.10, 3.14 with Node 24 first on PATH; bridge `npm run check`.
+
+### Task 11: PR and CI
+Push, open the PR, ask the round-2 coordinator to review; the four CI jobs green.
+
+### Checkpoint (gate): module review
+The coordinator reviews; the user merges; then the 0.8.5 release PR, tag and real-host upgrade, each with the user's
+approval; tell the reporting session when 0.8.5 ships (no consumer upgrade during its freeze).
+
+### Risks (revision)
+
+| Risk | Impact | Mitigation |
+|---|---|---|
+| A real wrong id now slips through as a skip | a sender believes it closed something it did not | only state checks skip; identity and type checks still refuse; `skipped` names every skipped id and why |
+| Skip filtering misses a path (read, notice) | a skipped request is marked read or its sender is notified | the mix test asserts no read and no notice for skipped ids |
+| A session on 0.8.5 skills talks to a 0.8.4 bridge | its send is refused as before | skills say a refusal naming a closed request means an older bridge; resend without that id |
