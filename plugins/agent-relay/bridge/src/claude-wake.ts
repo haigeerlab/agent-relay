@@ -98,6 +98,9 @@ export const CLAUDE_EXPIRED_RECEIPT = "Claude expired this peer message";
 export const CLAUDE_UNREACHABLE = "Claude session's local inbox cannot be reached or failed ownership checks; " +
   "the message waits and is retried";
 
+/** A ping was written but Claude has not confirmed it yet; script-access's CLI waits a little longer on this detail. */
+export const CLAUDE_AWAITING_RECEIPT = "Ping submitted; awaiting Claude receipt. No automatic replay.";
+
 export class ClaudeWake {
   private server: Server | null = null;
   private sockets = new Set<Socket>();
@@ -173,7 +176,7 @@ export class ClaudeWake {
       const id = job.attemptId!;
       const result = new Promise<WakeResult>(settle => {
         const timer = setTimeout(() => {
-          settle({ state: "unknown", detail: "Ping submitted; awaiting Claude receipt. No automatic replay." });
+          settle({ state: "unknown", detail: CLAUDE_AWAITING_RECEIPT });
         }, 1800);
         this.pending.set(id, { job, settle, timer });
       });

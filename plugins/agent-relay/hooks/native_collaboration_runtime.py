@@ -14,6 +14,7 @@ import re
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 from typing import Any, Callable, Sequence
 
@@ -261,7 +262,9 @@ def write_launcher(root: Path, *, node: str = "node") -> dict[str, Any]:
     root = Path(root)
     path = launcher_path(root)
     found = node if os.sep in node else shutil.which(node)
-    resolved = Path(found).resolve() if found else None
+    # Round-2 review of #149: keep the path as found (no symlink resolution), so a package manager's stable link
+    # (Homebrew's /opt/homebrew/bin/node) survives an upgrade that replaces the versioned directory behind it.
+    resolved = Path(found).absolute() if found else None
     if resolved is None or not resolved.is_absolute() or not os.access(resolved, os.X_OK):
         return {"path": str(path), "ok": False, "diagnostic": f"no executable node found for {node!r}; the launcher "
                 "was not written"}
@@ -269,7 +272,7 @@ def write_launcher(root: Path, *, node: str = "node") -> dict[str, Any]:
         if not path.parent.exists():
             path.parent.mkdir(mode=0o700)
         path.parent.chmod(0o700)
-        temporary = path.with_name(".agent-relay.tmp")
+        temporary = path.with_name(f".agent-relay.{os.getpid()}.{os.urandom(4).hex()}.tmp")
         temporary.write_text(_LAUNCHER.format(runtime=shlex.quote(str(root)), node=shlex.quote(str(resolved)),
                                               journal=shlex.quote(str(_journal_path(root)))), encoding="utf-8")
         temporary.chmod(0o700)
@@ -287,6 +290,15 @@ def write_launcher(root: Path, *, node: str = "node") -> dict[str, Any]:
                 "diagnostic": (check.stderr or "").strip().splitlines()[-1:] and (check.stderr or "").strip().splitlines()[-1]
                 or f"the launcher exited {check.returncode}"}
     return {"path": str(path), "ok": True, "node": str(resolved)}
+
+
+def launcher_warning(result: dict[str, Any]) -> str | None:
+    """One stderr line when install, upgrade or rollback could not write or run the launcher (round-2 review)."""
+    launcher = result.get("launcher")
+    if not isinstance(launcher, dict) or launcher.get("ok", True):
+        return None
+    return (f"warning: the script launcher {launcher.get('path')} is not usable ({launcher.get('diagnostic')}); "
+            "scripts and launchd jobs cannot run until it is written again")
 
 
 def _recorded_node(root: Path) -> str:
@@ -884,6 +896,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     except NativeRuntimeError as error:
         result = {"state": "error", "diagnostic": str(error)}
     print(json.dumps(result, sort_keys=True))
+    warning = launcher_warning(result)
+    if warning:
+        print(warning, file=sys.stderr)
     return 0 if result["state"] in ("absent", "ready", "upgraded", "current", "uninstalled", "recovered",
                                             "rolled-back") else 1
 

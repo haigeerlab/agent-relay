@@ -59,7 +59,9 @@ class InstallNodeTests(Machine):
     def test_explicit_node_runs_npm_on_that_node_even_with_v12_first_in_path(self):
         code, output = self.main(runtime, ["install", "--node", str(self.new)])
         self.assertEqual(code, 0, output)
-        self.assertEqual(json.loads(output)["state"], "ready")
+        # script-access: the fake node cannot run the launcher, so install warns about it after the JSON line.
+        self.assertEqual(json.loads(output.splitlines()[0])["state"], "ready")
+        self.assertIn("script launcher", output)
         runs = self.log.read_text().splitlines()
         self.assertEqual(len(runs), 2, runs)
         for line in runs:
