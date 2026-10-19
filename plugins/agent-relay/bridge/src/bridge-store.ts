@@ -87,6 +87,10 @@ export interface SendInput {
 /** agent-relay request-closing D216: how a request was closed other than by a `replyTo` link. */
 export type ClosureKind = "answered" | "withdrawn";
 export interface Closure { id: number; kind: ClosureKind }
+/** request-closing D237, D238: a request named in alsoAnswers or withdraws that was already closed, so it was skipped. */
+export type SkipReason = "withdrawn" | "answered" | "failed" | "expired";
+export interface Skipped { id: number; reason: SkipReason; by?: number }
+type Delivered = { message: BridgeMessage; duplicate: boolean; closed: Closure[]; skipped: Skipped[] };
 
 /** At most this many ids in alsoAnswers or withdraws (D217, D219). */
 export const MAX_CLOSURES = 20;
@@ -354,7 +358,7 @@ export class BridgeStore {
    * agent-relay idempotency (D33, D34): like `send`, and says whether the result is an already stored message.
    * A reused key with different content is refused, except for the bridge's own notices, which fold by key.
    */
-  deliver(input: SendInput): { message: BridgeMessage; duplicate: boolean; closed: Closure[] } {
+  deliver(input: SendInput): Delivered {
     this.db.exec("BEGIN IMMEDIATE");
     try {
       const result = this.insertMessage(input);
@@ -366,7 +370,7 @@ export class BridgeStore {
     }
   }
 
-  private insertMessage(input: SendInput): { message: BridgeMessage; duplicate: boolean; closed: Closure[] } {
+  private insertMessage(input: SendInput): Delivered {
     const replyTo = input.replyTo ?? null;
     const expectsReply = input.expectsReply === true;
     if (expectsReply && input.toAgent === "*") {
@@ -406,11 +410,12 @@ export class BridgeStore {
         const differs = contentDifferences(
           { ...stored, alsoAnswers: closed.filter((c) => c.kind === "answered").map((c) => c.id),
             withdraws: closed.filter((c) => c.kind === "withdrawn").map((c) => c.id) },
-          { toAgent: input.toAgent, body: input.body, threadId, replyTo, expectsReply, alsoAnswers, withdraws });
+          { toAgent: input.toAgent, body: input.body, threadId, replyTo, expectsReply,
+            alsoAnswers: this.closableBy(alsoAnswers, stored.id), withdraws: this.closableBy(withdraws, stored.id) });
         if (differs.length && input.fromAgent !== "bridge") {
           throw conflictError(idempotencyKey, input.fromAgent, stored.id, stored.deliveryState, differs);
         }
-        return { message: stored, duplicate: true, closed };
+        return { message: stored, duplicate: true, closed, skipped: [] };
       }
     }
 
@@ -427,23 +432,34 @@ export class BridgeStore {
            ORDER BY id`,
         )
         .all(replyTo, input.fromAgent, input.toAgent, input.body) as unknown as MessageRow[];
-      for (const earlier of candidates) {
-        const closed = this.closuresBy(Number(earlier.id));
-        const same = !contentDifferences(
-          { toAgent: "", body: "", threadId: null, replyTo: null, expectsReply: false,
-            alsoAnswers: closed.filter((c) => c.kind === "answered").map((c) => c.id),
-            withdraws: closed.filter((c) => c.kind === "withdrawn").map((c) => c.id) },
-          { toAgent: "", body: "", threadId: null, replyTo: null, expectsReply: false, alsoAnswers, withdraws }).length;
-        if (same) return { message: this.toMessage(earlier), duplicate: true, closed };
+      // Revision D238: an exact match first; only then one whose closures equal the list minus what it skipped.
+      for (const lenient of [false, true]) {
+        for (const earlier of candidates) {
+          const closed = this.closuresBy(Number(earlier.id));
+          const same = !contentDifferences(
+            { toAgent: "", body: "", threadId: null, replyTo: null, expectsReply: false,
+              alsoAnswers: closed.filter((c) => c.kind === "answered").map((c) => c.id),
+              withdraws: closed.filter((c) => c.kind === "withdrawn").map((c) => c.id) },
+            { toAgent: "", body: "", threadId: null, replyTo: null, expectsReply: false,
+              alsoAnswers: lenient ? this.closableBy(alsoAnswers, Number(earlier.id)) : alsoAnswers,
+              withdraws: lenient ? this.closableBy(withdraws, Number(earlier.id)) : withdraws }).length;
+          if (same) return { message: this.toMessage(earlier), duplicate: true, closed, skipped: [] };
+        }
       }
     }
 
     // agent-relay request-closing D217: checked here, inside deliver()'s write transaction and after the idempotent
     // returns, so another bridge process cannot close the same request in between. A request past its timeout is
-    // expired first, so it is refused as expired even when no sweep ran yet (round-2 review of #130).
+    // expired first, so it is skipped as expired even when no sweep ran yet (round-2 review of #130).
+    // Revision 2026-10-19 D237: a wrong id refuses the whole send; a request already closed is skipped.
     if (alsoAnswers.length || withdraws.length) expireDue(this.db);
-    for (const id of alsoAnswers) this.assertClosable(id, "answer", input.fromAgent);
-    for (const id of withdraws) this.assertClosable(id, "withdraw", input.fromAgent, input.toAgent);
+    const skipped: Skipped[] = [
+      ...alsoAnswers.map((id) => this.assertClosable(id, "answer", input.fromAgent)),
+      ...withdraws.map((id) => this.assertClosable(id, "withdraw", input.fromAgent, input.toAgent)),
+    ].filter((skip): skip is Skipped => skip !== null);
+    const skippedIds = new Set(skipped.map((skip) => skip.id));
+    const answering = alsoAnswers.filter((id) => !skippedIds.has(id));
+    const withdrawing = withdraws.filter((id) => !skippedIds.has(id));
 
     const direct = input.toAgent !== "*";
     // agent-relay durable-ordering (D30, D31): after the idempotent return, so a retry of a stored message passes.
@@ -466,13 +482,14 @@ export class BridgeStore {
     // agent-relay mailbox-polish D155: the recipient answering a direct message has it, as surely as a fetch.
     if (answersOwnMessage && replyTo !== null) this.wakes.recordRead(input.fromAgent, [replyTo]);
     // D219: a withdrawal is neither an answer nor delivery evidence, so it records no read and sends no notice.
-    const closed = [...this.closeRequests(message.id, alsoAnswers, "answered"),
-      ...this.closeRequests(message.id, withdraws, "withdrawn")].sort((a, b) => a.id - b.id);
-    if (alsoAnswers.length) {
-      this.wakes.recordRead(input.fromAgent, alsoAnswers);
-      this.noticeOtherRequesters(message, alsoAnswers);
+    const closed = [...this.closeRequests(message.id, answering, "answered", skipped),
+      ...this.closeRequests(message.id, withdrawing, "withdrawn", skipped)].sort((a, b) => a.id - b.id);
+    const answered = closed.filter((c) => c.kind === "answered").map((c) => c.id);
+    if (answered.length) {
+      this.wakes.recordRead(input.fromAgent, answered);
+      this.noticeOtherRequesters(message, answered);
     }
-    return { message, duplicate: false, closed };
+    return { message, duplicate: false, closed, skipped: skipped.sort((a, b) => a.id - b.id) };
   }
 
   /**
@@ -522,7 +539,11 @@ export class BridgeStore {
    * request-closing D217, D219: refuse, naming the id, a request that `sender` may not close as `role`, or that is no
    * longer open. Runs inside the send's transaction.
    */
-  private assertClosable(id: number, role: "answer" | "withdraw", sender: string, recipient?: string): void {
+  /**
+   * request-closing D217, D219; revision D237: an id that names the wrong message throws, the whole send refused; a
+   * request that is already closed returns its skip.
+   */
+  private assertClosable(id: number, role: "answer" | "withdraw", sender: string, recipient?: string): Skipped | null {
     const refuse = (why: string) => new RequestCloseError(`Cannot close request #${id}: ${why}. Nothing was sent.`);
     const row = this.db.prepare("SELECT from_agent, to_agent, expects_reply, delivery_state FROM messages WHERE id = ?")
       .get(id) as { from_agent: string; to_agent: string; expects_reply: number | bigint; delivery_state: string | null } | undefined;
@@ -533,31 +554,51 @@ export class BridgeStore {
       throw refuse(`it is addressed to "${row.to_agent}"; send the withdrawal to "${row.to_agent}"`);
     }
     if (Number(row.expects_reply) !== 1) throw refuse("it is not a request (it was not sent with expectsReply)");
-    const closure = this.db.prepare("SELECT message_id, kind FROM request_closures WHERE request_id = ?").get(id) as
-      { message_id: number | bigint; kind: ClosureKind } | undefined;
-    if (closure) throw refuse(`it was ${closure.kind === "answered" ? "already answered" : "withdrawn"} by #${Number(closure.message_id)}`);
-    const reply = this.db.prepare("SELECT MIN(id) AS id FROM messages WHERE reply_to = ?").get(id) as { id: number | bigint | null };
-    if (reply.id !== null) throw refuse(`it was already answered by #${Number(reply.id)}`);
-    if (row.delivery_state === "failed") throw refuse("its delivery failed");
-    if (row.delivery_state === "expired") throw refuse("it expired before delivery");
+    return this.closedState(id, row.delivery_state);
   }
 
-  /** request-closing D216: one closure row per request; a lost race becomes the same readable refusal. */
-  private closeRequests(messageId: number, ids: number[], kind: ClosureKind): Closure[] {
+  /** D237: how a request is already closed (a closure, a replyTo answer, failed, expired), or null while it is open. */
+  private closedState(id: number, deliveryState?: string | null): Skipped | null {
+    const closure = this.db.prepare("SELECT message_id, kind FROM request_closures WHERE request_id = ?").get(id) as
+      { message_id: number | bigint; kind: ClosureKind } | undefined;
+    if (closure) return { id, reason: closure.kind, by: Number(closure.message_id) };
+    const reply = this.db.prepare("SELECT MIN(id) AS id FROM messages WHERE reply_to = ?").get(id) as { id: number | bigint | null };
+    if (reply.id !== null) return { id, reason: "answered", by: Number(reply.id) };
+    const state = deliveryState !== undefined ? deliveryState
+      : (this.db.prepare("SELECT delivery_state FROM messages WHERE id = ?").get(id) as { delivery_state: string | null } | undefined)
+        ?.delivery_state;
+    if (state === "failed" || state === "expired") return { id, reason: state };
+    return null;
+  }
+
+  /**
+   * D238: the ids of a retried list that a stored message could still have closed — those open, or closed by that
+   * message itself — so a retry of a send that skipped a request still matches the stored message.
+   */
+  private closableBy(ids: number[], storedId: number): number[] {
+    return ids.filter((id) => {
+      const state = this.closedState(id);
+      return state === null || state.by === storedId;
+    });
+  }
+
+  /** request-closing D216: one closure row per request; revision D237: a lost race is added to `skipped`. */
+  private closeRequests(messageId: number, ids: number[], kind: ClosureKind, skipped: Skipped[]): Closure[] {
     const insert = this.db.prepare("INSERT INTO request_closures (request_id, message_id, kind, closed_at) VALUES (?, ?, ?, ?)");
     const now = this.now();
+    const closed: Closure[] = [];
     for (const id of ids) {
       try {
         insert.run(id, messageId, kind, now);
+        closed.push({ id, kind });
       } catch (error) {
         if (!/constraint/i.test(String((error as Error).message))) throw error;
         const other = this.db.prepare("SELECT message_id, kind FROM request_closures WHERE request_id = ?").get(id) as
-          { message_id: number | bigint; kind: ClosureKind } | undefined;
-        throw new RequestCloseError(`Cannot close request #${id}: it was ${other?.kind === "withdrawn" ? "withdrawn" : "already answered"} ` +
-          `by #${Number(other?.message_id)}. Nothing was sent.`);
+          { message_id: number | bigint; kind: ClosureKind };
+        skipped.push({ id, reason: other.kind, by: Number(other.message_id) });
       }
     }
-    return ids.map((id) => ({ id, kind })).sort((a, b) => a.id - b.id);
+    return closed;
   }
 
   /** agent-relay ops-commands (D45): the status of one message, or undefined when it does not exist. */
