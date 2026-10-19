@@ -111,7 +111,7 @@ commands); the Spec Guard owner (interface 2.8 is within its accepted `>=1.0,<3.
 
 ## Open questions
 
-1. Should `send` also accept `--from` a script identity for `bridge` notices' style folding (`idempotencyKey` reuse
-   by key only)? Proposed: no; a script identity follows the normal idempotency rules.
-2. Should a session be allowed to register a script identity through MCP (with `takeover`-like agreement), or only the
-   CLI? Proposed: CLI only, so the user's terminal confirmation is the single path.
+None left; resolved by the user 2026-10-20, as proposed:
+
+1. A script identity follows the normal idempotency rules (no `bridge`-style folding by key only).
+2. Only the CLI registers a script identity (`register-script-identity --confirm`); no MCP path.
