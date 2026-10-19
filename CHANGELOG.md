@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.8.5] - 2026-10-19
+
 接口 **2.7**（只新增，Spec Guard 0.56.0 或更新照样接受），信箱 schema 仍为 **7**。来自 2026-10-19 转来的报告：发件方先发
 请求 A，随后用 `withdraws` 撤回 A 并改发 B；收件方回复 B 时在 `alsoAnswers` 里带上 A，整条答复被拒收（“A 已被撤回，
 什么都没发”），用户的答复因此没送到。
@@ -13,6 +15,29 @@
   已读、才通知其他发件方；重试同一条消息照旧合并。
 - 旧版 bridge（0.8.4 及以前）没有 `skipped`，遇到这种情况仍整条拒收；skill 已写明：拒收理由指向已关闭的请求时，去掉那个
   编号重发。
+
+### 从 0.8.4 升级
+
+schema 不变，插件和运行时先升哪个都行。
+
+1. 两个宿主都更新插件（详见 README“更新插件”）：Claude Code 从 GitHub 装的，先 `claude plugin marketplace update
+   agent-relay-marketplace`，再 `claude plugin update --scope user agent-relay@agent-relay-marketplace`；Codex 把
+   `~/.codex/config.toml` 里的 `ref` 改成 `"v0.8.5"` 后 `codex plugin marketplace upgrade`、`codex plugin add
+   agent-relay@agent-relay-marketplace`；从本地克隆装的先 `git -C <克隆> pull --ff-only`，Codex 再 `codex plugin add`。
+2. **升级运行时**：关闭所有使用信箱的会话或只结束 bridge（见 README“升级运行时”），确认 `pgrep -fl
+   "agent-relay/runtime/dist/server.js"` 没有输出，再执行 `python3 -B <插件目录>/hooks/native_collaboration_runtime.py
+   upgrade --confirm`，输出应为 `"state": "upgraded"`。信箱 schema 仍是 7，不做迁移。
+3. 新开 Claude Code 会话；Codex 用 ⌘Q 完全退出 ChatGPT 应用再打开（之后 `doctor` 的 `codex-restart` 应为 ok）。
+
+### 想退回 0.8.4
+
+关掉所有会话后 `rollback --confirm` 退回运行时，并把两个宿主的插件退回 v0.8.4，然后新开会话。schema 相同，只退一边也
+能读信箱；退回后，带上已关闭请求的消息又会整条拒收。
+
+### 已知问题
+
+- 升级过程中还在运行的 0.8.4 bridge 仍会整条拒收；所有 bridge 都重启到 0.8.5 后才会跳过。
+- 0.8.3 的已知问题第 1、2 条仍然有效。
 
 ## [0.8.4] - 2026-10-19
 
