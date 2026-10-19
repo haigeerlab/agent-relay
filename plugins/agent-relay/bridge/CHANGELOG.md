@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+Codex waiting states (module `codex-approval-presence`, D232–D236), schema 7 unchanged: for a Codex task the ChatGPT app
+has loaded, presence follows the task once through the app's local connection, reads only the `method` (and start time)
+of its pending requests, unfollows, and reports `waiting-approval` or `waiting-input` in `bridge_agents`, the
+`bridge_send` warning and `bridge_outbox` `awaitingReply`, within the 2 s cap; anything unexpected reads `running`.
+`CodexIpc` gains `broadcast()` and `nextChange()`; no conversation content is kept and no prompt is ever answered.
+
 ## agent-relay 0.8.2
 
 Doubtful deliveries (module `accepted-unread-notice`, D228–D231), schema 7 unchanged: a Codex ping the ChatGPT app

@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+接口 **2.6**（只新增内容），信箱 schema 仍为 **7**。
+
+- **bridge 有改动，要 `upgrade --confirm` 升级运行时**；schema 不变。
+- **Codex 也报等待状态**（模块 `codex-approval-presence`，D232–D236）：ChatGPT 应用已加载的 Codex 任务停在批准框上
+  （运行命令、改文件、权限申请）时，`bridge_agents` 的 `presence.state` 报 `waiting-approval`；在等用户回答问题时报
+  `waiting-input`，`bridge_send` 的提醒和 `bridge_outbox` 的 `awaitingReply` 同样看得到。bridge 通过应用本机连接跟随
+  该任务一次，只读待处理请求的种类和开始时间，读完取消跟随，仍在 2 秒上限内；对话内容不读、不存、不转发，
+  也从不替用户回应批准框。协议不符或读不到时照旧报 `running`。
+
 ## [0.8.2] - 2026-10-17
 
 接口 **2.5**（只新增内容，Spec Guard 0.56.0 或更新照样接受），信箱 schema 仍为 **7**，委派库仍为 schema 3。来自 2026-10-17

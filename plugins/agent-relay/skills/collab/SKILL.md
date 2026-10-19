@@ -91,7 +91,7 @@ Claude 会话时，bridge 会拒绝接管并报 `holder-still-running`：让用�
 
 运行状态取自 `bridge_agents` 每项的 `presence.state`：`running` 写“运行中”，`waiting-approval` 写“等待授权”，
 `waiting-input` 写“等待输入”，`stopped` 写“已停止”，`unknown` 写“未知”。`registered` 不等于在线，最近活动不等于可唤醒；
-未知事实写“未知”。不展示完整内部 ID、完整路径或 PID。某个会话处在“等待授权”时，告诉用户去那个会话里自己处理弹窗；
+未知事实写“未知”。不展示完整内部 ID、完整路径或 PID。Claude 会话和 ChatGPT 应用里已加载的 Codex 任务都可能处在这两种等待状态。某个会话处在“等待授权”时，告诉用户去那个会话里自己处理弹窗；
 不替用户回答，也不催对方绕过。
 
 ## 发送、回复与等待（先看上面的转交规则）
