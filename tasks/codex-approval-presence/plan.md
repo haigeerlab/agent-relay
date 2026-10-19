@@ -81,7 +81,30 @@ done on the test task after the upgrade.
 
 ## Notes
 
-- Task 1 findings: (to be filled in)
+- Task 1 findings (real host, 2026-10-19, the existing test Codex task in the dedicated test project; key names and
+  types only, from a throwaway read-only probe in the session scratchpad):
+  - **Making a task ask the user**: the ChatGPT app has a per-task approval switch next to the composer ("请求批准" /
+    "帮我批准" / "完全访问权限"); switching the test task to "请求批准" sets that thread's `approvalsReviewer` to `user`.
+    No Codex config change was needed (open question 4: the per-task setting exists). The temporary trust entry and the
+    project `.codex/config.toml` written for the test were removed; the global config matches its backup again, and the
+    test task's switch is back on "帮我批准".
+  - **A pending command approval**: `conversationState.requests` holds one entry with keys `method`, `id` (number) and
+    `params`; `method` is `item/commandExecution/requestApproval` (matches assumption 2). The entry has **no `completed`
+    key**. `params` keys: `kind`, `threadId`, `turnId`, `itemId`, `startedAtMs` (number), `environmentId`, `reason`,
+    `command`, `cwd`, `commandActions`, `proposedExecpolicyAmendment`, `availableDecisions` — `reason`, `command` and
+    `cwd` are conversation content, so only `method` and `params.startedAtMs` may be read (D234).
+  - **A second signal**: while it waits, `conversationState.threadRuntimeStatus` is `{type: "active", activeFlags:
+    ["waitingOnApproval"]}`; `{type: "active", activeFlags: []}` while working, `{type: "idle"}` after the turn.
+  - **When the user answers** (the user declined): a patch replaces `requests` with `[]` (the entry is removed, not
+    marked completed) and `activeFlags` is emptied; the turn ends and the task is `idle`.
+  - **Stream**: the request arrives as a JSON-patch `add` on `requests` (`{type: "patches", baseRevision, revision,
+    patches: [{op, path, value}]}`); the owner also re-sends whole snapshots now and then. No `response` frame answers
+    the follow broadcast. After `following: false` no further frame for the thread arrived in the following 8 s (three
+    runs). Snapshot size for the test task: 76–135 KB.
+  - **Not checked**: a file-change approval and a `requestUserInput` question (only the command case was triggered),
+    and whether a ping during a pending approval queues or is refused (the test task is not in the mailbox now).
+  - An attempt by this session to click "decline" on the prompt was blocked by the session's permission check, as the
+    spec's boundary requires; the user answered it.
 
 ## Risks
 
