@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 
 import { readBodyFile } from "./body-file.js";
 import { BridgeStore } from "./bridge-store.js";
-import { claudeSessions } from "./claude-wake.js";
+import { CLAUDE_AWAITING_RECEIPT, claudeSessions } from "./claude-wake.js";
 import { parseCliCommand, type ParsedCliCommand } from "./cli-logic.js";
 import { retireAgent } from "./lifecycle.js";
 import { sendMessage } from "./send.js";
@@ -139,7 +139,7 @@ async function settle(store: BridgeStore, messageId: number, limitMs = 5000): Pr
   const deadline = Date.now() + limitMs;
   while (Date.now() < deadline) {
     const wake = store.wakes.forMessage(messageId);
-    if (!wake || !/awaiting Claude receipt/.test(wake.detail ?? "")) return;
+    if (!wake || wake.detail !== CLAUDE_AWAITING_RECEIPT) return;
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
 }

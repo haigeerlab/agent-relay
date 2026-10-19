@@ -121,7 +121,7 @@ test("send refuses a session's name, a body on argv, and returns bridge_send's o
   assert.equal(JSON.parse(fromFile.stdout).bodyLength, "from a file".length);
 });
 
-async function fakeClaudeSession(home: string, sessionId: string) {
+async function fakeClaudeSession(home: string, sessionId: string, { reply = true }: { reply?: boolean } = {}) {
   const root = join(home, ".claude", "sessions");
   const directory = "/tmp/cc-socks-" + process.getuid!();
   mkdirSync(directory, { recursive: true, mode: 0o700 });
@@ -144,9 +144,10 @@ async function fakeClaudeSession(home: string, sessionId: string) {
         const packet = JSON.parse(buffer.slice(0, newline)); buffer = buffer.slice(newline + 1);
         if (packet.type !== "user") continue;
         state.transmissions++;
-        const reply = createConnection(packet.from.slice(4));
-        reply.on("error", () => {});
-        reply.once("connect", () => reply.end(JSON.stringify({ type: "control", action: "peer_message_status",
+        if (!reply) continue;
+        const answer = createConnection(packet.from.slice(4));
+        answer.on("error", () => {});
+        answer.once("connect", () => answer.end(JSON.stringify({ type: "control", action: "peer_message_status",
           status: "delivered", orig_msg_id: packet.msg_id }) + "\n"));
       }
     });
@@ -201,6 +202,27 @@ test("send's flush and a running bridge's dispatcher ping one message once (D243
     process.env.HOME = previousHome;
     await dispatcher.close();
     running.close();
+    await fake.close();
+  }
+});
+
+test("send to a session that never sends a receipt pings once and leaves the wake unknown (review of #149)", { skip: process.platform !== "darwin" }, async () => {
+  const { CLAUDE_AWAITING_RECEIPT } = await import("../src/claude-wake.js");
+  const { dbPath, env, home } = setup();
+  const fake = await fakeClaudeSession(home, "silent-session", { reply: false });
+  try {
+    const seed = new BridgeStore(dbPath);
+    seed.registerScriptIdentity("di-patrol");
+    seed.register("dev", [], { app: "claude", sessionId: "silent-session" });
+    seed.wakes.bind("dev", { app: "claude", sessionId: "silent-session" });
+    seed.close();
+    const sent = await cli(["send", "--from", "di-patrol", "--to", "dev"], env, "no receipt");
+    assert.equal(sent.code, 0, sent.stderr);
+    assert.equal(fake.state.transmissions, 1);
+    const wake = JSON.parse(sent.stdout).wake;
+    assert.equal(wake?.state, "unknown");
+    assert.equal(wake?.detail, CLAUDE_AWAITING_RECEIPT);
+  } finally {
     await fake.close();
   }
 });
