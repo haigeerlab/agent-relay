@@ -17,5 +17,5 @@
 - [x] Task 9: `bridge_send` returns `skipped`; parameter descriptions, skills and instructions (D238) — red first (MCP test)
 - [x] Task 10: interface 2.7 and bookkeeping (D239)
 - [x] Checkpoint (report): local validation — `scripts/validate.sh` pass on Python 3.9.6, 3.10, 3.14 with Node v24.18.0 first on PATH (47 files, 883 tests each; bridge `npm run check` 279 ok)
-- [ ] Task 11: PR and CI
-- [ ] Checkpoint (gate): module review
+- [x] Task 11: PR and CI — #146, the four CI jobs green; review asked of the round-2 coordinator (#8873, waiting while its session is not running); Auto-fix on
+- [x] Checkpoint (gate): module review — the user merged #146 (4377d1f) on 2026-10-19 without waiting for the review, which became a post-merge review
