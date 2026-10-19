@@ -9,5 +9,5 @@
 - [x] Checkpoint (report): bridge green — `npm run typecheck` clean, `npm test` 273 pass
 - [x] Task 6: interface 2.6, docs and bookkeeping (D236) — `interface.json` 2.6, `test_packaging`, `relay_status.py`; `docs/collaboration-interface.md` (version line, `bridge_agents` presence since 2.6); `bridge/docs/BACKGROUND-WAKE.md`; `skills/collab` (Codex tasks can wait too); `UPSTREAM.md` row, manifest regenerated after the last bridge edit; `bridge/CHANGELOG.md` and CHANGELOG `[Unreleased]` (version left to the release)
 - [x] Checkpoint (report): local validation — `scripts/validate.sh` pass on Python 3.9.6, 3.10.7, 3.14.3 with Node v24.18.0 first on PATH (47 files, 877 tests each; bridge `npm run check` 273 ok)
-- [ ] Task 7: PR and CI
+- [x] Task 7: PR and CI — #142, the four CI jobs green; review asked of the round-2 coordinator (#8057, waiting in its inbox while its session is not running); Auto-fix on
 - [ ] Checkpoint (gate): module review
