@@ -218,3 +218,35 @@ test("a retired identity is listed without asking its host", { skip: process.pla
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("pending Codex requests are classified by method only (codex-approval-presence D233)", async () => {
+  const { codexWaiting } = await import("../src/presence.js");
+  const at = Date.UTC(2026, 9, 19, 6, 23, 24);
+  const req = (method: unknown, extra: Record<string, unknown> = {}) =>
+    ({ method, id: 1, params: { startedAtMs: at, command: "secret-command", reason: "secret-reason" }, ...extra });
+  const approval = { state: "waiting-approval" as const };
+  assert.deepEqual(codexWaiting({ requests: [req("item/commandExecution/requestApproval")] }),
+    { ...approval, since: new Date(at).toISOString(), detail: "waiting for your approval to run a command in its Codex task" });
+  assert.equal(codexWaiting({ requests: [req("item/fileChange/requestApproval")] })?.detail,
+    "waiting for your approval to change files in its Codex task");
+  assert.equal(codexWaiting({ requests: [req("item/permissions/requestApproval")] })?.detail,
+    "waiting for your approval of a permission request in its Codex task");
+  assert.deepEqual(codexWaiting({ requests: [req("item/tool/requestUserInput")] }),
+    { state: "waiting-input", since: new Date(at).toISOString(), detail: "waiting for your answer in its Codex task" });
+  assert.deepEqual(codexWaiting({ requests: [req("mcpServer/elicitation/request")] }),
+    { state: "waiting-input", since: new Date(at).toISOString(),
+      detail: "waiting for your answer to a tool's question in its Codex task" });
+  // Approval wins over input whatever the order.
+  assert.equal(codexWaiting({ requests: [req("item/tool/requestUserInput"), req("item/fileChange/requestApproval")] })?.state,
+    "waiting-approval");
+  // Answered, unknown or malformed entries, and a missing list, give no waiting state.
+  for (const state of [{ requests: [req("item/commandExecution/requestApproval", { completed: true })] },
+    { requests: [req("item/somethingNew/request")] }, { requests: [req(7), null, "x"] }, { requests: [] },
+    { requests: "x" }, {}, null, "x"]) {
+    assert.equal(codexWaiting(state), null, JSON.stringify(state));
+  }
+  // `since` only from a usable number; the request's content never reaches the result.
+  const noTime = codexWaiting({ requests: [{ method: "item/commandExecution/requestApproval", params: { startedAtMs: "x" } }] });
+  assert.deepEqual(noTime, { state: "waiting-approval", detail: "waiting for your approval to run a command in its Codex task" });
+  assert.ok(!JSON.stringify(codexWaiting({ requests: [req("item/commandExecution/requestApproval")] })).includes("secret"));
+});
