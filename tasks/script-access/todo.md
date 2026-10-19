@@ -15,8 +15,8 @@
 
 0.9.0 is on main (#150) but not tagged yet; these fixes go into the 0.9.0 CHANGELOG section and the tag follows them.
 
-- [ ] Task 8: the launcher keeps node's path as found (`Path.absolute()`, no symlink resolution), so a Homebrew upgrade that replaces the versioned Cellar directory does not break it — red first with a symlinked node
-- [ ] Task 9: install, upgrade and rollback say on stderr when the launcher was not written or did not run; the temporary file name is unique per process; the rollback test covers the node recorded in the old launcher and `launcher.ok`
+- [x] Task 8: the launcher keeps node's path as found (`Path.absolute()`, no symlink resolution), so a Homebrew upgrade that replaces the versioned Cellar directory does not break it — red first with a symlinked node (4 new cases failed, then green)
+- [x] Task 9: install, upgrade and rollback say on stderr when the launcher was not written or did not run; the temporary file name is unique per process; the rollback test covers the node recorded in the old launcher and `launcher.ok`
 - [ ] Task 10: the CLI's late-receipt wait reads the Claude adapter's exported detail constant instead of matching its text; a test covers a session that never sends a receipt (one ping, state `unknown`)
 - [ ] Task 11: docs — a 0.8.x bridge warns "Codex task is not open" when a session sends to a script identity (spec D244, CHANGELOG); `send`'s one flush may dispatch another message's ping first, as `bridge_send` does (interface §2.4)
 - [ ] Checkpoint (report): local validation and PR

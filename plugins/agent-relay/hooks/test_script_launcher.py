@@ -120,5 +120,58 @@ class ScriptLauncherTests(unittest.TestCase):
         self.assertIn("upgrade --confirm", missing["next"])
 
 
+
+class LauncherReviewFixTests(unittest.TestCase):
+    """Round-2 post-merge review of #149 (#9193)."""
+
+    setUp = ScriptLauncherTests.setUp
+
+    @unittest.skipUnless(NODE, "needs node on PATH")
+    def test_a_symlinked_node_is_kept_as_found_not_resolved(self):
+        link_dir = self.home / "linked-bin"
+        link_dir.mkdir()
+        link = link_dir / "node"
+        link.symlink_to(Path(NODE).resolve())
+        with patch("native_collaboration_runtime.subprocess.run", side_effect=fake_run):
+            result = write_launcher(self.root, node=str(link))
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["node"], str(link))
+        self.assertIn(f"NODE={link}", launcher_path(self.root).read_text(encoding="utf-8"))
+
+    def test_the_temporary_file_is_unique_per_process(self):
+        with patch("native_collaboration_runtime.subprocess.run", side_effect=fake_run), \
+                patch("native_collaboration_runtime.Path.replace", autospec=True) as replace:
+            write_launcher(self.root, node=NODE or "node")
+        temporary = replace.call_args[0][0]
+        self.assertIn(str(os.getpid()), temporary.name)
+        self.assertNotEqual(temporary.name, ".agent-relay.tmp")
+
+    @unittest.skipUnless(NODE, "needs node on PATH")
+    def test_rollback_keeps_the_node_the_old_launcher_named(self):
+        recorded = self.home / "recorded-bin" / "node"
+        recorded.parent.mkdir()
+        recorded.symlink_to(Path(NODE).resolve())
+        with patch("native_collaboration_runtime.subprocess.run", side_effect=fake_run):
+            write_launcher(self.root, node=str(recorded))
+        manifest = json.loads((self.root / "manifest.json").read_text(encoding="utf-8"))
+        (self.root / "manifest.json").write_text(json.dumps({**manifest, "tree": "0" * 64}))
+        with patch("native_collaboration_runtime.subprocess.run", side_effect=fake_run):
+            upgrade_runtime(self.root, node=str(recorded), backups=self.home / "backups", running=lambda _root: 0)
+            rolled = rollback_runtime(self.root, backups=self.home / "backups", running=lambda _root: 0)
+        self.assertEqual(rolled["launcher"]["node"], str(recorded))
+        self.assertIn("ok", rolled["launcher"])
+
+    def test_main_says_on_stderr_when_the_launcher_was_not_written(self):
+        import contextlib
+        import io
+        from native_collaboration_runtime import launcher_warning
+        self.assertIsNone(launcher_warning({"state": "ready", "launcher": {"ok": True}}))
+        self.assertIsNone(launcher_warning({"state": "ready"}))
+        text = launcher_warning({"state": "upgraded", "launcher": {"ok": False, "path": "/x/bin/agent-relay",
+                                                                   "diagnostic": "no executable node"}})
+        self.assertIn("/x/bin/agent-relay", text)
+        self.assertIn("no executable node", text)
+
+
 if __name__ == "__main__":
     unittest.main()
