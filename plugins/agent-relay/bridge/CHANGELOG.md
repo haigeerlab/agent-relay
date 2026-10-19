@@ -7,6 +7,8 @@
 `--body-file` or stdin; one dispatch, a late Claude receipt waited for up to 5 s) and `register-script-identity`.
 `bridge_agents`, `bridge_outbox` and `bridge_sessions` now build their results in `src/views.ts` and `bridge_send` in
 `src/send.ts`, shared with the CLI; MCP output unchanged. A recorded host `script` is owned by no session.
+After the round-2 post-merge review: `cli.ts` filters Node 22's SQLite experimental warning and then loads
+`cli-main.ts`; the late-receipt wait compares against the exported `CLAUDE_AWAITING_RECEIPT`.
 
 ## agent-relay 0.8.5
 

@@ -107,8 +107,10 @@ For scripts and launchd jobs, which have no PATH entry for node and cannot read 
   expired until a bridge sweeps it (every 2 s while one runs).
 - **Script identity.** Recorded with host `{app: "script", sessionId: <name>}` and no wake binding. Only `send` acts as
   it; `bridge_register` from a session refuses its name unless the user agrees to `takeover`. Its presence is
-  `unknown` (detail "script identity"). A 0.8.x bridge shows it as `unknown` or `not-loaded` and cannot act as it.
-- **Wake limits.** `send` dispatches once like `bridge_send`. A Claude session is woken only while its process runs
+  `unknown` (detail "script identity"). A 0.8.x bridge shows it as `unknown` or `not-loaded`, cannot act as it, and when sending to it wrongly warns
+  that its "Codex task is not open".
+- **Wake limits.** `send` dispatches once like `bridge_send`: the next due ping in per-recipient order, which may be
+  another message's; a Claude receipt that arrives after the CLI exits is not recorded and that ping stays `unknown`. A Claude session is woken only while its process runs
   (a session the desktop app stopped is not; the message waits and the user is notified after five minutes); a Codex
   task only while the ChatGPT app has it loaded (else `not-loaded`). A script identity is never woken: replies to it
   are read with `outbox` / `agents`.

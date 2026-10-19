@@ -15,7 +15,10 @@
 - **脚本身份**：用户在终端运行 `register-script-identity <名字> --confirm` 登记，记为宿主 `script`、不绑唤醒；任何会话都
   不能以它发信，`bridge_register` 用它的名字要用户同意 `takeover`。在线状态显示 `unknown`。
 - `doctor` 新增 `script-launcher` 检查：启动脚本在、权限 0700、指向当前运行时、node 还在。
-- 升级过程中还在运行的 0.8.x bridge 会把脚本身份显示为 `unknown` 或 `not-loaded`，也不会把它当成自己的。
+- 升级过程中还在运行的 0.8.x bridge 会把脚本身份显示为 `unknown` 或 `not-loaded`，也不会把它当成自己的；会话通过
+  这种 bridge 给脚本身份发信时，提醒会误说它的“Codex task is not open”，送达不受影响。
+- 合并后复查的修正：启动脚本保留 node 的原路径（不再解析链接，Homebrew 升级后不会失效）；`install`／`upgrade`／
+  `rollback` 写不成或跑不通启动脚本时在 stderr 告警；临时文件名按进程唯一。
 
 ### 从 0.8.5 升级
 

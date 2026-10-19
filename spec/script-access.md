@@ -76,7 +76,9 @@ commands); the Spec Guard owner (interface 2.8 is within its accepted `>=1.0,<3.
   check), so mailbox schema stays 7. `CallerIdentity` treats a recorded `script` host as owned by no session; the CLI
   owns exactly the script identities. Presence for a script identity is `unknown` with detail "script identity". A
   0.8.x bridge reading such a row already refuses to act as it (recorded host differs, D38) and shows its presence as
-  `not-loaded` or `unknown`; the CHANGELOG says so.
+  `not-loaded` or `unknown`, and when a session sends to it through a 0.8.x bridge the warning wrongly says its
+  "Codex task is not open" (that bridge reads every non-Claude host as Codex); delivery is not affected. The CHANGELOG
+  says so (round-2 post-merge review, #9193).
 - **D245 interface 2.8.** `interface.json` gains `"script": {"agents": [...], "outbox": [...], "sessions": [...],
   "send": [...]}`, each an argv whose first element is `~/.agent-relay/bin/agent-relay` (`~` is `$HOME`); `status`
   unchanged. The interface document lists the commands, their output (the MCP tools' rows), exit codes, the read-only
