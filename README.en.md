@@ -294,10 +294,24 @@ Just say it in natural language; no tool names or internal IDs to remember:
 - It does not promise "exactly once"; "accepted by the host" does not mean "handled by the recipient" (interface
   document §6).
 
+## Scripts and launchd
+
+Scripts and launchd jobs (PATH only `/usr/bin:/bin`, no access to `~/Documents`) read the mailbox and send through
+`~/.agent-relay/bin/agent-relay`, written by `install` and `upgrade` with absolute node and runtime paths. `agents`,
+`outbox <name>` and `sessions` are read-only and print what the matching MCP tool returns; `send` sends only as a
+script identity the user registered, with the body from `--body-file` or stdin:
+
+```bash
+~/.agent-relay/bin/agent-relay register-script-identity my-patrol --confirm
+printf 'please handle #12' | ~/.agent-relay/bin/agent-relay send --from my-patrol --to some-agent --expects-reply
+```
+
+Commands, exit codes and wake limits are in the interface document, §2.4.
+
 ## Relationship with Spec Guard
 
 The two plugins are independent; either can be installed alone. When both are installed, Spec Guard reads
-[`interface.json`](plugins/agent-relay/interface.json) in this plugin's root (interface 2.7; Spec Guard accepts
+[`interface.json`](plugins/agent-relay/interface.json) in this plugin's root (interface 2.8; Spec Guard accepts
 `>=1.0,<3.0` since 0.56.0) to decide whether agent-relay is available, and uses collaboration only through
 agent-relay's skill names; without it, Spec Guard's workflows run as usual and only the steps that need collaboration
 suggest installing it.

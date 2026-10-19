@@ -126,6 +126,16 @@ session closed) → `native_collaboration_runtime.py uninstall --confirm` (remov
 keeps `mailbox/` and `data/`) → remove the plugin from each host → `doctor`. Deleting the history is the user's own
 step.
 
+A script identity (for a script or launchd job that sends through `~/.agent-relay/bin/agent-relay send`) is registered
+only when the user names it and agrees; show the preview first, then confirm:
+
+```bash
+~/.agent-relay/bin/agent-relay register-script-identity '<name>'
+~/.agent-relay/bin/agent-relay register-script-identity '<name>' --confirm
+```
+
+No session can act as a script identity, and it is never woken. Commands and limits: interface document §2.4.
+
 An ended native identity may be retired only when the user names it or approves a reviewed exact list:
 
 ```bash

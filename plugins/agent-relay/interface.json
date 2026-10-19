@@ -1,4 +1,31 @@
 {
-  "interface": "2.7",
-  "status": ["python3", "-B", "hooks/relay_status.py"]
+  "interface": "2.8",
+  "status": [
+    "python3",
+    "-B",
+    "hooks/relay_status.py"
+  ],
+  "script": {
+    "agents": [
+      "~/.agent-relay/bin/agent-relay",
+      "agents"
+    ],
+    "outbox": [
+      "~/.agent-relay/bin/agent-relay",
+      "outbox",
+      "<agent>"
+    ],
+    "sessions": [
+      "~/.agent-relay/bin/agent-relay",
+      "sessions"
+    ],
+    "send": [
+      "~/.agent-relay/bin/agent-relay",
+      "send",
+      "--from",
+      "<script identity>",
+      "--to",
+      "<agent>"
+    ]
+  }
 }

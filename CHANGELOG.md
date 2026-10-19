@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+接口 **2.8**（只新增，Spec Guard 0.56.0 或更新照样接受），信箱 schema 仍为 **7**。来自 2026-10-20 转来的需求：上层的
+巡视只能放在某个会话里由模型跑，会话一停巡视就停；launchd 任务又读不了 agent-relay。
+
+- **bridge 和运行时脚本都有改动，要 `upgrade --confirm` 升级运行时**；升级会写好启动脚本 `~/.agent-relay/bin/agent-relay`。
+- **脚本命令**（模块 `script-access`，D240–D245）：`agents`、`outbox <名字>`、`sessions` 只读打开信箱，输出与对应 MCP
+  工具逐字段相同，不登记、不标已读、不清扫过期、不迁移；`send` 只能以**脚本身份**发信，正文从 `--body-file` 或标准输入
+  读，发出后像 `bridge_send` 一样投递一次唤醒。启动脚本写死 node 和运行时的绝对路径，只有 `/usr/bin:/bin` 的 launchd
+  也能跑，插件装在 `~/Documents` 下的开发目录也不受影响。`interface.json` 新增 `script` 一组命令。
+- **脚本身份**：用户在终端运行 `register-script-identity <名字> --confirm` 登记，记为宿主 `script`、不绑唤醒；任何会话都
+  不能以它发信，`bridge_register` 用它的名字要用户同意 `takeover`。在线状态显示 `unknown`。
+- `doctor` 新增 `script-launcher` 检查：启动脚本在、权限 0700、指向当前运行时、node 还在。
+- 升级过程中还在运行的 0.8.x bridge 会把脚本身份显示为 `unknown` 或 `not-loaded`，也不会把它当成自己的。
+
 ## [0.8.5] - 2026-10-19
 
 接口 **2.7**（只新增，Spec Guard 0.56.0 或更新照样接受），信箱 schema 仍为 **7**。来自 2026-10-19 转来的报告：发件方先发

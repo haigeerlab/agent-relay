@@ -232,10 +232,23 @@ Claude Code 会话卡在授权上时，这台 Mac 会弹一条通知，会话目
 - 不带任何开发工作流（Spec、计划、阶段提示等属于 Spec Guard）。
 - 不承诺“恰好送达一次”；“宿主已接收”不等于“对方已处理”（见接口文档 §6）。
 
+## 脚本与 launchd
+
+脚本和 launchd 任务（PATH 只有 `/usr/bin:/bin`、读不了 `~/Documents`）用 `~/.agent-relay/bin/agent-relay` 读信箱和发信，
+它由 `install`、`upgrade` 写好，写死了 node 和运行时的绝对路径。`agents`、`outbox <名字>`、`sessions` 只读，输出与
+对应 MCP 工具逐字段相同；`send` 只能以用户确认登记的脚本身份发信，正文从 `--body-file` 或标准输入读：
+
+```bash
+~/.agent-relay/bin/agent-relay register-script-identity my-patrol --confirm
+printf '请处理 #12' | ~/.agent-relay/bin/agent-relay send --from my-patrol --to some-agent --expects-reply
+```
+
+命令清单、退出码和唤醒的限制见接口文档 §2.4。
+
 ## 与 Spec Guard 的关系
 
 两个插件互相独立，可以只装其中一个。同时安装时，Spec Guard 读取本插件根目录的
-[`interface.json`](plugins/agent-relay/interface.json)（接口 2.7；Spec Guard 0.56.0 起接受 `>=1.0,<3.0`）判断 agent-relay 是否可用，只通过 agent-relay 的
+[`interface.json`](plugins/agent-relay/interface.json)（接口 2.8；Spec Guard 0.56.0 起接受 `>=1.0,<3.0`）判断 agent-relay 是否可用，只通过 agent-relay 的
 skill 名使用协作；未安装时 Spec Guard 的工作流照常运行，只在需要协作的步骤提示安装。
 
 ### 从 Spec Guard 的协作能力迁移
