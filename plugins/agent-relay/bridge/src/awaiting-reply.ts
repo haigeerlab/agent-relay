@@ -1,7 +1,7 @@
 // agent-relay awaiting-reply-view D203: the recipients' presence for the open requests on one outbox page, capped in
 // cost. Claude presence is a registry read; a Codex lookup asks the ChatGPT app and waits at most 2 s here (a loaded task
 // answers in milliseconds), so one silent task cannot hold the call near the 10 s IPC timeout.
-import { codexOwner, codexPresence, type Presence } from "./presence.js";
+import { codexTaskPresence, type Presence } from "./presence.js";
 import type { WakeTarget } from "./wake-queue.js";
 
 export const AWAITING_PRESENCE_TIMEOUT_MS = 2000;
@@ -10,8 +10,9 @@ export const CODEX_NO_ANSWER_SHORT =
 
 /** A Codex recipient's presence for the awaiting view; a silence is reported as unknown, not as not-loaded. */
 export async function awaitingCodexPresence(threadId: string, path?: string): Promise<Presence> {
-  const owner = await codexOwner(threadId, path, { responseTimeoutMs: AWAITING_PRESENCE_TIMEOUT_MS });
-  return owner === "not-loaded" ? { state: "unknown", detail: CODEX_NO_ANSWER_SHORT } : codexPresence(owner);
+  // codex-approval-presence D232: a loaded task may also be waiting for the user.
+  const presence = await codexTaskPresence(threadId, path, { responseTimeoutMs: AWAITING_PRESENCE_TIMEOUT_MS });
+  return presence.state === "not-loaded" ? { state: "unknown", detail: CODEX_NO_ANSWER_SHORT } : presence;
 }
 
 /**
