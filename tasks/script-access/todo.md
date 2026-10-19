@@ -8,5 +8,5 @@
 - [x] Task 5: launcher, doctor `script-launcher`, rollback, uninstall (D240) — red first (7 cases, import missing), then green; `write_launcher` never raises, it reports `{path, ok, node, diagnostic}` in the install, upgrade and rollback results and runs `--version` under `PATH=/usr/bin:/bin`; rollback keeps the node the old launcher named; doctor's fixture and the reinstall test now expect the launcher
 - [x] Task 6: interface 2.8 and docs (D245) — `interface.json` `script` block, interface document §2.4, README zh/en "脚本与 launchd", `collaboration-ops`, both CHANGELOGs, `UPSTREAM.md`, manifest
 - [x] Checkpoint (report): local validation — `scripts/validate.sh` pass on Python 3.9.6, 3.10, 3.14 with Node v24.18.0 first on PATH (48 files, 905 tests each; bridge `npm run check` 294 ok)
-- [ ] Task 7: PR and CI
+- [x] Task 7: PR and CI — #149; Node 22 failed first (node:sqlite's experimental warning reached stderr before the CLI's one sentence), fixed in 73c860c (`cli.ts` installs a filter for that warning, then loads `cli-main.ts`); the four CI jobs green; review asked of the round-2 coordinator (#9139, waiting while its session is not running); Auto-fix on
 - [ ] Checkpoint (gate): module review
