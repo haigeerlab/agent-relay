@@ -1,5 +1,7 @@
 # Plan: script-access
 
+<!-- spec-guard: review approved -->
+
 Based on [`spec/script-access.md`](../../spec/script-access.md) (accepted by the user on 2026-10-20: assumptions 1–6,
 D240–D245, both open questions resolved as proposed). This branch (`claude/script-access`) carries the map row, spec
 and plan as one PR; the implementation goes on `claude/script-access-impl` from main after that PR is merged. Released

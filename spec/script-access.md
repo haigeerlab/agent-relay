@@ -1,5 +1,7 @@
 # Spec: script-access
 
+<!-- spec-guard: review approved -->
+
 ## Objective
 
 Only module of 0.9.0 (runtime CLI, installer, docs). A request relayed on 2026-10-20 from an upper layer: its patrol
