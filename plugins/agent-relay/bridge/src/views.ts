@@ -13,6 +13,14 @@ export const CODEX_ASK = { responseTimeoutMs: AWAITING_PRESENCE_TIMEOUT_MS };
 /** script-access D244: a script identity has no session to look up. */
 export const SCRIPT_PRESENCE: Presence = { state: "unknown", detail: "script identity" };
 
+/** One recorded host's presence, as bridge_send's recipient check reads it. */
+export async function hostPresence(host: AgentHost): Promise<Presence> {
+  if (host.app === "script") return SCRIPT_PRESENCE;
+  // codex-approval-presence D232: a loaded task may also be waiting for the user.
+  if (host.app === "codex") return codexTaskPresence(host.sessionId, undefined, CODEX_ASK);
+  return claudePresence(host.sessionId, await claudeSessionsOrNull());
+}
+
 export interface AgentsViewInput { includeRetired?: boolean; maxChars?: number; afterName?: string }
 
 /** bridge_agents. */

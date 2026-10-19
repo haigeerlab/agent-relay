@@ -1,27 +1,26 @@
 #!/usr/bin/env node
-import { deliveryState, pendingWarning } from "./delivery.js";
-import { duplicateWarning } from "./idempotency.js";
+import { deliveryState } from "./delivery.js";
 import { readBodyFile } from "./body-file.js";
 import { basename } from "node:path";
 import { CallerIdentity } from "./identity.js";
 import type { AgentHost, MessageStatus } from "./bridge-store.js";
-import { NOTIFIED_TEXT, notifyUndelivered } from "./notify.js";
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
-import { agentNameProblem, checkRecipient } from "./addressing.js";
+import { agentNameProblem } from "./addressing.js";
 import { BridgeStore } from "./bridge-store.js";
 import { CHANNEL_CAPABILITY, channelSession } from "./claude-channel.js";
 import { claudeSessions, claudeSessionsOrNull } from "./claude-wake.js";
-import { claudePresence, codexOwner, codexTaskPresence, type Presence } from "./presence.js";
+import { claudePresence, codexTaskPresence, type Presence } from "./presence.js";
 import { Housekeeper } from "./housekeeping.js";
 import { waitForInbox } from "./inbox-waiter.js";
 import { BRIDGE_AGENT, CLAUDE_HOLD_EXPLANATION, isClaudeHold } from "./notices.js";
 import { clampLimit, continueLines, fitMessages } from "./paging.js";
 import { VERSION } from "./version.js";
-import { agentsView, CODEX_ASK, outboxView, SCRIPT_PRESENCE, sessionsView } from "./views.js";
+import { sendMessage } from "./send.js";
+import { agentsView, CODEX_ASK, hostPresence, outboxView, sessionsView } from "./views.js";
 import { WakeDispatcher } from "./wake-dispatcher.js";
 import type { WakeTarget } from "./wake-queue.js";
 
@@ -48,12 +47,7 @@ async function isClaudeSessionLive(sessionId: string): Promise<boolean> {
 /** agent-relay presence-and-approval D146, D147: one host session's state, read on demand. */
 // agents-view-polish D226: the ChatGPT app is asked for at most 2 s; silence after connecting stays not-loaded.
 
-async function presenceOf(host: AgentHost): Promise<Presence> {
-  if (host.app === "script") return SCRIPT_PRESENCE;
-  // codex-approval-presence D232: a loaded task may also be waiting for the user.
-  if (host.app === "codex") return codexTaskPresence(host.sessionId, undefined, CODEX_ASK);
-  return claudePresence(host.sessionId, await claudeSessionsOrNull());
-}
+const presenceOf = hostPresence;
 
 /** The app session hosting this MCP process, when the host exposes it. */
 function detectSession(env: NodeJS.ProcessEnv = process.env): WakeTarget | null {
@@ -328,55 +322,8 @@ function main(): void {
       const body = text ?? readBodyFile(bodyFile as string);
       if (from === BRIDGE_AGENT) throw new Error(`"${BRIDGE_AGENT}" is reserved for automated notices.`);
       caller.require(from, store.getAgent(from), "send as");
-      const check = await checkRecipient(store, to, { allowUnregistered, presenceOf });
-      if (!check.ok) throw new Error(check.error);
-      const warnings = [...check.warnings];
-      const { message, duplicate, closed, skipped } = store.deliver({
-        wake,
-        fromAgent: from,
-        toAgent: to,
-        body,
-        threadId: threadId ?? null,
-        idempotencyKey: idempotencyKey ?? null,
-        replyTo: replyTo ?? null,
-        expectsReply: expectsReply === true,
-        alsoAnswers,
-        withdraws,
-        expiresInSeconds,
-      });
-      store.touch(from);
-      if (duplicate) warnings.push(duplicateWarning(message.id));
-      if (to !== "*") {
-        const capWarning = pendingWarning(store.database, to);
-        if (capWarning) warnings.push(capWarning);
-        // agent-relay codex-gated-wake D67: a recorded Codex recipient with no wake binding would never hear of it.
-        const recipient = store.getAgent(to);
-        // notice-location D188: "Codex app" (and a click) only when the app itself says it holds that thread.
-        if (!duplicate && wake !== false && recipient?.host?.app === "codex" && !store.wakes.target(to)
-            && notifyUndelivered(dbPath, { messageId: message.id, fromAgent: from, agent: to,
-              why: "its Codex session has no wake binding; the message waits", body,
-              where: { place: { kind: (await codexOwner(recipient.host.sessionId, undefined, CODEX_ASK)) === true ? "codex-app" : "codex" } } })) {
-          warnings.push(`${JSON.stringify(to)} is a Codex session without a wake binding. ${NOTIFIED_TEXT}`);
-        }
-        // agent-relay acceptance-030-gaps D72: with no binding and no recorded host nobody can be woken or notified.
-        if (!duplicate && wake !== false && recipient && !recipient.host && !store.wakes.target(to)) {
-          warnings.push(`${JSON.stringify(to)} has no wake binding and no known host; ` +
-            "it sees this message only when it reads its inbox.");
-        }
-      }
-      await dispatcher.flush();
-      // agent-relay long-messages D150: the sender never gets its own body back, only its length.
-      const { body: _sentBody, ...stored } = message;
-      return jsonResult({
-        ...stored,
-        bodyLength: message.body.length,
-        wake: store.wakes.forMessage(message.id),
-        ...(duplicate ? { duplicate } : {}),
-        // agent-relay request-closing D222: what this send closed, so a session can tell an old bridge that dropped it.
-        // Revision D238: what it skipped because it was already closed; nothing to redo for those.
-        ...(alsoAnswers !== undefined || withdraws !== undefined ? { closed, skipped } : {}),
-        ...(warnings.length ? { warnings } : {}),
-      });
+      return jsonResult(await sendMessage(store, { from, to, body, threadId, idempotencyKey, replyTo, expectsReply,
+        alsoAnswers, withdraws, wake, allowUnregistered, expiresInSeconds }, { dbPath, presenceOf, flush: () => dispatcher.flush() }));
     },
   );
 
