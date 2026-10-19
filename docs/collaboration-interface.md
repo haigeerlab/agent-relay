@@ -37,7 +37,7 @@ How to read it:
   unchanged). agent-relay 0.8.2 implements `2.5` (`accepted-unread-notice`: `wake.doubt` in `bridge_outbox` and
   `bridge_wake_status`, `waiting.doubtfulIds` in `bridge_agents`, and the meaning of `bridge_agents`' fields written down;
   schema 7 unchanged). agent-relay 0.8.3 implements `2.6` (`codex-approval-presence`: a Codex task the ChatGPT app has
-  loaded may also read `waiting-approval` or `waiting-input`; schema 7 unchanged).
+  loaded may also read `waiting-approval` or `waiting-input`; schema 7 unchanged); 0.8.4 keeps `2.6` (a fix only).
 - **Plugin version.** agent-relay follows its own semver, independent of Spec Guard. Its release notes state
   the interface version it implements.
 - **Spec Guard requirement.** Spec Guard requires interface `>= 1.0, < 3.0` (since Spec Guard 0.56.0; before it,

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## agent-relay 0.8.4
 
 `codex-approval-presence` rework after the round-2 post-merge review: a follower frame over 8 MiB is discarded without
 buffering it and without dropping the connection, so `codexTaskPresence` still sends `following: false` (before, the
