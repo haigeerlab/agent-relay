@@ -54,3 +54,18 @@ test("agentsView and outboxView return what bridge_agents and bridge_outbox retu
     await client.close();
   }
 });
+
+test("a session cannot register a script identity's name without takeover (D244)", async () => {
+  const dbPath = join(mkdtempSync(join(tmpdir(), "ar-views-")), "bridge.sqlite");
+  const seed = new BridgeStore(dbPath);
+  seed.registerScriptIdentity("di-patrol");
+  seed.close();
+  const client = await connect(dbPath);
+  try {
+    const refused = await client.callTool({ name: "bridge_register", arguments: { agent: "di-patrol", wake: null } });
+    assert.equal(refused.isError, true);
+    assert.match((refused.content as Array<{ text: string }>)[0].text, /script identity/);
+  } finally {
+    await client.close();
+  }
+});

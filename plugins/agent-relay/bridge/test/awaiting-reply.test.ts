@@ -18,6 +18,7 @@ import { transition } from "../src/delivery.js";
 import { IdempotencyConflictError } from "../src/idempotency.js";
 import type { Presence } from "../src/presence.js";
 import { SCHEMA_VERSION } from "../src/schema.js";
+import type { AgentHost } from "../src/bridge-store.js";
 import type { WakeTarget } from "../src/wake-queue.js";
 
 function fresh(): BridgeStore {
@@ -151,7 +152,7 @@ test("every outbox entry says whether it expects a reply; only the awaiting view
 
 test("presence is read once per distinct recipient on the page, never for a retired or hostless one (D203)", async () => {
   const asked: string[] = [];
-  const lookup = async (host: WakeTarget): Promise<Presence> => {
+  const lookup = async (host: AgentHost): Promise<Presence> => {
     asked.push(host.sessionId);
     return { state: "running" };
   };

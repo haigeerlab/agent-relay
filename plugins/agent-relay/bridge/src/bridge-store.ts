@@ -55,7 +55,8 @@ export interface BridgeAgent {
 
 /** A host session: Claude's id is verified from the bridge's environment, Codex's is claimed by the session. */
 export interface AgentHost {
-  app: "claude" | "codex";
+  /** script-access D244: `script` is a script identity, owned by no session; only the runtime CLI acts as it. */
+  app: "claude" | "codex" | "script";
   sessionId: string;
 }
 
@@ -925,6 +926,23 @@ export class BridgeStore {
           : {}),
       })),
     };
+  }
+
+  /**
+   * agent-relay script-access D244: record `name` as a script identity (host `script`, no wake binding). Registering
+   * an existing script identity again changes nothing; a name held by a session, or retired, is refused.
+   */
+  registerScriptIdentity(name: string): BridgeAgent {
+    const existing = this.getAgent(name);
+    if (existing?.retiredAt) {
+      throw new Error(`"${name}" was retired at ${existing.retiredAt}; choose another name for the script identity.`);
+    }
+    if (existing?.host?.app === "script") return existing;
+    if (existing) {
+      const holder = existing.host ? `a ${existing.host.app} session` : "a session";
+      throw new Error(`"${name}" is registered by ${holder}; a script identity needs a name of its own.`);
+    }
+    return this.register(name, [], { app: "script", sessionId: name });
   }
 
   /**

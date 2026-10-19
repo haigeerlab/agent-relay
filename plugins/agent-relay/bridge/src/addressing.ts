@@ -1,7 +1,6 @@
-import type { BridgeStore } from "./bridge-store.js";
+import type { AgentHost, BridgeStore } from "./bridge-store.js";
 import { BRIDGE_AGENT, CLAUDE_HOLD_EXPLANATION, CLAUDE_OFFLINE_EXPLANATION, isClaudeHold, isClaudeOfflineExpiry } from "./notices.js";
 import type { Presence } from "./presence.js";
-import type { WakeTarget } from "./wake-queue.js";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STALE_UNBOUND_MS = 24 * 3_600_000;
@@ -59,7 +58,7 @@ export interface RecipientCheck {
 export interface RecipientCheckOptions {
   allowUnregistered?: boolean;
   /** agent-relay presence-and-approval D147: the recipient's host session state (presence.ts). */
-  presenceOf?: (target: WakeTarget) => Promise<Presence>;
+  presenceOf?: (target: AgentHost) => Promise<Presence>;
   now?: number;
 }
 

@@ -54,3 +54,46 @@ test("a read-only store does not expire an overdue message (D242)", () => {
   assert.equal(normal.outbox("asker", {}).entries.find((e) => e.id === message.id)?.deliveryState, "expired");
   normal.close();
 });
+
+// D244: a script identity belongs to no session.
+import { CallerIdentity, IdentityError } from "../src/identity.js";
+import { agentsView } from "../src/views.js";
+
+test("a script identity is recorded with host script and no wake binding; registering again is a no-op (D244)", () => {
+  const store = new BridgeStore(":memory:");
+  const first = store.registerScriptIdentity("di-patrol");
+  assert.deepEqual(first.host, { app: "script", sessionId: "di-patrol" });
+  assert.equal(store.wakes.target("di-patrol"), null);
+  assert.deepEqual(store.registerScriptIdentity("di-patrol").host, first.host);
+  store.close();
+});
+
+test("a session's name cannot become a script identity, nor a retired one (D244)", () => {
+  const store = new BridgeStore(":memory:");
+  store.register("hub", [], { app: "claude", sessionId: "s1" });
+  assert.throws(() => store.registerScriptIdentity("hub"), /registered by a claude session/);
+  store.registerScriptIdentity("old-patrol");
+  store.retire("old-patrol", { by: "user" });
+  assert.throws(() => store.registerScriptIdentity("old-patrol"), /retired/);
+  store.close();
+});
+
+test("no session may act as a script identity (D244)", () => {
+  const store = new BridgeStore(":memory:");
+  const agent = store.registerScriptIdentity("di-patrol");
+  for (const caller of [new CallerIdentity({ app: "claude", sessionId: "s1" }), new CallerIdentity(null)]) {
+    assert.equal(caller.owns("di-patrol", agent), false);
+    assert.throws(() => caller.require("di-patrol", agent, "send as"), (error: unknown) =>
+      error instanceof IdentityError && /script identity/.test(error.message));
+  }
+  store.close();
+});
+
+test("a script identity's presence is unknown, never looked up (D244)", async () => {
+  const store = new BridgeStore(":memory:");
+  store.registerScriptIdentity("di-patrol");
+  const view = await agentsView(store, {});
+  const entry = view.agents.find((a) => a.name === "di-patrol") as { presence?: unknown } | undefined;
+  assert.deepEqual(entry?.presence, { state: "unknown", detail: "script identity" });
+  store.close();
+});

@@ -29,6 +29,8 @@ export class CallerIdentity {
 
   owns(name: string, agent: BridgeAgent | undefined): boolean {
     const recorded = agent?.host ?? null;
+    // agent-relay script-access D244: a script identity is no session's; only the runtime CLI sends as it.
+    if (recorded?.app === "script") return false;
     // For a verified caller the recorded host decides, so a name taken over by another session stops working here.
     if (this.host && recorded) return sameHost(this.host, recorded);
     return this.proven.has(name);
@@ -42,6 +44,12 @@ export class CallerIdentity {
       throw new IdentityError(
         `"${name}" is not registered, so this session cannot ${action} it. Call bridge_register with agent ` +
           `"${name}" from this session first (wake: null is fine). ${never}`,
+      );
+    }
+    if (agent.host?.app === "script") {
+      throw new IdentityError(
+        `"${name}" is a script identity: only the agent-relay runtime CLI (agent-relay send) acts as it, so this ` +
+          `session cannot ${action} it. Use this session's own name. ${never}`,
       );
     }
     // agent-relay codex-identity-recovery D209: a Codex caller cannot be verified, so a name recorded for a Codex task is

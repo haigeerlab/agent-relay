@@ -4,7 +4,7 @@ import { duplicateWarning } from "./idempotency.js";
 import { readBodyFile } from "./body-file.js";
 import { basename } from "node:path";
 import { CallerIdentity } from "./identity.js";
-import type { MessageStatus } from "./bridge-store.js";
+import type { AgentHost, MessageStatus } from "./bridge-store.js";
 import { NOTIFIED_TEXT, notifyUndelivered } from "./notify.js";
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -21,7 +21,7 @@ import { waitForInbox } from "./inbox-waiter.js";
 import { BRIDGE_AGENT, CLAUDE_HOLD_EXPLANATION, isClaudeHold } from "./notices.js";
 import { clampLimit, continueLines, fitMessages } from "./paging.js";
 import { VERSION } from "./version.js";
-import { agentsView, CODEX_ASK, outboxView, sessionsView } from "./views.js";
+import { agentsView, CODEX_ASK, outboxView, SCRIPT_PRESENCE, sessionsView } from "./views.js";
 import { WakeDispatcher } from "./wake-dispatcher.js";
 import type { WakeTarget } from "./wake-queue.js";
 
@@ -48,7 +48,8 @@ async function isClaudeSessionLive(sessionId: string): Promise<boolean> {
 /** agent-relay presence-and-approval D146, D147: one host session's state, read on demand. */
 // agents-view-polish D226: the ChatGPT app is asked for at most 2 s; silence after connecting stays not-loaded.
 
-async function presenceOf(host: WakeTarget): Promise<Presence> {
+async function presenceOf(host: AgentHost): Promise<Presence> {
+  if (host.app === "script") return SCRIPT_PRESENCE;
   // codex-approval-presence D232: a loaded task may also be waiting for the user.
   if (host.app === "codex") return codexTaskPresence(host.sessionId, undefined, CODEX_ASK);
   return claudePresence(host.sessionId, await claudeSessionsOrNull());
@@ -227,6 +228,11 @@ function main(): void {
       const owner = existing?.host ?? null;
       const ownerConflict = !!owner && (!host || owner.app !== host.app || owner.sessionId !== host.sessionId);
       const bindingConflict = !!target && !!current && (current.app !== target.app || current.sessionId !== target.sessionId);
+      if (ownerConflict && owner!.app === "script" && !takeover) {
+        // agent-relay script-access D244: a script identity is no session's; only the user may move it with takeover.
+        throw new Error(`"${agent}" is a script identity, used by the agent-relay runtime CLI. Choose a different name, ` +
+          "or pass takeover: true only after the user agrees to turn it into this session's name.");
+      }
       if ((ownerConflict || bindingConflict) && !takeover) {
         const other = ownerConflict ? owner! : current!;
         const running = other.app === "claude" ? ((await isClaudeSessionLive(other.sessionId)) ? " (still running)" : " (no longer running)") : "";

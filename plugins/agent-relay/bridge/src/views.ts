@@ -1,7 +1,7 @@
 // agent-relay script-access D241: the read tools' results, shared by the MCP server and the runtime CLI, so a script
 // gets exactly what bridge_agents, bridge_outbox and bridge_sessions return.
 import { AWAITING_PRESENCE_TIMEOUT_MS, awaitingCodexPresence, pagePresence } from "./awaiting-reply.js";
-import type { BridgeStore } from "./bridge-store.js";
+import type { AgentHost, BridgeStore } from "./bridge-store.js";
 import { claudeSessionsOrNull, type ClaudeSession } from "./claude-wake.js";
 import { DEFAULT_PAGE_CHARS, textCost } from "./paging.js";
 import { claudePresence, codexTaskPresence, type Presence } from "./presence.js";
@@ -9,6 +9,9 @@ import type { WakeTarget } from "./wake-queue.js";
 
 /** agents-view-polish D226: the ChatGPT app is asked for at most 2 s. */
 export const CODEX_ASK = { responseTimeoutMs: AWAITING_PRESENCE_TIMEOUT_MS };
+
+/** script-access D244: a script identity has no session to look up. */
+export const SCRIPT_PRESENCE: Presence = { state: "unknown", detail: "script identity" };
 
 export interface AgentsViewInput { includeRetired?: boolean; maxChars?: number; afterName?: string }
 
@@ -18,8 +21,9 @@ export async function agentsView(store: BridgeStore, { includeRetired, maxChars,
   const owes = store.owesReplies();
   // agent-relay presence-and-approval D146: read the Claude registry once per listing.
   const claude = await claudeSessionsOrNull();
-  const presenceOf = async (host: WakeTarget | null): Promise<Presence> =>
+  const presenceOf = async (host: AgentHost | null): Promise<Presence> =>
     !host ? { state: "unknown", detail: "no recorded host session" }
+      : host.app === "script" ? SCRIPT_PRESENCE
       : host.app === "claude" ? claudePresence(host.sessionId, claude)
         : codexTaskPresence(host.sessionId, undefined, CODEX_ASK);
   // agents-view-polish D223: only a call that asks for retired agents, a budget or a cursor is paged; a plain call
@@ -84,8 +88,9 @@ export async function outboxView(store: BridgeStore, { agent, includeAcknowledge
   const presences = await pagePresence(page.entries.map((entry) => entry.toAgent), (name) => {
     const recipient = store.getAgent(name);
     return recipient ? { host: recipient.host ?? store.wakes.target(name), retired: !!recipient.retiredAt } : undefined;
-  }, async (host) => host.app === "claude" ? claudePresence(host.sessionId, claude)
-    : awaitingCodexPresence(host.sessionId));
+  }, async (host) => host.app === "script" ? SCRIPT_PRESENCE
+    : host.app === "claude" ? claudePresence(host.sessionId, claude)
+      : awaitingCodexPresence(host.sessionId));
   return {
     agent,
     ...page,
