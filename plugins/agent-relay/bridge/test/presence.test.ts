@@ -310,6 +310,13 @@ test("a Codex task without owner, a silent app or no app is not followed (codex-
   try {
     assert.equal((await codexTaskPresence("thread-1", big.path, { responseTimeoutMs: 400 })).state, "running",
       "an oversized snapshot keeps the owner's answer");
+    // codex-approval-presence rework (#8194): spec assumption 6 holds here too — the unfollow is sent.
+    for (let i = 0; i < 50 && !big.received.some((f) => f.params?.following === false); i++) {
+      await new Promise((ok) => setTimeout(ok, 10));
+    }
+    assert.deepEqual(big.received.map((f) => `${f.type}:${f.method}${f.type === "broadcast" ? `:${f.params.following}` : ""}`),
+      ["request:initialize", "request:thread-owner-discovery", "broadcast:thread-stream-following-changed:true",
+        "broadcast:thread-stream-following-changed:false"]);
   } finally {
     await big.close();
   }

@@ -23,6 +23,8 @@ export class CodexIpc {
   private socket: Socket | null = null;
   private buffer = Buffer.alloc(0);
   private clientId = "initializing-client";
+  /** Bytes of an oversized frame still to discard (codex-approval-presence rework, #8194). */
+  private skip = 0;
   private pending = new Map<string, { resolve: (p: Packet) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
   private followers = new Map<string, { resolve: (change: Packet) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
 
@@ -69,9 +71,27 @@ export class CodexIpc {
 
   private read(chunk: Buffer): void {
     this.buffer = Buffer.concat([this.buffer, chunk]);
-    while (this.buffer.length >= 4) {
+    while (true) {
+      if (this.skip > 0) {
+        const n = Math.min(this.skip, this.buffer.length);
+        this.buffer = this.buffer.subarray(n);
+        this.skip -= n;
+        if (this.skip > 0) return;
+      }
+      if (this.buffer.length < 4) return;
       const length = this.buffer.readUInt32LE(0);
-      if (length > 8 * 1024 * 1024) throw new Error("IPC frame too large");
+      if (length > 8 * 1024 * 1024) {
+        // codex-approval-presence rework (#8194): an oversized frame (a long conversation's snapshot) is discarded
+        // without buffering it and without dropping the connection, so the caller can still unfollow; only the
+        // follower waiters fail.
+        this.skip = length;
+        this.buffer = this.buffer.subarray(4);
+        for (const f of this.followers.values()) {
+          clearTimeout(f.timer); f.reject(new IpcError("Codex IPC frame too large", true));
+        }
+        this.followers.clear();
+        continue;
+      }
       if (this.buffer.length < length + 4) return;
       const p = JSON.parse(this.buffer.subarray(4, length + 4).toString());
       this.buffer = this.buffer.subarray(length + 4);

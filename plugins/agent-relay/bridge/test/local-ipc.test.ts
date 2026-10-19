@@ -33,7 +33,7 @@ test("a follow broadcast is sent as a broadcast frame and the followed thread's 
   }
 });
 
-test("waiting for a change times out, and fails when the connection drops on an oversized frame", unix, async () => {
+test("waiting for a change times out, and an oversized frame fails the waiter but keeps the connection", unix, async () => {
   const quiet = await fakeCodexApp();
   const ipc = new CodexIpc();
   try {
@@ -52,6 +52,13 @@ test("waiting for a change times out, and fails when the connection drops on an 
     second.broadcast("thread-stream-following-changed", { conversationId: "thread-1", hostId: "local", following: true },
       ["owner"]);
     await assert.rejects(change, (e: unknown) => e instanceof IpcError && !e.timedOut);
+    // codex-approval-presence rework (#8194): the connection stays, so the unfollow still reaches the app.
+    second.broadcast("thread-stream-following-changed", { conversationId: "thread-1", hostId: "local", following: false },
+      ["owner"]);
+    for (let i = 0; i < 50 && !big.received.some((f) => f.params?.following === false); i++) {
+      await new Promise((ok) => setTimeout(ok, 10));
+    }
+    assert.ok(big.received.some((f) => f.params?.following === false), "the unfollow was sent after the oversized frame");
   } finally {
     second.close();
     await big.close();
