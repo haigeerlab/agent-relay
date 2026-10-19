@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-20
+
 接口 **2.8**（只新增，Spec Guard 0.56.0 或更新照样接受），信箱 schema 仍为 **7**。来自 2026-10-20 转来的需求：上层的
 巡视只能放在某个会话里由模型跑，会话一停巡视就停；launchd 任务又读不了 agent-relay。
 
@@ -14,6 +16,37 @@
   不能以它发信，`bridge_register` 用它的名字要用户同意 `takeover`。在线状态显示 `unknown`。
 - `doctor` 新增 `script-launcher` 检查：启动脚本在、权限 0700、指向当前运行时、node 还在。
 - 升级过程中还在运行的 0.8.x bridge 会把脚本身份显示为 `unknown` 或 `not-loaded`，也不会把它当成自己的。
+
+### 从 0.8.5 升级
+
+schema 不变，插件和运行时先升哪个都行。
+
+1. 两个宿主都更新插件（详见 README“更新插件”）：Claude Code 从 GitHub 装的，先 `claude plugin marketplace update
+   agent-relay-marketplace`，再 `claude plugin update --scope user agent-relay@agent-relay-marketplace`；Codex 把
+   `~/.codex/config.toml` 里的 `ref` 改成 `"v0.9.0"` 后 `codex plugin marketplace upgrade`、`codex plugin add
+   agent-relay@agent-relay-marketplace`；从本地克隆装的先 `git -C <克隆> pull --ff-only`，Codex 再 `codex plugin add`。
+2. **升级运行时**：关闭所有使用信箱的会话或只结束 bridge（见 README“升级运行时”），确认 `pgrep -fl
+   "agent-relay/runtime/dist/server.js"` 没有输出，再执行 `python3 -B <插件目录>/hooks/native_collaboration_runtime.py
+   upgrade --confirm`，输出应为 `"state": "upgraded"`，其中 `launcher.ok` 为 `true`（启动脚本已写好并自检通过）。
+3. 新开 Claude Code 会话；Codex 用 ⌘Q 完全退出 ChatGPT 应用再打开（之后 `doctor` 的 `codex-restart` 和
+   `script-launcher` 应为 ok）。
+4. 要让脚本或 launchd 发信，由用户在终端登记一个脚本身份：`~/.agent-relay/bin/agent-relay register-script-identity
+   <名字> --confirm`。
+
+### 想退回 0.8.5
+
+关掉所有会话后 `rollback --confirm` 退回运行时，并把两个宿主的插件退回 v0.8.5，然后新开会话。schema 相同，只退一边也
+能读信箱。回滚会把启动脚本改指向旧运行时，而 0.8.5 的运行时没有脚本命令，脚本会报"未知命令"；已登记的脚本身份留在
+信箱里，旧 bridge 也不会把它当成自己的。
+
+### 已知问题
+
+- 被 Claude 桌面版停掉的会话，脚本发信叫不醒（宿主限制 H1、H4），消息照旧排队并在 5 分钟后通知用户；ChatGPT 没加载的
+  Codex 任务照旧是 `not-loaded`。
+- 只读命令不清扫过期：还没被任何 bridge 清扫的超时消息，最多晚一个清扫周期（2 秒）才显示为过期。
+- 启动脚本写死了 node 路径；node 被移走（比如 nvm 换版本）后脚本会报一句并退出，`doctor` 的 `script-launcher` 会提示，
+  重跑 `upgrade --confirm` 即可重写。
+- 真实宿主上还没用 launchd 实测，验收时补上。
 
 ## [0.8.5] - 2026-10-19
 
