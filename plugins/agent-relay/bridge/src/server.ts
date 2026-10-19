@@ -16,7 +16,7 @@ import { BridgeStore } from "./bridge-store.js";
 import { CHANNEL_CAPABILITY, channelSession } from "./claude-channel.js";
 import { claudeSessions, claudeSessionsOrNull } from "./claude-wake.js";
 import { AWAITING_PRESENCE_TIMEOUT_MS, awaitingCodexPresence, pagePresence } from "./awaiting-reply.js";
-import { claudePresence, codexOwner, codexPresence, type Presence } from "./presence.js";
+import { claudePresence, codexOwner, codexTaskPresence, type Presence } from "./presence.js";
 import { Housekeeper } from "./housekeeping.js";
 import { waitForInbox } from "./inbox-waiter.js";
 import { BRIDGE_AGENT, CLAUDE_HOLD_EXPLANATION, isClaudeHold } from "./notices.js";
@@ -50,7 +50,8 @@ async function isClaudeSessionLive(sessionId: string): Promise<boolean> {
 const CODEX_ASK = { responseTimeoutMs: AWAITING_PRESENCE_TIMEOUT_MS };
 
 async function presenceOf(host: WakeTarget): Promise<Presence> {
-  if (host.app === "codex") return codexPresence(await codexOwner(host.sessionId, undefined, CODEX_ASK));
+  // codex-approval-presence D232: a loaded task may also be waiting for the user.
+  if (host.app === "codex") return codexTaskPresence(host.sessionId, undefined, CODEX_ASK);
   return claudePresence(host.sessionId, await claudeSessionsOrNull());
 }
 
@@ -584,7 +585,7 @@ function main(): void {
       const presenceOf = async (host: WakeTarget | null): Promise<Presence> =>
         !host ? { state: "unknown", detail: "no recorded host session" }
           : host.app === "claude" ? claudePresence(host.sessionId, claude)
-            : codexPresence(await codexOwner(host.sessionId, undefined, CODEX_ASK));
+            : codexTaskPresence(host.sessionId, undefined, CODEX_ASK);
       // agents-view-polish D223: only a call that asks for retired agents, a budget or a cursor is paged; a plain call
       // returns every active agent, as upper layers read it whole.
       const paged = includeRetired === true || maxChars !== undefined || afterName !== undefined;

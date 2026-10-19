@@ -77,6 +77,12 @@ acknowledges it. A read is recorded only for a name the calling bridge process h
 bridge process before registering again is flagged too; the notice names both causes. Claude recipients are not
 checked: a Claude session whose bridge goes away loses its process, which the offline notice already covers.
 
+For a Codex task the ChatGPT app has loaded, presence also says whether it waits for the user: the bridge follows the
+task once through the app's local connection, reads only the kind of each pending request (command, file change or
+permission approval; a question for the user) and when it started, stops following, and reports `waiting-approval` or
+`waiting-input` (all within the same 2 s cap; anything unexpected reads `running`). Nothing else of the conversation is
+read or kept, and the bridge never answers a prompt: the user does, in that task.
+
 A ping that expired while its recipient was away is pinged once more when the recipient comes back: when it registers
 again, or when the 30-second check finds its Claude session running in a process that started after the expiry. Only
 messages it has not read or acknowledged, and that have not expired themselves, are pinged again; the ping says when the

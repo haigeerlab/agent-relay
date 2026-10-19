@@ -24,6 +24,7 @@ export class CodexIpc {
   private buffer = Buffer.alloc(0);
   private clientId = "initializing-client";
   private pending = new Map<string, { resolve: (p: Packet) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
+  private followers = new Map<string, { resolve: (change: Packet) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
 
   constructor(private readonly options: { responseTimeoutMs?: number } = {}) {}
 
@@ -53,6 +54,10 @@ export class CodexIpc {
       clearTimeout(p.timer); p.reject(new IpcError("Codex IPC response unavailable", true));
     }
     this.pending.clear();
+    for (const f of this.followers.values()) {
+      clearTimeout(f.timer); f.reject(new IpcError("Codex IPC response unavailable", true));
+    }
+    this.followers.clear();
   }
 
   private write(packet: Packet): void {
@@ -77,8 +82,15 @@ export class CodexIpc {
         if (!waiting) continue;
         this.pending.delete(p.requestId);
         clearTimeout(waiting.timer); waiting.resolve(p);
+      } else if (p.type === "broadcast" && p.method === "thread-stream-state-changed"
+        && typeof p.params?.conversationId === "string" && this.followers.has(p.params.conversationId)) {
+        // codex-approval-presence D234: only the change for a thread this client follows reaches its one waiter.
+        const follower = this.followers.get(p.params.conversationId)!;
+        this.followers.delete(p.params.conversationId);
+        clearTimeout(follower.timer); follower.resolve(p.params.change ?? {});
       }
-      // Never publish unsolicited app broadcasts or conversation content.
+      // Never publish unsolicited app broadcasts or conversation content; a followed thread's change goes only to the
+      // caller that asked for it (codex-approval-presence D234).
     }
   }
 
@@ -96,5 +108,31 @@ export class CodexIpc {
     });
   }
 
-  close(): void { this.socket?.destroy(); this.fail(); }
+  /** codex-approval-presence D235: a broadcast to the given clients (used only to follow and unfollow a thread). */
+  broadcast(method: string, params: Packet, targetClientIds: string[], version = 1): void {
+    if (!this.socket || this.socket.destroyed) return;
+    this.write({ type: "broadcast", method, sourceClientId: this.clientId, version, targetClientIds, params });
+  }
+
+  /** The next `thread-stream-state-changed` change for this thread, or an IpcError after `timeoutMs`. */
+  nextChange(conversationId: string, timeoutMs: number): Promise<Packet> {
+    if (!this.socket || this.socket.destroyed) return Promise.reject(new IpcError("Codex disconnected"));
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.followers.delete(conversationId);
+        reject(new IpcError("Codex follower change timed out", true, true));
+      }, timeoutMs);
+      this.followers.set(conversationId, { resolve, reject, timer });
+    });
+  }
+
+  /** `flush`: let frames already written (an unfollow) reach the app before the socket goes (at most 1 s). */
+  close(flush = false): void {
+    const socket = this.socket;
+    if (flush && socket && !socket.destroyed) {
+      socket.end();
+      setTimeout(() => socket.destroy(), 1000).unref();
+    } else socket?.destroy();
+    this.fail();
+  }
 }

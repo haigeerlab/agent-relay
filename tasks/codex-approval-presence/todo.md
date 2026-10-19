@@ -1,13 +1,13 @@
 # Todo: codex-approval-presence
 
-- [ ] Task 1: confirm the pending-request shape on the real host (read only; the user approves the test task's approval setting first)
-- [ ] Checkpoint (gate): shape matches the spec
-- [ ] Task 2: `CodexIpc` can send a broadcast and receive the one follower snapshot it asked for (D234, D235)
-- [ ] Task 3: classify pending requests (D233)
-- [ ] Task 4: the Codex lookup follows, reads and unfollows within 2 s (D232, D234, D235)
-- [ ] Task 5: the views (D232)
-- [ ] Checkpoint (report): bridge green
-- [ ] Task 6: interface 2.6, docs and bookkeeping (D236)
-- [ ] Checkpoint (report): local validation
-- [ ] Task 7: PR and CI
+- [x] Task 1: confirm the pending-request shape on the real host (read only; the user approves the test task's approval setting first) — command approval seen: `requests[]` entry `{method, id, params}`, method as in assumption 2, no `completed` (answered entries are removed), time in `params.startedAtMs`; extra signal `threadRuntimeStatus.activeFlags: ["waitingOnApproval"]`; per-task approval switch exists, temporary config removed; file-change, user-input and ping-while-pending not checked (see plan notes)
+- [x] Checkpoint (gate): shape matches the spec — the user confirmed 2026-10-19: read only `requests` (no `activeFlags`), `since` from `params.startedAtMs`; the missing `completed` key is harmless
+- [x] Task 2: `CodexIpc` can send a broadcast and receive the one follower snapshot it asked for (D234, D235) — red first (`nextChange` missing), then `broadcast()` and `nextChange()` in `local-ipc.ts`; other threads' broadcasts dropped; timeout and a dropped connection (oversized frame) reject with `IpcError`; shared fake app in `test/support/fake-codex-app.ts`
+- [x] Task 3: classify pending requests (D233) — red first, then `codexWaiting()` in `presence.ts`: the five methods, `completed: true` and unknown or malformed entries skipped, approval wins, `since` from the earliest `params.startedAtMs`, no request content in the result
+- [x] Task 4: the Codex lookup follows, reads and unfollows within 2 s (D232, D234, D235) — red first, then `codexTaskPresence()` in `presence.ts`: discovery as before; only with an owner one follow, the first change within what is left of the cap, always an unfollow and a flushed close (`CodexIpc.close(true)`); tests pin the sent frames (initialize, discovery, follow true/false), no content in the result, no follow for stopped/not-loaded/unknown, oversized or late snapshots read `running`. Known limit: after the app drops the connection (oversized frame) no unfollow can be sent; the app ends the follow with the client
+- [x] Task 5: the views (D232) — red first in `test/codex-approval-presence.test.ts` through the MCP server: `bridge_agents` shows Codex `waiting-approval` (with `since` and detail) and `waiting-input`; `bridge_send` gives the existing waiting warning; `bridge_outbox` `awaitingReply` shows it while a silent app stays `unknown`; no conversation content in any file under the test HOME; wiring in `server.ts` (`presenceOf`, `bridge_agents`) and `awaiting-reply.ts`; `checkApprovals` untouched. Warning wording kept (ping-while-pending not checked on the real host)
+- [x] Checkpoint (report): bridge green — `npm run typecheck` clean, `npm test` 273 pass
+- [x] Task 6: interface 2.6, docs and bookkeeping (D236) — `interface.json` 2.6, `test_packaging`, `relay_status.py`; `docs/collaboration-interface.md` (version line, `bridge_agents` presence since 2.6); `bridge/docs/BACKGROUND-WAKE.md`; `skills/collab` (Codex tasks can wait too); `UPSTREAM.md` row, manifest regenerated after the last bridge edit; `bridge/CHANGELOG.md` and CHANGELOG `[Unreleased]` (version left to the release)
+- [x] Checkpoint (report): local validation — `scripts/validate.sh` pass on Python 3.9.6, 3.10.7, 3.14.3 with Node v24.18.0 first on PATH (47 files, 877 tests each; bridge `npm run check` 273 ok)
+- [x] Task 7: PR and CI — #142, the four CI jobs green; review asked of the round-2 coordinator (#8057, waiting in its inbox while its session is not running); Auto-fix on
 - [ ] Checkpoint (gate): module review
