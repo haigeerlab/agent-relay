@@ -9,4 +9,4 @@
 - [x] Task 6: interface 2.8 and docs (D245) — `interface.json` `script` block, interface document §2.4, README zh/en "脚本与 launchd", `collaboration-ops`, both CHANGELOGs, `UPSTREAM.md`, manifest
 - [x] Checkpoint (report): local validation — `scripts/validate.sh` pass on Python 3.9.6, 3.10, 3.14 with Node v24.18.0 first on PATH (48 files, 905 tests each; bridge `npm run check` 294 ok)
 - [ ] Task 7: PR and CI
-- [ ] Checkpoint (gate): module review
+- [x] Checkpoint (gate): module review — the user merged #149 (57ed0a3) on 2026-10-19 before the round-2 coordinator's review came back; it became a post-merge review (#9192); released as 0.9.0 at the user's request
