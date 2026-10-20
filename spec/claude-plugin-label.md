@@ -90,6 +90,5 @@ Readers: the user; the round-2 coordinator (review, acceptance); the access moni
 
 ## Open questions
 
-- Assumption 3: `warn` (recommended) or keep `ok` with a clearer note? `warn` means this Mac's doctor stays yellow until
-  the records are cleared.
-- Assumption 7: also add the skills line, or README only?
+None. The user accepted all assumptions on 2026-10-20: assumption 3 uses `warn`; assumption 7 adds both the README
+sentence and the skills line.
