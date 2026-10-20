@@ -44,7 +44,7 @@ python3 -B "$ROOT/hooks/native_collaboration_runtime.py" doctor
 ```
 
 `toolchain` names the Python running doctor and the node it would use (path, version, where it was found); quote it
-when reporting a problem. `codex-waiting` lists messages waiting for a Codex task (count, senders, ids, never bodies); it warns after 10
+when reporting a problem. `claude-plugin` answers "which agent-relay version does Claude load": never answer from the `version` that `claude plugin list` shows, which is a record's label and can be stale; when doctor warns about such labels, relay its cleanup commands and let the user run each one. `codex-waiting` lists messages waiting for a Codex task (count, senders, ids, never bodies); it warns after 10
 minutes. `notifications` says whether macOS appears to let the bridge's channel show its notices (terminal-notifier from
 Homebrew's fixed paths when installed, else Script Editor via osascript, which can never be allowed because it never
 asks) (best effort;

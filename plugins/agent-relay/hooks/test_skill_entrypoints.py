@@ -179,6 +179,27 @@ class ExactArgumentTests(unittest.TestCase):
         self.assertIn("更正（0.6.2）", released)
 
 
+    def test_the_loaded_version_is_answered_from_doctor_not_from_the_listing_label(self):
+        # claude-plugin-label (2026-10-20): two sessions read a record's stale `claude plugin list` version as the copy
+        # that was loaded.
+        repo = PLUGIN_ROOT.parents[1]
+        readme = (repo / "README.md").read_text(encoding="utf-8")
+        section = readme[readme.index("## 更新插件"):readme.index("## 升级运行时")]
+        self.assertIn("旧标签", section)
+        self.assertIn("由你逐条执行", section)
+        english = (repo / "README.en.md").read_text(encoding="utf-8")
+        self.assertIn("is a stale label on that record", english)
+        collab = (PLUGIN_ROOT / "skills" / "collab" / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("以 `collaboration-ops` 里 doctor 的 `claude-plugin` 为准", collab)
+        self.assertIn("不看 `claude plugin list` 显示的 `version`", collab)
+        ops = (PLUGIN_ROOT / "skills" / "collaboration-ops" / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("never answer from the `version` that `claude plugin list` shows", ops)
+        self.assertIn("let the user run each one", ops)
+        changelog = (repo / "CHANGELOG.md").read_text(encoding="utf-8")
+        unreleased = changelog[changelog.index("## [Unreleased]"):changelog.index("## [0.9.0]")]
+        self.assertIn("claude-plugin-label", unreleased)
+
+
     def test_readme_says_what_a_notice_click_does_and_whose_automation_prompt_it_is(self):
         # notice-location D188.
         readme = (PLUGIN_ROOT.parents[1] / "README.md").read_text(encoding="utf-8")

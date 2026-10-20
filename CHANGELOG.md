@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+- **doctor 报出插件记录上的旧版本标签**（模块 `claude-plugin-label`，D246–D247）：`claude plugin list` 给 agent-relay 的
+  某条记录显示的版本（如 0.6.1）与新会话实际加载的副本（如克隆里的 0.9.0）不一致时，`claude-plugin` 一项给出 warn，
+  每个标签只列一次并写明实际加载的版本与路径，`next` 给出逐个目录的清理命令：有用户级记录时
+  `cd <目录> && claude plugin uninstall --scope local agent-relay@agent-relay-marketplace`，没有时改为 `update`；
+  用户级记录的标签落后时给 marketplace update 加 `--scope user` update。目录已删除的记录只计数、不单独告警。
+  doctor 只读，命令由用户逐条执行。原来“not loaded while readFromFolder is set”的说明并入这一项。
+- README 与 `collab`、`collaboration-ops` 写明：问加载的是哪个版本，以 doctor 的 `claude-plugin` 为准，不看列表里的版本。
+
 ## [0.9.0] - 2026-10-20
 
 接口 **2.8**（只新增，Spec Guard 0.56.0 或更新照样接受），信箱 schema 仍为 **7**。来自 2026-10-20 转来的需求：上层的
