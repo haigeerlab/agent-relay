@@ -504,7 +504,9 @@ def _claude_plugin_list() -> tuple[int, str] | None:
 def _claude_plugin(listing: Callable[[], tuple[int, str] | None], expected: str | None) -> dict[str, str]:
     """install-truth D184: compare the copy Claude Code loads with this plugin, from its plugin.json, never the
     listing's own `version`. Measured 2026-10-10 (2.1.293 desktop, 2.1.295 CLI): a new session loads `readFromFolder`
-    when the entry has one, else `installPath`; a session keeps the copy it started with until it is restarted."""
+    when the entry has one, else `installPath`; a session keeps the copy it started with until it is restarted.
+    claude-plugin-label D246-D247: the listing's `version` is the label of the record's `installPath` copy (measured
+    2026-10-20); a label that disagrees with the loaded copy misled sessions, so it warns and says how to clear it."""
     result = listing()
     if result is None:
         return _check("claude-plugin", "skip", "claude not found")
@@ -518,7 +520,8 @@ def _claude_plugin(listing: Callable[[], tuple[int, str] | None], expected: str 
     if not isinstance(entries, list):
         return _check("claude-plugin", "skip", "claude plugin list --json: not a list")
     loaded: dict[tuple[str, str], list[str]] = {}
-    unused: dict[str, list[str]] = {}
+    labelled: list[tuple[str, str | None, str, str]] = []
+    has_user = False
     for entry in entries:
         if not (isinstance(entry, dict) and entry.get("id") == CLAUDE_PLUGIN_ID and entry.get("enabled") is True):
             continue
@@ -533,8 +536,10 @@ def _claude_plugin(listing: Callable[[], tuple[int, str] | None], expected: str 
         key = ("folder", folder) if folder else ("install", install)
         if user not in loaded.setdefault(key, []):
             loaded[key].append(user)
-        if folder and install and install != folder and user not in unused.setdefault(install, []):
-            unused[install].append(user)
+        has_user = has_user or scope == "user"
+        label = entry.get("version")
+        if isinstance(label, str) and label:
+            labelled.append((scope, project if isinstance(project, str) and project else None, label, key[1]))
     if not loaded:
         return _check("claude-plugin", "ok", "no enabled agent-relay plugin in Claude Code")
     stale, steps, notes = [], [], []
@@ -563,18 +568,45 @@ def _claude_plugin(listing: Callable[[], tuple[int, str] | None], expected: str 
                 steps += ["run `claude plugin marketplace update agent-relay-marketplace`"] + updates
             if any(":" in user and not Path(user.split(":", 1)[1]).exists() for user in using):
                 steps.append("entries whose folder is gone can be ignored or removed by you")
-    for path, using in unused.items():
-        version = _copy_version(Path(path))
-        if version != expected:
-            notes.append("%s (%s, %s) is not loaded while readFromFolder is set" % (
-                path, version or "unreadable", _plugin_users(using)))
+    labels, cleanup, gone = _plugin_labels(labelled, has_user)
+    if gone:
+        notes.append(f"{gone} record{'s' if gone > 1 else ''} whose folder is gone carry an old label")
     restart = "a session started before an update keeps its copy, even when resumed; only new sessions load the update"
     if not stale:
         detail = f"every agent-relay copy Claude Code loads is {expected}; {restart}"
+        if labels:
+            return _check("claude-plugin", "warn", "; ".join([detail] + labels + notes), ", then ".join(cleanup))
         return _check("claude-plugin", "ok", detail + ("; " + "; ".join(notes) if notes else ""))
-    ordered = list(dict.fromkeys(steps)) + [RESTART]
-    return _check("claude-plugin", "warn", f"this plugin is {expected}; " + "; ".join(stale + notes),
+    ordered = list(dict.fromkeys(steps)) + [RESTART] + [step for step in cleanup if step not in steps]
+    return _check("claude-plugin", "warn", f"this plugin is {expected}; " + "; ".join(stale + labels + notes),
                   ", then ".join(ordered))
+
+
+def _plugin_labels(labelled: list[tuple[str, str | None, str, str]],
+                   has_user: bool) -> tuple[list[str], list[str], int]:
+    """claude-plugin-label D246-D247: one line per label that disagrees with the copy its record loads, the user's
+    cleanup steps (doctor runs none of them), and how many such records belong to folders that are gone."""
+    found: dict[tuple[str, str, str], list[str]] = {}
+    steps: list[str] = []
+    gone = 0
+    for scope, project, label, path in labelled:
+        version = _copy_version(Path(path))
+        if version is None or version == label:
+            continue
+        if project is not None and not Path(project).exists():
+            gone += 1
+            continue
+        user = scope + (":" + project if project else "")
+        if user not in found.setdefault((label, path, version), []):
+            found[(label, path, version)].append(user)
+        command = f"claude plugin %s --scope {scope} agent-relay@agent-relay-marketplace"
+        if scope == "user":
+            steps += ["run `claude plugin marketplace update agent-relay-marketplace`", "`" + command % "update" + "`"]
+        elif project is not None:
+            steps.append("`cd %s && %s`" % (project, command % ("uninstall" if has_user else "update")))
+    lines = ["label %s shown by `claude plugin list` for %s, but new sessions load %s (%s)" % (
+        label, _plugin_users(using), path, version) for (label, path, version), using in found.items()]
+    return lines, list(dict.fromkeys(steps)), gone
 
 
 def _plugin_users(using: list[str]) -> str:
