@@ -19,3 +19,18 @@
 - [x] Checkpoint (report): local validation — `scripts/validate.sh` pass on Python 3.9.6, 3.10, 3.14 with Node v24.18.0 first on PATH (47 files, 883 tests each; bridge `npm run check` 279 ok)
 - [x] Task 11: PR and CI — #146, the four CI jobs green; review asked of the round-2 coordinator (#8873, waiting while its session is not running); Auto-fix on
 - [x] Checkpoint (gate): module review — the user merged #146 (4377d1f) on 2026-10-19 without waiting for the review, which became a post-merge review
+
+## Post-merge review of the revision (round-2 coordinator, 2026-10-20)
+
+No blocker: the lenient retry comparison neither closes the wrong request nor misses one; `closedState`'s order matches
+the old checks (wrong ids still refuse first); the lost-race test is sound. Open (low, after the release freeze):
+
+- Open: When the lenient D35/idempotency match folds a retry, `skipped` is `[]` even for ids closed elsewhere, so the
+  sender sees such an id in neither `closed` nor `skipped`; compute them from `closedState` (this changes D238's "a
+  duplicate retry returns `skipped: []`", so it needs the user's decision).
+- Open: The spec revision's assumption 4 says D35 and the idempotency comparison are unchanged; both now use
+  `closableBy` (exact match first, then lenient). Say so in the spec.
+- Open: Rename the test "two bridge processes cannot both close one request" (it runs sequentially and exercises the
+  pre-check; the catch path is covered by the lost-race test), add a no-read assertion to the lost-race test, and make
+  `closeRequests`' catch handle a missing closure row with a readable error.
+
