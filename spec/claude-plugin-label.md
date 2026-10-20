@@ -1,5 +1,7 @@
 # Spec: claude-plugin-label
 
+<!-- spec-guard: review approved 9defbe14cefc -->
+
 ## Objective
 
 Small follow-up module (doctor and docs only). Proposed on 2026-10-20 by the access monitor after a rehearsal; relayed by
