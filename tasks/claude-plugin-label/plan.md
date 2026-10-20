@@ -1,6 +1,6 @@
 # Plan: claude-plugin-label
 
-<!-- spec-guard: review pending -->
+<!-- spec-guard: review approved -->
 
 Based on [`spec/claude-plugin-label.md`](../../spec/claude-plugin-label.md) (approved by the user on 2026-10-20:
 assumptions 1–8, D246–D247; assumption 3 `warn`, assumption 7 README and skills). Built on branch
