@@ -64,8 +64,8 @@ Readers: the user; the round-2 coordinator (review, acceptance); the access moni
 
 ## Decisions
 
-- **D241 a stale label is reported.** Assumptions 2, 3, 6.
-- **D242 cleanup is advised, never done.** Assumptions 4, 5.
+- **D246 a stale label is reported.** Assumptions 2, 3, 6.
+- **D247 cleanup is advised, never done.** Assumptions 4, 5.
 
 ## Requirements
 
