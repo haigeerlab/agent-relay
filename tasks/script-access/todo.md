@@ -8,7 +8,7 @@
 - [x] Task 5: launcher, doctor `script-launcher`, rollback, uninstall (D240) — red first (7 cases, import missing), then green; `write_launcher` never raises, it reports `{path, ok, node, diagnostic}` in the install, upgrade and rollback results and runs `--version` under `PATH=/usr/bin:/bin`; rollback keeps the node the old launcher named; doctor's fixture and the reinstall test now expect the launcher
 - [x] Task 6: interface 2.8 and docs (D245) — `interface.json` `script` block, interface document §2.4, README zh/en "脚本与 launchd", `collaboration-ops`, both CHANGELOGs, `UPSTREAM.md`, manifest
 - [x] Checkpoint (report): local validation — `scripts/validate.sh` pass on Python 3.9.6, 3.10, 3.14 with Node v24.18.0 first on PATH (48 files, 905 tests each; bridge `npm run check` 294 ok)
-- [ ] Task 7: PR and CI
+- [x] Task 7: PR and CI — #149; Node 22 failed first (node:sqlite's experimental warning reached stderr before the CLI's one sentence), fixed in 73c860c (`cli.ts` installs a filter for that warning, then loads `cli-main.ts`); the four CI jobs green; review asked of the round-2 coordinator (#9139); Auto-fix on (ticked after the merge; the commit that ticked it reached the branch after #149 merged)
 - [x] Checkpoint (gate): module review — the user merged #149 (57ed0a3) on 2026-10-19 before the round-2 coordinator's review came back; it became a post-merge review (#9192); released as 0.9.0 at the user's request
 
 ## Rework after the round-2 post-merge review (#9193, 2026-10-19; the user asked for it the same day)
@@ -20,3 +20,24 @@
 - [x] Task 10: the CLI's late-receipt wait reads the Claude adapter's exported detail constant instead of matching its text; a test covers a session that never sends a receipt (one ping, state `unknown`) — red first, then green
 - [x] Task 11: docs — a 0.8.x bridge warns "Codex task is not open" when a session sends to a script identity (spec D244, CHANGELOG); `send`'s one flush may dispatch another message's ping first, as `bridge_send` does (interface §2.4)
 - [x] Checkpoint (report): local validation and PR — `scripts/validate.sh` pass on Python 3.9.6 + Node 22.22.0, 3.10 + Node 24.18.0, 3.14 + Node 22.22.0 (48 files, 910 tests each); `test_node_everywhere` now parses the JSON line and expects the launcher warning its fake node causes
+
+## Release and acceptance
+
+- 0.9.0 released 2026-10-19: tag `v0.9.0` on efaae59 (#150 release, #151 review fixes), real host upgraded the same day
+  (backup 20261019T191328Z, `launcher.ok` true, `doctor` `script-launcher` ok).
+- Real-host acceptance passed (round-2 coordinator, 2026-10-20), no defect: under `env -i PATH=/usr/bin:/bin` the three
+  reads exit 0 with empty stderr and match `bridge_agents` / `bridge_outbox` / `bridge_sessions` field for field (45
+  identities, 11 outbox entries, 9 Claude sessions); run against a copy, the mailbox's sha is unchanged; a test script
+  identity registered with `--confirm`, `send` from a launchd job woke a test Codex task, read and acknowledged 9 s
+  later and listed in `bridge_outbox`; with the plugin installed from a checkout under `~/Documents`, the launchd job's
+  reads and `send` exit 0; the temporary job was booted out and removed.
+- Observation: right after a ChatGPT restart, before the task is opened, a Codex presence reads `unknown` ("the Codex
+  app cannot be asked") rather than `not-loaded`.
+
+## Open (after the release freeze)
+
+- Open: A send from a session to a script identity carries no warning; add one saying it is never woken and reads the
+  message when its script next runs (low, acceptance).
+- Open: `agent-relay --version` prints the bridge package's version (0.4.0), not the plugin's; print the plugin version or
+  both (low).
+
