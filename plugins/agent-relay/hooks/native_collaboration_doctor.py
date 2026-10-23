@@ -81,7 +81,8 @@ def _runtime(root: Path) -> tuple[dict[str, str], bool]:
                       + (f": {current['diagnostic']}" if current.get("diagnostic") else ""),
                       "install it with native_collaboration_runtime.py install (after the user agrees)"), False
     if not current["bridge"]["current"]:
-        return _check("runtime", "warn", "runtime is ready but its bridge is older than this plugin's",
+        # runtime-mark-scope D248: only a change in the files the runtime is built from gets here, not tests or docs.
+        return _check("runtime", "warn", "runtime is ready but the runtime's bridge files are older than this plugin's",
                       "close the sessions using the mailbox, then run upgrade --confirm after the user agrees"), True
     return _check("runtime", "ok", "runtime ready; bridge matches this plugin"), True
 

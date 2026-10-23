@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -18,6 +19,7 @@ from native_collaboration_adapters import CLAUDE_SERVER_NAME, codex_fragment
 from native_collaboration_doctor import TEST_NOTIFICATION_TEXT, codex_auto_approval, doctor, send_test_notification
 from node_select import SelectedNode
 from native_collaboration_runtime import BRIDGE_COMMIT, BRIDGE_SOURCE, bridge_tree, main, write_launcher
+from test_native_collaboration_runtime import edited
 
 NODE = Path(sys.executable)
 SCRIPT_EDITOR = "com.apple.ScriptEditor2"
@@ -456,6 +458,25 @@ class DoctorTests(unittest.TestCase):
         self.assertIn(f"python {sys.executable}", check["detail"])
         self.assertIn("no node on PATH", check["detail"])
         self.assertIn("Node 22.5.0", check["next"])
+
+    def runtime_built_from(self, listed: bytes):
+        (self.root / "UPSTREAM.sha256").write_bytes(listed)
+        (self.root / "manifest.json").write_text(json.dumps(
+            {"commit": BRIDGE_COMMIT, "source": "vendored", "tree": hashlib.sha256(listed).hexdigest()}))
+
+    def test_a_test_only_bridge_difference_keeps_the_runtime_check_ok(self):
+        # runtime-mark-scope D248: the 0.9.1 case, where only a bridge test changed.
+        self.runtime_built_from(edited((BRIDGE_SOURCE / "UPSTREAM.sha256").read_bytes(), "test/"))
+        check = self.find(self.run_doctor(), "runtime")
+        self.assertEqual(check["state"], "ok", check)
+
+    def test_a_runtime_file_difference_warns_and_advises_the_upgrade(self):
+        # runtime-mark-scope D250 (ledger AJM8B1H item 5): the advice now appears only when the runtime files differ.
+        self.runtime_built_from(edited((BRIDGE_SOURCE / "UPSTREAM.sha256").read_bytes(), "src/"))
+        check = self.find(self.run_doctor(), "runtime")
+        self.assertEqual(check["state"], "warn", check)
+        self.assertIn("runtime's bridge files are older than this plugin's", check["detail"])
+        self.assertIn("upgrade --confirm", check["next"])
 
     def test_an_interrupted_swap_fails_the_runtime_check_and_names_recover(self):
         # upgrade-recovery D109.
