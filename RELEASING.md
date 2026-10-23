@@ -51,8 +51,8 @@ gh release create v0.x.y --title "agent-relay 0.x.y (interface 2.0)" --notes-fil
 
 ## 发版后
 
-1. 用户在真实宿主上更新：先把本机克隆拉到新标签，两个宿主都更新插件；bridge 有改动时关掉所有用到信箱的会话，再跑
-   `upgrade --confirm`（步骤见 README“更新插件”“升级运行时”）。终端输出可能乱序，以安装后的文件和 `doctor` 为准。
+1. 用户在真实宿主上更新：先把本机克隆拉到新标签，两个宿主都更新插件；bridge 的运行时文件有改动时（只改测试或文档不算，
+   见上文）关掉所有用到信箱的会话，再跑 `upgrade --confirm`（步骤见 README“更新插件”“升级运行时”）。终端输出可能乱序，以安装后的文件和 `doctor` 为准。
 2. `doctor` 各项为 ok（环境类的 warn 按它给的下一步处理）。
 3. 请协调会话在新会话里做真实宿主验收，按 [验收清单](docs/acceptance/checklist.md) 里涉及这一版的条目。
 4. 验收中发现的问题进下一版，不改已发布的标签。

@@ -478,6 +478,18 @@ class DoctorTests(unittest.TestCase):
         self.assertIn("runtime's bridge files are older than this plugin's", check["detail"])
         self.assertIn("upgrade --confirm", check["next"])
 
+    def test_an_unverifiable_runtime_list_says_so_instead_of_older(self):
+        # runtime-mark-scope D249 fallback: without its own list the runtime can only be compared by the whole list.
+        older = edited((BRIDGE_SOURCE / "UPSTREAM.sha256").read_bytes(), "test/")
+        (self.root / "manifest.json").write_text(json.dumps(
+            {"commit": BRIDGE_COMMIT, "source": "vendored", "tree": hashlib.sha256(older).hexdigest()}))
+        check = self.find(self.run_doctor(), "runtime")
+        self.assertEqual(check["state"], "warn", check)
+        self.assertIn("cannot be checked", check["detail"])
+        self.assertIn("whole list", check["detail"])
+        self.assertNotIn("older", check["detail"])
+        self.assertIn("upgrade --confirm", check["next"])
+
     def test_an_interrupted_swap_fails_the_runtime_check_and_names_recover(self):
         # upgrade-recovery D109.
         import native_collaboration_runtime as runtime

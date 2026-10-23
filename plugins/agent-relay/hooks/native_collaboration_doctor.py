@@ -26,8 +26,7 @@ from node_select import NodeSelectError, select_node, toml_table
 from state_migration import _snapshot
 from native_collaboration_runtime import (MAILBOX_SCHEMA_VERSIONS, MAILBOX_TOOLS, RESTART_NEXT, NativeRuntimeError,
                                           launcher_path, live_claude_sessions, open_mailbox_read_only, pid_alive,
-                                          probe_runtime,
-                                          status)
+                                          probe_runtime, runtime_own_list, status)
 
 DEFAULT_MAX_PENDING = 100
 OLD_BRIDGE = "/.spec-guard/native-collaboration/dist/server.js"
@@ -81,9 +80,17 @@ def _runtime(root: Path) -> tuple[dict[str, str], bool]:
                       + (f": {current['diagnostic']}" if current.get("diagnostic") else ""),
                       "install it with native_collaboration_runtime.py install (after the user agrees)"), False
     if not current["bridge"]["current"]:
+        upgrade = "close the sessions using the mailbox, then run upgrade --confirm after the user agrees"
+        bridge = current["bridge"]
+        if bridge["source"] == "vendored" and runtime_own_list(root, bridge["tree"]) is None:
+            # runtime-mark-scope D249 fallback: the runtime's own list is missing, unreadable, a symlink or not the
+            # recorded one, so only the whole lists could be compared; that says nothing about the runtime files.
+            return _check("runtime", "warn", "runtime is ready but its UPSTREAM.sha256 cannot be checked against its "
+                          "manifest, so it was compared by the whole list, which differs from this plugin's",
+                          upgrade), True
         # runtime-mark-scope D248: only a change in the files the runtime is built from gets here, not tests or docs.
         return _check("runtime", "warn", "runtime is ready but the runtime's bridge files are older than this plugin's",
-                      "close the sessions using the mailbox, then run upgrade --confirm after the user agrees"), True
+                      upgrade), True
     return _check("runtime", "ok", "runtime ready; bridge matches this plugin"), True
 
 

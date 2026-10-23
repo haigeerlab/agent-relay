@@ -200,11 +200,10 @@ def status(root: Path) -> dict[str, Any]:
     return _status(root)
 
 
-def _vendored_current(root: Path, tree: str) -> bool:
-    """Whether a vendored install was built from the plugin's runtime files (runtime-mark-scope D249).
+def runtime_own_list(root: Path, tree: str) -> bytes | None:
+    """The UPSTREAM.sha256 a vendored runtime was built from, or None when it cannot be checked (D249).
 
-    The runtime keeps the UPSTREAM.sha256 it was built from; it is trusted only as the one the manifest recorded.
-    Without it, or when it is not that one, the whole lists must be equal (D26), so an unknown install is never current.
+    It is trusted only as a regular, readable file whose SHA-256 is the tree the manifest recorded.
     """
     import hashlib
 
@@ -212,8 +211,17 @@ def _vendored_current(root: Path, tree: str) -> bool:
     try:
         data = listed.read_bytes() if listed.is_file() and not listed.is_symlink() else None
     except OSError:
-        data = None
-    if data is None or hashlib.sha256(data).hexdigest() != tree:
+        return None
+    return data if data is not None and hashlib.sha256(data).hexdigest() == tree else None
+
+
+def _vendored_current(root: Path, tree: str) -> bool:
+    """Whether a vendored install was built from the plugin's runtime files (runtime-mark-scope D249).
+
+    Without its own checked list the whole lists must be equal (D26), so an unknown install is never current.
+    """
+    data = runtime_own_list(root, tree)
+    if data is None:
         return tree == bridge_tree(BRIDGE_SOURCE)
     return _runtime_mark(data) == runtime_mark(BRIDGE_SOURCE)
 
