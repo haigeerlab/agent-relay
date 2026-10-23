@@ -291,7 +291,7 @@ Claude Code 会话在**启动时**定下用哪一份插件，之后一直用这�
 副本的版本（读副本里的 `plugin.json`，不看 `claude plugin list` 显示的版本），不一致时给出要执行的命令。
 `claude plugin list` 显示的版本与 doctor 报的不一致时，那是那条记录上的旧标签，不代表加载了旧版；doctor 会给出 warn，
 列出这些记录和清理命令（逐个目录 `claude plugin uninstall --scope local` 或更新记录），由你逐条执行，doctor 自己不动手。
-插件里带了新版 bridge 时，还要按下一节升级运行时。
+插件里带了新版 bridge 运行代码时（bridge 里只改了测试或文档不算），还要按下一节升级运行时。
 
 ## 升级运行时
 

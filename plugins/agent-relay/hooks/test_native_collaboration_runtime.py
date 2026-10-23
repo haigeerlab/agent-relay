@@ -357,6 +357,14 @@ class RuntimeMarkStatusTests(unittest.TestCase):
         (self.root / "UPSTREAM.sha256").symlink_to(elsewhere)
         self.assertFalse(self.installed(None, hashlib.sha256(older).hexdigest())["current"])
 
+    def test_an_unreadable_list_is_not_trusted(self):
+        older = edited(self.listed, "test/")
+        (self.root / "UPSTREAM.sha256").write_bytes(older)
+        (self.root / "UPSTREAM.sha256").chmod(0)
+        self.addCleanup((self.root / "UPSTREAM.sha256").chmod, 0o600)
+        self.assertFalse(self.installed(None, hashlib.sha256(older).hexdigest())["current"])
+        self.assertTrue(self.installed(None, bridge_tree(BRIDGE_SOURCE))["current"])
+
     def test_a_legacy_git_install_compares_the_8f12c88_runtime_mark(self):
         (self.root / "manifest.json").write_text(json.dumps({"commit": BRIDGE_COMMIT}))
         self.assertEqual(status(self.root)["bridge"], {"source": "upstream-git", "tree": None, "current": False})

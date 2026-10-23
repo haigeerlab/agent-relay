@@ -366,7 +366,8 @@ of the copy a new session will load (it reads that copy's `plugin.json`, not the
 and gives the command to run when they differ. A version in `claude plugin list` that disagrees with doctor
 is a stale label on that record, not the copy that loads; doctor warns and lists those records with the cleanup
 commands (`claude plugin uninstall --scope local` per folder, or an update of the record) for you to run one by one;
-doctor itself changes nothing. When the plugin carries a new bridge, also upgrade the runtime as in the next section.
+doctor itself changes nothing. When the plugin carries new bridge runtime code (a bridge change in tests or docs only
+does not count), also upgrade the runtime as in the next section.
 
 ## Upgrading the runtime
 
