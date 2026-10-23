@@ -25,16 +25,19 @@
 
 - `plugins/agent-relay/.claude-plugin/plugin.json` 与 `plugins/agent-relay/.codex-plugin/plugin.json` 的 `version`；
 - `CHANGELOG.md`：把 `[Unreleased]` 的内容移到新版本标题下，写日期。开头一段先说**要不要升级运行时**：
-  - bridge 目录（`plugins/agent-relay/bridge/`）有任何改动，写“bridge 有改动，要 `upgrade --confirm` 升级运行时”；
-  - 只改了 hooks、skills、文档，写“bridge 没变，不用升级运行时，更新插件并新开会话即可”；
+  - bridge 的运行时文件（`plugins/agent-relay/bridge/` 下的 `src/`、`package.json`、`package-lock.json`、`tsconfig.json`、
+    `scripts/build.mjs`）有改动，写“bridge 有改动，要 `upgrade --confirm` 升级运行时”；
+  - 只改了 hooks、skills、文档，或 bridge 里只改了测试、文档，写“运行时不用升级，更新插件并新开会话即可”；
   - 再写一节“从上一版升级”，列出两个宿主各自的命令；
 - `README.md` 与 `README.en.md`：开头“状态”一行的版本号，“安装”里 Codex 的 `--ref v0.x.y`；两份 README 内容要一致，
   这一版改了中文 README 的哪一节，英文版同一节也要改；
 - `.agent/state.json` 与模块 `todo.md` 里跟发版有关的勾选。
 
-bridge 目录的文件都登记在 `bridge/UPSTREAM.sha256` 里，运行时是否最新就看这份清单的哈希。所以 bridge 里**哪怕只改一份
-文档**，发版后 `doctor` 也会要求升级运行时。只改 bridge 文档的话，等下一次本来就要改 bridge 代码时一起改。改了 bridge 的
-那个提交要同时跑 `python3 scripts/bridge-manifest.py` 并在 `bridge/UPSTREAM.md` 记一行。
+bridge 目录的文件都登记在 `bridge/UPSTREAM.sha256` 里，安装时逐个文件核对。运行时是否最新只比其中的运行时文件
+（上面那五类，见 `native_collaboration_runtime.py` 的 `RUNTIME_FILES`，模块 `runtime-mark-scope`）：bridge 里只改测试或文档，
+`status` 的 `bridge.current` 仍是 true，`doctor` 不会要求升级运行时。不论改了 bridge 的哪个文件，那个提交都要同时跑
+`python3 scripts/bridge-manifest.py` 并在 `bridge/UPSTREAM.md` 记一行；bridge 新增的文件要归入 `RUNTIME_FILES` 或
+`NOT_RUNTIME_FILES`，否则测试会失败。
 
 ## 发版
 

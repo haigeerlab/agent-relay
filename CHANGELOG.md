@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+- **运行时是否最新只比运行时会用到的 bridge 文件**（模块 `runtime-mark-scope`，D248–D250）：`status` 的 `bridge.current`
+  只看 `bridge/UPSTREAM.sha256` 里 `src/`、`package.json`、`package-lock.json`、`tsconfig.json`、`scripts/build.mjs` 这几类文件；
+  bridge 里只改测试或文档不再让 `doctor` 的 `runtime` 报 warn、建议 `upgrade --confirm`（0.9.1 的那个 warn 就此消失），
+  `upgrade --confirm` 遇到这种安装也直接返回 `current`。已装的运行时不用重装：按它目录里那份清单判断，那份清单的哈希须等于
+  manifest 记的 `tree`，否则照旧整份比较。manifest 格式、`status` 输出与接口都不变；安装时的逐文件完整性校验不变。
+  `doctor` 的 warn 改为“运行时的 bridge 文件比插件旧”，只在运行时文件真不同时出现。
+
 ## [0.9.1] - 2026-10-23
 
 接口 **2.8** 不变，信箱 schema 仍为 **7**。

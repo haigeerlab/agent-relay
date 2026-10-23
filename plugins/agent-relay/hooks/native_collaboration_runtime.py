@@ -55,10 +55,37 @@ _BUILD_OUTPUTS = frozenset(("node_modules", "dist", "dist.next", "dist.old"))
 
 
 def bridge_tree(directory: Path) -> str:
-    """The version mark of a bridge copy: the SHA-256 of its UPSTREAM.sha256 (D26)."""
+    """The recorded identity of a bridge copy: the SHA-256 of its UPSTREAM.sha256 (D26)."""
     import hashlib
 
     return hashlib.sha256((Path(directory) / BRIDGE_MANIFEST).read_bytes()).hexdigest()
+
+
+# runtime-mark-scope D248: the bridge files the runtime is built from (npm ci, scripts/build.mjs, tsc over src/);
+# a name ending in "/" covers that directory. Every path in UPSTREAM.sha256 is in exactly one of the two lists.
+RUNTIME_FILES = ("src/", "package.json", "package-lock.json", "tsconfig.json", "scripts/build.mjs")
+NOT_RUNTIME_FILES = ("test/", "docs/", "tsconfig.test.json", "README.md", "CHANGELOG.md", "INSTRUCTIONS.md",
+                     "LICENSE", ".gitignore")
+# The runtime mark of the unmodified 8f12c88 list (UPSTREAM_TREE): what a legacy git-installed runtime was built from.
+UPSTREAM_RUNTIME_MARK = "d426cd2bf88e5730f3414ff7900180e475cbd6d5790f6207508ed85f033e1684"
+
+
+def _listed(name: str, entries: Sequence[str]) -> bool:
+    return any(name.startswith(entry) if entry.endswith("/") else name == entry for entry in entries)
+
+
+def _runtime_mark(listed: bytes) -> str:
+    """The SHA-256 of the UPSTREAM.sha256 lines that name runtime files, in file order (D248)."""
+    import hashlib
+
+    lines = [line for line in listed.decode("utf-8").splitlines()
+             if _listed(line.partition("  ")[2], RUNTIME_FILES)]
+    return hashlib.sha256("".join(line + "\n" for line in lines).encode("utf-8")).hexdigest()
+
+
+def runtime_mark(directory: Path) -> str:
+    """Whether two bridge copies build the same runtime: tests and docs do not change it (D248)."""
+    return _runtime_mark((Path(directory) / BRIDGE_MANIFEST).read_bytes())
 
 
 def verify_bridge_copy(directory: Path) -> None:
@@ -173,6 +200,24 @@ def status(root: Path) -> dict[str, Any]:
     return _status(root)
 
 
+def _vendored_current(root: Path, tree: str) -> bool:
+    """Whether a vendored install was built from the plugin's runtime files (runtime-mark-scope D249).
+
+    The runtime keeps the UPSTREAM.sha256 it was built from; it is trusted only as the one the manifest recorded.
+    Without it, or when it is not that one, the whole lists must be equal (D26), so an unknown install is never current.
+    """
+    import hashlib
+
+    listed = Path(root) / BRIDGE_MANIFEST
+    try:
+        data = listed.read_bytes() if listed.is_file() and not listed.is_symlink() else None
+    except OSError:
+        data = None
+    if data is None or hashlib.sha256(data).hexdigest() != tree:
+        return tree == bridge_tree(BRIDGE_SOURCE)
+    return _runtime_mark(data) == runtime_mark(BRIDGE_SOURCE)
+
+
 def _status(root: Path) -> dict[str, Any]:
     """The runtime directory itself, ignoring any swap journal (used while a swap is under way)."""
     root = Path(root)
@@ -188,12 +233,11 @@ def _status(root: Path) -> dict[str, Any]:
         if value == {"commit": BRIDGE_COMMIT}:
             # Installed by git from upstream before bridge-vendoring: the unmodified 8f12c88 tree.
             bridge = {"source": "upstream-git", "tree": None,
-                      "current": bridge_tree(BRIDGE_SOURCE) == UPSTREAM_TREE}
+                      "current": runtime_mark(BRIDGE_SOURCE) == UPSTREAM_RUNTIME_MARK}
         elif (isinstance(value, dict) and set(value) == {"commit", "source", "tree"}
                 and value["commit"] == BRIDGE_COMMIT and value["source"] == "vendored"
                 and isinstance(value["tree"], str) and re.fullmatch(r"[0-9a-f]{64}", value["tree"])):
-            bridge = {"source": "vendored", "tree": value["tree"],
-                      "current": value["tree"] == bridge_tree(BRIDGE_SOURCE)}
+            bridge = {"source": "vendored", "tree": value["tree"], "current": _vendored_current(root, value["tree"])}
         else:
             raise NativeRuntimeError("native runtime revision does not match the audited commit")
         _owned_directory(root / "dist", "native bridge build directory")

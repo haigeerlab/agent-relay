@@ -1,6 +1,7 @@
 """upgrade --confirm moves an installed runtime to the plugin's bridge without losing the mailbox (D26)."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -12,7 +13,9 @@ import unittest
 from unittest.mock import patch
 
 import native_collaboration_runtime as runtime
-from native_collaboration_runtime import BRIDGE_COMMIT, RESTART_NEXT, NativeRuntimeError, status, upgrade_runtime
+from native_collaboration_runtime import (BRIDGE_COMMIT, BRIDGE_SOURCE, RESTART_NEXT, NativeRuntimeError, status,
+                                          upgrade_runtime)
+from test_native_collaboration_runtime import edited
 
 
 def fake_run(command, **kwargs):
@@ -93,6 +96,21 @@ class RuntimeUpgradeTests(unittest.TestCase):
         again = self.upgrade()
         self.assertEqual(again["state"], "current")
         self.assertNotIn("next", again)
+
+    def test_a_test_only_difference_is_left_alone(self):
+        # runtime-mark-scope D248: a bridge change in tests or docs does not make the install older.
+        older = edited((BRIDGE_SOURCE / "UPSTREAM.sha256").read_bytes(), "test/")
+        (self.root / "UPSTREAM.sha256").write_bytes(older)
+        (self.root / "manifest.json").write_text(json.dumps(
+            {"commit": BRIDGE_COMMIT, "source": "vendored", "tree": hashlib.sha256(older).hexdigest()}))
+        commands = []
+        with patch("native_collaboration_runtime.subprocess.run", side_effect=lambda command, **_: commands.append(command)):
+            result = upgrade_runtime(self.root, backups=self.backups, running=lambda _root: 0)
+        self.assertEqual(result["state"], "current")
+        self.assertEqual(commands, [])
+        self.assertFalse(self.backups.exists())
+        self.assertEqual(sorted(self.home.iterdir()), [self.root])
+        self.assertEqual((self.root / "dist" / "server.js").read_text(), "old server\n")
 
     def test_an_upgrade_tells_the_user_to_restart_the_codex_app(self):
         # upgrade-codex-restart-check D196: Codex tasks that ran before the upgrade lost their mailbox connection.
