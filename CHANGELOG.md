@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-10-23
+
+接口 **2.8** 不变，信箱 schema 仍为 **7**。
+
+- **bridge 没变，不用升级运行时；更新插件后新开会话即可。** 0.9.1 升级后 `doctor` 的 `runtime` warn，在升级到 0.9.2
+  后应回到 ok。
 - **运行时是否最新只比运行时会用到的 bridge 文件**（模块 `runtime-mark-scope`，D248–D250）：`status` 的 `bridge.current`
   只看 `bridge/UPSTREAM.sha256` 里 `src/`、`package.json`、`package-lock.json`、`tsconfig.json`、`scripts/build.mjs` 这几类文件；
   bridge 里只改测试或文档不再让 `doctor` 的 `runtime` 报 warn、建议 `upgrade --confirm`（0.9.1 的那个 warn 就此消失），
@@ -9,6 +15,18 @@
   manifest 记的 `tree`，否则照旧整份比较。manifest 格式、`status` 输出与接口都不变；安装时的逐文件完整性校验不变。
   `doctor` 的 warn 改为“运行时的 bridge 文件比插件旧”，只在运行时文件真不同时出现；运行时目录里的清单缺失、不可读或
   对不上 `tree` 时，改说无法核实那份清单、按整份清单比较与插件不同。
+- RELEASING 与 README 中英文的“更新插件”“升级运行时”同步改为：只有 bridge 的运行时文件有改动才要升级运行时。
+
+### 从 0.9.1 升级
+
+只更新插件，不动运行时，也不用停 bridge。
+
+1. Claude Code：从本地克隆装的，`git -C <克隆> pull --ff-only` 拉到 v0.9.2 后新开会话；从 GitHub 装的，先
+   `claude plugin marketplace update agent-relay-marketplace`，再 `claude plugin update --scope user
+   agent-relay@agent-relay-marketplace`，然后新开会话。
+2. Codex：`codex plugin add agent-relay@agent-relay-marketplace`（从 GitHub 装的先把 `~/.codex/config.toml` 里的 `ref`
+   改成 `"v0.9.2"` 并 `codex plugin marketplace upgrade`）。
+3. 新会话里 `doctor` 的 `claude-plugin` 应显示加载的是 0.9.2，`runtime` 应为 ok。
 
 ## [0.9.1] - 2026-10-23
 
