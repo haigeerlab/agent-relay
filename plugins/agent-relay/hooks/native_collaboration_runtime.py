@@ -200,6 +200,24 @@ def status(root: Path) -> dict[str, Any]:
     return _status(root)
 
 
+def _vendored_current(root: Path, tree: str) -> bool:
+    """Whether a vendored install was built from the plugin's runtime files (runtime-mark-scope D249).
+
+    The runtime keeps the UPSTREAM.sha256 it was built from; it is trusted only as the one the manifest recorded.
+    Without it, or when it is not that one, the whole lists must be equal (D26), so an unknown install is never current.
+    """
+    import hashlib
+
+    listed = Path(root) / BRIDGE_MANIFEST
+    try:
+        data = listed.read_bytes() if listed.is_file() and not listed.is_symlink() else None
+    except OSError:
+        data = None
+    if data is None or hashlib.sha256(data).hexdigest() != tree:
+        return tree == bridge_tree(BRIDGE_SOURCE)
+    return _runtime_mark(data) == runtime_mark(BRIDGE_SOURCE)
+
+
 def _status(root: Path) -> dict[str, Any]:
     """The runtime directory itself, ignoring any swap journal (used while a swap is under way)."""
     root = Path(root)
@@ -215,12 +233,11 @@ def _status(root: Path) -> dict[str, Any]:
         if value == {"commit": BRIDGE_COMMIT}:
             # Installed by git from upstream before bridge-vendoring: the unmodified 8f12c88 tree.
             bridge = {"source": "upstream-git", "tree": None,
-                      "current": bridge_tree(BRIDGE_SOURCE) == UPSTREAM_TREE}
+                      "current": runtime_mark(BRIDGE_SOURCE) == UPSTREAM_RUNTIME_MARK}
         elif (isinstance(value, dict) and set(value) == {"commit", "source", "tree"}
                 and value["commit"] == BRIDGE_COMMIT and value["source"] == "vendored"
                 and isinstance(value["tree"], str) and re.fullmatch(r"[0-9a-f]{64}", value["tree"])):
-            bridge = {"source": "vendored", "tree": value["tree"],
-                      "current": value["tree"] == bridge_tree(BRIDGE_SOURCE)}
+            bridge = {"source": "vendored", "tree": value["tree"], "current": _vendored_current(root, value["tree"])}
         else:
             raise NativeRuntimeError("native runtime revision does not match the audited commit")
         _owned_directory(root / "dist", "native bridge build directory")

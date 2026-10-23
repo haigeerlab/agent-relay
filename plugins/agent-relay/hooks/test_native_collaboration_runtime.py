@@ -1,4 +1,5 @@
 """Opt-in native bridge runtime tests; never fetch upstream or change host settings."""
+import hashlib
 import json
 import os
 import stat
@@ -9,8 +10,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from native_collaboration_runtime import (BRIDGE_COMMIT, BRIDGE_SOURCE, NativeRuntimeError,
-                                          UPSTREAM_TREE, bridge_tree, default_root,
-                                          install_runtime, probe_runtime, status)
+                                          UPSTREAM_RUNTIME_MARK, UPSTREAM_TREE, bridge_tree, default_root,
+                                          install_runtime, probe_runtime, runtime_mark, status)
 
 
 
@@ -257,7 +258,7 @@ class NativeCollaborationRuntimeTests(unittest.TestCase):
         legacy = status(self.root)
         self.assertEqual(legacy["state"], "ready")
         self.assertEqual(legacy["bridge"], {"source": "upstream-git", "tree": None,
-                                            "current": bridge_tree(BRIDGE_SOURCE) == UPSTREAM_TREE})
+                                            "current": runtime_mark(BRIDGE_SOURCE) == UPSTREAM_RUNTIME_MARK})
         (self.root / "manifest.json").write_text(json.dumps(
             {"commit": BRIDGE_COMMIT, "source": "vendored", "tree": "0" * 64}))
         stale = status(self.root)
@@ -271,6 +272,7 @@ class NativeCollaborationRuntimeTests(unittest.TestCase):
     def test_the_plugin_copy_has_moved_past_the_upstream_tree(self):
         # delivery-state-machine changed the bridge, so a git-installed 8f12c88 runtime is no longer current.
         self.assertNotEqual(bridge_tree(BRIDGE_SOURCE), UPSTREAM_TREE)
+        self.assertNotEqual(runtime_mark(BRIDGE_SOURCE), UPSTREAM_RUNTIME_MARK)
 
     def test_install_refuses_a_tampered_copy_before_running_npm(self):
         import shutil
@@ -289,6 +291,77 @@ class NativeCollaborationRuntimeTests(unittest.TestCase):
             install_runtime(self.root, source=copy)
         self.assertFalse(self.root.exists())
         self.assertFalse(any(command[0] == "npm" for command in commands))
+
+
+def edited(listed: bytes, prefix: str) -> bytes:
+    """A copy of an UPSTREAM.sha256 whose first line under prefix has another digest."""
+    lines = listed.decode("utf-8").splitlines()
+    index = next(i for i, line in enumerate(lines) if line.partition("  ")[2].startswith(prefix))
+    lines[index] = "0" * 64 + "  " + lines[index].partition("  ")[2]
+    return ("\n".join(lines) + "\n").encode("utf-8")
+
+
+class RuntimeMarkStatusTests(unittest.TestCase):
+    """runtime-mark-scope D248, D249: an install is current when it was built from the plugin's runtime files."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="sg-native-mark-")
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name) / "native"
+        self.root.mkdir(mode=0o700)
+        for sub in ("dist", "mailbox", "mailbox/backups", "data"):
+            (self.root / sub).mkdir(mode=0o700)
+        (self.root / "dist" / "server.js").write_text("server\n")
+        self.listed = (BRIDGE_SOURCE / "UPSTREAM.sha256").read_bytes()
+
+    def installed(self, listed, tree: str) -> dict:
+        """status()["bridge"] of a vendored runtime holding listed as its own UPSTREAM.sha256 (None: no list)."""
+        if listed is not None:
+            (self.root / "UPSTREAM.sha256").write_bytes(listed)
+        (self.root / "manifest.json").write_text(json.dumps({"commit": BRIDGE_COMMIT, "source": "vendored",
+                                                             "tree": tree}))
+        found = status(self.root)
+        self.assertEqual(found["state"], "ready")
+        return found["bridge"]
+
+    def test_a_test_only_difference_is_current_and_keeps_the_recorded_tree(self):
+        older = edited(self.listed, "test/")
+        tree = hashlib.sha256(older).hexdigest()
+        self.assertNotEqual(tree, bridge_tree(BRIDGE_SOURCE))
+        self.assertEqual(self.installed(older, tree), {"source": "vendored", "tree": tree, "current": True})
+
+    def test_a_doc_only_difference_is_current(self):
+        older = edited(self.listed, "docs/")
+        self.assertTrue(self.installed(older, hashlib.sha256(older).hexdigest())["current"])
+
+    def test_a_runtime_file_difference_is_not_current(self):
+        for prefix in ("src/", "package-lock.json"):
+            with self.subTest(prefix=prefix):
+                older = edited(self.listed, prefix)
+                self.assertFalse(self.installed(older, hashlib.sha256(older).hexdigest())["current"])
+
+    def test_without_its_own_list_the_whole_list_rule_applies(self):
+        older_tree = hashlib.sha256(edited(self.listed, "test/")).hexdigest()
+        self.assertFalse(self.installed(None, older_tree)["current"])
+        self.assertTrue(self.installed(None, bridge_tree(BRIDGE_SOURCE))["current"])
+
+    def test_a_list_that_is_not_the_recorded_one_is_not_trusted(self):
+        # The runtime's list differs from the plugin's only in a test, but the manifest recorded another tree.
+        other_tree = hashlib.sha256(edited(self.listed, "src/")).hexdigest()
+        self.assertFalse(self.installed(edited(self.listed, "test/"), other_tree)["current"])
+
+    def test_a_symlinked_list_is_not_trusted(self):
+        older = edited(self.listed, "test/")
+        elsewhere = Path(self.tmp.name) / "elsewhere.sha256"
+        elsewhere.write_bytes(older)
+        (self.root / "UPSTREAM.sha256").symlink_to(elsewhere)
+        self.assertFalse(self.installed(None, hashlib.sha256(older).hexdigest())["current"])
+
+    def test_a_legacy_git_install_compares_the_8f12c88_runtime_mark(self):
+        (self.root / "manifest.json").write_text(json.dumps({"commit": BRIDGE_COMMIT}))
+        self.assertEqual(status(self.root)["bridge"], {"source": "upstream-git", "tree": None, "current": False})
+        with patch("native_collaboration_runtime.UPSTREAM_RUNTIME_MARK", runtime_mark(BRIDGE_SOURCE)):
+            self.assertTrue(status(self.root)["bridge"]["current"])
 
 
 if __name__ == "__main__":
