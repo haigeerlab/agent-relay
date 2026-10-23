@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-10-23
+
+接口 **2.8** 不变，信箱 schema 仍为 **7**。
+
+- **bridge 只改了一条测试，运行代码没变，不用跑 `upgrade --confirm`；更新插件后新开会话即可。** 升级后 `doctor` 的
+  `runtime` 项会报 warn（运行时标记比插件旧），原因是 `bridge/UPSTREAM.sha256` 里那条测试的哈希变了，不影响收发和
+  唤醒，可以不理；根因会在后续小版本里修。
 - **doctor 报出插件记录上的旧版本标签**（模块 `claude-plugin-label`，D246–D247）：`claude plugin list` 给 agent-relay 的
   某条记录显示的版本（如 0.6.1）与新会话实际加载的副本（如克隆里的 0.9.0）不一致时，`claude-plugin` 一项给出 warn，
   每个标签只列一次并写明实际加载的版本与路径，`next` 给出逐个目录的清理命令：有用户级记录时
@@ -9,6 +16,19 @@
   用户级记录的标签落后时给 marketplace update 加 `--scope user` update。目录已删除的记录只计数、不单独告警。
   doctor 只读，命令由用户逐条执行。原来“not loaded while readFromFolder is set”的说明并入这一项。
 - README 与 `collab`、`collaboration-ops` 写明：问加载的是哪个版本，以 doctor 的 `claude-plugin` 为准，不看列表里的版本。
+- 跨宿主接管补了一条单元测试（Claude 会话停下后 Codex 线程接管它的名字，会话还在运行时拒绝），两个方向的真实宿主
+  实测记在 `docs/acceptance/2026-10-23-cross-host-takeover.md`。
+
+### 从 0.9.0 升级
+
+只更新插件，不动运行时，也不用停 bridge。
+
+1. Claude Code：从本地克隆装的，`git -C <克隆> pull --ff-only` 拉到 v0.9.1 后新开会话；从 GitHub 装的，先
+   `claude plugin marketplace update agent-relay-marketplace`，再 `claude plugin update --scope user
+   agent-relay@agent-relay-marketplace`，然后新开会话。
+2. Codex：`codex plugin add agent-relay@agent-relay-marketplace`（从 GitHub 装的先把 `~/.codex/config.toml` 里的 `ref`
+   改成 `"v0.9.1"` 并 `codex plugin marketplace upgrade`）。
+3. 新会话里 `doctor` 的 `claude-plugin` 应显示加载的是 0.9.1；`runtime` 的 warn 见上，不用处理。
 
 ## [0.9.0] - 2026-10-20
 
