@@ -1,6 +1,6 @@
 # Plan: runtime-mark-scope
 
-<!-- spec-guard: review pending -->
+<!-- spec-guard: review approved -->
 
 Based on [`spec/runtime-mark-scope.md`](../../spec/runtime-mark-scope.md) (approved by the user on 2026-10-23:
 assumptions 1–9, D248–D250). Built on branch `claude/gallant-nobel-b7b8fe`. Nothing here touches the main clone, the
