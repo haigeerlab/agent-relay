@@ -27,7 +27,7 @@ Readers: the user; the round-2 coordinator (review, acceptance); the access moni
   set"), state stays `ok`.
 - Measured read-only on this Mac (2026-10-20): the listing's `version` equals the version of the record's
   `installPath` directory (`.../agent-relay/<version>`); `installed_plugins.json` has no `readFromFolder` field, the
-  listing derives it. 6 of the 12 local records point at folders that no longer exist.
+  listing derives it. 5 of the 12 local records point at folders that no longer exist; 7 are live.
 - README "升级" says the listing's version is not trusted and doctor reads `plugin.json`.
 
 ## Assumptions (to confirm before anything else)
@@ -42,7 +42,7 @@ Readers: the user; the round-2 coordinator (review, acceptance); the access moni
    `warn`, which makes doctor's overall state `warn`. The detail names the label, the loaded version and the loaded
    path once per distinct label, so the reader learns "label 0.6.1, actually loads 0.9.0 from <clone>". Records whose
    folder is gone are only counted in the detail and never raise `warn` on their own (no Claude session can start
-   there). Consequence: on this Mac doctor turns `warn` until the 6 live records are cleared — that is the point, but it
+   there). Consequence: on this Mac doctor turns `warn` until the 7 live records are cleared — that is the point, but it
    is a visible change from today's `ok`.
 4. **Cleanup advice, doctor never acts.** `next` lists, per live local record, `cd <folder> && claude plugin
    uninstall --scope local agent-relay@agent-relay-marketplace`, offered only when an enabled user-scope record exists
@@ -94,3 +94,12 @@ Readers: the user; the round-2 coordinator (review, acceptance); the access moni
 
 None. The user accepted all assumptions on 2026-10-20: assumption 3 uses `warn`; assumption 7 adds both the README
 sentence and the skills line.
+
+## Change log
+
+- 2026-10-23: Task 3 host measurements (user consented step by step) matched assumption 4, so the advice is unchanged:
+  (c) gone-folder records can be removed with the CLI by recreating the folder (`git init` inside it when it sits
+  inside another repository), running `claude plugin uninstall --scope local …` there and deleting it again; (b) `update
+  --scope local` moved a 0.1.0 label to 0.9.0 and `update --scope user` reported up to date; (a) after the local
+  uninstall a new session in that folder loaded the clone (0.9.0) via the user record. Count corrected: 5 of the 12
+  local records were gone, 7 live (was "6").
