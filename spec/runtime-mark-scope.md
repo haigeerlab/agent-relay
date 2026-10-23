@@ -1,6 +1,6 @@
 # Spec: runtime-mark-scope
 
-<!-- spec-guard: review pending -->
+<!-- spec-guard: review approved 801b7bfc2dbc -->
 
 ## Objective
 

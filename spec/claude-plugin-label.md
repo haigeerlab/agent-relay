@@ -1,6 +1,6 @@
 # Spec: claude-plugin-label
 
-<!-- spec-guard: review approved 9defbe14cefc -->
+<!-- spec-guard: review approved 148e0ef8e3d7 -->
 
 ## Objective
 
