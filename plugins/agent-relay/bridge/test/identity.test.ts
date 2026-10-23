@@ -319,6 +319,73 @@ test("takeover says so when it cannot confirm the previous holder stopped (D187)
   }
 });
 
+// agent-relay cross-host takeover: a Codex thread takes a name over from a Claude session that stopped.
+test("a Codex thread takes over a stopped Claude session's name, never a running one's (D186, D187)", { skip: process.platform !== "darwin" }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), "agent-relay-identity-claude-to-codex-"));
+  const a = await session(dir, "claude-session-a");
+  const codex = await session(dir, null);
+  const other = await session(dir, null);
+  let stop = () => {};
+  try {
+    assert.ok((await a.call("bridge_register", { agent: "erin", wake: "auto" })).ok);
+    assert.ok((await a.call("bridge_register", { agent: "frank", wake: "auto" })).ok);
+    assert.ok((await other.call("bridge_register", { agent: "carol" })).ok);
+    assert.ok((await other.call("bridge_send", { from: "carol", to: "erin", body: "for erin" })).ok);
+    const before = { erin: facts(dir, "erin"), frank: facts(dir, "frank") };
+    assert.deepEqual(before.erin, { host: "claude-session-a", wake: "claude-session-a", jobs: ["pending"] });
+    stop = await liveClaude(dir, "claude-session-a");
+
+    const own = { app: "codex", sessionId: "thread-1" };
+    for (const [agent, args] of [["erin", { wake: own }], ["frank", { host: own }]] as const) {
+      const refused = await codex.call("bridge_register", { agent, takeover: true, ...args });
+      assert.equal(refused.ok, false, agent);
+      assert.match(refused.text, new RegExp(`holder-still-running: "${agent}"`));
+      assert.deepEqual(facts(dir, agent), before[agent], "a refusal changes nothing");
+    }
+    assert.equal((await codex.call("bridge_send", { from: "erin", to: "carol", body: "?" })).ok, false);
+
+    stop();
+    stop = () => {};
+    const moved = await codex.call("bridge_register", { agent: "erin", takeover: true, wake: own });
+    assert.ok(moved.ok, moved.text);
+    assert.deepEqual(moved.json().wake, own);
+    assert.deepEqual(moved.json().host, own);
+    assert.match(moved.json().notes.join(" "), /taken over/);
+    assert.doesNotMatch(moved.json().notes.join(" "), /confirm/, "a readable registry without the holder needs no caveat");
+    assert.equal(moved.json().unread, 1, "the message waits in the inbox");
+    assert.deepEqual(facts(dir, "erin"), { host: "thread-1", wake: "thread-1", jobs: ["cancelled"] });
+    assert.ok((await codex.call("bridge_send", { from: "erin", to: "carol", body: "from codex" })).ok);
+    const lost = await a.call("bridge_send", { from: "erin", to: "carol", body: "from claude" });
+    assert.equal(lost.ok, false, "the Claude session no longer owns the name");
+
+    // Without wake the name moves and its binding stays where it was, as an omitted wake does for any takeover;
+    // moving the binding as well is a takeover of the binding.
+    const hostOnly = await codex.call("bridge_register", { agent: "frank", takeover: true, host: own });
+    assert.ok(hostOnly.ok, hostOnly.text);
+    assert.deepEqual(hostOnly.json().host, own);
+    assert.deepEqual(facts(dir, "frank"), { host: "thread-1", wake: "claude-session-a", jobs: [] });
+    assert.equal((await codex.call("bridge_register", { agent: "frank", wake: own })).ok, false);
+    const rebound = await codex.call("bridge_register", { agent: "frank", takeover: true, wake: own });
+    assert.ok(rebound.ok, rebound.text);
+    assert.deepEqual(facts(dir, "frank"), { host: "thread-1", wake: "thread-1", jobs: [] });
+
+    // The next turn's fresh MCP process (H25) registers its own name again without takeover.
+    await codex.close();
+    const next = await session(dir, null);
+    try {
+      const again = await next.call("bridge_register", { agent: "erin", wake: own });
+      assert.ok(again.ok, again.text);
+      assert.equal(again.json().notes, undefined);
+      assert.ok((await next.call("bridge_send", { from: "erin", to: "carol", body: "next turn" })).ok);
+    } finally {
+      await next.close();
+    }
+  } finally {
+    stop();
+    await Promise.all([a.close(), codex.close(), other.close()]);
+  }
+});
+
 test("reactivate with takeover is refused for a running holder; a delegation takes back its own stopped session's name (D187)", { skip: process.platform !== "darwin" }, async () => {
   const dir = mkdtempSync(join(tmpdir(), "agent-relay-identity-live-reactivate-"));
   const a = await session(dir, "claude-session-a");
