@@ -55,10 +55,37 @@ _BUILD_OUTPUTS = frozenset(("node_modules", "dist", "dist.next", "dist.old"))
 
 
 def bridge_tree(directory: Path) -> str:
-    """The version mark of a bridge copy: the SHA-256 of its UPSTREAM.sha256 (D26)."""
+    """The recorded identity of a bridge copy: the SHA-256 of its UPSTREAM.sha256 (D26)."""
     import hashlib
 
     return hashlib.sha256((Path(directory) / BRIDGE_MANIFEST).read_bytes()).hexdigest()
+
+
+# runtime-mark-scope D248: the bridge files the runtime is built from (npm ci, scripts/build.mjs, tsc over src/);
+# a name ending in "/" covers that directory. Every path in UPSTREAM.sha256 is in exactly one of the two lists.
+RUNTIME_FILES = ("src/", "package.json", "package-lock.json", "tsconfig.json", "scripts/build.mjs")
+NOT_RUNTIME_FILES = ("test/", "docs/", "tsconfig.test.json", "README.md", "CHANGELOG.md", "INSTRUCTIONS.md",
+                     "LICENSE", ".gitignore")
+# The runtime mark of the unmodified 8f12c88 list (UPSTREAM_TREE): what a legacy git-installed runtime was built from.
+UPSTREAM_RUNTIME_MARK = "d426cd2bf88e5730f3414ff7900180e475cbd6d5790f6207508ed85f033e1684"
+
+
+def _listed(name: str, entries: Sequence[str]) -> bool:
+    return any(name.startswith(entry) if entry.endswith("/") else name == entry for entry in entries)
+
+
+def _runtime_mark(listed: bytes) -> str:
+    """The SHA-256 of the UPSTREAM.sha256 lines that name runtime files, in file order (D248)."""
+    import hashlib
+
+    lines = [line for line in listed.decode("utf-8").splitlines()
+             if _listed(line.partition("  ")[2], RUNTIME_FILES)]
+    return hashlib.sha256("".join(line + "\n" for line in lines).encode("utf-8")).hexdigest()
+
+
+def runtime_mark(directory: Path) -> str:
+    """Whether two bridge copies build the same runtime: tests and docs do not change it (D248)."""
+    return _runtime_mark((Path(directory) / BRIDGE_MANIFEST).read_bytes())
 
 
 def verify_bridge_copy(directory: Path) -> None:
