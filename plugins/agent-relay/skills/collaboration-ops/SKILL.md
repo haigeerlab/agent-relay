@@ -62,7 +62,8 @@ unasked.
 After explicit approval, install the runtime with the command below. It builds from the bridge copy shipped in
 the plugin (`bridge/`, checked against `bridge/UPSTREAM.sha256`; no `git`), and `npm ci` still needs network.
 `status` reports `bridge.source` (`upstream-git` for a runtime installed before this, `vendored` after) and
-`bridge.current` (whether it equals the plugin's copy); do not reinstall over an existing runtime to change it.
+`bridge.current` (whether it was built from the same runtime files as the plugin's copy; tests and docs do not count);
+do not reinstall over an existing runtime to change it.
 When `bridge.current` is false, offer the upgrade and run it only after the user agrees and has closed every
 session that uses the mailbox (the command refuses while a bridge server of this runtime runs). The user stops the
 bridges either by quitting the apps (every Claude Code session, and the ChatGPT app with ⌘Q) or by ending the bridge

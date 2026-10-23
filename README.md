@@ -298,8 +298,8 @@ Claude Code 会话在**启动时**定下用哪一份插件，之后一直用这�
 **先更新插件，再升级运行时**：新版 bridge 可能把信箱升到新的 schema（0.7.0 升到 6），旧版插件的钩子读不了新 schema，
 退役命令和委派会因此停下。所以先把两个宿主的插件都更新到新版（新开会话、⌘Q 重开 ChatGPT），再做下面的升级。
 
-插件更新带来新版 bridge 时，`status` 会报告 `bridge.current: false`。agent 会先问你，在你关掉所有正在用信箱的
-会话后再执行 `python3 -B <插件目录>/hooks/native_collaboration_runtime.py upgrade --confirm`：先把邮箱备份到 `~/.agent-relay/backups/<时间>/`，
+插件更新带来新版 bridge 运行代码时，`status` 会报告 `bridge.current: false`（bridge 里只改了测试或文档不算）。
+agent 会先问你，在你关掉所有正在用信箱的会话后再执行 `python3 -B <插件目录>/hooks/native_collaboration_runtime.py upgrade --confirm`：先把邮箱备份到 `~/.agent-relay/backups/<时间>/`，
 在旁边装好新版，把 `mailbox/` 和 `data/` 挪过去再整体替换，核对通过才算完成，失败会自动换回。旧目录
 `runtime.previous-<时间>` 保留，确认无误后由你删除；宿主接入不用动。新版 bridge 会把邮箱升级到 schema 7（从更早的 schema 一次升到位，升级前自动备份）：
 回到旧运行时还能打开它，但旧版 agent-relay 插件读不了新 schema（0.7.x 最多认到 6），所以回滚时要连插件一起回滚，或者用备份恢复邮箱

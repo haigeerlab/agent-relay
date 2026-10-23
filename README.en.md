@@ -374,8 +374,9 @@ doctor itself changes nothing. When the plugin carries a new bridge, also upgrad
 which older plugins' hooks cannot read, so retiring and delegation would stop. Update the plugin on both hosts first
 (open new sessions; quit and reopen the ChatGPT app), then upgrade as below.
 
-When a plugin update brings a new bridge, `status` reports `bridge.current: false`. The agent asks you first, and
-after you close every session that uses the mailbox it runs
+When a plugin update brings new bridge runtime code, `status` reports `bridge.current: false` (a bridge change in tests
+or docs only does not count). The agent asks you first, and after you close every session that uses the mailbox it
+runs
 `python3 -B <plugin dir>/hooks/native_collaboration_runtime.py upgrade --confirm`: it backs the mailbox up to
 `~/.agent-relay/backups/<time>/`, builds the new version beside the old one, moves `mailbox/` and `data/` across,
 swaps in whole, counts as done only after the checks pass, and swaps back on failure. The old directory
