@@ -319,7 +319,7 @@ test("takeover says so when it cannot confirm the previous holder stopped (D187)
   }
 });
 
-// agent-relay cross-host takeover (SEAMS S13): a Codex thread takes a name over from a Claude session that stopped.
+// agent-relay cross-host takeover: a Codex thread takes a name over from a Claude session that stopped.
 test("a Codex thread takes over a stopped Claude session's name, never a running one's (D186, D187)", { skip: process.platform !== "darwin" }, async () => {
   const dir = mkdtempSync(join(tmpdir(), "agent-relay-identity-claude-to-codex-"));
   const a = await session(dir, "claude-session-a");
