@@ -363,8 +363,10 @@ MCP (measured on this Mac after the 0.7.0 upgrade).
 
 The `claude-plugin` item of `python3 -B <plugin dir>/hooks/native_collaboration_runtime.py doctor` checks the version
 of the copy a new session will load (it reads that copy's `plugin.json`, not the version `claude plugin list` shows)
-and gives the command to run when they differ; old cached copies that are not loaded are listed only for reference.
-When the plugin carries a new bridge, also upgrade the runtime as in the next section.
+and gives the command to run when they differ. A version in `claude plugin list` that disagrees with doctor
+is a stale label on that record, not the copy that loads; doctor warns and lists those records with the cleanup
+commands (`claude plugin uninstall --scope local` per folder, or an update of the record) for you to run one by one;
+doctor itself changes nothing. When the plugin carries a new bridge, also upgrade the runtime as in the next section.
 
 ## Upgrading the runtime
 

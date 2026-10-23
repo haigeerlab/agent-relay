@@ -592,8 +592,12 @@ class ClaudePluginCopyTests(unittest.TestCase):
         (root / ".claude-plugin" / "plugin.json").write_text(json.dumps({"name": "agent-relay", "version": version}))
         return root
 
-    def entry(self, install, *, scope="user", folder=None, version="0.1.0", enabled=True, project=None,
+    def entry(self, install, *, scope="user", folder=None, version=None, enabled=True, project=None,
               plugin="agent-relay@agent-relay-marketplace"):
+        # The listing's `version` is the label of the `installPath` copy (measured 2026-10-20), unless a test says otherwise.
+        if version is None:
+            manifest = Path(install) / ".claude-plugin" / "plugin.json"
+            version = json.loads(manifest.read_text())["version"] if manifest.exists() else "0.1.0"
         item = {"id": plugin, "version": version, "scope": scope, "enabled": enabled, "installPath": str(install)}
         if folder is not None:
             item["readFromFolder"] = str(folder)
@@ -608,23 +612,23 @@ class ClaudePluginCopyTests(unittest.TestCase):
     def listed(self, *entries):
         return (0, json.dumps(list(entries)))
 
-    def test_every_loaded_copy_matching_is_ok_whatever_the_listing_version_says(self):
-        result = self.check(self.listed(self.entry(self.clone, folder=self.clone, version="0.1.0")))
+    def test_every_loaded_copy_matching_its_label_is_ok(self):
+        result = self.check(self.listed(self.entry(self.clone, folder=self.clone)))
         self.assertEqual(result["state"], "ok", result)
         self.assertIn("even when resumed; only new sessions load the update", result["detail"])
 
-    def test_with_read_from_folder_the_install_path_copy_is_not_loaded_and_only_noted(self):
+    def test_with_read_from_folder_the_install_path_copy_is_not_loaded(self):
         # Measured 2026-10-10 (Claude Code 2.1.293 desktop and 2.1.295 CLI, with and without a local-scope entry): a new
         # session loads `readFromFolder`; the 0.5.2 the coordinator saw came from a session started before the update.
-        result = self.check(self.listed(
-            self.entry(self.cache_052, folder=self.clone, version="0.1.0"),
-            self.entry(self.cache_010, scope="local", folder=self.clone, project=self.project)))
-        self.assertEqual(result["state"], "ok", result)
-        self.assertIn("not loaded", result["detail"])
-        self.assertIn(str(self.cache_010) + " (0.1.0", result["detail"])
+        # claude-plugin-label D246: the stale `installPath` copy is still reported, as the label it gives the record.
+        result = self.check(self.listed(self.entry(self.cache_052, folder=self.clone)))
+        self.assertEqual(result["state"], "warn", result)
+        self.assertIn("every agent-relay copy Claude Code loads is 0.6.2", result["detail"])
+        self.assertNotIn("is not loaded while readFromFolder is set", result["detail"])
+        self.assertNotIn("open new Claude sessions", result["next"])
 
     def test_a_stale_install_path_without_read_from_folder_warns_with_the_scoped_command(self):
-        result = self.check(self.listed(self.entry(self.cache_052, version="0.1.0")))
+        result = self.check(self.listed(self.entry(self.cache_052)))
         self.assertEqual(result["state"], "warn", result)
         self.assertIn(str(self.cache_052) + " is 0.5.2 (user scope)", result["detail"])
         for text in ("claude plugin marketplace update agent-relay-marketplace",
@@ -662,7 +666,7 @@ class ClaudePluginCopyTests(unittest.TestCase):
 
     def test_a_loaded_copy_newer_than_this_plugin_is_only_noted(self):
         # Round-2 coordinator, review of #77 (low 2): doctor run from an older copy must not send the user backwards.
-        result = self.check(self.listed(self.entry(self.cache_010, folder=self.clone)), version="0.6.1")
+        result = self.check(self.listed(self.entry(self.clone, folder=self.clone)), version="0.6.1")
         self.assertEqual(result["state"], "ok", result)
         self.assertIn(str(self.clone) + " is 0.6.2, newer than this plugin (0.6.1)", result["detail"])
         self.assertEqual(self.check(self.listed(self.entry(self.cache_052)), version="0.6.10")["state"], "warn")
@@ -692,6 +696,69 @@ class ClaudePluginCopyTests(unittest.TestCase):
                 result = self.check(listing)
                 self.assertEqual(result["state"], "skip", result)
                 self.assertIn(reason, result["detail"])
+
+    # claude-plugin-label D246-D247: the listing's `version` (its label) that disagrees with the loaded copy.
+
+    def live(self, name):
+        folder = self.base / name
+        folder.mkdir()
+        return folder
+
+    def test_the_measured_shape_warns_once_per_label_and_advises_uninstalling_local_records(self):
+        cache_061 = self.copy("cache/0.6.1", "0.6.1")
+        cache_062 = self.copy("cache/0.6.2", "0.6.2")
+        first, second, third, fourth = (self.live(name) for name in ("p1", "p2", "p3", "p4"))
+        result = self.check(self.listed(
+            self.entry(cache_062, folder=self.clone),
+            self.entry(cache_061, scope="local", folder=self.clone, project=first),
+            self.entry(cache_061, scope="local", folder=self.clone, project=second),
+            self.entry(self.cache_052, scope="local", folder=self.clone, project=third),
+            self.entry(self.cache_010, scope="local", folder=self.clone, project=fourth)))
+        self.assertEqual(result["state"], "warn", result)
+        for label in ("0.6.1", "0.5.2", "0.1.0"):
+            self.assertEqual(result["detail"].count("label %s " % label), 1, result)
+        self.assertIn("label 0.6.1 shown by `claude plugin list`", result["detail"])
+        self.assertIn("new sessions load %s (0.6.2)" % self.clone, result["detail"])
+        for folder in (first, second, third, fourth):
+            self.assertIn("cd %s && claude plugin uninstall --scope local agent-relay@agent-relay-marketplace" % folder,
+                          result["next"])
+        self.assertNotIn("--scope user", result["next"])
+        self.assertNotIn("open new Claude sessions", result["next"])
+
+    def test_without_a_user_record_a_local_label_is_refreshed_instead_of_uninstalled(self):
+        folder = self.live("p1")
+        result = self.check(self.listed(self.entry(self.cache_010, scope="local", folder=self.clone, project=folder)))
+        self.assertEqual(result["state"], "warn", result)
+        self.assertIn("cd %s && claude plugin update --scope local agent-relay@agent-relay-marketplace" % folder,
+                      result["next"])
+        self.assertNotIn("uninstall", result["next"])
+
+    def test_a_user_record_whose_label_lags_gets_the_marketplace_and_user_update(self):
+        result = self.check(self.listed(self.entry(self.cache_052, folder=self.clone)))
+        self.assertEqual(result["state"], "warn", result)
+        self.assertIn("label 0.5.2 shown by `claude plugin list` for user scope", result["detail"])
+        self.assertIn("claude plugin marketplace update agent-relay-marketplace", result["next"])
+        self.assertIn("claude plugin update --scope user agent-relay@agent-relay-marketplace", result["next"])
+
+    def test_labels_only_on_records_whose_folder_is_gone_are_counted_and_stay_ok(self):
+        gone = self.base / "deleted-worktree"
+        result = self.check(self.listed(
+            self.entry(self.clone, folder=self.clone),
+            self.entry(self.cache_010, scope="local", folder=self.clone, project=gone),
+            self.entry(self.cache_052, scope="local", folder=self.clone, project=self.base / "also-gone")))
+        self.assertEqual(result["state"], "ok", result)
+        self.assertIn("2 records whose folder is gone carry an old label", result["detail"])
+        self.assertNotIn(str(gone), result["detail"])
+
+    def test_a_missing_or_non_string_label_is_no_mismatch(self):
+        for label in ("", 7, None):
+            with self.subTest(label=label):
+                item = self.entry(self.cache_010, folder=self.clone)
+                if label is None:
+                    del item["version"]
+                else:
+                    item["version"] = label
+                self.assertEqual(self.check(self.listed(item))["state"], "ok")
 
     def test_a_skipped_check_does_not_change_the_overall_state(self):
         from native_collaboration_doctor import _overall
