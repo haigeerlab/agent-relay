@@ -4,5 +4,5 @@
 - [x] Task 2: doctor cleanup advice (D257) — 4 tests first plus the folder-gone count case reworded (5 red), then `_plugin_labels`: user steps first, one quoted command per folder sorted, a note and no command for a live project-scope record; the folder-gone note says they can stay and how to remove one (wording taken from the 2026-10-23 measurement: `git init` when the folder sits inside another repository); `test_doctor` 56 ok; `spec/claude-plugin-label.md` change-log line
 - [x] Task 3: README, RELEASING, CHANGELOG (D257, D258) — doc guard in `test_packaging.py` (red), then README zh/en "更新插件" (clone install: the two label-refresh commands; folder-gone and project-scope sentences), RELEASING "从上一版升级" rule and "发版后" step 1, CHANGELOG `[Unreleased]`; the claude-plugin-label module-review checkpoint was already ticked on 2026-10-23
 - [x] Checkpoint (report): local validation — `scripts/validate.sh` pass on Python 3.9.6, 3.10.7, 3.14.3 with Node v24.18.0 first on PATH (48 files, 937 tests each; bridge `npm run check` 303 ok); spec-guard verify-artifacts: one warning, `spec/claude-plugin-label.md` revised after approval (the D257 change-log line), re-reviewed and approved by the user 2026-10-24 ("批准"), marker rewritten
-- [ ] Task 4: PR and CI
-- [ ] Checkpoint (gate): module review
+- [x] Task 4: PR and CI — #161 merged as cb0869b (2026-10-24), all four CI jobs passed; owner session told; ledger comment on AJM8B1H
+- [x] Checkpoint (gate): module review — 模块审查经 delegate 派 Codex：无挡合并；第 1、4、5 条在本 PR 修，第 2、3 条留下一版（账本 AJM8B1H）（PR #162）
