@@ -311,7 +311,7 @@ Commands, exit codes and wake limits are in the interface document, §2.4.
 ## Relationship with Spec Guard
 
 The two plugins are independent; either can be installed alone. When both are installed, Spec Guard reads
-[`interface.json`](plugins/agent-relay/interface.json) in this plugin's root (interface 2.8; Spec Guard accepts
+[`interface.json`](plugins/agent-relay/interface.json) in this plugin's root (interface 2.9; Spec Guard accepts
 `>=1.0,<3.0` since 0.56.0) to decide whether agent-relay is available, and uses collaboration only through
 agent-relay's skill names; without it, Spec Guard's workflows run as usual and only the steps that need collaboration
 suggest installing it.
@@ -356,7 +356,11 @@ parameter definitions behave the same way: an open Claude Code session does not 
 MCP (measured on this Mac after the 0.7.0 upgrade).
 
 - **Installed from a local clone**: new Claude sessions read the clone directly, so after `git -C <clone> pull
-  --ff-only` just open a new session; for Codex run `codex plugin add agent-relay@agent-relay-marketplace` again.
+  --ff-only` just open a new session. The user-scope record's version label in `claude plugin list` does not follow,
+  and doctor warns about it; refresh it with `claude plugin marketplace update agent-relay-marketplace` and
+  `claude plugin update --scope user agent-relay@agent-relay-marketplace` (measured on this Mac when upgrading to
+  0.9.2); these two steps only change the label. For Codex run `codex plugin add agent-relay@agent-relay-marketplace`
+  again.
 - **Installed from GitHub**: first `claude plugin marketplace update agent-relay-marketplace`, then
   `claude plugin update --scope user agent-relay@agent-relay-marketplace`. Without `--scope` this updates only the
   "current folder" project-level entry, not the user-level install (measured on this Mac). Then open a new session.
@@ -366,7 +370,9 @@ of the copy a new session will load (it reads that copy's `plugin.json`, not the
 and gives the command to run when they differ. A version in `claude plugin list` that disagrees with doctor
 is a stale label on that record, not the copy that loads; doctor warns and lists those records with the cleanup
 commands (`claude plugin uninstall --scope local` per folder, or an update of the record) for you to run one by one;
-doctor itself changes nothing. When the plugin carries new bridge runtime code (a bridge change in tests or docs only
+doctor itself changes nothing. Records whose folder is gone are not warned about or listed: they are counted, with a
+note that they can stay or be removed as it describes; a project scope record gets a note, not a command, because
+changing it changes that repository's committed `.claude/settings.json`. When the plugin carries new bridge runtime code (a bridge change in tests or docs only
 does not count), also upgrade the runtime as in the next section.
 
 ## Upgrading the runtime

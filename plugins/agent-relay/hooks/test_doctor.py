@@ -780,8 +780,49 @@ class ClaudePluginCopyTests(unittest.TestCase):
             self.entry(self.cache_010, scope="local", folder=self.clone, project=gone),
             self.entry(self.cache_052, scope="local", folder=self.clone, project=self.base / "also-gone")))
         self.assertEqual(result["state"], "ok", result)
-        self.assertIn("2 records whose folder is gone carry an old label", result["detail"])
+        self.assertIn("2 records whose folder is gone carry an old label; they can stay", result["detail"])
         self.assertNotIn(str(gone), result["detail"])
+
+    # post-090-docs D257 (revises D247): the advice for folder-gone, quoted, project-scope and grouped records.
+
+    def test_folder_gone_records_say_they_can_stay_and_how_to_remove_one(self):
+        result = self.check(self.listed(
+            self.entry(self.clone, folder=self.clone),
+            self.entry(self.cache_010, scope="local", folder=self.clone, project=self.base / "deleted-worktree")))
+        self.assertEqual(result["state"], "ok", result)
+        self.assertIn("1 record whose folder is gone carries an old label; it can stay, or you can remove it", result["detail"])
+        self.assertIn("create the folder again (run `git init` in it first if it sits inside another git repository)", result["detail"])
+        self.assertIn("claude plugin uninstall --scope local agent-relay@agent-relay-marketplace", result["detail"])
+        self.assertIn("then delete the folder", result["detail"])
+
+    def test_a_folder_with_a_space_is_quoted_in_the_cleanup_command(self):
+        folder = self.live("my project")
+        result = self.check(self.listed(self.entry(self.cache_010, scope="local", folder=self.clone, project=folder)))
+        self.assertIn("cd '%s' && claude plugin update --scope local" % folder, result["next"])
+
+    def test_a_project_scope_label_is_reported_with_a_note_and_no_command(self):
+        folder = self.live("shared")
+        result = self.check(self.listed(
+            self.entry(self.clone, folder=self.clone),
+            self.entry(self.cache_010, scope="project", folder=self.clone, project=folder)))
+        self.assertEqual(result["state"], "warn", result)
+        self.assertIn("label 0.1.0 shown by `claude plugin list` for project scope", result["detail"])
+        self.assertIn("is a project scope record kept in %s/.claude/settings.json" % folder, result["detail"])
+        self.assertIn("changing it changes that repository", result["detail"])
+        self.assertNotIn("--scope project", result["next"])
+        self.assertNotIn("cd %s" % folder, result["next"])
+
+    def test_user_steps_come_before_the_per_folder_commands(self):
+        first, second = self.live("p2"), self.live("p1")
+        result = self.check(self.listed(
+            self.entry(self.cache_010, scope="local", folder=self.clone, project=first),
+            self.entry(self.cache_052, folder=self.clone),
+            self.entry(self.cache_010, scope="local", folder=self.clone, project=second)))
+        steps = result["next"].split(", then ")
+        self.assertEqual(steps[:2], ["run `claude plugin marketplace update agent-relay-marketplace`",
+                                     "`claude plugin update --scope user agent-relay@agent-relay-marketplace`"], steps)
+        self.assertLess(result["next"].index("cd %s " % second), result["next"].index("cd %s " % first))
+        self.assertEqual(len(steps), len(set(steps)))
 
     def test_a_missing_or_non_string_label_is_no_mismatch(self):
         for label in ("", 7, None):

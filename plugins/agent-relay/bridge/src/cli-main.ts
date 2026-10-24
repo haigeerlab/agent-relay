@@ -29,7 +29,7 @@ Commands:
   register-script-identity <name> [--confirm]
                                   Record <name> as a script identity (only with --confirm)
   help                            Show this help
-  --version                       Print the version
+  --version                       Print the agent-relay release this runtime was built from
 
 Script commands read BRIDGE_DB_PATH; run them through ~/.agent-relay/bin/agent-relay.
 

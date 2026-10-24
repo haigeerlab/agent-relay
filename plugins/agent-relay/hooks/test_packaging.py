@@ -35,8 +35,9 @@ class ManifestTests(unittest.TestCase):
         marker = load(PLUGIN / "interface.json")
         # delegation-hygiene D170: 2.0 for the round-2 batch; only the version string changed (Spec Guard >=1.0,<3.0).
         # script-access D245: 2.8 adds the script commands beside status; status is unchanged.
+        # post-090-bridge D255: 2.9, a duplicate retry lists what is closed elsewhere in skipped; nothing else changed.
         launcher = "~/.agent-relay/bin/agent-relay"
-        self.assertEqual(marker, {"interface": "2.8", "status": ["python3", "-B", "hooks/relay_status.py"],
+        self.assertEqual(marker, {"interface": "2.9", "status": ["python3", "-B", "hooks/relay_status.py"],
                                   "script": {"agents": [launcher, "agents"], "outbox": [launcher, "outbox", "<agent>"],
                                              "sessions": [launcher, "sessions"],
                                              "send": [launcher, "send", "--from", "<script identity>", "--to", "<agent>"]}})
@@ -50,6 +51,27 @@ class ReadmeTests(unittest.TestCase):
         text = (REPO / "README.md").read_text(encoding="utf-8")
         for phrase in ("跨宿主会话委派", "项目级 allow", "同一台 Mac", "不会自动修改"):
             self.assertIn(phrase, text)
+
+    def test_updating_names_the_label_refresh_and_the_records_doctor_leaves_alone(self):
+        # post-090-docs D257, D258: a clone install refreshes the user label too; folder-gone and project-scope records.
+        refresh = ("claude plugin marketplace update agent-relay-marketplace",
+                   "claude plugin update --scope user agent-relay@agent-relay-marketplace")
+        for name, clone, gone, project in (
+                ("README.md", "**从本地克隆装的**", "目录已删的记录不告警，也不列出", "project scope 的记录只给说明、不给命令"),
+                ("README.en.md", "**Installed from a local clone**", "whose folder is gone are not warned about or listed",
+                 "a project scope record gets a note, not a command")):
+            with self.subTest(readme=name):
+                text = (REPO / name).read_text(encoding="utf-8")
+                section = text[text.index(clone):text.index("**", text.index(clone) + len(clone) + 1)]
+                for command in refresh:
+                    self.assertIn(command, section)
+                self.assertIn(gone, text)
+                self.assertIn(project, text)
+        releasing = (REPO / "RELEASING.md").read_text(encoding="utf-8")
+        after = releasing[releasing.index("## 发版后"):]
+        for command in refresh:
+            self.assertIn(command, after)
+            self.assertIn(command, releasing[:releasing.index("## 发版后")])
 
 
 class RelayStatusTests(unittest.TestCase):

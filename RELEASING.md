@@ -24,11 +24,18 @@
 一个 PR，标题形如 `release: agent-relay 0.x.y（接口 2.0，信箱 schema 5，委派库 schema 3）`，只改这些：
 
 - `plugins/agent-relay/.claude-plugin/plugin.json` 与 `plugins/agent-relay/.codex-plugin/plugin.json` 的 `version`；
+- bridge 的运行时文件有改动时，把 bridge 的版本号（`bridge/src/version.ts`、`bridge/package.json`、`bridge/package-lock.json`
+  的两处 `version`）也改成这一版的版本号，并跑 `python3 scripts/bridge-manifest.py`；`agent-relay --version` 和 MCP 报的版本
+  就是“运行时来自哪一版”。只改 hooks、skills、文档的发版不改它，免得逼着升级运行时；测试要求它不高于 `plugin.json`
+  的版本（模块 `post-090-bridge` D252）；
 - `CHANGELOG.md`：把 `[Unreleased]` 的内容移到新版本标题下，写日期。开头一段先说**要不要升级运行时**：
   - bridge 的运行时文件（`plugins/agent-relay/bridge/` 下的 `src/`、`package.json`、`package-lock.json`、`tsconfig.json`、
     `scripts/build.mjs`）有改动，写“bridge 有改动，要 `upgrade --confirm` 升级运行时”；
   - 只改了 hooks、skills、文档，或 bridge 里只改了测试、文档，写“运行时不用升级，更新插件并新开会话即可”；
-  - 再写一节“从上一版升级”，列出两个宿主各自的命令；
+  - 再写一节“从上一版升级”，列出两个宿主各自的命令；Claude Code 从本地克隆装的，写 `git pull` 之后再跑
+    `claude plugin marketplace update agent-relay-marketplace` 和
+    `claude plugin update --scope user agent-relay@agent-relay-marketplace` 刷新用户级记录的标签，否则 doctor 报 warn
+    （模块 `post-090-docs` D258）；
 - `README.md` 与 `README.en.md`：开头“状态”一行的版本号，“安装”里 Codex 的 `--ref v0.x.y`；两份 README 内容要一致，
   这一版改了中文 README 的哪一节，英文版同一节也要改；
 - `.agent/state.json` 与模块 `todo.md` 里跟发版有关的勾选。
@@ -51,7 +58,9 @@ gh release create v0.x.y --title "agent-relay 0.x.y (interface 2.0)" --notes-fil
 
 ## 发版后
 
-1. 用户在真实宿主上更新：先把本机克隆拉到新标签，两个宿主都更新插件；bridge 的运行时文件有改动时（只改测试或文档不算，
+1. 用户在真实宿主上更新：先把本机克隆拉到新标签，两个宿主都更新插件（Claude Code 从本地克隆装的，拉完再跑
+   `claude plugin marketplace update agent-relay-marketplace` 和
+   `claude plugin update --scope user agent-relay@agent-relay-marketplace` 刷新标签）；bridge 的运行时文件有改动时（只改测试或文档不算，
    见上文）关掉所有用到信箱的会话，再跑 `upgrade --confirm`（步骤见 README“更新插件”“升级运行时”）。终端输出可能乱序，以安装后的文件和 `doctor` 为准。
 2. `doctor` 各项为 ok（环境类的 warn 按它给的下一步处理）。
 3. 请协调会话在新会话里做真实宿主验收，按 [验收清单](docs/acceptance/checklist.md) 里涉及这一版的条目。

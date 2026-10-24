@@ -446,7 +446,7 @@ export class BridgeStore {
         if (differs.length && input.fromAgent !== "bridge") {
           throw conflictError(idempotencyKey, input.fromAgent, stored.id, stored.deliveryState, differs);
         }
-        return { message: stored, duplicate: true, closed, skipped: [] };
+        return { message: stored, duplicate: true, closed, skipped: this.skippedOnRetry([...alsoAnswers, ...withdraws], stored.id) };
       }
     }
 
@@ -474,7 +474,10 @@ export class BridgeStore {
             { toAgent: "", body: "", threadId: null, replyTo: null, expectsReply: false,
               alsoAnswers: lenient ? this.closableBy(alsoAnswers, Number(earlier.id)) : alsoAnswers,
               withdraws: lenient ? this.closableBy(withdraws, Number(earlier.id)) : withdraws }).length;
-          if (same) return { message: this.toMessage(earlier), duplicate: true, closed, skipped: [] };
+          if (same) {
+            return { message: this.toMessage(earlier), duplicate: true, closed,
+              skipped: this.skippedOnRetry([...alsoAnswers, ...withdraws], Number(earlier.id)) };
+          }
         }
       }
     }
@@ -613,6 +616,16 @@ export class BridgeStore {
     });
   }
 
+  /**
+   * post-090-bridge D253 (revises D238): on a duplicate return, the ids of the retried lists that the stored message
+   * did not close and that are closed now, so the sender sees each id in `closed` or `skipped`. Nothing is stored.
+   */
+  private skippedOnRetry(ids: number[], storedId: number): Skipped[] {
+    return [...new Set(ids)].map((id) => this.closedState(id))
+      .filter((state): state is Skipped => state !== null && state.by !== storedId)
+      .sort((x, y) => x.id - y.id);
+  }
+
   /** request-closing D216: one closure row per request; revision D237: a lost race is added to `skipped`. */
   private closeRequests(messageId: number, ids: number[], kind: ClosureKind, skipped: Skipped[]): Closure[] {
     const insert = this.db.prepare("INSERT INTO request_closures (request_id, message_id, kind, closed_at) VALUES (?, ?, ?, ?)");
@@ -625,7 +638,12 @@ export class BridgeStore {
       } catch (error) {
         if (!/constraint/i.test(String((error as Error).message))) throw error;
         const other = this.db.prepare("SELECT message_id, kind FROM request_closures WHERE request_id = ?").get(id) as
-          { message_id: number | bigint; kind: ClosureKind };
+          { message_id: number | bigint; kind: ClosureKind } | undefined;
+        // post-090-bridge D254: a constraint other than the one closure per request leaves no row to report.
+        if (!other) {
+          throw new Error(`Could not close request #${id} with message #${messageId}, and no closure is recorded for it: ` +
+            (error as Error).message);
+        }
         skipped.push({ id, reason: other.kind, by: Number(other.message_id) });
       }
     }
