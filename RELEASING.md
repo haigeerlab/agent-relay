@@ -24,6 +24,10 @@
 一个 PR，标题形如 `release: agent-relay 0.x.y（接口 2.0，信箱 schema 5，委派库 schema 3）`，只改这些：
 
 - `plugins/agent-relay/.claude-plugin/plugin.json` 与 `plugins/agent-relay/.codex-plugin/plugin.json` 的 `version`；
+- bridge 的运行时文件有改动时，把 bridge 的版本号（`bridge/src/version.ts`、`bridge/package.json`、`bridge/package-lock.json`
+  的两处 `version`）也改成这一版的版本号，并跑 `python3 scripts/bridge-manifest.py`；`agent-relay --version` 和 MCP 报的版本
+  就是“运行时来自哪一版”。只改 hooks、skills、文档的发版不改它，免得逼着升级运行时；测试要求它不高于 `plugin.json`
+  的版本（模块 `post-090-bridge` D252）；
 - `CHANGELOG.md`：把 `[Unreleased]` 的内容移到新版本标题下，写日期。开头一段先说**要不要升级运行时**：
   - bridge 的运行时文件（`plugins/agent-relay/bridge/` 下的 `src/`、`package.json`、`package-lock.json`、`tsconfig.json`、
     `scripts/build.mjs`）有改动，写“bridge 有改动，要 `upgrade --confirm` 升级运行时”；

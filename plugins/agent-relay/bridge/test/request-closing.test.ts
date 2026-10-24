@@ -390,11 +390,59 @@ test("a retry of a send that skipped a request is a duplicate, by key and by D35
     alsoAnswers: [old.id], idempotencyKey: "user-answer" });
   assert.equal(byKey.duplicate, true);
   assert.equal(byKey.message.id, first.message.id);
-  assert.deepEqual(byKey.skipped, []);
+  // post-090-bridge D253 (revises D238): the retry lists what is closed elsewhere, as the first send did.
+  assert.deepEqual(byKey.skipped, [{ id: old.id, reason: "withdrawn", by: v2.id }]);
   const byReply = store.deliver({ fromAgent: "helper", toAgent: "asker", body: "answer", replyTo: v2.id,
     alsoAnswers: [old.id] });
   assert.equal(byReply.duplicate, true);
   assert.equal(byReply.message.id, first.message.id);
+  assert.deepEqual(byReply.skipped, [{ id: old.id, reason: "withdrawn", by: v2.id }]);
+  store.close();
+});
+
+test("a lenient D35 fold reports the ids closed elsewhere, for answers and withdrawals (D253)", () => {
+  const store = fresh();
+  const asked = store.send({ fromAgent: "asker", toAgent: "helper", body: "main", expectsReply: true });
+  const open = store.send({ fromAgent: "twin", toAgent: "helper", body: "same", expectsReply: true });
+  const gone = store.send({ fromAgent: "other", toAgent: "helper", body: "same", expectsReply: true });
+  const rival = store.deliver({ fromAgent: "helper", toAgent: "other", body: "done", replyTo: gone.id }).message;
+  const send = () => store.deliver({ fromAgent: "helper", toAgent: "asker", body: "answer", replyTo: asked.id,
+    alsoAnswers: [gone.id, open.id] });
+  const first = send();
+  assert.deepEqual(first.closed, [{ id: open.id, kind: "answered" }]);
+  const retry = send();
+  assert.equal(retry.duplicate, true);
+  assert.deepEqual(retry.skipped, [{ id: gone.id, reason: "answered", by: rival.id }]);
+  assert.deepEqual(retry.skipped, first.skipped);
+
+  const mine = store.send({ fromAgent: "helper", toAgent: "asker", body: "q1", expectsReply: true });
+  const mine2 = store.send({ fromAgent: "helper", toAgent: "asker", body: "q2", expectsReply: true });
+  store.deliver({ fromAgent: "helper", toAgent: "asker", body: "never mind q2", withdraws: [mine2.id] });
+  const reply = store.send({ fromAgent: "asker", toAgent: "helper", body: "anything else?", expectsReply: true });
+  const withdraw = () => store.deliver({ fromAgent: "helper", toAgent: "asker", body: "drop both", replyTo: reply.id,
+    withdraws: [mine2.id, mine.id] });
+  const firstWithdraw = withdraw();
+  assert.deepEqual(firstWithdraw.closed, [{ id: mine.id, kind: "withdrawn" }]);
+  const again = withdraw();
+  assert.equal(again.duplicate, true);
+  assert.deepEqual(again.skipped, firstWithdraw.skipped);
+  assert.equal(again.skipped.length, 1);
+  store.close();
+});
+
+test("an exact retry with nothing closed elsewhere still skips nothing (D253)", () => {
+  const store = fresh();
+  const asked = store.send({ fromAgent: "asker", toAgent: "helper", body: "main", expectsReply: true });
+  const also = store.send({ fromAgent: "twin", toAgent: "helper", body: "same", expectsReply: true });
+  const send = () => store.deliver({ fromAgent: "helper", toAgent: "asker", body: "answer", replyTo: asked.id,
+    alsoAnswers: [also.id], idempotencyKey: "k" });
+  send();
+  const retry = send();
+  assert.equal(retry.duplicate, true);
+  assert.deepEqual(retry.skipped, []);
+  const plain = () => store.deliver({ fromAgent: "helper", toAgent: "twin", body: "plain", replyTo: also.id });
+  plain();
+  assert.deepEqual(plain().skipped, []);
   store.close();
 });
 
@@ -415,5 +463,18 @@ test("losing the race between the check and the closure becomes a skip, not a re
   assert.deepEqual(result.closed, []);
   assert.deepEqual(result.skipped, [{ id: b.id, reason: "answered", by: rival.id }]);
   assert.equal(store.inbox("twin").filter((m) => m.fromAgent === "bridge").length, 0, "no notice for a lost race");
+  store.close();
+});
+
+test("a constraint failure without a closure row is a readable error, not a TypeError (D254)", () => {
+  const store = fresh();
+  const asked = store.send({ fromAgent: "twin", toAgent: "helper", body: "q", expectsReply: true });
+  const raw = (store as unknown as { db: DatabaseSync }).db;
+  raw.exec(`CREATE TRIGGER refuse_closure BEFORE INSERT ON request_closures
+    BEGIN SELECT RAISE(ABORT, 'CHECK constraint failed: test'); END`);
+  assert.throws(() => store.deliver({ fromAgent: "helper", toAgent: "asker", body: "a", alsoAnswers: [asked.id] }),
+    (error: unknown) => !(error instanceof TypeError) && error instanceof Error
+      && new RegExp(`request #${asked.id}.*message #\\d+.*CHECK constraint failed: test`).test(error.message));
+  assert.equal(store.outbox("helper", { includeAcknowledged: true }).entries.length, 0, "the send stored nothing");
   store.close();
 });

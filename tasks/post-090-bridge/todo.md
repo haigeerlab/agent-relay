@@ -1,10 +1,10 @@
 # Todo: post-090-bridge
 
-- [ ] Gate 0 (gate): ecosystem-lead on interface 2.9 (relayed by the owner session)
-- [ ] Task 1: script recipient warning (D251)
-- [ ] Task 2: version follows runtime releases (D252) — tests, help line, RELEASING rule; the number moves in the release PR
-- [ ] Task 3: duplicate returns report skipped ids (D253)
-- [ ] Task 4: readable error for a missing closure row (D254)
-- [ ] Task 5: interface 2.9 and docs (D255)
-- [ ] Checkpoint (report): bridge green
+- [x] Gate 0 (gate): ecosystem-lead on interface 2.9 — agreed as a minor bump (its mailbox message #11574, relayed by the owner session 2026-10-24): module-crew and spec-guard do not read `skipped`; decision-inbox records it once per send, extra entries do not break it
+- [x] Task 1: script recipient warning (D251) — 2 tests first (red), then one branch in `checkRecipient` (a script host gets "is a script identity: nothing wakes it…", the stale block skips it); the CLI `send` carries it through `sendMessage`
+- [x] Task 2: version follows runtime releases (D252) — lock-file / plugin-version guard (already held, kept as a guard) and the help-line test (red), then the help line; RELEASING rule in Task 5; the number moves to 0.9.3 in the release PR
+- [x] Task 3: duplicate returns report skipped ids (D253) — the D238 retry case now expects the skip (red), a lenient-fold case for answers and withdrawals (red) and an exact-retry case (already held); `skippedOnRetry` used by both duplicate returns
+- [x] Task 4: readable error for a missing closure row (D254) — a trigger raising a constraint error (red: TypeError), then the check in `closeRequests`; the send stores nothing
+- [x] Task 5: interface 2.9 and docs (D255) — `interface.json` and `test_packaging` (red first), `relay_status.py` docstring, interface document §1 and the `bridge_send` row, README zh/en interface number, RELEASING bridge-version rule, CHANGELOG `[Unreleased]`, `bridge/CHANGELOG.md`, `UPSTREAM.md` row, manifest; skills and server instructions needed no change (they never said `skipped` is empty on a retry); `spec/request-closing.md` revision note
+- [x] Checkpoint (report): bridge green — `npm run check` 303 tests ok
 - [ ] Checkpoint (gate): module review

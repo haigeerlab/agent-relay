@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+接口 **2.9**（新增），信箱 schema 仍为 **7**。bridge 的运行代码有改动，要 `upgrade --confirm` 升级运行时。
+
+- **发给 script 身份时有提示**（模块 `post-090-bridge`，D251）：session 用 `bridge_send`（或脚本用 CLI `send`）发给 script
+  身份时，`warnings` 写明它不会被唤醒、也没有东西提醒它去读，回信只能等它的脚本下次运行；不再给“没有唤醒绑定、最近活跃于…”那条。
+- **`--version` 报运行时来自哪一版**（D252）：bridge 的版本号改为最近一次改动运行时的 agent-relay 发版（原来一直是上游的
+  0.4.0），`agent-relay --version` 和 MCP 的 `serverInfo.version` 都报它；只改 hooks 或文档的发版不改它。
+- **重复重试也列出已在别处关掉的请求**（D253，修订 D238，接口 2.9）：带 `alsoAnswers` 或 `withdraws` 的发送被当成重复
+  （同一个 `idempotencyKey`，或 D35 的同一份回复）时，`skipped` 列出这条消息没关、而现在已被别的消息关掉（或失败、过期）的编号，
+  不再总是 `[]`；每个编号都会出现在 `closed` 或 `skipped` 里。
+- **关闭请求时撞到意外的约束会给出可读的错误**（D254），整次发送照旧不存任何东西。
+
 ## [0.9.2] - 2026-10-23
 
 接口 **2.8** 不变，信箱 schema 仍为 **7**。

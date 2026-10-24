@@ -2,7 +2,7 @@
 """Tell a caller such as Spec Guard's probe whether the agent-relay mailbox runtime is ready.
 
 Declared as the `status` command in `interface.json` (interface 1.x, decision D4; 1.1 since cleanup-gaps D62, 1.2 since codex-gated-wake D69, 1.3 since acceptance-030-gaps D75/D77, 1.4 since inbox-read-receipt D101 and
-upgrade-recovery; 2.0 since delegation-hygiene D170, 2.1 since awaiting-reply-view D205, 2.2 since read-own-sent D214, 2.3 since request-closing D221, 2.4 since agents-view-polish D227, 2.5 since accepted-unread-notice D231, 2.6 since codex-approval-presence D236, 2.7 since request-closing revision D239, 2.8 since script-access D245, with this command and its output
+upgrade-recovery; 2.0 since delegation-hygiene D170, 2.1 since awaiting-reply-view D205, 2.2 since read-own-sent D214, 2.3 since request-closing D221, 2.4 since agents-view-polish D227, 2.5 since accepted-unread-notice D231, 2.6 since codex-approval-presence D236, 2.7 since request-closing revision D239, 2.8 since script-access D245, 2.9 since post-090-bridge D255, with this command and its output
 unchanged). Prints one JSON object,
 `{"ready": true|false, "setup": "<how to set it up>"}`, from the read-only runtime status; it never creates,
 installs, or repairs anything.

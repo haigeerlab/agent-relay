@@ -1,6 +1,6 @@
 # Plan: post-090-bridge
 
-<!-- spec-guard: review pending -->
+<!-- spec-guard: review approved -->
 
 Based on [`spec/post-090-bridge.md`](../../spec/post-090-bridge.md) (approved by the user on 2026-10-24: assumptions
 1–7, D251–D255). Built on branch `claude/unruffled-stonebraker-c923dd` together with `post-090-docs`; one PR for both

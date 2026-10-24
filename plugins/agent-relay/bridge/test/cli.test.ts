@@ -154,3 +154,24 @@ test("the reported version matches package.json", () => {
   const manifest = JSON.parse(readFileSync(join(projectRoot, "package.json"), "utf8")) as { version: string };
   assert.equal(VERSION, manifest.version);
 });
+
+// agent-relay post-090-bridge D252: the bridge carries the agent-relay release that last changed its runtime files.
+test("the bridge version matches its lock file and is no newer than the plugin (D252)", () => {
+  const lock = JSON.parse(readFileSync(join(projectRoot, "package-lock.json"), "utf8")) as
+    { version: string; packages: Record<string, { version?: string }> };
+  assert.equal(lock.version, VERSION);
+  assert.equal(lock.packages[""].version, VERSION);
+  const parts = (v: string) => v.split(".").map(Number);
+  for (const host of [".claude-plugin", ".codex-plugin"]) {
+    const plugin = JSON.parse(readFileSync(join(projectRoot, "..", host, "plugin.json"), "utf8")) as { version: string };
+    const [have, want] = [parts(VERSION), parts(plugin.version)];
+    const newer = have.findIndex((n, i) => n !== want[i]);
+    assert.ok(newer === -1 || have[newer] < want[newer], `bridge ${VERSION} is newer than ${host} ${plugin.version}`);
+  }
+});
+
+test("help says --version is the release the runtime was built from (D252)", () => {
+  const dbPath = join(mkdtempSync(join(tmpdir(), "ar-cli-")), "bridge.sqlite");
+  const result = cli(["help"], dbPath);
+  assert.match(result.stdout, /--version\s+Print the agent-relay release this runtime was built from/);
+});

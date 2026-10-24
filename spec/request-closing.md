@@ -222,3 +222,11 @@ wrong id; here the id was right and the request was already closed, so what the 
 
 - On the real host, with test identities: B withdraws A; a reply to B with `alsoAnswers: [A]` is delivered and reports
   A in `skipped` as `withdrawn` by B; a wrong id is still refused with nothing stored; Spec Guard accepts 2.7.
+
+## Revision 2026-10-24: a duplicate retry lists what is closed elsewhere (post-090-bridge)
+
+Approved by the user on 2026-10-24 in `spec/post-090-bridge.md` (D253, D255). D238's "a duplicate retry returns
+`skipped: []`" no longer holds: both duplicate returns (idempotency key and D35) list in `skipped` the ids of the
+retried lists that the stored message did not close and that are closed now, `[]` when there are none, so every id is
+in `closed` or `skipped`. Interface 2.8 → 2.9 (an addition). Requirement 1's "a duplicate retry returns `skipped: []`"
+reads accordingly. D254 there also makes a closure insert that fails without a closure row a readable error.

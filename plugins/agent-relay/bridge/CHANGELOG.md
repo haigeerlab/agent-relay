@@ -1,5 +1,12 @@
 # Changelog
 
+## agent-relay 0.9.3
+
+`post-090-bridge` (D251–D255), schema 7 unchanged, interface 2.9: a send to a script identity warns that nothing wakes
+it; the bridge's version is the agent-relay release that last changed its runtime files (upstream 0.4.0 until then);
+a duplicate retry lists in `skipped` the ids closed elsewhere; a closure insert that fails without a closure row is a
+readable error.
+
 ## agent-relay 0.9.0
 
 `script-access` (D240–D245), schema 7 unchanged: the runtime CLI gains `agents`, `outbox <agent>` and `sessions`

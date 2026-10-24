@@ -121,6 +121,17 @@ test("send refuses a session's name, a body on argv, and returns bridge_send's o
   assert.equal(JSON.parse(fromFile.stdout).bodyLength, "from a file".length);
 });
 
+test("send to another script identity carries the script warning (post-090-bridge D251)", async () => {
+  const { dbPath, env } = setup();
+  const seed = new BridgeStore(dbPath);
+  seed.registerScriptIdentity("di-patrol");
+  seed.registerScriptIdentity("di-report");
+  seed.close();
+  const sent = await cli(["send", "--from", "di-patrol", "--to", "di-report", "--no-wake"], env, "status");
+  assert.equal(sent.code, 0, sent.stderr);
+  assert.match(JSON.parse(sent.stdout).warnings.join("\n"), /"di-report" is a script identity/);
+});
+
 async function fakeClaudeSession(home: string, sessionId: string, { reply = true }: { reply?: boolean } = {}) {
   const root = join(home, ".claude", "sessions");
   const directory = "/tmp/cc-socks-" + process.getuid!();

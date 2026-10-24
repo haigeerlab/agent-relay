@@ -97,3 +97,24 @@ test("a script identity's presence is unknown, never looked up (D244)", async ()
   assert.deepEqual(entry?.presence, { state: "unknown", detail: "script identity" });
   store.close();
 });
+
+// agent-relay post-090-bridge D251: a session sending to a script identity is told nothing wakes it.
+import { checkRecipient } from "../src/addressing.js";
+
+test("a send to a script identity warns that nothing wakes it, instead of the stale-binding warning (D251)", async () => {
+  const store = new BridgeStore(":memory:");
+  store.registerScriptIdentity("di-patrol");
+  store.register("hub", [], { app: "claude", sessionId: "s1" });
+  store.register("worker", [], { app: "codex", sessionId: "t1" });
+  const later = Date.now() + 3 * 24 * 3_600_000;
+  const script = await checkRecipient(store, "di-patrol", { now: later });
+  assert.equal(script.ok, true);
+  assert.equal(script.warnings.filter((w) => /script identity/.test(w)).length, 1);
+  assert.match(script.warnings.join("\n"), /nothing wakes it/);
+  assert.doesNotMatch(script.warnings.join("\n"), /no background ping binding/);
+  for (const name of ["hub", "worker"]) {
+    const other = await checkRecipient(store, name, { now: later });
+    assert.doesNotMatch(other.warnings.join("\n"), /script identity/);
+  }
+  store.close();
+});
