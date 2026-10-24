@@ -2,7 +2,9 @@
 
 ## [Unreleased]
 
-接口 **2.9**（新增），信箱 schema 仍为 **7**。bridge 的运行代码有改动，要 `upgrade --confirm` 升级运行时。
+## [0.9.3] - 2026-10-25
+
+**bridge 有改动，要 `upgrade --confirm` 升级运行时；接口 2.8 → 2.9（只增加内容）；信箱 schema 7 不变。**
 
 - **发给 script 身份时有提示**（模块 `post-090-bridge`，D251）：session 用 `bridge_send`（或脚本用 CLI `send`）发给 script
   身份时，`warnings` 写明它不会被唤醒、也没有东西提醒它去读，回信只能等它的脚本下次运行；不再给“没有唤醒绑定、最近活跃于…”那条。
@@ -21,6 +23,22 @@
   `claude plugin marketplace update agent-relay-marketplace` 和 `claude plugin update --scope user agent-relay@agent-relay-marketplace`，
   否则用户级记录的标签停在旧版本、doctor 报 warn。
 - request-closing 的测试改名并补“不记已读”的断言，spec 修订假设 4 的措辞改正（D256），不影响运行时。
+
+### 从 0.9.2 升级
+
+schema 不变；bridge 的运行时文件有改动，要升级运行时。
+
+1. 把主克隆快进到 v0.9.3：`git -C <克隆> pull --ff-only`（从 GitHub 装的，把 `~/.codex/config.toml` 里的 `ref` 改成
+   `"v0.9.3"` 并 `codex plugin marketplace upgrade`）。
+2. Codex：`codex plugin add agent-relay@agent-relay-marketplace`。
+3. Claude Code：`claude plugin marketplace update agent-relay-marketplace`，再
+   `claude plugin update --scope user agent-relay@agent-relay-marketplace`，刷新用户级记录的标签。
+4. **升级运行时**：关掉所有用到信箱的会话或只结束 bridge（见 README“升级运行时”），确认 `pgrep -fl
+   "agent-relay/runtime/dist/server.js"` 没有输出，再执行 `python3 -B <插件目录>/hooks/native_collaboration_runtime.py
+   upgrade --confirm`，输出应为 `"state": "upgraded"`，其中 `launcher.ok` 为 `true`。
+5. Codex 用 ⌘Q 完全退出 ChatGPT 应用再打开，然后新开 Claude Code 和 Codex 会话。
+6. 新会话里跑 `doctor`，各项应为 ok（`claude-plugin` 显示加载的是 0.9.3，`runtime` 为 ok；环境类的 warn 按它给的下一步处理）；
+   `~/.agent-relay/bin/agent-relay --version` 应报 0.9.3。
 
 ## [0.9.2] - 2026-10-23
 
