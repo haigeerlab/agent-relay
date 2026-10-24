@@ -6,6 +6,9 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+
 import { BridgeStore } from "../src/bridge-store.js";
 import { parseCliCommand } from "../src/cli-logic.js";
 import { defaultDbPath } from "../src/paths.js";
@@ -167,6 +170,30 @@ test("the bridge version matches its lock file and is no newer than the plugin (
     const [have, want] = [parts(VERSION), parts(plugin.version)];
     const newer = have.findIndex((n, i) => n !== want[i]);
     assert.ok(newer === -1 || have[newer] < want[newer], `bridge ${VERSION} is newer than ${host} ${plugin.version}`);
+  }
+});
+
+// Review of #161: run --version and read the MCP serverInfo, not only the constant.
+test("--version and the MCP serverInfo both report VERSION (D252)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ar-version-"));
+  const dbPath = join(dir, "bridge.sqlite");
+  const printed = cli(["--version"], dbPath);
+  assert.equal(printed.status, 0, printed.stderr);
+  assert.equal(printed.stdout.trim(), VERSION);
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: ["--import", "tsx", "src/server.ts"],
+    cwd: projectRoot,
+    env: { PATH: process.env.PATH ?? "", HOME: dir, BRIDGE_DB_PATH: dbPath, BRIDGE_BACKUPS: "0",
+      XDG_DATA_HOME: join(dir, "data") },
+    stderr: "pipe",
+  });
+  const client = new Client({ name: "version-check", version: "1.0.0" });
+  await client.connect(transport);
+  try {
+    assert.deepEqual(client.getServerVersion(), { name: "agent-relay", version: VERSION });
+  } finally {
+    await client.close();
   }
 });
 

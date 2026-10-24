@@ -481,3 +481,49 @@ test("a constraint failure without a closure row is a readable error, not a Type
   assert.equal(store.outbox("helper", { includeAcknowledged: true }).entries.length, 0, "the send stored nothing");
   store.close();
 });
+
+test("a retry naming an id a new send would refuse is refused too, even when that id was answered elsewhere (D253 review)", () => {
+  const store = fresh();
+  const asked = store.send({ fromAgent: "asker", toAgent: "helper", body: "main", expectsReply: true });
+  const note = store.send({ fromAgent: "twin", toAgent: "helper", body: "fyi, no reply needed" });
+  store.deliver({ fromAgent: "helper", toAgent: "twin", body: "thanks", replyTo: note.id });
+  const notMine = store.send({ fromAgent: "asker", toAgent: "other", body: "q", expectsReply: true });
+  store.deliver({ fromAgent: "other", toAgent: "asker", body: "a", replyTo: notMine.id });
+  const theirs = store.send({ fromAgent: "twin", toAgent: "asker", body: "q", expectsReply: true });
+  store.deliver({ fromAgent: "asker", toAgent: "twin", body: "a", replyTo: theirs.id });
+  const answer = { fromAgent: "helper", toAgent: "asker", body: "answer", replyTo: asked.id };
+  store.deliver({ ...answer, idempotencyKey: "k" });
+  const count = () => store.outbox("helper", { includeAcknowledged: true }).entries.length;
+  const before = count();
+  assert.throws(() => store.deliver({ ...answer, idempotencyKey: "k", alsoAnswers: [note.id] }), /not a request/);
+  assert.throws(() => store.deliver({ ...answer, alsoAnswers: [notMine.id] }), /addressed to "other"/);
+  assert.throws(() => store.deliver({ ...answer, idempotencyKey: "k", withdraws: [theirs.id] }), /sent by "twin"/);
+  assert.throws(() => store.deliver({ ...answer, withdraws: [999_999] }), /no message #999999/);
+  assert.equal(count(), before, "nothing was stored");
+  store.close();
+});
+
+test("a retry with both alsoAnswers and withdraws reports each id once, sorted, by key and by D35 (D253 review)", () => {
+  const store = fresh();
+  const asked = store.send({ fromAgent: "asker", toAgent: "helper", body: "main", expectsReply: true });
+  const a1 = store.send({ fromAgent: "twin", toAgent: "helper", body: "same", expectsReply: true });
+  const a2 = store.send({ fromAgent: "other", toAgent: "helper", body: "same", expectsReply: true });
+  const w1 = store.send({ fromAgent: "helper", toAgent: "asker", body: "q1", expectsReply: true });
+  const w2 = store.send({ fromAgent: "helper", toAgent: "asker", body: "q2", expectsReply: true });
+  const answeredA2 = store.deliver({ fromAgent: "helper", toAgent: "other", body: "done", replyTo: a2.id }).message;
+  const withdrewW2 = store.deliver({ fromAgent: "helper", toAgent: "asker", body: "drop q2", withdraws: [w2.id] }).message;
+  const send = (key?: string) => store.deliver({ fromAgent: "helper", toAgent: "asker", body: "answer", replyTo: asked.id,
+    alsoAnswers: [a2.id, a1.id], withdraws: [w2.id, w1.id], ...(key ? { idempotencyKey: key } : {}) });
+  const first = send("k");
+  const closed = [{ id: a1.id, kind: "answered" }, { id: w1.id, kind: "withdrawn" }];
+  const skipped = [{ id: a2.id, reason: "answered", by: answeredA2.id }, { id: w2.id, reason: "withdrawn", by: withdrewW2.id }];
+  assert.deepEqual(first.closed, closed);
+  assert.deepEqual(first.skipped, skipped);
+  for (const retry of [send("k"), send()]) {
+    assert.equal(retry.duplicate, true);
+    assert.equal(retry.message.id, first.message.id);
+    assert.deepEqual(retry.closed, closed);
+    assert.deepEqual(retry.skipped, skipped);
+  }
+  store.close();
+});

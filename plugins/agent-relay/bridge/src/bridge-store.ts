@@ -446,6 +446,7 @@ export class BridgeStore {
         if (differs.length && input.fromAgent !== "bridge") {
           throw conflictError(idempotencyKey, input.fromAgent, stored.id, stored.deliveryState, differs);
         }
+        this.assertListsClosable(alsoAnswers, withdraws, input.fromAgent, input.toAgent);
         return { message: stored, duplicate: true, closed, skipped: this.skippedOnRetry([...alsoAnswers, ...withdraws], stored.id) };
       }
     }
@@ -475,6 +476,7 @@ export class BridgeStore {
               alsoAnswers: lenient ? this.closableBy(alsoAnswers, Number(earlier.id)) : alsoAnswers,
               withdraws: lenient ? this.closableBy(withdraws, Number(earlier.id)) : withdraws }).length;
           if (same) {
+            this.assertListsClosable(alsoAnswers, withdraws, input.fromAgent, input.toAgent);
             return { message: this.toMessage(earlier), duplicate: true, closed,
               skipped: this.skippedOnRetry([...alsoAnswers, ...withdraws], Number(earlier.id)) };
           }
@@ -589,6 +591,15 @@ export class BridgeStore {
     }
     if (Number(row.expects_reply) !== 1) throw refuse("it is not a request (it was not sent with expectsReply)");
     return this.closedState(id, row.delivery_state);
+  }
+
+  /**
+   * Review of #161: a retry refuses an id that a new send would refuse (no message, wrong addressee or sender, not a
+   * request), even when that id is closed elsewhere and so left out of the comparison and listed by skippedOnRetry.
+   */
+  private assertListsClosable(alsoAnswers: number[], withdraws: number[], sender: string, recipient: string): void {
+    for (const id of alsoAnswers) this.assertClosable(id, "answer", sender);
+    for (const id of withdraws) this.assertClosable(id, "withdraw", sender, recipient);
   }
 
   /** D237: how a request is already closed (a closure, a replyTo answer, failed, expired), or null while it is open. */
