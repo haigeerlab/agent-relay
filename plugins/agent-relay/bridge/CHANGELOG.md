@@ -6,6 +6,8 @@
 it; the bridge's version is the agent-relay release that last changed its runtime files (upstream 0.4.0 until then);
 a duplicate retry lists in `skipped` the ids closed elsewhere; a closure insert that fails without a closure row is a
 readable error.
+`post-090-docs` (D256) changes tests only. Review of #161: a duplicate retry checks every id of `alsoAnswers` and
+`withdraws` as a new send does. The package version is 0.9.3 from this release on.
 
 ## agent-relay 0.9.0
 

@@ -8,3 +8,5 @@
 - [x] Task 5: interface 2.9 and docs (D255) — `interface.json` and `test_packaging` (red first), `relay_status.py` docstring, interface document §1 and the `bridge_send` row, README zh/en interface number, RELEASING bridge-version rule, CHANGELOG `[Unreleased]`, `bridge/CHANGELOG.md`, `UPSTREAM.md` row, manifest; skills and server instructions needed no change (they never said `skipped` is empty on a retry); `spec/request-closing.md` revision note
 - [x] Checkpoint (report): bridge green — `npm run check` 303 tests ok
 - [x] Checkpoint (gate): module review — 模块审查经 delegate 派 Codex：无挡合并；第 1、4、5 条在本 PR 修，第 2、3 条留下一版（账本 AJM8B1H）（PR #162）
+
+Release: goes into 0.9.3 (release PR opened 2026-10-25; the bridge version moves from 0.4.0 to 0.9.3 there); the tag, the GitHub Release and the runtime upgrade on this Mac are done by the user, one step at a time.
