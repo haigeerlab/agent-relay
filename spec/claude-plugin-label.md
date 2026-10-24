@@ -103,3 +103,8 @@ sentence and the skills line.
   --scope local` moved a 0.1.0 label to 0.9.0 and `update --scope user` reported up to date; (a) after the local
   uninstall a new session in that folder loaded the clone (0.9.0) via the user record. Count corrected: 5 of the 12
   local records were gone, 7 live (was "6").
+- 2026-10-24, `post-090-docs` D257 (approved by the user in `spec/post-090-docs.md`), revises D247 and assumption 4:
+  the folder-gone note says the records can stay or be removed and gives the measured removal above; the `cd` path is
+  `shlex.quote`d; a live `project` scope record gets a note (it lives in that repository's committed
+  `.claude/settings.json`) and no command; `next` lists the user-scope steps first, then one command per folder,
+  sorted.

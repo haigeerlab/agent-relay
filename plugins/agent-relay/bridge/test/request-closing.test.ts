@@ -119,7 +119,7 @@ test("a retry with the same key and list is a duplicate; a different list is ref
   store.close();
 });
 
-test("two bridge processes cannot both close one request; the second skips it (D217, D237)", () => {
+test("a second store closing an already closed request, one after the other, skips it in its pre-check (D217, D237)", () => {
   const dir = mkdtempSync(join(tmpdir(), "bridge-closing-race-"));
   const path = join(dir, "bridge.sqlite");
   const one = fresh(path);
@@ -463,6 +463,9 @@ test("losing the race between the check and the closure becomes a skip, not a re
   assert.deepEqual(result.closed, []);
   assert.deepEqual(result.skipped, [{ id: b.id, reason: "answered", by: rival.id }]);
   assert.equal(store.inbox("twin").filter((m) => m.fromAgent === "bridge").length, 0, "no notice for a lost race");
+  // post-090-docs D256: nor a read; only requests this message closed count as read (D155).
+  assert.equal((raw.prepare("SELECT read_at FROM messages WHERE id = ?").get(b.id) as { read_at: unknown }).read_at, null,
+    "no read for a lost race");
   store.close();
 });
 

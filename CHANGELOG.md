@@ -12,6 +12,14 @@
   （同一个 `idempotencyKey`，或 D35 的同一份回复）时，`skipped` 列出这条消息没关、而现在已被别的消息关掉（或失败、过期）的编号，
   不再总是 `[]`；每个编号都会出现在 `closed` 或 `skipped` 里。
 - **关闭请求时撞到意外的约束会给出可读的错误**（D254），整次发送照旧不存任何东西。
+- **doctor 的 `claude-plugin` 清理建议更细**（模块 `post-090-docs`，D257，修订 D247）：目录已删的记录仍只计数，说明里加上
+  “可以留着，或由你删掉”和实测过的删法（重建同名目录，它位于另一个仓库里面时先 `git init`，进去跑
+  `claude plugin uninstall --scope local …`，再删掉目录）；清理命令里的路径加了引号；project scope 的记录只给说明、不给命令
+  （改它会改那个仓库里提交的 `.claude/settings.json`）；`next` 先列 user 的两步，再按目录列各条命令。
+- **从本地克隆装的，升级后要刷新标签**（D258）：README 中英文“更新插件”与 RELEASING 写明 `git pull` 之后再跑
+  `claude plugin marketplace update agent-relay-marketplace` 和 `claude plugin update --scope user agent-relay@agent-relay-marketplace`，
+  否则用户级记录的标签停在旧版本、doctor 报 warn。
+- request-closing 的测试改名并补“不记已读”的断言，spec 修订假设 4 的措辞改正（D256），不影响运行时。
 
 ## [0.9.2] - 2026-10-23
 

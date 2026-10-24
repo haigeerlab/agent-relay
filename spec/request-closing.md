@@ -176,7 +176,9 @@ wrong id; here the id was right and the request was already closed, so what the 
    `withdraws`, a message not sent by the sender or not addressed to this message's recipient; a message that is not a
    request; the list-shape checks (broadcast, more than 20, duplicates, equal to `replyTo`). These mean the id is wrong.
 4. Only requests this message actually closes get D218's notice and D155's read; skipped ones get neither. D35 and the
-   idempotency comparison are unchanged.
+   idempotency comparison both use `closableBy`: an exact match of the lists first, then a lenient one that leaves out
+   the ids another message has closed (wording corrected 2026-10-24, post-090-docs D256; the earlier text said they were
+   unchanged).
 5. Interface 2.6 → **2.7** (an addition; a send that used to be refused now goes through, a widening). Schema 7
    unchanged; released as **0.8.5**; the runtime needs `upgrade --confirm`.
 6. No upgrade is asked of any consumer during its freeze; consumers keep their own fallback until they upgrade.

@@ -13,6 +13,7 @@ import os
 import platform as python_platform
 from pathlib import Path
 import re
+import shlex
 import shutil
 import sqlite3
 import stat
@@ -578,7 +579,12 @@ def _claude_plugin(listing: Callable[[], tuple[int, str] | None], expected: str 
                 steps.append("entries whose folder is gone can be ignored or removed by you")
     labels, cleanup, gone = _plugin_labels(labelled, has_user)
     if gone:
-        notes.append(f"{gone} record{'s' if gone > 1 else ''} whose folder is gone carry an old label")
+        # post-090-docs D257: say they may stay, and the removal measured on the 0.9.1 acceptance (local records).
+        many = gone > 1
+        notes.append(f"{gone} record{'s' if many else ''} whose folder is gone carr{'y' if many else 'ies'} an old label; "
+                     f"{'they' if many else 'it'} can stay, or you can remove {'them' if many else 'it'}: create the "
+                     "folder again (run `git init` in it first if it sits inside another git repository), run `claude plugin "
+                     "uninstall --scope local agent-relay@agent-relay-marketplace` in it, then delete the folder")
     restart = "a session started before an update keeps its copy, even when resumed; only new sessions load the update"
     if not stale:
         detail = f"every agent-relay copy Claude Code loads is {expected}; {restart}"
@@ -593,9 +599,13 @@ def _claude_plugin(listing: Callable[[], tuple[int, str] | None], expected: str 
 def _plugin_labels(labelled: list[tuple[str, str | None, str, str]],
                    has_user: bool) -> tuple[list[str], list[str], int]:
     """claude-plugin-label D246-D247: one line per label that disagrees with the copy its record loads, the user's
-    cleanup steps (doctor runs none of them), and how many such records belong to folders that are gone."""
+    cleanup steps (doctor runs none of them), and how many such records belong to folders that are gone.
+    post-090-docs D257: the user steps first, then one command per folder (quoted, sorted); a project scope record
+    gets a note instead, since changing it rewrites that repository's committed .claude/settings.json."""
     found: dict[tuple[str, str, str], list[str]] = {}
-    steps: list[str] = []
+    user_steps: list[str] = []
+    folder_steps: list[tuple[str, str]] = []
+    shared: list[str] = []
     gone = 0
     for scope, project, label, path in labelled:
         version = _copy_version(Path(path))
@@ -609,12 +619,18 @@ def _plugin_labels(labelled: list[tuple[str, str | None, str, str]],
             found[(label, path, version)].append(user)
         command = f"claude plugin %s --scope {scope} agent-relay@agent-relay-marketplace"
         if scope == "user":
-            steps += ["run `claude plugin marketplace update agent-relay-marketplace`", "`" + command % "update" + "`"]
+            user_steps = ["run `claude plugin marketplace update agent-relay-marketplace`", "`" + command % "update" + "`"]
+        elif scope == "project" and project is not None:
+            shared.append(f"{project} is a project scope record kept in {project}/.claude/settings.json, which that "
+                          "repository commits; changing it changes that repository, so doctor suggests no command "
+                          "and leaves it to you")
         elif project is not None:
-            steps.append("`cd %s && %s`" % (project, command % ("uninstall" if has_user else "update")))
+            folder_steps.append((project, "`cd %s && %s`" % (shlex.quote(project),
+                                                            command % ("uninstall" if has_user else "update"))))
     lines = ["label %s shown by `claude plugin list` for %s, but new sessions load %s (%s)" % (
         label, _plugin_users(using), path, version) for (label, path, version), using in found.items()]
-    return lines, list(dict.fromkeys(steps)), gone
+    steps = user_steps + [step for _, step in sorted(folder_steps)]
+    return lines + list(dict.fromkeys(shared)), list(dict.fromkeys(steps)), gone
 
 
 def _plugin_users(using: list[str]) -> str:

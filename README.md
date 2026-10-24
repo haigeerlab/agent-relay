@@ -281,8 +281,10 @@ Claude Code 会话在**启动时**定下用哪一份插件，之后一直用这�
 （2026-10-10 在本机实测新会话加载的副本；“恢复的会话仍用旧副本”是协调方观测到的一例。）信箱工具的参数定义也一样：
 已开着的 Claude Code 会话重连 MCP 也拿不到新参数（0.7.0 升级后在本机实测）。
 
-- **从本地克隆装的**：Claude 新会话直接读克隆目录，`git -C <克隆> pull --ff-only` 之后新开会话即可；Codex 再执行一次
-  `codex plugin add agent-relay@agent-relay-marketplace`。
+- **从本地克隆装的**：Claude 新会话直接读克隆目录，`git -C <克隆> pull --ff-only` 之后新开会话即可。用户级记录在
+  `claude plugin list` 里的版本标签不会跟着变，doctor 会因此报 warn；再跑
+  `claude plugin marketplace update agent-relay-marketplace` 和
+  `claude plugin update --scope user agent-relay@agent-relay-marketplace` 刷新它（0.9.2 升级时在本机实测），这两步只改标签。Codex 再执行一次 `codex plugin add agent-relay@agent-relay-marketplace`。
 - **从 GitHub 装的**：先 `claude plugin marketplace update agent-relay-marketplace`，再
   `claude plugin update --scope user agent-relay@agent-relay-marketplace`。不带 `--scope` 时这条命令只更新“当前目录”
   那条项目级记录，不更新用户级安装（本机实测）。之后新开会话。
@@ -291,6 +293,8 @@ Claude Code 会话在**启动时**定下用哪一份插件，之后一直用这�
 副本的版本（读副本里的 `plugin.json`，不看 `claude plugin list` 显示的版本），不一致时给出要执行的命令。
 `claude plugin list` 显示的版本与 doctor 报的不一致时，那是那条记录上的旧标签，不代表加载了旧版；doctor 会给出 warn，
 列出这些记录和清理命令（逐个目录 `claude plugin uninstall --scope local` 或更新记录），由你逐条执行，doctor 自己不动手。
+目录已删的记录不告警，也不列出，只计数并说明可以留着、或照它给的办法删掉；project scope 的记录只给说明、不给命令，因为改它会改
+那个仓库里提交的 `.claude/settings.json`。
 插件里带了新版 bridge 运行代码时（bridge 里只改了测试或文档不算），还要按下一节升级运行时。
 
 ## 升级运行时

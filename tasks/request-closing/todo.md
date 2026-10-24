@@ -25,12 +25,12 @@
 No blocker: the lenient retry comparison neither closes the wrong request nor misses one; `closedState`'s order matches
 the old checks (wrong ids still refuse first); the lost-race test is sound. Open (low, after the release freeze):
 
-- Open: When the lenient D35/idempotency match folds a retry, `skipped` is `[]` even for ids closed elsewhere, so the
+- Done 2026-10-24 (`post-090-bridge` D253, the user's decision; interface 2.9): When the lenient D35/idempotency match folds a retry, `skipped` is `[]` even for ids closed elsewhere, so the
   sender sees such an id in neither `closed` nor `skipped`; compute them from `closedState` (this changes D238's "a
   duplicate retry returns `skipped: []`", so it needs the user's decision).
-- Open: The spec revision's assumption 4 says D35 and the idempotency comparison are unchanged; both now use
+- Done 2026-10-24 (`post-090-docs` D256): The spec revision's assumption 4 says D35 and the idempotency comparison are unchanged; both now use
   `closableBy` (exact match first, then lenient). Say so in the spec.
-- Open: Rename the test "two bridge processes cannot both close one request" (it runs sequentially and exercises the
+- Done 2026-10-24 (`post-090-docs` D256 for the rename and the no-read assertion, `post-090-bridge` D254 for the catch): Rename the test "two bridge processes cannot both close one request" (it runs sequentially and exercises the
   pre-check; the catch path is covered by the lost-race test), add a no-read assertion to the lost-race test, and make
   `closeRequests`' catch handle a missing closure row with a readable error.
 
