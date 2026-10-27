@@ -91,6 +91,27 @@ const FAILED_STATES = "('refused', 'expired', 'held')";
  * it within seconds, so a Claude hold counts as failed only once it has lasted this long.
  */
 export const CLAUDE_HOLD_GRACE_MS = 90_000;
+/** A pending ping past its wake window, for parameters (offline window start, busy window start). */
+const PENDING_EXPIRED = `((wake_jobs.created_at < ? AND COALESCE(wake_jobs.pending_reason, 'offline') != 'busy')
+  OR wake_jobs.created_at < ?)`;
+/**
+ * A ping claimStep may send now, for parameters (now, channel heartbeat cutoff, this process's pid). Jobs for a Claude
+ * session hosted by another live channel process are delivered by that process. agent-relay durable-ordering: at most
+ * one ping in flight per recipient, oldest first — a job waits while an older job for the same recipient is pending or
+ * sending (in any process); an `unknown`, `held` or final older job does not hold it.
+ */
+const CLAIMABLE = `wake_jobs.state = 'pending' AND wake_jobs.retry_at <= ?
+  AND NOT EXISTS (
+    SELECT 1 FROM wake_jobs older
+    WHERE older.agent = wake_jobs.agent AND older.id < wake_jobs.id
+      AND older.state IN ('pending', 'sending')
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM channel_hosts h
+    WHERE json_extract(wake_jobs.target, '$.app') = 'claude'
+      AND h.session_id = json_extract(wake_jobs.target, '$.sessionId')
+      AND h.heartbeat >= ? AND h.pid != ?
+  )`;
 /** rewake-on-return D199: a ping this much younger than its message was re-armed (or rebound) for an old message. */
 const OLD_MESSAGE_MS = 10 * 60_000;
 export const REARMED_DETAIL = "Pinged again after the recipient came back; the earlier ping expired while it was away";
@@ -259,19 +280,24 @@ export class WakeQueue {
 
   claim(now = Date.now(), selfPid = process.pid): WakeJob | null {
     // agent-relay delivery-robustness D262: every bridge claims every 2 s; a round with nothing to do takes no write lock.
-    if (!this.db.isTransaction && !this.claimHasWork(now)) return null;
+    if (!this.db.isTransaction && !this.claimHasWork(now, selfPid)) return null;
     // One transaction: taking a ping and moving its message must not be split by a crash (durable-ordering).
     return atomically(this.db, () => this.claimStep(now, selfPid));
   }
 
-  /** Whether any step of claimStep may change something; a false "yes" only costs a write transaction. */
-  private claimHasWork(now: number): boolean {
+  /**
+   * Whether any step of claimStep may change something; a false "yes" only costs a write transaction. Review of #164
+   * (D266): the same conditions as claimStep's — expiry by its own window, and a due ping only when it is the one
+   * claimStep would take — so a recipient with pings queued behind a backed-off one is idle too.
+   */
+  private claimHasWork(now: number, selfPid: number): boolean {
     return !!this.db.prepare(`SELECT 1 WHERE EXISTS (SELECT 1 FROM messages WHERE ${DUE_FOR_EXPIRY})
       OR EXISTS (SELECT 1 FROM wake_jobs WHERE state = 'sending' AND retry_at < ?)
-      OR EXISTS (SELECT 1 FROM wake_jobs w WHERE w.state = 'pending' AND (w.retry_at <= ? OR w.created_at < ?
-        OR EXISTS (SELECT 1 FROM acknowledgements a WHERE a.message_id = w.message_id AND a.agent = w.agent)
-        OR EXISTS (SELECT 1 FROM messages m WHERE m.id = w.message_id AND m.read_at IS NOT NULL)))`)
-      .get(now, now, now, now - OFFLINE_WAKE_WINDOW_MS);
+      OR EXISTS (SELECT 1 FROM wake_jobs WHERE wake_jobs.state = 'pending' AND (${PENDING_EXPIRED}
+        OR EXISTS (SELECT 1 FROM acknowledgements a WHERE a.message_id = wake_jobs.message_id AND a.agent = wake_jobs.agent)
+        OR EXISTS (SELECT 1 FROM messages m WHERE m.id = wake_jobs.message_id AND m.read_at IS NOT NULL)))
+      OR EXISTS (SELECT 1 FROM wake_jobs WHERE ${CLAIMABLE})`)
+      .get(now, now, now - OFFLINE_WAKE_WINDOW_MS, now - BUSY_WAKE_WINDOW_MS, now, now - CHANNEL_HOST_TTL_MS, selfPid);
   }
 
   private claimStep(now: number, selfPid: number): WakeJob | null {
@@ -288,33 +314,17 @@ export class WakeQueue {
     this.db.prepare(`UPDATE wake_jobs SET state = 'expired', detail = CASE
         WHEN pending_reason = 'busy' THEN 'Recipient stayed busy for the whole retry window; message remains unread'
         ELSE 'Wake retry window expired; message remains unread' END
-      WHERE state = 'pending' AND (
-        (created_at < ? AND COALESCE(pending_reason, 'offline') != 'busy') OR created_at < ?
-      )`).run(now - OFFLINE_WAKE_WINDOW_MS, now - BUSY_WAKE_WINDOW_MS);
+      WHERE state = 'pending' AND ${PENDING_EXPIRED}`).run(now - OFFLINE_WAKE_WINDOW_MS, now - BUSY_WAKE_WINDOW_MS);
     // agent-relay durable-ordering: the recipient already fetched this message, so a ping would only wake it for
     // nothing it has not seen. Close the job instead (it stays visible as `read` to the sender).
     this.db.prepare(`UPDATE wake_jobs SET state = 'read', detail = 'Recipient fetched the message before its ping; no ping sent'
       WHERE state = 'pending' AND EXISTS (
         SELECT 1 FROM messages m WHERE m.id = wake_jobs.message_id AND m.read_at IS NOT NULL
       )`).run();
-    // Jobs for a Claude session hosted by another live channel process are
-    // delivered by that process. agent-relay durable-ordering: at most one ping in flight per recipient, oldest
-    // first — a job waits while an older job for the same recipient is pending or sending (in any process);
-    // an `unknown`, `held` or final older job does not hold it.
+    // The oldest ping that may be sent now (see CLAIMABLE).
     const row = this.db.prepare(`UPDATE wake_jobs SET state = 'sending', attempt_id = ?,
       attempts = attempts + 1, retry_at = ? WHERE id = (
-        SELECT id FROM wake_jobs WHERE state = 'pending' AND retry_at <= ?
-          AND NOT EXISTS (
-            SELECT 1 FROM wake_jobs older
-            WHERE older.agent = wake_jobs.agent AND older.id < wake_jobs.id
-              AND older.state IN ('pending', 'sending')
-          )
-          AND NOT EXISTS (
-            SELECT 1 FROM channel_hosts h
-            WHERE json_extract(wake_jobs.target, '$.app') = 'claude'
-              AND h.session_id = json_extract(wake_jobs.target, '$.sessionId')
-              AND h.heartbeat >= ? AND h.pid != ?
-          )
+        SELECT id FROM wake_jobs WHERE ${CLAIMABLE}
         ORDER BY id LIMIT 1
       ) AND state = 'pending' RETURNING *`).get(randomUUID(), now + 30_000, now, now - CHANNEL_HOST_TTL_MS, selfPid);
     if (row) this.follow(Number(row.message_id), "sending");
@@ -387,14 +397,18 @@ export class WakeQueue {
 
   /**
    * Atomically take one failed ping that nobody has told its sender about. A Claude hold is taken only once its message
-   * has been held for CLAUDE_HOLD_GRACE_MS (D259); a hold with no recorded time is taken at once.
+   * has been held for CLAUDE_HOLD_GRACE_MS (D259); a hold with no recorded time is taken at once. Review of #164 (D268):
+   * a Claude hold whose message was read or acknowledged was released, receipt or not, so it is never taken.
    */
   claimFailure(now = Date.now()): WakeJob | null {
     const row = this.db.prepare(`UPDATE wake_jobs SET notified_at = ? WHERE id = (
         SELECT id FROM wake_jobs WHERE notified_at IS NULL AND state IN ${FAILED_STATES}
-          AND NOT (state = 'held' AND json_extract(target, '$.app') = 'claude' AND EXISTS (
-            SELECT 1 FROM messages m WHERE m.id = wake_jobs.message_id AND m.delivery_changed_at > ?
-          ))
+          AND NOT (state = 'held' AND json_extract(target, '$.app') = 'claude' AND (EXISTS (
+            SELECT 1 FROM messages m WHERE m.id = wake_jobs.message_id
+              AND (m.delivery_changed_at > ? OR m.read_at IS NOT NULL)
+          ) OR EXISTS (
+            SELECT 1 FROM acknowledgements a WHERE a.message_id = wake_jobs.message_id AND a.agent = wake_jobs.agent
+          )))
         ORDER BY id LIMIT 1
       ) AND notified_at IS NULL RETURNING *`).get(now, now - CLAUDE_HOLD_GRACE_MS);
     return row ? this.row(row) : null;
