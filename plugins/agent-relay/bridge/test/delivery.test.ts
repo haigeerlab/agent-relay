@@ -273,3 +273,17 @@ test("a Claude hold is explained as permission-mode parity, not as Bypass for ce
   assert.ok(body.includes(CLAUDE_HOLD_EXPLANATION));
   store.close();
 });
+
+// Review of #164 (D268): a hold whose message was read or acknowledged was released; no notice even without a receipt.
+test("a Claude hold whose message the recipient read or acknowledged is never announced", () => {
+  const read = heldClaudePing();
+  read.store.database.prepare("UPDATE messages SET read_at = ? WHERE id = ?").run(Date.now(), read.message.id);
+  assert.equal(sweepDeliveryFailures(read.store, Date.now() + 10 * CLAUDE_HOLD_GRACE_MS), 0);
+  assert.equal(read.store.inbox("sender").length, 0);
+  read.store.close();
+  const acked = heldClaudePing();
+  acked.store.database.prepare("INSERT INTO acknowledgements (message_id, agent, acked_at) VALUES (?, 'recipient', ?)")
+    .run(acked.message.id, new Date().toISOString());
+  assert.equal(sweepDeliveryFailures(acked.store, Date.now() + 10 * CLAUDE_HOLD_GRACE_MS), 0);
+  acked.store.close();
+});

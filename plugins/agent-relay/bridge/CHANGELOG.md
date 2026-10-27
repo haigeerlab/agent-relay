@@ -8,6 +8,9 @@ resend); a step after `bridge_send` stored its message that fails (a busy databa
 "Saved as #id" warning instead of an error, and the dispatcher's drain never rejects; the expiry sweep searches
 `idx_messages_delivery`, and a sweep or claim with nothing to do opens no write transaction; `bridge_send`'s
 description says to retry an error with the same `idempotencyKey`; an idempotency-key retry sweeps before comparing.
+Review of #164 (D266–D268): the idle claim check uses `claimStep`'s own conditions, so queued pings behind a backed-off
+one and a busy ping between one hour and a day take no write lock; a late Claude receipt meeting a busy database is
+written on a later try; a Claude hold whose message was read or acknowledged is never announced.
 
 ## agent-relay 0.9.3
 

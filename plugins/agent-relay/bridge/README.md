@@ -155,7 +155,7 @@ Schema changes are additive and versioned. Before migrating an existing mailbox,
 ## Honest limitations
 
 - Background pings use observed local app interfaces, not public APIs. They need the app and its session host running.
-- Claude Code holds pings briefly while a session starts (released within seconds), and for sessions in Bypass permissions, where the desktop app has no prompt to approve them, so they expire. Sessions in other permission modes, or a deliberate `crossSessionInbound: "accept"` setting, avoid this. The sender is notified either way.
+- Claude Code holds pings briefly while a session starts (released within seconds), and for sessions in Bypass permissions, where the desktop app has no prompt to approve them, so they expire. Sessions in other permission modes, or a deliberate `crossSessionInbound: "accept"` setting, avoid this. The sender is notified only of a hold that lasts more than 90 seconds and leaves the message unread.
 - Claude Code channels (`BRIDGE_CLAUDE_CHANNEL=1`) are supported as an opt-in push path, but Claude Code only listens when launched with its channel flags, which the desktop app does not expose.
 - Codex does not expose its task ID to MCP servers in every version, so `wake: "auto"` may need the ID passed explicitly.
 - Registration proves discovery, not active processing. Acceptance of a ping is not completion of the work.

@@ -44,6 +44,10 @@ export function codexNoticeReason(result: WakeResult): string | null {
 /** How often a bridge looks for Claude sessions waiting for the user's approval (D148). */
 export const APPROVAL_CHECK_MS = 30_000;
 
+/** Review of #164 (D267): how often, and how far apart, a late Claude receipt's write is tried; well inside the hold grace. */
+const LATE_RECEIPT_TRIES = 5;
+export const LATE_RECEIPT_RETRY_MS = 2_000;
+
 export class WakeDispatcher {
   private running: Promise<void> | null = null;
   private stopped = false;
@@ -67,7 +71,20 @@ export class WakeDispatcher {
     this.presenceOf = resolved.presenceOf;
     this.locationOf = resolved.locationOf;
     this.claudeSessions = resolved.claudeSessions;
-    this.claude = new ClaudeWake((job, result) => store.wakes.finish(job, result));
+    this.claude = new ClaudeWake((job, result) => this.lateReceipt(job, result));
+  }
+
+  /**
+   * A Claude receipt that came after its wake returned (a release after a hold, most often). Review of #164 (D267): a
+   * busy database is tried again a few times, so a released hold is not left `held` to be announced 90 s later.
+   */
+  lateReceipt(job: WakeJob, result: WakeResult, tries = 0): void {
+    try {
+      this.store.wakes.finish(job, result);
+    } catch {
+      if (this.stopped || tries + 1 >= LATE_RECEIPT_TRIES) return;
+      setTimeout(() => this.lateReceipt(job, result, tries + 1), LATE_RECEIPT_RETRY_MS).unref();
+    }
   }
 
   start(): void {

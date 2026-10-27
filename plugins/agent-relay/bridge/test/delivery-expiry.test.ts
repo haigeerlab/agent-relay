@@ -142,3 +142,49 @@ test("a claim with work to do still takes it: a due ping, a lapsed send, a due e
   assert.equal(s.wakes.claim()?.messageId, third.id);
   s.close();
 });
+
+// Review of #164 (D266): the idle check matches what claimStep can take, so these idle rounds take no write lock either.
+function idleWhileLocked(s: BridgeStore, dbPath: string, now: number) {
+  const other = new DatabaseSync(dbPath);
+  other.exec("BEGIN IMMEDIATE");
+  s.database.exec("PRAGMA busy_timeout = 50");
+  try {
+    return s.wakes.claim(now);
+  } finally {
+    other.exec("ROLLBACK");
+    other.close();
+    s.database.exec("PRAGMA busy_timeout = 5000");
+  }
+}
+
+function idleMailbox() {
+  const dir = mkdtempSync(join(tmpdir(), "agent-relay-idle-claim-"));
+  const dbPath = join(dir, "bridge.sqlite");
+  const s = new BridgeStore(dbPath);
+  s.register("a");
+  s.register("b");
+  s.wakes.bind("b", { app: "codex", sessionId: "task-b" });
+  return { s, dbPath };
+}
+
+test("an offline recipient with two queued pings: the second, due but behind the first, takes no write lock", () => {
+  const { s, dbPath } = idleMailbox();
+  s.send({ fromAgent: "a", toAgent: "b", body: "one" });
+  const second = s.send({ fromAgent: "a", toAgent: "b", body: "two" });
+  s.wakes.finish(s.wakes.claim()!, { state: "pending", detail: "offline", reason: "offline" });
+  const now = Date.now();
+  assert.ok(s.wakes.forMessage(second.id)!.retryAt <= now, "the second ping is due");
+  assert.equal(idleWhileLocked(s, dbPath, now), null);
+  s.close();
+});
+
+test("a busy ping older than an hour but inside its day, not yet due, takes no write lock", () => {
+  const { s, dbPath } = idleMailbox();
+  const message = s.send({ fromAgent: "a", toAgent: "b", body: "one" });
+  s.wakes.finish(s.wakes.claim()!, { state: "pending", detail: "busy", reason: "busy" });
+  const now = Date.now();
+  s.database.prepare("UPDATE wake_jobs SET created_at = ?, retry_at = ?").run(now - 2 * 3_600_000, now + 50_000);
+  assert.equal(idleWhileLocked(s, dbPath, now), null);
+  assert.equal(s.wakes.forMessage(message.id)?.state, "pending", "still waiting, not expired");
+  s.close();
+});

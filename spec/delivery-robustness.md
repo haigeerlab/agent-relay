@@ -81,6 +81,33 @@ Readers: the user; the owner session (review, release, acceptance).
 - **D264 an idempotency retry sweeps before comparing.** Assumption 7.
 - **D265 interface 2.10.** Assumption 8.
 
+### Review of #164 (2026-10-27, before the release)
+
+The post-merge review found no lost or duplicated message, but three gaps in D259 and D262, a README line and two test
+gaps (ledger HFQ8Q03). Fixed in one small PR before the 0.9.4 release; behaviour fixes inside interface 2.10, which is
+not released yet, so no version change.
+
+- **D266 the idle check matches what `claimStep` can take.** `claimHasWork` used to say "work" for any due pending ping
+  and any ping older than an hour, so two cases took the write lock every 2 s for nothing: an offline recipient with two
+  or more queued pings (the second is due but waits behind the backed-off first; up to an hour) and a `busy` ping older
+  than an hour but inside its day (up to 23 hours). Both now share `claimStep`'s SQL: `PENDING_EXPIRED` (busy and
+  other windows apart) and `CLAIMABLE` (due, no older pending or sending ping for the same recipient, not hosted by
+  another live channel process).
+- **D267 a late Claude receipt's write is tried again.** A "delivered" receipt after a hold is written by
+  `finish()`; when the database was busy the error was swallowed and the job stayed `held`, so the sender got the
+  90 s hold notice. `WakeDispatcher.lateReceipt` now tries the write up to five times, 2 s apart (inside the grace),
+  and never wakes again. Chosen together with D268, not instead of it: D268 needs a recorded read or acknowledgement,
+  which a released session may not make within 90 s; the retry covers that case when the receipt reached this
+  process.
+- **D268 a Claude hold whose message was read or acknowledged is never announced.** The receipt route lives only in
+  the process that sent the ping (a CLI `send`, a Codex MCP process restarted per turn, a closed session), so a release
+  can go unrecorded. `claimFailure` skips a Claude `held` job whose message has `read_at` or an acknowledgement. A read
+  recorded through `recordRead` already moves the job to `read`; this guards the message-level record as well.
+- Also: the bridge README says only a hold lasting more than 90 seconds notifies the sender (it said "either way",
+  against D259); tests for S47 (a finish that failed is `unknown` after 30 s and not sent again; CLI `send` failing
+  after the commit exits 0 with the warning and stores one row), for D266's two idle cases while another connection
+  holds the write lock, for D267, and for D268.
+
 ## Requirements
 
 1. Red first (`approval-notice` / `delivery-wake` tests): a Claude `held` job younger than 90 s is not claimed by

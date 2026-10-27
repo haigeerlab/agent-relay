@@ -132,6 +132,27 @@ test("send to another script identity carries the script warning (post-090-bridg
   assert.match(JSON.parse(sent.stdout).warnings.join("\n"), /"di-report" is a script identity/);
 });
 
+// Review of #164 (S47): a step after the commit that fails leaves the stored message, exit code 0 and a warning.
+test("send whose step after the commit fails exits 0 with a do-not-resend warning and stores one message", async () => {
+  const { dbPath, env } = setup();
+  const seed = new BridgeStore(dbPath);
+  seed.registerScriptIdentity("di-patrol");
+  seed.register("dev");
+  // Recording the sender's activity is the first step after the commit; make it fail as a busy database would.
+  seed.database.exec(`CREATE TRIGGER fail_touch BEFORE UPDATE OF last_seen ON agents WHEN NEW.name = 'di-patrol'
+    BEGIN SELECT RAISE(ABORT, 'database is locked'); END`);
+  seed.close();
+  const sent = await cli(["send", "--from", "di-patrol", "--to", "dev", "--no-wake"], env, "status");
+  assert.equal(sent.code, 0, sent.stderr);
+  const result = JSON.parse(sent.stdout);
+  assert.ok(result.warnings?.some((warning: string) =>
+    warning.includes(`Saved as #${result.id}`) && /Do not send it again/.test(warning)), sent.stdout);
+  const db = new DatabaseSync(dbPath, { readOnly: true });
+  assert.deepEqual(db.prepare("SELECT id FROM messages WHERE from_agent = 'di-patrol'").all().map((row) => Number(row.id)),
+    [result.id]);
+  db.close();
+});
+
 async function fakeClaudeSession(home: string, sessionId: string, { reply = true }: { reply?: boolean } = {}) {
   const root = join(home, ".claude", "sessions");
   const directory = "/tmp/cc-socks-" + process.getuid!();

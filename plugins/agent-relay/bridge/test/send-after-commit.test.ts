@@ -11,7 +11,8 @@ import test from "node:test";
 import { BridgeStore } from "../src/bridge-store.js";
 import type { Presence } from "../src/presence.js";
 import { type SendContext, sendMessage } from "../src/send.js";
-import { WakeDispatcher } from "../src/wake-dispatcher.js";
+import { CLAUDE_HOLD_GRACE_MS, sweepDeliveryFailures } from "../src/notices.js";
+import { LATE_RECEIPT_RETRY_MS, WakeDispatcher } from "../src/wake-dispatcher.js";
 
 function setup() {
   const dir = mkdtempSync(join(tmpdir(), "agent-relay-after-commit-"));
@@ -101,5 +102,48 @@ test("a refusal before the commit still fails the send and stores nothing", asyn
   const { store, context, stored } = setup();
   await assert.rejects(sendMessage(store, { ...request, to: "nobody" }, context(async () => {})));
   assert.equal(stored().length, 0);
+  store.close();
+});
+
+// Review of #164: a ping whose result could not be written is never sent again (S47).
+test("a ping whose finish failed is recorded unknown after 30 seconds and not sent again", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "agent-relay-after-commit-"));
+  const store = new BridgeStore(join(dir, "bridge.sqlite"));
+  store.register("sender");
+  store.register("recipient");
+  store.wakes.bind("recipient", { app: "codex", sessionId: "recipient-task" });
+  let pings = 0;
+  const dispatcher = new WakeDispatcher(store, {
+    env: { AGENT_RELAY_NOTIFY_LOG: join(dir, "notices.log") } as NodeJS.ProcessEnv,
+    codexWake: async () => { pings += 1; return { state: "accepted", detail: "Codex accepted the ping" }; },
+  });
+  const message = store.send({ fromAgent: "sender", toAgent: "recipient", body: "one" });
+  const finish = store.wakes.finish.bind(store.wakes);
+  store.wakes.finish = () => { throw new Error("database is locked"); };
+  await dispatcher.flush();
+  store.wakes.finish = finish;
+  assert.equal(store.wakes.forMessage(message.id)?.state, "sending");
+  assert.equal(store.wakes.claim(Date.now() + 31_000), null);
+  assert.equal(store.wakes.forMessage(message.id)?.state, "unknown");
+  await dispatcher.flush();
+  assert.equal(pings, 1, "the adapter was called once");
+  await dispatcher.close();
+  store.close();
+});
+
+// Review of #164 (D267): a late "released" receipt that meets a busy database is written on a later try, so the hold is
+// not announced as one that lasted.
+test("a late Claude receipt whose write met a busy database is written on a later try", async () => {
+  const { store, dispatcher, whileLocked } = setup();
+  store.wakes.bind("recipient", { app: "claude", sessionId: "recipient-session" }, { replace: true });
+  const message = store.send({ fromAgent: "sender", toAgent: "recipient", body: "please review" });
+  const job = store.wakes.claim()!;
+  store.wakes.finish(job, { state: "held", detail: "held" });
+  await whileLocked(() => dispatcher.lateReceipt(job, { state: "accepted", detail: "Claude confirmed peer delivery" }));
+  assert.equal(store.wakes.forMessage(message.id)?.state, "held");
+  await new Promise((resolve) => setTimeout(resolve, LATE_RECEIPT_RETRY_MS + 500));
+  assert.equal(store.wakes.forMessage(message.id)?.state, "accepted");
+  assert.equal(sweepDeliveryFailures(store, Date.now() + 10 * CLAUDE_HOLD_GRACE_MS), 0);
+  await dispatcher.close();
   store.close();
 });
