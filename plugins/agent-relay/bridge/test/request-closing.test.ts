@@ -527,3 +527,21 @@ test("a retry with both alsoAnswers and withdraws reports each id once, sorted, 
   }
   store.close();
 });
+
+// agent-relay delivery-robustness D264 (review of #161, M04WZ94 item 1): a key retry sweeps before it compares.
+test("a key retry naming a request that expired unswept since lists it in skipped instead of refusing (D264)", () => {
+  const store = fresh();
+  const b = store.send({ fromAgent: "twin", toAgent: "helper", body: "q", expectsReply: true });
+  const c = store.send({ fromAgent: "other", toAgent: "helper", body: "q", expectsReply: true, expiresInSeconds: 60 });
+  const first = store.deliver({ fromAgent: "helper", toAgent: "asker", body: "done", idempotencyKey: "k",
+    alsoAnswers: [b.id] });
+  const raw = (store as unknown as { db: DatabaseSync }).db;
+  raw.prepare("UPDATE messages SET expires_at = ? WHERE id = ?").run(Date.now() - 1000, c.id);
+  const again = store.deliver({ fromAgent: "helper", toAgent: "asker", body: "done", idempotencyKey: "k",
+    alsoAnswers: [b.id, c.id] });
+  assert.equal(again.duplicate, true);
+  assert.equal(again.message.id, first.message.id);
+  assert.deepEqual(again.closed, [{ id: b.id, kind: "answered" }]);
+  assert.deepEqual(again.skipped, [{ id: c.id, reason: "expired" }]);
+  store.close();
+});

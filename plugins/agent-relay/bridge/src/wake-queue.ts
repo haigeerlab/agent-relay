@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import type { BridgeMessage } from "./bridge-store.js";
-import { DeliveryTransitionError, type DeliveryState, atomically, expireDue, transition } from "./delivery.js";
+import { DeliveryTransitionError, type DeliveryState, DUE_FOR_EXPIRY, atomically, expireDue, transition } from "./delivery.js";
 import { ACCEPTED_UNREAD_AFTER_MS, ACCEPTED_UNREAD_WINDOW_MS, clockTime } from "./notify.js";
 
 /**
@@ -258,8 +258,20 @@ export class WakeQueue {
   }
 
   claim(now = Date.now(), selfPid = process.pid): WakeJob | null {
+    // agent-relay delivery-robustness D262: every bridge claims every 2 s; a round with nothing to do takes no write lock.
+    if (!this.db.isTransaction && !this.claimHasWork(now)) return null;
     // One transaction: taking a ping and moving its message must not be split by a crash (durable-ordering).
     return atomically(this.db, () => this.claimStep(now, selfPid));
+  }
+
+  /** Whether any step of claimStep may change something; a false "yes" only costs a write transaction. */
+  private claimHasWork(now: number): boolean {
+    return !!this.db.prepare(`SELECT 1 WHERE EXISTS (SELECT 1 FROM messages WHERE ${DUE_FOR_EXPIRY})
+      OR EXISTS (SELECT 1 FROM wake_jobs WHERE state = 'sending' AND retry_at < ?)
+      OR EXISTS (SELECT 1 FROM wake_jobs w WHERE w.state = 'pending' AND (w.retry_at <= ? OR w.created_at < ?
+        OR EXISTS (SELECT 1 FROM acknowledgements a WHERE a.message_id = w.message_id AND a.agent = w.agent)
+        OR EXISTS (SELECT 1 FROM messages m WHERE m.id = w.message_id AND m.read_at IS NOT NULL)))`)
+      .get(now, now, now, now - OFFLINE_WAKE_WINDOW_MS);
   }
 
   private claimStep(now: number, selfPid: number): WakeJob | null {

@@ -1,9 +1,13 @@
 // agent-relay delivery-state-machine: a message nobody fetched in time expires and is never delivered (D27).
 import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 
 import { BridgeStore } from "../src/bridge-store.js";
-import { deliveryState, transition } from "../src/delivery.js";
+import { DUE_FOR_EXPIRY, deliveryState, expireDue, transition } from "../src/delivery.js";
 
 function lapse(s: BridgeStore, id: number): void {
   s.database.prepare("UPDATE messages SET expires_at = ? WHERE id = ?").run(Date.now() - 1, id);
@@ -77,5 +81,64 @@ test("the sender's notice for an expired message says it will never be delivered
   assert.match(notice, /will not be delivered/);
   assert.doesNotMatch(notice, /still unread/);
   assert.doesNotMatch(notice, /Bypass permissions/);
+  s.close();
+});
+
+// agent-relay delivery-robustness D262: every bridge sweeps and claims every 2 s; an idle round takes no write lock.
+function lockedMailbox() {
+  const dir = mkdtempSync(join(tmpdir(), "agent-relay-idle-claim-"));
+  const dbPath = join(dir, "bridge.sqlite");
+  const s = new BridgeStore(dbPath);
+  s.register("a");
+  s.register("b");
+  s.wakes.bind("b", { app: "codex", sessionId: "task-b" });
+  const lock = () => {
+    const other = new DatabaseSync(dbPath);
+    other.exec("BEGIN IMMEDIATE");
+    return () => { other.exec("ROLLBACK"); other.close(); };
+  };
+  return { s, lock };
+}
+
+test("the expiry sweep finds due messages through idx_messages_delivery, not a table scan", () => {
+  const s = new BridgeStore(":memory:");
+  const plan = s.database.prepare(`EXPLAIN QUERY PLAN UPDATE messages SET delivery_state = 'expired' WHERE ${DUE_FOR_EXPIRY}`)
+    .all(Date.now()).map((row) => String(row.detail));
+  assert.ok(plan.some((detail) => /idx_messages_delivery/.test(detail)), plan.join("; "));
+  assert.ok(!plan.some((detail) => /^SCAN messages\b/.test(detail)), plan.join("; "));
+  s.close();
+});
+
+test("an idle claim and an idle sweep return at once while another process holds the write lock", () => {
+  const { s, lock } = lockedMailbox();
+  const delivered = s.send({ fromAgent: "a", toAgent: "b", body: "done already" });
+  s.wakes.finish(s.wakes.claim()!, { state: "accepted", detail: "ok" });
+  assert.equal(s.wakes.forMessage(delivered.id)?.state, "accepted");
+  const release = lock();
+  try {
+    const started = Date.now();
+    assert.equal(s.wakes.claim(), null);
+    assert.deepEqual(expireDue(s.database), []);
+    assert.ok(Date.now() - started < 1_000, "no wait for the write lock");
+  } finally {
+    release();
+  }
+  s.close();
+});
+
+test("a claim with work to do still takes it: a due ping, a lapsed send, a due expiry", () => {
+  const { s } = lockedMailbox();
+  const first = s.send({ fromAgent: "a", toAgent: "b", body: "first" });
+  const job = s.wakes.claim()!;
+  assert.equal(job.messageId, first.id);
+  // The sender stopped before finishing: after the retry time the job is recorded unknown.
+  assert.equal(s.wakes.claim(Date.now() + 31_000), null);
+  assert.equal(s.wakes.forMessage(first.id)?.state, "unknown");
+  const second = s.send({ fromAgent: "a", toAgent: "b", body: "second" });
+  lapse(s, second.id);
+  assert.equal(s.wakes.claim(), null);
+  assert.equal(deliveryState(s.database, second.id), "expired");
+  const third = s.send({ fromAgent: "a", toAgent: "b", body: "third" });
+  assert.equal(s.wakes.claim()?.messageId, third.id);
   s.close();
 });
