@@ -92,20 +92,26 @@ export function transition(db: DatabaseSync, messageId: number, to: DeliveryStat
 }
 
 /**
+ * A direct message still `queued` (NULL: written by an older bridge) whose `expires_at` is before `?` (a time).
+ * agent-relay delivery-robustness D262: written so that it searches `idx_messages_delivery` (a COALESCE scans the table).
+ */
+export const DUE_FOR_EXPIRY = `(delivery_state = 'queued' OR delivery_state IS NULL)
+  AND expires_at IS NOT NULL AND expires_at <= ? AND to_agent != '*'`;
+
+/**
  * Expire every direct message still `queued` past its `expires_at` and cancel its pending ping, so it is never
  * delivered later (D27). Runs before any claim or inbox read, so no reader sees a message that just lapsed.
  * Rows from older bridges carry no `expires_at` and never expire.
  */
 export function expireDue(db: DatabaseSync, now = Date.now()): number[] {
+  // D262: a sweep with nothing due takes no write lock (a caller's open transaction already holds it).
+  if (!db.isTransaction && !db.prepare(`SELECT 1 FROM messages WHERE ${DUE_FOR_EXPIRY} LIMIT 1`).get(now)) return [];
   return atomically(db, () => expireDueStep(db, now));
 }
 
 function expireDueStep(db: DatabaseSync, now: number): number[] {
   const expired = db.prepare(
-    `UPDATE messages SET delivery_state = 'expired', delivery_changed_at = ?
-     WHERE to_agent != '*' AND COALESCE(delivery_state, 'queued') = 'queued'
-       AND expires_at IS NOT NULL AND expires_at <= ?
-     RETURNING id`,
+    `UPDATE messages SET delivery_state = 'expired', delivery_changed_at = ? WHERE ${DUE_FOR_EXPIRY} RETURNING id`,
   ).all(now, now).map((row) => Number(row.id));
   const cancel = db.prepare(
     // `expired` (not `cancelled`) so the sender gets the usual failure notice and learns it was never sent.

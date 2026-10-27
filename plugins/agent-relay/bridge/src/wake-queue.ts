@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import type { BridgeMessage } from "./bridge-store.js";
-import { DeliveryTransitionError, type DeliveryState, atomically, expireDue, transition } from "./delivery.js";
+import { DeliveryTransitionError, type DeliveryState, DUE_FOR_EXPIRY, atomically, expireDue, transition } from "./delivery.js";
 import { ACCEPTED_UNREAD_AFTER_MS, ACCEPTED_UNREAD_WINDOW_MS, clockTime } from "./notify.js";
 
 /**
@@ -86,6 +86,11 @@ export const BUSY_WAKE_WINDOW_MS = 24 * 3_600_000;
 /** A channel host that has not refreshed within this window is gone. */
 export const CHANNEL_HOST_TTL_MS = 15_000;
 const FAILED_STATES = "('refused', 'expired', 'held')";
+/**
+ * agent-relay delivery-robustness D259: Claude also holds a session's input while that session is starting and releases
+ * it within seconds, so a Claude hold counts as failed only once it has lasted this long.
+ */
+export const CLAUDE_HOLD_GRACE_MS = 90_000;
 /** rewake-on-return D199: a ping this much younger than its message was re-armed (or rebound) for an old message. */
 const OLD_MESSAGE_MS = 10 * 60_000;
 export const REARMED_DETAIL = "Pinged again after the recipient came back; the earlier ping expired while it was away";
@@ -253,8 +258,20 @@ export class WakeQueue {
   }
 
   claim(now = Date.now(), selfPid = process.pid): WakeJob | null {
+    // agent-relay delivery-robustness D262: every bridge claims every 2 s; a round with nothing to do takes no write lock.
+    if (!this.db.isTransaction && !this.claimHasWork(now)) return null;
     // One transaction: taking a ping and moving its message must not be split by a crash (durable-ordering).
     return atomically(this.db, () => this.claimStep(now, selfPid));
+  }
+
+  /** Whether any step of claimStep may change something; a false "yes" only costs a write transaction. */
+  private claimHasWork(now: number): boolean {
+    return !!this.db.prepare(`SELECT 1 WHERE EXISTS (SELECT 1 FROM messages WHERE ${DUE_FOR_EXPIRY})
+      OR EXISTS (SELECT 1 FROM wake_jobs WHERE state = 'sending' AND retry_at < ?)
+      OR EXISTS (SELECT 1 FROM wake_jobs w WHERE w.state = 'pending' AND (w.retry_at <= ? OR w.created_at < ?
+        OR EXISTS (SELECT 1 FROM acknowledgements a WHERE a.message_id = w.message_id AND a.agent = w.agent)
+        OR EXISTS (SELECT 1 FROM messages m WHERE m.id = w.message_id AND m.read_at IS NOT NULL)))`)
+      .get(now, now, now, now - OFFLINE_WAKE_WINDOW_MS);
   }
 
   private claimStep(now: number, selfPid: number): WakeJob | null {
@@ -368,11 +385,18 @@ export class WakeQueue {
         pendingReason: (row.pending_reason as PendingReason | null) ?? null }));
   }
 
-  /** Atomically take one failed ping that nobody has told its sender about. */
+  /**
+   * Atomically take one failed ping that nobody has told its sender about. A Claude hold is taken only once its message
+   * has been held for CLAUDE_HOLD_GRACE_MS (D259); a hold with no recorded time is taken at once.
+   */
   claimFailure(now = Date.now()): WakeJob | null {
     const row = this.db.prepare(`UPDATE wake_jobs SET notified_at = ? WHERE id = (
-        SELECT id FROM wake_jobs WHERE notified_at IS NULL AND state IN ${FAILED_STATES} ORDER BY id LIMIT 1
-      ) AND notified_at IS NULL RETURNING *`).get(now);
+        SELECT id FROM wake_jobs WHERE notified_at IS NULL AND state IN ${FAILED_STATES}
+          AND NOT (state = 'held' AND json_extract(target, '$.app') = 'claude' AND EXISTS (
+            SELECT 1 FROM messages m WHERE m.id = wake_jobs.message_id AND m.delivery_changed_at > ?
+          ))
+        ORDER BY id LIMIT 1
+      ) AND notified_at IS NULL RETURNING *`).get(now, now - CLAUDE_HOLD_GRACE_MS);
     return row ? this.row(row) : null;
   }
 

@@ -30,6 +30,7 @@ description: 加入本机 Claude Code／Codex 联调、查看联调消息与已�
    时，Claude Code 会把别的会话发来的提醒扣下等用户批准，桌面应用没有批准入口，提醒会过期，所以绑定了也唤不醒；
    要收到，需用户自己把 Claude Code 的 `crossSessionInbound` 设为 `"accept"`（见 bridge 的
    `docs/BACKGROUND-WAKE.md`“Why Claude pings expire”），或换一个权限模式。只告诉用户，不替用户改这个设置。
+   另外，会话刚启动时 Claude Code 也会按权限模式对等把提醒扣住几秒再自动放行，这不是 Bypass；扣住（held）期间不要重发。
    绑定方式：
    Claude Code 先用 `bridge_sessions` 核对 `thisSession`，再用 `wake: "auto"`；Codex Desktop 只使用当前任务
    环境中的合法 `CODEX_THREAD_ID`，以 `{app: "codex", sessionId: 当前任务 ID}` 注册。

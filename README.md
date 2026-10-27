@@ -170,6 +170,7 @@ Claude Code 会话卡在授权上时，这台 Mac 会弹一条通知，会话目
   扣下等你批准；桌面应用里没有批准入口，提醒会过期。绑定唤醒本身不受影响，但要真正唤醒，需要你自己把 Claude Code 的
   `crossSessionInbound` 设为 `"accept"`，或换一个权限模式。详见
   [BACKGROUND-WAKE.md](plugins/agent-relay/bridge/docs/BACKGROUND-WAKE.md)“Why Claude pings expire”。agent-relay 不会替你改。
+  会话刚启动时 Claude Code 也会把提醒扣住几秒再自动放行，这不是 Bypass；bridge 要扣满 90 秒才通知发信方，扣住期间不要重发。
 - **会话在等你授权时会告诉你**（`presence-and-approval`）：会话目录（`bridge_agents`，或问任意会话“有哪些会话”）会写明
   每个会话是运行中、已停止、等待授权、等待输入还是未知；给一个等授权或已停止的会话发消息时，发件方会收到提示。
   某个 Claude 会话卡在授权弹窗上、而发给它的消息还没处理时，这台 Mac 上会弹一条通知“某会话在等你授权”，同一次等待只
@@ -248,7 +249,7 @@ printf '请处理 #12' | ~/.agent-relay/bin/agent-relay send --from my-patrol --
 ## 与 Spec Guard 的关系
 
 两个插件互相独立，可以只装其中一个。同时安装时，Spec Guard 读取本插件根目录的
-[`interface.json`](plugins/agent-relay/interface.json)（接口 2.9；Spec Guard 0.56.0 起接受 `>=1.0,<3.0`）判断 agent-relay 是否可用，只通过 agent-relay 的
+[`interface.json`](plugins/agent-relay/interface.json)（接口 2.10；Spec Guard 0.56.0 起接受 `>=1.0,<3.0`）判断 agent-relay 是否可用，只通过 agent-relay 的
 skill 名使用协作；未安装时 Spec Guard 的工作流照常运行，只在需要协作的步骤提示安装。
 
 ### 从 Spec Guard 的协作能力迁移

@@ -1,7 +1,9 @@
 import type { BridgeStore } from "./bridge-store.js";
 import { CLAUDE_EXPIRED_RECEIPT } from "./claude-wake.js";
 import { acceptedUnreadText } from "./notify.js";
-import type { AcceptedUnread, WakeJob } from "./wake-queue.js";
+import { type AcceptedUnread, CLAUDE_HOLD_GRACE_MS, type WakeJob } from "./wake-queue.js";
+
+export { CLAUDE_HOLD_GRACE_MS };
 
 /**
  * Reserved sender for automated notices: delivery failures, retirements and
@@ -13,13 +15,17 @@ export const BRIDGE_AGENT = "bridge";
 /** At most one delivery-failure notice per sender/recipient pair per window. */
 const NOTICE_WINDOW_MS = 30 * 60_000;
 
+/**
+ * agent-relay delivery-robustness D260 (revises the D215 text): Claude's receipt names no cause. Every hold seen so far
+ * was a session that had just started; Bypass permissions is the case that lasts.
+ */
 export const CLAUDE_HOLD_EXPLANATION =
-  "Claude Code holds cross-session messages when the recipient session runs in Bypass permissions " +
-  "and the sender does not state a permission mode (Claude Code's crossSessionInbound setting). " +
-  "The desktop app shows no approval prompt for them, so they expire unread. The user can switch " +
-  "that session out of Bypass permissions, approve held messages in a terminal session, or " +
-  'deliberately set "crossSessionInbound": "accept" in ~/.claude/settings.json. The bridge never ' +
-  "changes that setting.";
+  "Claude Code held this message by permission-mode parity. Usually the recipient session has just started: Claude " +
+  "releases the message within seconds and it is then delivered. A hold that lasts may mean the session runs in Bypass " +
+  "permissions while the sender states no permission mode (Claude Code's crossSessionInbound setting); the desktop app " +
+  "shows no approval prompt for that, so the message expires unread. The user can switch that session out of Bypass " +
+  "permissions, approve held messages in a terminal session, or deliberately set \"crossSessionInbound\": \"accept\" in " +
+  "~/.claude/settings.json. The bridge never changes that setting. Do not resend while the message is held.";
 
 /** agent-relay expiry-notice-reason D215: a Claude ping that expired because its session was not running. */
 export const CLAUDE_OFFLINE_EXPLANATION =
@@ -91,7 +97,7 @@ export function deliveryFailureNotice(job: WakeJob): string {
     job.state === "held"
       ? job.target.app === "codex"
         ? "was held before it reached Codex"
-        : "is being held for approval in the recipient's Claude session"
+        : `has been held by the recipient's Claude session for more than ${CLAUDE_HOLD_GRACE_MS / 1000} seconds`
       : `ended "${job.state}"`;
   return [
     `Delivery problem: your message #${job.messageId} to ${target} was saved, but its background ping ${outcome}.`,

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -75,6 +75,11 @@ test("two independent MCP clients exchange and acknowledge a message", async () 
         "bridge_wake_status",
       ].sort(),
     );
+    // agent-relay delivery-robustness D263: an error after a send is retried with the same key, so it cannot double.
+    const send = tools.tools.find((tool) => tool.name === "bridge_send")!;
+    assert.match(send.description ?? "", /idempotencyKey/);
+    assert.match(send.description ?? "", /retry with the same idempotencyKey/);
+    assert.match(readFileSync(join(projectRoot, "INSTRUCTIONS.md"), "utf8"), /retry with the same key/);
 
     await claude.callTool({ name: "bridge_register", arguments: { agent: "claude", capabilities: ["architecture"] } });
     await codex.callTool({ name: "bridge_register", arguments: { agent: "codex", capabilities: ["implementation"] } });

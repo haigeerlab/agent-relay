@@ -430,6 +430,10 @@ export class BridgeStore {
     const idempotencyKey = input.idempotencyKey ?? null;
 
     if (idempotencyKey !== null) {
+      // delivery-robustness D264 (review of #161): sweep first, so a request in a retry's lists that has passed its
+      // timeout is compared and skipped as expired instead of reading as open (a content conflict), and the stored
+      // message reads its own current state.
+      this.sweep();
       const existing = this.db
         .prepare("SELECT * FROM messages WHERE from_agent = ? AND idempotency_key = ?")
         .get(input.fromAgent, idempotencyKey) as unknown as MessageRow | undefined;

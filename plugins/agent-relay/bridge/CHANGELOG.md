@@ -1,5 +1,14 @@
 # Changelog
 
+## agent-relay 0.9.4 (unreleased)
+
+`delivery-robustness` (D259–D265), schema 7 unchanged, interface 2.10: a Claude hold counts as failed only after 90
+seconds, and is explained as a permission-mode parity hold (usually a just-started session, possibly Bypass; do not
+resend); a step after `bridge_send` stored its message that fails (a busy database) returns the message with a
+"Saved as #id" warning instead of an error, and the dispatcher's drain never rejects; the expiry sweep searches
+`idx_messages_delivery`, and a sweep or claim with nothing to do opens no write transaction; `bridge_send`'s
+description says to retry an error with the same `idempotencyKey`; an idempotency-key retry sweeps before comparing.
+
 ## agent-relay 0.9.3
 
 `post-090-bridge` (D251–D255), schema 7 unchanged, interface 2.9: a send to a script identity warns that nothing wakes

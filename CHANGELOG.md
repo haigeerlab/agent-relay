@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+0.9.4 草稿（版本号由发版 PR 统一抬升）。
+
+**bridge 有改动，要 `upgrade --confirm` 升级运行时；接口 2.9 → 2.10（只增加内容）；信箱 schema 7 不变。**
+
+- **会话刚启动时的短暂扣留不再误报成 Bypass**（模块 `delivery-robustness`，D259、D260）：Claude Code 在会话刚启动、
+  还不知道它的权限模式时会把跨会话消息扣住几秒再自动放行。以前 bridge 一收到 held 就告诉发信方“对方在 Bypass”；现在 Claude
+  的 held 要持续 90 秒仍未放行才通知。告警、发送时的警告、`bridge_wake_status` 的 `explanation` 和文档改为“Claude 按权限模式对等
+  扣住：常见于会话刚启动（通常几秒内自动放行），也可能对方处于 Bypass；held 时不要重发”。
+- **`bridge_send` 报错就说明没写入**（D261）：消息存进信箱之后，记录发信方活动、派发唤醒这些后续步骤撞上数据库忙
+  （`database is locked`）不再让整次发送报错，而是照常返回已存的消息，并附一条警告“Saved as #id; … Do not send it again.”；
+  唤醒由后台稍后重试。CLI `send` 同样处理。
+- **空转时不再占写锁**（D262）：过期清扫的查询改成能走现有索引 `idx_messages_delivery`（不加索引）；每个 bridge 每 2 秒一次的
+  认领在没有可做的事时只读一下就返回，不再开写事务，多个会话同时开着时锁竞争明显减少。
+- **重要消息带 `idempotencyKey`，报错后用同一个 key 重试**（D263）：写进 `bridge_send` 的描述和 INSTRUCTIONS。
+- **幂等重试先清扫过期消息**（D264，#161 审查遗留）：同一个 `idempotencyKey` 的重试里新加的编号如果已过期但还没被清扫，
+  现在列进 `skipped`（原因 `expired`），不再整次被当成内容冲突拒绝。
+
 ## [0.9.3] - 2026-10-25
 
 **bridge 有改动，要 `upgrade --confirm` 升级运行时；接口 2.8 → 2.9（只增加内容）；信箱 schema 7 不变。**

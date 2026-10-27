@@ -7,8 +7,8 @@ import test from "node:test";
 import { BridgeStore } from "../src/bridge-store.js";
 import { CHANNEL_METHOD, channelSession, type ChannelNotification } from "../src/claude-channel.js";
 import { dailyBackup, Housekeeper } from "../src/housekeeping.js";
-import { CLAUDE_EXPIRED_RECEIPT } from "../src/claude-wake.js";
-import { CLAUDE_OFFLINE_EXPLANATION, explainFailure, isClaudeHold, sweepDeliveryFailures } from "../src/notices.js";
+import { CLAUDE_EXPIRED_RECEIPT, CLAUDE_HELD_DETAIL } from "../src/claude-wake.js";
+import { CLAUDE_HOLD_EXPLANATION, CLAUDE_HOLD_GRACE_MS, CLAUDE_OFFLINE_EXPLANATION, explainFailure, isClaudeHold, sweepDeliveryFailures } from "../src/notices.js";
 import { WakeDispatcher } from "../src/wake-dispatcher.js";
 import { BUSY_WAKE_WINDOW_MS, OFFLINE_WAKE_WINDOW_MS, REARMED_DETAIL } from "../src/wake-queue.js";
 
@@ -211,4 +211,65 @@ test("an unreachable Claude expiry keeps the unreachable text; real holds keep t
   assert.equal(isClaudeHold({ app: "claude", state: "pending", detail: REARMED_DETAIL }), false);
   assert.equal(isClaudeHold({ app: "codex", state: "held", detail: "held" }), false);
   assert.equal(isClaudeHold({ app: "codex", state: "refused", detail: CLAUDE_EXPIRED_RECEIPT }), false);
+});
+
+// agent-relay delivery-robustness D259: Claude holds a session's input for a moment while it starts, then releases it.
+function heldClaudePing(app: "claude" | "codex" = "claude") {
+  const store = new BridgeStore(":memory:");
+  store.register("sender");
+  store.wakes.bind("recipient", { app, sessionId: "recipient-session" });
+  const message = store.send({ fromAgent: "sender", toAgent: "recipient", body: "please review" });
+  const job = store.wakes.claim()!;
+  store.wakes.finish(job, { state: "held", detail: "held" });
+  return { store, message, job };
+}
+
+test("a Claude hold is not announced until it has lasted 90 seconds, then once", () => {
+  const { store } = heldClaudePing();
+  const now = Date.now();
+  assert.equal(CLAUDE_HOLD_GRACE_MS, 90_000);
+  assert.equal(store.wakes.claimFailure(now), null);
+  assert.equal(sweepDeliveryFailures(store, now + CLAUDE_HOLD_GRACE_MS - 5_000), 0);
+  assert.equal(store.inbox("sender").length, 0);
+  assert.equal(sweepDeliveryFailures(store, now + CLAUDE_HOLD_GRACE_MS + 1_000), 1);
+  assert.equal(store.inbox("sender").length, 1);
+  assert.equal(sweepDeliveryFailures(store, now + 10 * CLAUDE_HOLD_GRACE_MS), 0, "announced once");
+  store.close();
+});
+
+test("a Claude hold with no recorded hold time, and a Codex hold, are announced at once", () => {
+  const claude = heldClaudePing();
+  claude.store.database.prepare("UPDATE messages SET delivery_changed_at = NULL WHERE id = ?").run(claude.message.id);
+  assert.equal(sweepDeliveryFailures(claude.store, Date.now()), 1);
+  claude.store.close();
+  const codex = heldClaudePing("codex");
+  assert.equal(sweepDeliveryFailures(codex.store, Date.now()), 1);
+  codex.store.close();
+});
+
+test("a Claude hold released inside the grace is never announced", () => {
+  const { store, job } = heldClaudePing();
+  store.wakes.finish(job, { state: "accepted", detail: "Claude delivered the peer ping" });
+  assert.equal(sweepDeliveryFailures(store, Date.now() + 10 * CLAUDE_HOLD_GRACE_MS), 0);
+  assert.equal(store.inbox("sender").length, 0);
+  store.close();
+});
+
+// agent-relay delivery-robustness D260: a hold is mostly a session that has just started; Bypass is the other case.
+test("a Claude hold is explained as permission-mode parity, not as Bypass for certain", () => {
+  for (const text of [CLAUDE_HOLD_EXPLANATION, CLAUDE_HELD_DETAIL]) {
+    assert.match(text, /permission-mode parity/);
+    assert.match(text, /just started/);
+    assert.match(text, /Bypass permissions/);
+    assert.match(text, /[Dd]o not resend/);
+    assert.doesNotMatch(text, /when the recipient session runs in Bypass permissions and/);
+  }
+  assert.match(CLAUDE_HOLD_EXPLANATION, /crossSessionInbound/);
+  const { store } = heldClaudePing();
+  assert.equal(sweepDeliveryFailures(store, Date.now() + CLAUDE_HOLD_GRACE_MS + 1_000), 1);
+  const body = store.inbox("sender")[0]?.body ?? "";
+  assert.doesNotMatch(body, /held for approval/);
+  assert.match(body, /held .*for more than 90 seconds/);
+  assert.ok(body.includes(CLAUDE_HOLD_EXPLANATION));
+  store.close();
 });

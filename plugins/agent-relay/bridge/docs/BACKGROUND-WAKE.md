@@ -46,7 +46,7 @@ Dispatchers check for due jobs every two seconds, with per-job exponential backo
 
 ## When a ping fails, the sender is told
 
-When a ping ends `refused`, `expired` or `held`, the bridge sends the original sender one automated message from `bridge`. It names the message, explains the cause and suggests next steps. The message itself stays unread in the recipient's inbox. Notices are coalesced to one per sender and recipient per half hour, are never sent to unregistered or retired senders, and a failed notice never produces another notice. Senders can see everything still unhandled with `bridge_outbox`.
+When a ping ends `refused`, `expired` or `held` (a Claude hold once it has lasted 90 seconds), the bridge sends the original sender one automated message from `bridge`. It names the message, explains the cause and suggests next steps. The message itself stays unread in the recipient's inbox. Notices are coalesced to one per sender and recipient per half hour, are never sent to unregistered or retired senders, and a failed notice never produces another notice. Senders can see everything still unhandled with `bridge_outbox`.
 
 `bridge_send` also warns at send time when the last three pings to a recipient failed, when a bound Claude session is not running, or when an unbound recipient has been idle for a day.
 
@@ -95,7 +95,7 @@ and the sender and the user are not told a second time.
 
 A Claude ping can expire for two different reasons. If the recipient session was not running for the whole one-hour retry window (the Claude app stops idle sessions), the ping expires with `pendingReason: "offline"`; the message stays in the inbox and the fix is to open that session. The bridge's notice, `bridge_wake_status` and the send-time warning say so and do not mention permissions. Only a ping Claude held, or that Claude itself reported as expired, is the permission-mode hold described below.
 
-Claude Code gates cross-session input by permission mode. When the recipient session runs in **Bypass permissions** and the sender does not state a permission mode, the message is held for the user's approval (Claude Code calls this a permission-mode parity hold). A terminal session shows it for review. The desktop app has no approval surface for it, so it expires. Claude Code's `crossSessionInbound` setting controls this: `"accept"` delivers held messages.
+Claude Code gates cross-session input by permission mode (it calls this a permission-mode parity hold), and its receipt does not say why it held a message. The usual cause is a session that has **just started**: until Claude Code knows the session's permission mode it holds input, then releases it within seconds and the message is delivered. The bridge therefore treats a Claude hold as a failure only after it has lasted 90 seconds, and only then notifies the sender (D259); do not resend while a message is held. A hold that lasts usually means the recipient session runs in **Bypass permissions** and the sender does not state a permission mode: the message is held for the user's approval. A terminal session shows it for review. The desktop app has no approval surface for it, so it expires. Claude Code's `crossSessionInbound` setting controls this: `"accept"` delivers held messages.
 
 The bridge does not state a permission mode, because it has none. Claiming one would let any local process inject input into a bypass session. So the options belong to the user:
 
