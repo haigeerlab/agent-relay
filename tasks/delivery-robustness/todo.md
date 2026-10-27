@@ -14,6 +14,8 @@
 - [x] Task 10: read or acknowledged hold not announced (D268) — held + read and held + ack test (red), then the condition in `claimFailure`
 - [x] Task 11: README hold line and S47 tests — bridge README line; finish-failed-then-unknown test and CLI send-after-commit test (both green: guards existing behaviour)
 - [x] Checkpoint (report): everything green — see the PR
-- [ ] Checkpoint (gate): review-fix PR merged by the user
+- [x] Checkpoint (gate): review-fix PR merged by the user — PR #165 merged as f39dbf3 (2026-10-27)
+
+Release: goes into 0.9.4 (release PR opened 2026-10-27; the bridge version moves from 0.9.3 to 0.9.4 there); the tag, the GitHub Release and the runtime upgrade on this Mac are done by the user, one step at a time.
 
 <!-- spec-guard: external-review declined -->

@@ -1,6 +1,6 @@
 # Changelog
 
-## agent-relay 0.9.4 (unreleased)
+## agent-relay 0.9.4
 
 `delivery-robustness` (D259–D265), schema 7 unchanged, interface 2.10: a Claude hold counts as failed only after 90
 seconds, and is explained as a permission-mode parity hold (usually a just-started session, possibly Bypass; do not
@@ -10,7 +10,8 @@ resend); a step after `bridge_send` stored its message that fails (a busy databa
 description says to retry an error with the same `idempotencyKey`; an idempotency-key retry sweeps before comparing.
 Review of #164 (D266–D268): the idle claim check uses `claimStep`'s own conditions, so queued pings behind a backed-off
 one and a busy ping between one hour and a day take no write lock; a late Claude receipt meeting a busy database is
-written on a later try; a Claude hold whose message was read or acknowledged is never announced.
+written on a later try; a Claude hold whose message was read or acknowledged is never announced. The package version
+is 0.9.4.
 
 ## agent-relay 0.9.3
 

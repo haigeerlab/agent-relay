@@ -1,6 +1,6 @@
 {
   "name": "agent-relay-bridge",
-  "version": "0.9.3",
+  "version": "0.9.4",
   "type": "module",
   "description": "Local MCP mailbox and background pings for Claude Code and OpenAI Codex.",
   "license": "MIT",
