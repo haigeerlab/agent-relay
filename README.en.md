@@ -10,7 +10,7 @@ agent-relay started as an optional collaboration feature of [Spec Guard](https:/
 and is now a standalone plugin: a project that only needs its sessions to talk to each other (a design project, for
 example) needs nothing else.
 
-> Status: 0.9.3 (interface 2.9, needs Spec Guard 0.56.0 or later). Changes, upgrade steps and known issues are in
+> Status: 0.9.4 (interface 2.10, needs Spec Guard 0.56.0 or later). Changes, upgrade steps and known issues are in
 > [CHANGELOG.md](CHANGELOG.md) (written in Chinese); the goal of each item is in the "hardening target" column of
 > [docs/collaboration-interface.md](docs/collaboration-interface.md).
 
@@ -46,7 +46,7 @@ claude plugin install agent-relay@agent-relay-marketplace
 Codex (pinned to the released version):
 
 ```bash
-codex plugin marketplace add haigeerlab/agent-relay --ref v0.9.3
+codex plugin marketplace add haigeerlab/agent-relay --ref v0.9.4
 codex plugin add agent-relay@agent-relay-marketplace
 ```
 
