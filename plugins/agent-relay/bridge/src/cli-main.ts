@@ -176,8 +176,13 @@ async function send(parsed: ParsedCliCommand): Promise<number> {
       replyTo: options.replyTo ?? undefined, expectsReply: options.expectsReply,
       alsoAnswers: options.alsoAnswers ?? undefined, withdraws: options.withdraws ?? undefined, wake: options.wake,
     }, { dbPath, presenceOf: hostPresence, flush: () => dispatcher.flush() });
-    await settle(store, result.id);
-    process.stdout.write(JSON.stringify({ ...result, wake: store.wakes.forMessage(result.id) }) + "\n");
+    // agent-relay delivery-robustness D261: the message is stored; reading its wake again must not turn that into a failure.
+    let wake = result.wake;
+    try {
+      await settle(store, result.id);
+      wake = store.wakes.forMessage(result.id);
+    } catch { /* keep the wake sendMessage read */ }
+    process.stdout.write(JSON.stringify({ ...result, wake }) + "\n");
     return 0;
   } catch (error) {
     return fail(error);

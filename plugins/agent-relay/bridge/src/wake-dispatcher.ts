@@ -99,7 +99,13 @@ export class WakeDispatcher {
 
   private async drain(): Promise<void> {
     if (!this.stopped) {
-      const job = this.store.wakes.claim();
+      // agent-relay delivery-robustness D261: a busy database is a round with nothing to do; the timer tries again.
+      let job: WakeJob | null;
+      try {
+        job = this.store.wakes.claim();
+      } catch {
+        return;
+      }
       if (!job) return;
       let result: WakeResult;
       try {
@@ -107,9 +113,13 @@ export class WakeDispatcher {
       } catch {
         result = { state: "unknown", detail: "Unexpected adapter failure; check the recipient before retrying" };
       }
-      if (job.target.app === "codex") result = this.noticeUndelivered(job, result);
-      else result = this.noticeClaudeOffline(job, result);
-      this.store.wakes.finish(job, result);
+      try {
+        if (job.target.app === "codex") result = this.noticeUndelivered(job, result);
+        else result = this.noticeClaudeOffline(job, result);
+        this.store.wakes.finish(job, result);
+      } catch {
+        // D261: the job stays `sending`; once its retry time passes, claim() records it `unknown` (never replayed).
+      }
     }
   }
 
