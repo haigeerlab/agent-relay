@@ -7,7 +7,7 @@
 - [x] Task 5: retry guidance (D263) — description assertion in the MCP integration test (red), then the description and INSTRUCTIONS
 - [x] Task 6: idempotency retry sweeps first (D264) — expired-unswept retry test (red: conflict), then a sweep before the key lookup
 - [x] Task 7: interface 2.10 and release notes (D265) — `test_packaging` (red), `interface.json`, `relay_status.py`, interface document §1 and rows, README zh/en, CHANGELOG draft (root and bridge), UPSTREAM rows, manifest; README status lines and version numbers left to the release PR
-- [ ] Checkpoint (report): everything green
+- [x] Checkpoint (report): everything green — `scripts/validate.sh` pass, 48 files, 954 tests (bridge `npm run check` 320); the S47 repro script run against this branch's `dist` returns the stored id with the "Saved as #1" warning instead of `database is locked`, one row stored
 - [ ] Checkpoint (gate): PR and module review
 
 <!-- spec-guard: external-review declined -->
