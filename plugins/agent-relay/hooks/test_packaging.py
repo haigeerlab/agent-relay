@@ -37,7 +37,7 @@ class ManifestTests(unittest.TestCase):
         # script-access D245: 2.8 adds the script commands beside status; status is unchanged.
         # post-090-bridge D255: 2.9, a duplicate retry lists what is closed elsewhere in skipped; nothing else changed.
         launcher = "~/.agent-relay/bin/agent-relay"
-        self.assertEqual(marker, {"interface": "2.9", "status": ["python3", "-B", "hooks/relay_status.py"],
+        self.assertEqual(marker, {"interface": "2.10", "status": ["python3", "-B", "hooks/relay_status.py"],
                                   "script": {"agents": [launcher, "agents"], "outbox": [launcher, "outbox", "<agent>"],
                                              "sessions": [launcher, "sessions"],
                                              "send": [launcher, "send", "--from", "<script identity>", "--to", "<agent>"]}})
