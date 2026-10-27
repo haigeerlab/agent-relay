@@ -104,7 +104,7 @@ Bind each conversation once:
 
 Claude sessions are detected automatically. For Codex, pass `{"app": "codex", "sessionId": "<task ID>"}` when `auto` cannot see the task ID. Then send normally, acknowledge after handling, and end the turn when no work remains. See [the background wake guide](docs/BACKGROUND-WAKE.md) for receipt states and limits.
 
-When a ping cannot be delivered, the sender receives one automated notice from `bridge` explaining why and what to do. The most common cause is Claude Code holding messages for sessions that run in Bypass permissions (its `crossSessionInbound` setting). The bridge explains this but never changes that setting.
+When a ping cannot be delivered, the sender receives one automated notice from `bridge` explaining why and what to do. A Claude Code hold is announced only after it has lasted 90 seconds: a session that has just started holds input for a few seconds and then releases it. A hold that lasts usually means the session runs in Bypass permissions (Claude Code's `crossSessionInbound` setting). The bridge explains this but never changes that setting.
 
 ## Fallback: active waits
 
@@ -155,7 +155,7 @@ Schema changes are additive and versioned. Before migrating an existing mailbox,
 ## Honest limitations
 
 - Background pings use observed local app interfaces, not public APIs. They need the app and its session host running.
-- Claude Code holds pings for sessions in Bypass permissions, and the desktop app has no prompt to approve them, so they expire. Sessions in other permission modes, or a deliberate `crossSessionInbound: "accept"` setting, avoid this. The sender is notified either way.
+- Claude Code holds pings briefly while a session starts (released within seconds), and for sessions in Bypass permissions, where the desktop app has no prompt to approve them, so they expire. Sessions in other permission modes, or a deliberate `crossSessionInbound: "accept"` setting, avoid this. The sender is notified either way.
 - Claude Code channels (`BRIDGE_CLAUDE_CHANNEL=1`) are supported as an opt-in push path, but Claude Code only listens when launched with its channel flags, which the desktop app does not expose.
 - Codex does not expose its task ID to MCP servers in every version, so `wake: "auto"` may need the ID passed explicitly.
 - Registration proves discovery, not active processing. Acceptance of a ping is not completion of the work.

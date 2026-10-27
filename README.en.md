@@ -207,6 +207,8 @@ Just say it in natural language; no tool names or internal IDs to remember:
   sessions for your approval; the desktop app has no place to approve them, so they expire. Binding wake still works,
   but to actually be woken you set Claude Code's `crossSessionInbound` to `"accept"` yourself, or use another permission
   mode. See [BACKGROUND-WAKE.md](plugins/agent-relay/bridge/docs/BACKGROUND-WAKE.md), "Why Claude pings expire".
+  A session that has just started also holds pings for a few seconds and then releases them; that is not Bypass. The
+  bridge tells the sender only after a hold has lasted 90 seconds; do not resend while a message is held.
   agent-relay will not change it for you.
 - **You are told when a session waits for your approval** (`presence-and-approval`): the session directory
   (`bridge_agents`, or ask any session "which sessions are there") says whether each session is running, stopped,

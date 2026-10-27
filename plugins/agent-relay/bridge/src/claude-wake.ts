@@ -95,6 +95,10 @@ export const CLAUDE_SEVERAL_SESSIONS = "Several running Claude sessions claim th
   "retried until only one does";
 /** agent-relay expiry-notice-reason D215: Claude's own receipt for a peer message it let expire unread (a hold). */
 export const CLAUDE_EXPIRED_RECEIPT = "Claude expired this peer message";
+/** agent-relay delivery-robustness D260: the receipt names no cause; a just-started session is the usual one. */
+export const CLAUDE_HELD_DETAIL = "Claude retained this peer ping by permission-mode parity and has not admitted it to the " +
+  "model yet. Usually the session has just started and Claude releases it within seconds; if the hold lasts, the session " +
+  "may run in Bypass permissions. Do not resend while it is held.";
 export const CLAUDE_UNREACHABLE = "Claude session's local inbox cannot be reached or failed ownership checks; " +
   "the message waits and is retried";
 
@@ -133,7 +137,7 @@ export class ClaudeWake {
             if (!p) continue;
             let result: WakeResult;
             if (receipt.status === "delivered") result = { state: "accepted", detail: "Claude confirmed peer delivery" };
-            else if (receipt.status === "held") result = { state: "held", detail: "Claude retained this peer ping but has not admitted it to the model. Its permission mode requires approval; the desktop app may not display a card. Do not resend." };
+            else if (receipt.status === "held") result = { state: "held", detail: CLAUDE_HELD_DETAIL };
             else if (["denied", "refused", "dropped", "expired"].includes(receipt.status)) result = { state: "refused", detail: "Claude " + receipt.status + " this peer message" };
             else continue;
             clearTimeout(p.timer);

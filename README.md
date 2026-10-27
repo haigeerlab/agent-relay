@@ -170,6 +170,7 @@ Claude Code 会话卡在授权上时，这台 Mac 会弹一条通知，会话目
   扣下等你批准；桌面应用里没有批准入口，提醒会过期。绑定唤醒本身不受影响，但要真正唤醒，需要你自己把 Claude Code 的
   `crossSessionInbound` 设为 `"accept"`，或换一个权限模式。详见
   [BACKGROUND-WAKE.md](plugins/agent-relay/bridge/docs/BACKGROUND-WAKE.md)“Why Claude pings expire”。agent-relay 不会替你改。
+  会话刚启动时 Claude Code 也会把提醒扣住几秒再自动放行，这不是 Bypass；bridge 要扣满 90 秒才通知发信方，扣住期间不要重发。
 - **会话在等你授权时会告诉你**（`presence-and-approval`）：会话目录（`bridge_agents`，或问任意会话“有哪些会话”）会写明
   每个会话是运行中、已停止、等待授权、等待输入还是未知；给一个等授权或已停止的会话发消息时，发件方会收到提示。
   某个 Claude 会话卡在授权弹窗上、而发给它的消息还没处理时，这台 Mac 上会弹一条通知“某会话在等你授权”，同一次等待只

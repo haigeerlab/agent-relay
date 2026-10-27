@@ -86,6 +86,11 @@ export const BUSY_WAKE_WINDOW_MS = 24 * 3_600_000;
 /** A channel host that has not refreshed within this window is gone. */
 export const CHANNEL_HOST_TTL_MS = 15_000;
 const FAILED_STATES = "('refused', 'expired', 'held')";
+/**
+ * agent-relay delivery-robustness D259: Claude also holds a session's input while that session is starting and releases
+ * it within seconds, so a Claude hold counts as failed only once it has lasted this long.
+ */
+export const CLAUDE_HOLD_GRACE_MS = 90_000;
 /** rewake-on-return D199: a ping this much younger than its message was re-armed (or rebound) for an old message. */
 const OLD_MESSAGE_MS = 10 * 60_000;
 export const REARMED_DETAIL = "Pinged again after the recipient came back; the earlier ping expired while it was away";
@@ -368,11 +373,18 @@ export class WakeQueue {
         pendingReason: (row.pending_reason as PendingReason | null) ?? null }));
   }
 
-  /** Atomically take one failed ping that nobody has told its sender about. */
+  /**
+   * Atomically take one failed ping that nobody has told its sender about. A Claude hold is taken only once its message
+   * has been held for CLAUDE_HOLD_GRACE_MS (D259); a hold with no recorded time is taken at once.
+   */
   claimFailure(now = Date.now()): WakeJob | null {
     const row = this.db.prepare(`UPDATE wake_jobs SET notified_at = ? WHERE id = (
-        SELECT id FROM wake_jobs WHERE notified_at IS NULL AND state IN ${FAILED_STATES} ORDER BY id LIMIT 1
-      ) AND notified_at IS NULL RETURNING *`).get(now);
+        SELECT id FROM wake_jobs WHERE notified_at IS NULL AND state IN ${FAILED_STATES}
+          AND NOT (state = 'held' AND json_extract(target, '$.app') = 'claude' AND EXISTS (
+            SELECT 1 FROM messages m WHERE m.id = wake_jobs.message_id AND m.delivery_changed_at > ?
+          ))
+        ORDER BY id LIMIT 1
+      ) AND notified_at IS NULL RETURNING *`).get(now, now - CLAUDE_HOLD_GRACE_MS);
     return row ? this.row(row) : null;
   }
 
