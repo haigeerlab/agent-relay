@@ -18,10 +18,10 @@ agent-relay 原来是 [Spec Guard](https://github.com/haigeerlab/spec-guard-plug
 
 | 能力 | 说明 | 入口 |
 |---|---|---|
-| 协作信箱 | 同一台 Mac 上的会话互相发消息、回复；跨宿主（Claude Code ↔ Codex）走一个私有的本机 bridge | `collab` skill；Claude Code 还有 `/agent-relay:collaboration` |
+| 协作信箱 | 同一台 Mac 上的会话互相发消息、回复；跨宿主（Claude Code ↔ Codex）走一个私有的本机 bridge | `collab` skill |
 | 会话路由 | 按会话名字联系另一个会话；同宿主优先用宿主自带的通信（Claude Code `SendMessage`、Codex App 线程），只有跨宿主才用信箱 | `session-routing` skill |
 | 跨宿主会话委派 | 一句话让当前 Claude Code 创建 Codex 审查会话，或让 Codex 创建 Claude Code 开发会话（只有这两个方向，不做同宿主委派）；默认一个任务、一个新会话的有限授权，结果自动回到发起的会话（见“[委派：从头到尾](#委派从头到尾)”）。Claude Code 里装了 delegate 插件时，“派给 Codex”交给它，这里只做后备 | `session-delegation` skill |
-| 运行时管理 | 查看、在你同意后安装本机信箱运行时，接入或移除宿主配置，退役结束的身份 | `collaboration-ops` skill |
+| 运行时管理 | 查看、在你同意后安装本机信箱运行时，接入或移除宿主配置，退役结束的身份 | `collaboration-ops` skill；Claude Code 还有斜杠命令 `/agent-relay:collaboration`：查看运行时状态，经你同意后安装运行时、接入或移除宿主 |
 
 ## 需要什么
 
@@ -85,7 +85,10 @@ Claude Code 里 10 个信箱工具默认每次调用都弹确认。想一次性�
 - 不说“允许唤醒”，别的会话发来消息时它不会被叫醒，要自己查收件箱。
 - 任何权限模式都能加入，包括 Claude 的 auto 模式；例外是 **Bypass permissions**，它会把来信提醒扣到过期
   （见“[授权与安全](#授权与安全)”）。
-- 名字被一个已经停止的旧会话占着时，换一个名字最省事；一定要用原名，才需要你同意接管。
+- 名字被一个已经停止的旧会话占着时，换一个名字最省事。一定要用原名：先问“有哪些会话”，确认占着它的会话是 `stopped`，
+  再说“接管这个名字”并明确同意，会话会带 `takeover: true` 重新注册；占着它的 Claude 会话还在运行时会被拒绝
+  （`holder-still-running`），先关掉那个会话或换个名字。
+- 之后不想再被唤醒：说“取消唤醒”，会话用 `wake: null` 重新注册，排着还没送出的提醒一起取消；身份和消息都保留。
 
 ### 6. 发出第一条消息后你应该看到什么
 
@@ -156,8 +159,9 @@ Claude Code 里 10 个信箱工具默认每次调用都弹确认。想一次性�
 
 ### 开始之前
 
-- **发起委派的会话先加入联调并允许唤醒**，结果才能自动回到它这里。没加入、或处在 Bypass 模式时委派照样能创建，
-  但结果标为 `recipient-unavailable`，不会自动唤醒你，agent 会告诉你先加入。
+- **发起委派的会话先加入联调并允许唤醒**，结果才能自动回到它这里。发起的会话没有绑定唤醒的身份（或绑了不止一个）时，
+  委派照样能创建，但结果标为 `recipient-unavailable`，不会自动唤醒你，agent 会告诉你先加入。发起的会话处在 Bypass 模式时
+  结果照样存进信箱，只是唤醒提醒会被 Claude Code 扣到过期（见“[授权与安全](#授权与安全)”）；说一句“查看联调消息”就能看到结果。
 - **目标是 Claude Code 时**，目标项目要被信任过，并且项目的 `.claude/settings.json` 或 `.claude/settings.local.json`
   里要有 10 个信箱工具的 allow（`mcp__agent-relay__bridge_*`）。只在用户级 `~/.claude/settings.json` 里配不算，
   因为委派会话默认只读项目两层设置；除非用了下面的“加载用户环境”。只读审查不需要另外允许 `Read`／`Grep`／`Glob`；
@@ -329,17 +333,16 @@ printf '巡检发现 #12 未处理' | ~/.agent-relay/bin/agent-relay send --from
 
 Claude Code 会话在**启动时**定下用哪一份插件，之后一直用这一份：已经开着的会话、关掉应用后重新打开、恢复
 （resume）原来的会话，都还是旧的那份。更新插件后要**新开一个会话**（包括桌面应用的 Code 标签页）才会用上新版。
-（2026-10-10 在本机实测新会话加载的副本；“恢复的会话仍用旧副本”是协调方观测到的一例。）信箱工具的参数定义也一样：
-已开着的 Claude Code 会话重连 MCP 也拿不到新参数（0.7.0 升级后在本机实测），传新参数会被拒绝（`expected boolean`）；
-要用新参数，Claude Code 新开会话，Codex 新开任务（Codex 旧任务在重开应用后能否拿到新参数未实测，稳妥起见新开任务）。
+信箱工具的参数定义也一样：已开着的 Claude Code 会话重连 MCP 也拿不到新参数，传新参数会被拒绝（`expected boolean`）；
+要用新参数，Claude Code 新开会话，Codex 新开任务。
 
 - **从本地克隆装的**：Claude 新会话直接读克隆目录，`git -C <克隆> pull --ff-only` 之后新开会话即可。用户级记录在
   `claude plugin list` 里的版本标签不会跟着变，doctor 会因此报 warn；再跑
   `claude plugin marketplace update agent-relay-marketplace` 和
-  `claude plugin update --scope user agent-relay@agent-relay-marketplace` 刷新它（0.9.2 升级时在本机实测），这两步只改标签。Codex 再执行一次 `codex plugin add agent-relay@agent-relay-marketplace`。
+  `claude plugin update --scope user agent-relay@agent-relay-marketplace` 刷新它，这两步只改标签。Codex 再执行一次 `codex plugin add agent-relay@agent-relay-marketplace`。
 - **从 GitHub 装的**：先 `claude plugin marketplace update agent-relay-marketplace`，再
   `claude plugin update --scope user agent-relay@agent-relay-marketplace`。不带 `--scope` 时这条命令只更新“当前目录”
-  那条项目级记录，不更新用户级安装（本机实测）。之后新开会话。
+  那条项目级记录，不更新用户级安装。之后新开会话。
 - **Codex**：更新插件后用 ⌘Q 完全退出 ChatGPT 应用再打开，已经打开的线程才会连上新版。
 
 `python3 -B <插件目录>/hooks/native_collaboration_runtime.py doctor` 的 `claude-plugin` 一项会核对新会话会加载的那份

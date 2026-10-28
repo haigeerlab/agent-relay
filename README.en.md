@@ -22,10 +22,10 @@ example) needs nothing else.
 
 | Capability | Description | Entry point |
 |---|---|---|
-| Collaboration mailbox | Sessions on the same Mac send and reply to messages; across hosts (Claude Code ↔ Codex) they go through a private local bridge | `collab` skill; Claude Code also has `/agent-relay:collaboration` |
+| Collaboration mailbox | Sessions on the same Mac send and reply to messages; across hosts (Claude Code ↔ Codex) they go through a private local bridge | `collab` skill |
 | Session routing | Reach another session by its name; on the same host the host's own messaging is preferred (Claude Code `SendMessage`, Codex App threads), the mailbox only across hosts | `session-routing` skill |
 | Cross-host session delegation | One sentence makes the current Claude Code create a Codex review session, or Codex create a Claude Code development session (only these two directions; no same-host delegation); by default a limited authorization for one task in one new session, with the result coming back to the session that asked (see "[Delegation end to end](#delegation-end-to-end)"). When the delegate plugin is installed in Claude Code, "send it to Codex" goes to it and this is only the fallback | `session-delegation` skill |
-| Runtime management | Inspect and, with your consent, install the local mailbox runtime, attach or detach host configuration, retire identities that ended | `collaboration-ops` skill |
+| Runtime management | Inspect and, with your consent, install the local mailbox runtime, attach or detach host configuration, retire identities that ended | `collaboration-ops` skill; Claude Code also has the slash command `/agent-relay:collaboration`: shows the runtime status and, with your consent, installs the runtime or attaches or removes host entries |
 
 ## Requirements
 
@@ -98,8 +98,12 @@ any language works).
 - Without "allow wake", the session is not woken when another session sends it a message; it has to check its inbox.
 - Any permission mode can join, including Claude's auto mode; the exception is **Bypass permissions**, which holds
   incoming pings until they expire (see "[Authorization and safety](#authorization-and-safety)").
-- When the name is held by an old session that has stopped, choosing another name is simplest; only if you insist on
-  the original name do you need to agree to a takeover.
+- When the name is held by an old session that has stopped, choosing another name is simplest. To keep the original
+  name: ask "which sessions are there" and check that the holder is `stopped`, then say "take over this name" and
+  agree explicitly; the session registers again with `takeover: true`. A Claude holder that is still running is refused
+  (`holder-still-running`): close that session first, or pick another name.
+- To stop being woken later: say "turn off wake"; the session registers again with `wake: null` and pending pings
+  are cancelled. The identity and its messages are kept.
 
 ### 6. What you should see after the first message
 
@@ -189,8 +193,10 @@ directly.
 ### Before you start
 
 - **The session that starts the delegation joins and allows wake first**, so the result comes back to it
-  automatically. Without that, or in Bypass mode, the delegation is still created, but its result is marked
-  `recipient-unavailable` and does not wake you; the agent tells you to join first.
+  automatically. When that session has no wake-bound identity (or more than one), the delegation is still created,
+  but its result is marked `recipient-unavailable` and does not wake you; the agent tells you to join first. When
+  that session is in Bypass mode the result is still stored in the mailbox, but Claude Code holds the wake ping until it
+  expires (see "[Authorization and safety](#authorization-and-safety)"); say "show collaboration messages" to see it.
 - **When the target is Claude Code**, the target project must have been trusted, and its `.claude/settings.json` or
   `.claude/settings.local.json` needs an allow for the 10 mailbox tools (`mcp__agent-relay__bridge_*`). The user-level
   `~/.claude/settings.json` alone does not count, because a delegated session reads only the project's two settings
@@ -401,22 +407,18 @@ receives or read an answer's body: see "[Known issues](#known-issues)".
 
 A Claude Code session decides which copy of the plugin to use **when it starts**, and keeps using it: sessions already
 open, the app closed and reopened, and resumed sessions all keep the old copy. After updating, **open a new session**
-(including the desktop app's Code tab) to use the new version. (The copy a new session loads was measured on this Mac
-on 2026-10-10; "a resumed session keeps the old copy" is one case observed by the coordinator.) The mailbox tool
-parameter definitions behave the same way: an open Claude Code session does not get new parameters by reconnecting
-MCP (measured on this Mac after the 0.7.0 upgrade), and a new parameter is refused (`expected boolean`); to use new
-parameters, open a new Claude Code session or a new Codex task (whether an old Codex task gets them after the app is
-reopened was not measured, so open a new task to be safe).
+(including the desktop app's Code tab) to use the new version. The mailbox tool parameter definitions behave the
+same way: an open Claude Code session does not get new parameters by reconnecting MCP, and a new parameter is refused
+(`expected boolean`); to use new parameters, open a new Claude Code session or a new Codex task.
 
 - **Installed from a local clone**: new Claude sessions read the clone directly, so after `git -C <clone> pull
   --ff-only` just open a new session. The user-scope record's version label in `claude plugin list` does not follow,
   and doctor warns about it; refresh it with `claude plugin marketplace update agent-relay-marketplace` and
-  `claude plugin update --scope user agent-relay@agent-relay-marketplace` (measured on this Mac when upgrading to
-  0.9.2); these two steps only change the label. For Codex run `codex plugin add agent-relay@agent-relay-marketplace`
+  `claude plugin update --scope user agent-relay@agent-relay-marketplace`; these two steps only change the label. For Codex run `codex plugin add agent-relay@agent-relay-marketplace`
   again.
 - **Installed from GitHub**: first `claude plugin marketplace update agent-relay-marketplace`, then
   `claude plugin update --scope user agent-relay@agent-relay-marketplace`. Without `--scope` this updates only the
-  "current folder" project-level entry, not the user-level install (measured on this Mac). Then open a new session.
+  "current folder" project-level entry, not the user-level install. Then open a new session.
 - **Codex**: after updating the plugin, quit the ChatGPT app completely with ⌘Q and reopen it so open threads pick up
   the new version.
 

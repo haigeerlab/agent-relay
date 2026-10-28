@@ -12,6 +12,9 @@
   “怎么用”补上退役身份、`reactivate` 重新启用退役名字、`probe`／`status` 自检和 `agent-relay --version`，并列出 10 个信箱工具；
   脚本示例去掉 `--expects-reply`（脚本读不到回复正文，回复会积在脚本身份的信箱里）。
 - 接口文档 §2.1 的 MCP 服务名改为现在的 `agent-relay`／`agent_relay`（原来写的是拆分前的旧名）。
+- README 中英文按重组后的复读修正：委派结果 `recipient-unavailable` 的条件改正为“发起会话没有恰好一个绑定唤醒的身份”，
+  Bypass 模式下结果照样存进信箱、只是提醒被扣；写明 `/agent-relay:collaboration` 的用途、怎么取消唤醒、怎么接管名字
+  （`takeover`、`holder-still-running`）；“更新插件”一节去掉“本机实测”这类维护者备注。
 - README 中英文调整结构：新增“快速上手”（含发出第一条消息后会看到什么）、“委派：从头到尾”（含 held 原因与补法）、
   “常见问题与故障处理”、“已知问题”（只列仍有效的）和术语表；“配置清单”并入快速上手，去掉与“怎么用”重复的两处；
   “授权与安全”只留原则与警告，Bypass 警告放在最前；通知与投递细节移到新的 `docs/notifications.md`／`docs/notifications.en.md`；
