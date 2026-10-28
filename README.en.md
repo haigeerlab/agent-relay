@@ -274,7 +274,9 @@ Just say it in natural language; no tool names or internal IDs to remember:
   `unknown`, `expired`), visible in the outbox. When a wake's outcome is unclear it is marked `unknown` and **never
   resent automatically**; a message still queued after its timeout (24 hours by default, adjustable with
   `BRIDGE_QUEUE_TIMEOUT_MS` or `expiresInSeconds` on send) is marked `expired`: no more wakes, hidden from the inbox by
-  default, never executed later, and the sender is notified.
+  default, never executed later, and the sender is notified. When a Claude recipient does not hold a ping, Claude Code
+  usually sends no receipt, so the message stays `unknown` in the outbox until the recipient reads it and it becomes
+  `accepted` (seen on the real host in the 0.9.4 acceptance); this is normal, do not resend.
 - **Queued per recipient, with a cap**: one recipient has one wake in flight at a time, in send order from oldest to
   newest; one stuck recipient does not delay others; messages the recipient already read are not woken separately.
   Each recipient holds at most 100 undelivered messages (`BRIDGE_MAX_PENDING_PER_RECIPIENT`, 10 to 10000); at 80 % the
@@ -283,7 +285,11 @@ Just say it in natural language; no tool names or internal IDs to remember:
   (`duplicate: true`) and wakes no one; the same key with a different recipient, body, thread or reply target is
   refused, naming the stored message id and saying no resend is needed. A reply can carry `replyTo` (the original's
   id), lands on the original's thread, and the outbox shows which replies each message received; the same reply to the
-  same message is stored once, unless the previous one finally failed or expired.
+  same message is stored once, unless the previous one finally failed or expired. Give important messages an
+  `idempotencyKey` when you send them and retry an error with the same key; at most you get the original back. When a
+  step after the message was saved fails (a busy database, for example), `bridge_send` does not report an error: it
+  returns the stored id with a warning "Saved as #id; … Do not send it again." and the wake is retried in the
+  background, so an error from `bridge_send` means the message was not saved.
 - **Codex's approval selector applies per turn**: the selector in the App governs only the turns you start and is not
   written to `config.toml`; a woken turn runs with the task's current approval and sandbox settings (see above).
 
@@ -309,6 +315,11 @@ printf 'please handle #12' | ~/.agent-relay/bin/agent-relay send --from my-patro
 ```
 
 Commands, exit codes and wake limits are in the interface document, §2.4.
+
+Known issue: a script identity cannot acknowledge the messages it receives. The CLI has no `inbox` or `ack` command,
+and a session's `bridge_ack` for it is refused. Messages sent to a script identity (such as answers to its
+`--expects-reply` requests) stay until they expire (24 hours by default), and until then the identity cannot be
+retired (retiring needs no unacknowledged messages; expired ones do not count).
 
 ## Relationship with Spec Guard
 

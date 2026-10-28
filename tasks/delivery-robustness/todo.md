@@ -16,6 +16,6 @@
 - [x] Checkpoint (report): everything green — see the PR
 - [x] Checkpoint (gate): review-fix PR merged by the user — PR #165 merged as f39dbf3 (2026-10-27)
 
-Release: goes into 0.9.4 (release PR opened 2026-10-27; the bridge version moves from 0.9.3 to 0.9.4 there); the tag, the GitHub Release and the runtime upgrade on this Mac are done by the user, one step at a time.
+Release: released as 0.9.4 (PR #166, v0.9.4 = 0386e9f, 2026-10-27; the bridge version moved from 0.9.3 to 0.9.4 there); the runtime on this Mac was upgraded on 2026-10-27 and the real-host acceptance passed 5/5 (a held Claude ping got its `delivered` receipt about a second later; a ping Claude did not hold got no receipt and stays `unknown` until read, now in the README).
 
 <!-- spec-guard: external-review declined -->
