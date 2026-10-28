@@ -37,6 +37,12 @@ python3 -B "$ROOT/hooks/native_collaboration_runtime.py" install
 The install command builds from the bridge copy shipped in the plugin (`bridge/`, checked file by file against
 `bridge/UPSTREAM.sha256`); it needs no git, but `npm ci` still needs network. It does not modify Claude or Codex config.
 
+The delegation controller, `doctor`, the runtime's `install`/`upgrade`, identity retirement and the host adapters
+(`install-claude`/`install-codex` and the printed configuration) use the node pinned in the host entries (order:
+`--node` → Claude entry → Codex entry → PATH), not the current shell's PATH; npm runs on that node during install,
+and `--npm` defaults to the npm beside it. A selected node below 22.5.0 is refused (`node-too-old`) before any host
+is touched or any build starts.
+
 ## Host attachment
 
 Inspect exact generated fragments first:

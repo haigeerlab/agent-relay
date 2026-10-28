@@ -10,9 +10,13 @@ agent-relay started as an optional collaboration feature of [Spec Guard](https:/
 and is now a standalone plugin: a project that only needs its sessions to talk to each other (a design project, for
 example) needs nothing else.
 
-> Status: 0.9.4 (interface 2.10; Spec Guard is not needed, but installed alongside it must be 0.56.0 or later). Changes, upgrade steps and known issues are in
-> [CHANGELOG.md](CHANGELOG.md) (written in Chinese); the goal of each item is in the "hardening target" column of
+> Status: 0.9.4 (interface 2.10; Spec Guard is not needed, but installed alongside it must be 0.56.0 or later). Changes
+> and upgrade steps are in [CHANGELOG.md](CHANGELOG.md) (written in Chinese); the issues that still apply are under
+> "[Known issues](#known-issues)" below; the goal of each item is in the "hardening target" column of
 > [docs/collaboration-interface.md](docs/collaboration-interface.md).
+>
+> Once the plugin is installed, tell any session "**check the agent-relay status**" and it tells you which steps are
+> left (see "[Quick start](#quick-start)").
 
 ## What it does
 
@@ -20,21 +24,21 @@ example) needs nothing else.
 |---|---|---|
 | Collaboration mailbox | Sessions on the same Mac send and reply to messages; across hosts (Claude Code ↔ Codex) they go through a private local bridge | `collab` skill; Claude Code also has `/agent-relay:collaboration` |
 | Session routing | Reach another session by its name; on the same host the host's own messaging is preferred (Claude Code `SendMessage`, Codex App threads), the mailbox only across hosts | `session-routing` skill |
-| Cross-host session delegation | One sentence lets the current Claude Code session create a Codex review session, or Codex create a Claude Code development session (only these two directions, no same-host delegation); by default a limited authorization for one task in one new session; a read-only review can be limited with `--scope` (Claude Code sessions hard-block reads outside it); a delegated session can be reached by the name you gave it; stuck delegation records can be previewed and then cleaned with `prune`; when Codex creates a Claude Code session it can optionally "load the user environment" (`--user-environment`, off by default) so it brings your settings, plugins and skills. When the delegate plugin is installed in Claude Code, "hand it to Codex" goes to delegate and this is only the fallback | `session-delegation` skill |
+| Cross-host session delegation | One sentence makes the current Claude Code create a Codex review session, or Codex create a Claude Code development session (only these two directions; no same-host delegation); by default a limited authorization for one task in one new session, with the result coming back to the session that asked (see "[Delegation end to end](#delegation-end-to-end)"). When the delegate plugin is installed in Claude Code, "send it to Codex" goes to it and this is only the fallback | `session-delegation` skill |
 | Runtime management | Inspect and, with your consent, install the local mailbox runtime, attach or detach host configuration, retire identities that ended | `collaboration-ops` skill |
 
 ## Requirements
 
 - macOS; Node.js 22.5 or later (the mailbox runtime uses the built-in `node:sqlite`, available from 22.5.0); Python 3.9
   to 3.14 (macOS's own `/usr/bin/python3` 3.9 works; the full test suite has run on 3.9, 3.10 and 3.14).
-- The delegation controller, `doctor`, the runtime's `install`/`upgrade`, identity retirement and the host adapters
-  (`install-claude`/`install-codex` and the printed configuration) use the node pinned in the host entries (order:
-  `--node` → Claude entry → Codex entry → PATH), not the current shell's PATH; npm runs on that node during install,
-  and `--npm` defaults to the npm beside it. A selected node below 22.5.0 is refused (`node-too-old`) before any host
-  is touched or any build starts.
+- agent-relay's commands use the node pinned in the host entries, not the current shell's PATH; below 22.5.0 it is
+  refused (`node-too-old`) before any host is touched. The selection order is in the
+  [runtime notes](plugins/agent-relay/references/collaboration-runtime.md).
 - Claude Code and/or Codex (App or CLI).
 
-## Installation
+## Quick start
+
+### 1. Install the plugin
 
 Claude Code:
 
@@ -50,108 +54,72 @@ codex plugin marketplace add haigeerlab/agent-relay --ref v0.9.4
 codex plugin add agent-relay@agent-relay-marketplace
 ```
 
-For development you can replace `haigeerlab/agent-relay` above with the path of a local clone.
+For development you can replace `haigeerlab/agent-relay` above with the path of a local clone. For both hosts to talk,
+install it on both.
+
+### 2. Set up: tell a session "check the agent-relay status"
 
 Installing the plugin only loads its skills and command. It does **not** create the runtime or change host
-configuration. On first use the agent checks read-only, tells you which steps are needed, and waits for your consent
-at each one:
+configuration. After that sentence the agent checks read-only, tells you which steps are needed, and waits for your
+consent at each one:
 
 1. Install the private runtime: from the bridge copy shipped in the plugin, verified against its hashes, it builds the
    runtime and a private mailbox in `~/.agent-relay/runtime/` (readable and writable only by you). No git is needed;
    `npm` dependencies are still installed from the npm registry by the lockfile, so this step needs network.
 2. Attach the hosts: register the user-level MCP server `agent-relay` for Claude Code, or append
-   `[mcp_servers.agent_relay]` to the Codex configuration. Sessions that are already open need a restart to see it.
+   `[mcp_servers.agent_relay]` to the Codex configuration. Attaching Codex writes `approval_mode = "approve"` for the
+   10 mailbox tools (reading, replying and acknowledging show no card) and lists the 10 approval tables written to
+   `~/.codex/config.toml` (`[mcp_servers.agent_relay.tools.<tool>]`); an existing install adds them with
+   `install-codex --approve-mailbox-tools`, which lists only the ones added.
 
-### Finding the plugin directory
+Then **restart the sessions that were already open** so they see the mailbox tools. Run
+`python3 -B <plugin dir>/hooks/native_collaboration_runtime.py doctor` (plugin directory: see
+"[Finding the plugin directory](#finding-the-plugin-directory)"); every item should be ok, a `warn` names its next
+step, and the exit code is 1 when anything fails.
 
-The commands below are written as `<plugin dir>/hooks/…`. The plugin directory is the copy the host actually loaded
-(installed from GitHub: in the host's plugin cache; installed from a local clone: `plugins/agent-relay` in the clone).
-To find it:
+### 3. Once per project: trust it
 
-```bash
-claude plugin list --json | python3 -c 'import json,sys; ps=[p for p in json.load(sys.stdin) if p.get("id","").startswith("agent-relay@") and p.get("enabled")]; p=next((p for p in ps if p.get("scope")=="user"), ps[0] if ps else {}); print(p.get("readFromFolder") or p.get("installPath") or "")'
-codex plugin list --json | python3 -c 'import json,sys; print(next((p["source"]["path"] for p in json.load(sys.stdin).get("installed",[]) if p.get("name")=="agent-relay" and p.get("enabled") and (p.get("source") or {}).get("path")), ""))'
-```
-
-The first is for Claude Code, the second for Codex; with both installed, either printed directory will do. When you
-let the agent do it you can skip this: the skills find the plugin directory themselves.
-
-### Using another state directory
-
-The runtime, mailbox, delegation records and migration backups live in `~/.agent-relay/` by default. Setting the
-environment variable `AGENT_RELAY_HOME` (an absolute path; a relative path is an error) moves all of them, and every
-agent-relay command uses that directory; an explicit `--root` or `--state-root` on the command line still wins. Note:
-attaching a host writes the absolute path resolved at that time into the host configuration, so changing the variable
-later does **not** move hosts already attached; install the runtime under the new directory and attach the hosts again.
-
-## Before you start: checklist
-
-Go through it once; after that all that is left is "say one sentence to a session". Details are in the sections
-below; this only lists what to do.
-
-**Once**
-
-1. Install the plugin on both hosts (see "Installation").
-2. Ask the agent to "check the agent-relay status" and follow the steps it lists to set up the runtime and attach the
-   hosts; each step waits for your consent. Then restart the sessions that were already open.
-3. Codex: attaching writes `approval_mode = "approve"` for the 10 mailbox tools and lists the entries it wrote to
-   `~/.codex/config.toml`; nothing else to configure.
-4. Claude Code: the 10 mailbox tools ask for confirmation on every call by default. To stop that, run
-   `python3 -B <plugin dir>/hooks/native_collaboration_adapters.py claude-allow-rules` and add the 10 rules it prints to
-   `permissions.allow` in `~/.claude/settings.json`. Whether to add them is your choice; agent-relay never edits that
-   file.
-5. Run `python3 -B <plugin dir>/hooks/native_collaboration_runtime.py doctor`; every item should be ok (a `warn` names
-   its next step).
-
-**Once per project**
-
-- Claude Code: trust the project. The trust dialog preselects "No, exit"; pressing Enter quits, so select "Yes" first.
+- Claude Code: the trust dialog when it first opens a project **preselects "No, exit"**; pressing Enter quits, so select
+  "Yes" first.
 - Codex: when adding the project in the App, choose to trust the folder.
 
-**One sentence per session**
+### 4. Optional: stop Claude Code asking for every mailbox tool
 
-- Tell the session "join local collaboration and allow wake, use the name X" (in Chinese: "加入本机联调并允许唤醒，名字用 X";
-  any language works). Without "allow wake", the session is not woken when another session sends it a message.
-- Any permission mode can join, including Claude's auto mode; the exception is Bypass permissions, which holds incoming
-  pings until they expire (see "Authorization and safety").
+In Claude Code the 10 mailbox tools ask for confirmation on every call by default. To allow them all at once, run
+`python3 -B <plugin dir>/hooks/native_collaboration_adapters.py claude-allow-rules` and add the 10 exact rules it prints
+to `permissions.allow` in `~/.claude/settings.json`. Whether to add them is your choice; agent-relay never edits that
+file; Codex is pre-approved when attached.
+
+### 5. One sentence per session: join
+
+Tell the session "**join local collaboration and allow wake, use the name X**" (in Chinese: "加入本机联调并允许唤醒，名字用 X";
+any language works).
+
+- Without "allow wake", the session is not woken when another session sends it a message; it has to check its inbox.
+- Any permission mode can join, including Claude's auto mode; the exception is **Bypass permissions**, which holds
+  incoming pings until they expire (see "[Authorization and safety](#authorization-and-safety)").
 - When the name is held by an old session that has stopped, choosing another name is simplest; only if you insist on
   the original name do you need to agree to a takeover.
 
-**Additionally for delegation** (one side opens a new limited session to do work; only Claude Code → Codex and Codex →
-Claude Code)
+### 6. What you should see after the first message
 
-- The session that starts the delegation joins and allows wake first, so the result comes back to it automatically.
-- When the target is Claude Code, the target project's `.claude/settings.json` or `.claude/settings.local.json` needs an
-  allow for the 10 mailbox tools; the user-level `~/.claude/settings.json` alone does not count, unless you use the next
-  item.
-- To let the delegated Claude Code session bring your own settings, plugins and skills, say "load my user environment"
-  when creating it and add `Skill` to the allow list; if something is missing you see `held` and the rule to add before
-  anything starts, rather than a half-working session.
+In Claude Code, say "tell X in Codex: the home page draft is at `designs/home.fig`, please confirm":
 
-**What you do not need to set up in advance**
+1. The sending session finds X by name, sends the message, and tells you its id (`#id`) and delivery state: usually
+   `queued` first, `accepted` once it is delivered. A message to a Claude session often stays `unknown` until the
+   recipient reads it and it becomes `accepted`; that is normal, **do not resend** (see
+   "[Troubleshooting](#troubleshooting)").
+2. If the recipient is bound for wake it is woken, reads the message, handles it and acknowledges it; when your message
+   is a question or a work request it answers you with `replyTo`.
+3. The answer wakes the sending session (if it is bound for wake too), or shows up the next time you ask to "show
+   collaboration messages".
+4. If the send result carries a warning, follow it: for example the recipient is not bound for wake, has stopped, or
+   waits for an approval.
 
-The permissions the other session needs for its work (reading files, running commands) are that session's own
-settings: it asks you when it needs them. When a wake-bound Claude Code session is stuck on an approval prompt, this
-Mac shows a notice and the session directory marks it "waiting for approval"; a Codex session stuck on an approval
-still shows as running in the directory, so check the ChatGPT app. agent-relay never changes any session's permissions.
+Between sessions on the same host (Claude ↔ Claude, Codex ↔ Codex) the host's own messaging is preferred and the
+mailbox is not used, so there is no message id.
 
-**After an upgrade**
-
-- After updating the plugin, **open a new session** to use it; sessions already open, reopened after restarting the
-  app, or resumed still use the old copy (see "Updating the plugin").
-- When a release adds parameters to the mailbox tools (such as `expectsReply` and `awaitingReply` in 0.7.0), a session
-  that is already open keeps the old parameter definitions even after the bridge restarts and the tools are reloaded,
-  and a new parameter is refused (`expected boolean`). To use the new parameters, open a new Claude Code session or a
-  new Codex task. (Measured for Claude Code; whether an old Codex task gets the new parameters after the app is
-  reopened was not measured, so open a new task to be safe.)
-- Claude Code installed from GitHub: `claude plugin update` needs `--scope user`; without it only the current folder's
-  project-level entry is updated.
-- Codex: after updating the plugin, quit the ChatGPT app completely with ⌘Q and reopen it so open threads pick up the
-  new version.
-- Versions that change the bridge also need a runtime upgrade (see "Upgrading the runtime"); the top of each CHANGELOG
-  entry says whether it is needed.
-
-## How to use it
+## Everyday use
 
 Just say it in natural language; no tool names or internal IDs to remember:
 
@@ -162,7 +130,7 @@ Just say it in natural language; no tool names or internal IDs to remember:
   from.
 - "Reply to that session" → replies to the most recent message.
 - "Create a Codex review of these changes" → creates a read-only review session; the result comes back to the current
-  session.
+  session (see "[Delegation end to end](#delegation-end-to-end)").
 - "Continue that session", "stop that review" → second round in the same session, stop.
 - "Which of my requests has nobody answered", "who am I waiting for" → the requests sent through the mailbox and
   marked as expecting a reply (`expectsReply`) that have no reply yet, oldest first, each with how long it has waited
@@ -174,11 +142,6 @@ Just say it in natural language; no tool names or internal IDs to remember:
 - "What happened to that message", "wait for its reply" → check a message's state by id, or wait until it is
   acknowledged, answered, failed or expired (`bridge_wake_status` / `bridge_wait` with `messageId`; waiting
   acknowledges nothing on anyone's behalf).
-- The first time in Claude Code, every mailbox tool asks once (`mailbox-polish`): to allow them all at once, run
-  `python3 -B <plugin dir>/hooks/native_collaboration_adapters.py claude-allow-rules` (see "Finding the plugin
-  directory") and add the 10 exact rules it prints to `permissions.allow` in `~/.claude/settings.json` (your choice;
-  agent-relay never edits that file; Codex is pre-approved at install). Also, Claude Code's trust dialog when it first
-  opens a project **preselects "No, exit"**; pressing Enter quits, so select "Yes" first.
 - Long messages (`long-messages`): a send returns only the id and length, never the body; when the recipient cannot read
   it in one page, the result's `continue` line gives the next `bridge_inbox` arguments (`messageId`, `bodyOffset`), so
   it is read piece by piece without Bash. Each page is about 12k tokens, within the hosts' output limits for Chinese and
@@ -217,109 +180,196 @@ results are in the [interface document](docs/collaboration-interface.md), §2.1.
 | `bridge_thread` | A whole conversation by thread |
 | `bridge_wait` | Wait in the current turn for a new message, or for one message's outcome |
 
+## Delegation end to end
+
+Delegation means one side opens a new limited session on the other host to do work. Only Claude Code → Codex and
+Codex → Claude Code exist; same-host delegation is refused (`same-host-unsupported`): open a new session on that host
+directly.
+
+### Before you start
+
+- **The session that starts the delegation joins and allows wake first**, so the result comes back to it
+  automatically. Without that, or in Bypass mode, the delegation is still created, but its result is marked
+  `recipient-unavailable` and does not wake you; the agent tells you to join first.
+- **When the target is Claude Code**, the target project must have been trusted, and its `.claude/settings.json` or
+  `.claude/settings.local.json` needs an allow for the 10 mailbox tools (`mcp__agent-relay__bridge_*`). The user-level
+  `~/.claude/settings.json` alone does not count, because a delegated session reads only the project's two settings
+  files by default, unless you use "load my user environment" below. A read-only review needs no extra allow for
+  `Read`/`Grep`/`Glob`; development additionally needs `Edit`, `Write` and `Bash(...)` rules that fit the task.
+  agent-relay reads and reuses these project-level rules but never writes them.
+- To check beforehand, ask "check the permissions for a delegation": the agent runs the read-only `permissions`, which
+  lists the allow rules needed, the settings files actually read and what is missing, and writes nothing.
+
+### How a delegation goes
+
+1. You say "create a Codex review of these changes". That sentence is itself the authorization for one task in one
+   session.
+2. The agent shows a **non-blocking creation notice**: target host, project short name, baseline short id, permission
+   (`safe-review`, read-only, by default), count 1 and expiry (8 hours by default), and creates it without asking
+   again. To be asked every time, say "ask me before every start".
+3. The target session works in its own host; when it needs a permission its own settings lack, it asks you as usual.
+4. When done, the target sends a short result through the mailbox to the session that asked, which is woken and reads
+   it. `resultDelivery` of `enqueued` means only that it was written to the mailbox, not that your side has read it;
+   `pending`, `missing`, `unverified` and `recipient-unavailable` each mean something else, and the agent reports them
+   as they are.
+5. Afterwards you can say "continue that session" (a second round in the same session), "how is that review doing" or
+   "stop that review". When names clash, the agent shows a short distinguishing id to choose.
+
+Two permission levels: `safe-review` (the default) only reads the chosen project and diff and runs local read-only
+checks; `bounded-development` writes source and runs checks only in a clean, separate worktree you choose. Push,
+merge, release, remote tracker writes, deletion and global configuration each need a separate authorization.
+
+### When delegation is held
+
+When a prerequisite is missing, delegation does not start a half-working session: it shows `held` and the smallest
+next step. agent-relay does not change your settings, accept trust for you or switch to bypass; fix it and ask again.
+
+| Shown | Cause | Fix |
+|---|---|---|
+| `held/project-allow-rules` | The target project lacks the allow rules for the mailbox tools | Add the rules it lists to the target project's `.claude/settings.json` or `.claude/settings.local.json` |
+| `held/project-trust` | You have not trusted the target project in Claude Code yet | Open the project in Claude Code and choose "Yes" in the trust dialog |
+| `held/mcp-project-approval` | The target project has not accepted this temporary MCP yet | Approve it in Claude Code as prompted |
+| `held/host-permission-prompt` | The host still wants a manual permission decision | Handle that permission as prompted |
+| `held/identity-retired` | The mailbox identity of a Codex delegation was retired, so a follow-up's result could not come back; nothing was sent | Create a new delegation, or decide whether to restore that name |
+
+### Options
+
+- **Review only some files**: say "review only `src/` and `README.md`"; the scope goes into the session's constraints
+  and the result ends with the files actually read. A Claude Code session also has a hook that refuses reads outside
+  the scope; a Codex session relies on the constraints alone. Read-only reviews only.
+- **Load the user environment** (Codex → Claude Code only, off by default): say "load my user environment" and the
+  delegated Claude Code session brings your own settings, plugins and skills; user-level allow rules then count, and
+  the allow list must include `Skill`; if it is missing you see `held` and the rule to add before anything starts.
+- **Clean up stuck delegation records**: say "clean up stuck delegations"; the agent first lists the records read-only
+  (name, short id, state, whether the host still has it), and only after you confirm marks the ones you chose as
+  cancelled. It changes records only, deletes nothing and touches no host.
+
+## Troubleshooting
+
+**Mailbox tools fail with `Transport closed`**
+This session's connection to the mailbox is gone, usually because the runtime was just upgraded or the bridge process
+was ended; retrying will not help. Codex: quit the ChatGPT app completely with ⌘Q and reopen it. Claude Code: open a
+new session. Once connected, register the original name again before carrying on.
+
+**A message stays `unknown`**
+When a wake's outcome is unclear it is marked `unknown`; the bridge **never resends automatically**, and neither should
+you. For a Claude recipient that does not hold the ping, Claude Code usually sends no receipt, so the message stays
+`unknown` until the recipient reads it and it becomes `accepted`; that is normal. To follow it, ask "what happened to
+that message" or "wait for its reply".
+
+**A send reports an error**
+An error from `bridge_send` means the message was not saved. When a step after saving fails (a busy database, for
+example), it does not report an error: it returns the stored id with a warning "Saved as #id; … Do not send it
+again." and the wake is retried in the background.
+
+**Pings to a Claude session are held and then expire**
+The recipient is in Bypass permissions: Claude Code holds pings for your approval and the desktop app has no place to
+approve them. See the first item of "[Authorization and safety](#authorization-and-safety)". A session that has just
+started also holds pings for a few seconds and then releases them; that is not Bypass. The bridge tells the sender only
+after a hold has lasted 90 seconds; do not resend while a message is held.
+
+**A delegation shows `held/...`**
+See "[When delegation is held](#when-delegation-is-held)".
+
+**A Codex session shows `not-loaded`**
+The ChatGPT app has not opened that task since it started. Open it in ChatGPT and the message arrives; it is not a
+connection or identity fault. Right after the app starts, while it loads many tasks, a reply slower than 2 seconds also
+shows `not-loaded` for a moment; the next call corrects it.
+
+**A send or ack is refused because the name is not registered by this session, or is recorded for a Codex task**
+After a bridge restart (for Codex also after the ChatGPT app restarts or a long-idle task is reopened), the session
+registers its original name once again and repeats the step. No takeover is needed.
+
+**A Claude session is not running and messages do not go in**
+The Claude desktop app stops the process of an idle session. Messages stay queued and you are notified after five
+minutes; opening the session delivers them. The sender sees `pendingReason: offline` in `bridge_outbox`.
+
+**A session waits for your approval**
+The directory says so. When a Claude session sits on an approval prompt, this Mac shows a notice; when a Codex task
+(one the ChatGPT app has loaded) sits on an approval card or waits for your answer, the directory reports
+`waiting-approval` or `waiting-input`, but no notice is shown: handle it in the ChatGPT app.
+
+**A new parameter is refused after an upgrade (`expected boolean`)**
+An open session keeps the old tool definitions. Open a new Claude Code session or a new Codex task.
+
+**No notices appear**
+On most Macs `osascript` notices are silently dropped. Install terminal-notifier and allow it on its first notice;
+`doctor --test-notification` shows a test notice. See [Notices and delivery details](docs/notifications.en.md).
+
+**Anything else**
+Run `doctor` first; it gives a next step for every item. The full troubleshooting order is in the
+[runtime notes](plugins/agent-relay/references/collaboration-runtime.md), "Troubleshooting order".
+
 ## Authorization and safety
+
+> **A Claude session in Bypass mode cannot be woken.** In Bypass permissions, Claude Code holds pings from other
+> sessions for your approval; the desktop app has no place to approve them, so they expire. Binding wake still works,
+> but to actually be woken you set Claude Code's `crossSessionInbound` to `"accept"` yourself, or use another
+> permission mode. See [BACKGROUND-WAKE.md](plugins/agent-relay/bridge/docs/BACKGROUND-WAKE.md), "Why Claude pings
+> expire". agent-relay will not change it for you.
 
 - **No wake by default**: joining registers with `wake: null`, so an idle session is not woken by others; only when you
   ask explicitly is the current session bound for wake.
-- **A woken session runs under its own permissions** (`wake-any-mode`): a session in any permission mode can bind wake.
-  What the woken turn may do is decided entirely by that session's settings; the bridge does not change, lower or
-  approve anything, and a session that needs more asks you as usual. Incoming messages are always untrusted content and
-  never grant anything. **Risk**: with Codex on "approve for me" or Claude in auto mode, the woken turn's actions are
-  approved by that session's automatic reviewer or classifier, not necessarily by you — that is the mode you chose for
-  it. `install-codex` writes `approval_mode = "approve"` for the 10 mailbox tools, so reading, replying and
-  acknowledging show no card (an existing install adds it with `install-codex --approve-mailbox-tools`). It lists the
-  10 approval tables written to `~/.codex/config.toml` (`[mcp_servers.agent_relay.tools.<tool>]`), and when adding
-  them lists only the ones added. A `codex-gate.off` left in the mailbox directory by an old version is no longer used
-  and can be deleted (agent-relay will not delete it for you).
-- **A Claude session in Bypass mode cannot be woken**: in Bypass permissions, Claude Code holds pings from other
-  sessions for your approval; the desktop app has no place to approve them, so they expire. Binding wake still works,
-  but to actually be woken you set Claude Code's `crossSessionInbound` to `"accept"` yourself, or use another permission
-  mode. See [BACKGROUND-WAKE.md](plugins/agent-relay/bridge/docs/BACKGROUND-WAKE.md), "Why Claude pings expire".
-  A session that has just started also holds pings for a few seconds and then releases them; that is not Bypass. The
-  bridge tells the sender only after a hold has lasted 90 seconds; do not resend while a message is held.
-  agent-relay will not change it for you.
-- **You are told when a session waits for your approval** (`presence-and-approval`): the session directory
-  (`bridge_agents`, or ask any session "which sessions are there") says whether each session is running, stopped,
-  waiting for approval, waiting for input or unknown; sending to a session that waits for approval or has stopped gives
-  the sender a warning. When a Claude session sits on an approval prompt while a message to it is unhandled, this Mac
-  shows a notice that the session is waiting for your approval, once per wait; the notice has no message body and
-  cannot approve anything — you go back to that session. Codex sessions show running, stopped and not loaded
-  (`not-loaded`: the ChatGPT app has not opened it since it started; open it and the message arrives), but not whether
-  they wait for approval.
-- **You are notified when Codex cannot receive**: when Codex is not open, a wake is held, or the identity is not bound
-  for wake, the bridge shows a notice on this Mac at once; when Codex is only busy, after 10 minutes undelivered; at
-  most once per message. The title names the sending session, the subtitle the message id, recipient and reason (with
-  what to do when you need to act), and the body is a **single-line preview of at most the first 60 characters**. The
-  preview appears on the lock screen and shared screens (macOS's "Show previews" setting can limit that); to hide the
-  body, put a `notify-preview.off` file in the mailbox directory (`~/.agent-relay/runtime/mailbox/`), which falls back
-  to ids only; to turn notices off entirely, put `notify.off` there.
-- **You are notified when a Claude session is not running**: the Claude desktop app stops the process of an idle
-  session, and the bridge can only deliver to a running one. When a message to such a session has not gone in for five
-  minutes, this Mac shows a notice naming the session (its mailbox name), how many messages are waiting and when the
-  first was sent; once per offline spell, and opening the session delivers them. No message body and no click action.
-  The sender sees `pendingReason: offline` in `bridge_outbox`. `notify.off` turns this off too.
-  **Channel**: with Homebrew's terminal-notifier installed (only `/opt/homebrew/bin` and `/usr/local/bin`, not looked up
-  in PATH) it is used, otherwise `osascript`. `osascript` notices are filed under Script Editor, which never asks for
-  notification permission, so on most Macs they are **silently dropped** with no switch in System Settings; to see
-  banners, `brew install terminal-notifier` (your choice) and allow it on its first notice. The bridge cannot see
-  whether macOS showed a notice, so wake details and sender warnings say only "attempted". doctor's `notifications`
-  check judges whether the actual channel looks allowed, and `doctor --test-notification` shows a test notice through
-  the same channel for you to confirm.
-- **Notices say where the session is, and a click takes you there**: the subtitle of a "waiting for your approval"
-  notice gives the session name, project directory name and place (Claude desktop app, the terminal's tty, a background
-  session and the `claude attach <id>` that opens it); a Codex notice says "Codex app" when the app confirms it holds
-  that thread. With terminal-notifier, clicking the notice brings the application forward, and Terminal and iTerm also
-  switch to that tab; background sessions, sessions inside tmux/ssh and notices whose place is unknown have no click
-  action. **A click only switches windows; it approves nothing and types nothing into the session.** The first click on
-  a terminal session's notice makes macOS ask once, on behalf of terminal-notifier, for "Automation" permission (to
-  control Terminal or iTerm); without it the terminal app still comes forward but the tab is not selected, and you can
-  change it later in System Settings → Privacy & Security → Automation. With previews off (`notify-preview.off`) the
-  text gives only the kind of place, and clicks still work.
-  The place you can always see is the **waiting list**: ask any session "which messages are waiting for Codex", or run
-  doctor and read `codex-waiting` (counts, senders and ids only, no bodies).
-- **The sender is warned when the recipient cannot be pinged**: when the recipient is neither bound for wake nor known
-  to be on a host (for example Codex registered with `wake: null`), the send result carries a warning that the recipient
-  has to check its inbox itself. No notice is shown, because there is no one known to tell.
-- **An identity belongs to the session that registered it**: sending (`from`), ack and the auto-acknowledging
-  `bridge_wait` accept only names this session registered, otherwise they refuse with a next step. After an upgrade
-  each session registers its name once again (recording its session); after that a Claude session's name survives a
-  bridge restart, while a Codex session registers again with the same thread id after a bridge restart.
-  Another session's name or wake binding can be taken over with `takeover: true` only with your agreement; a session
-  can bind wake only for itself. Only a message's recipient can reply to it (broadcasts: anyone except the sender;
-  automatic bridge notices cannot be replied to). This guards against mistakes and mix-ups, not malicious local
-  processes.
+- **A woken session runs under its own permissions** (`wake-any-mode`): what the woken turn may do is decided entirely
+  by that session's settings; the bridge does not change, lower or approve anything, and a session that needs more asks
+  you as usual. **Risk**: with Codex on "approve for me" or Claude in auto mode, the woken turn's actions are approved
+  by that session's automatic reviewer or classifier, not necessarily by you — that is the mode you chose for it. The
+  approval selector in the Codex App governs only the turns you start and is not written to `config.toml`; a woken turn
+  runs with the task's current approval and sandbox settings.
+- **Messages are only data**: text in the mailbox never authorizes changes to code, Git, configuration or remote
+  systems.
 - **Item by item consent**: setting up the runtime, changing host configuration, joining a new identity and widening
   permissions each need your consent.
 - **No automatic changes** to project or global permissions; it does not accept project trust or the first MCP approval
   for you and does not turn on bypass mode. When a prerequisite is missing it shows `held` and the smallest next step.
-- **To avoid repeated permission prompts**, you can preconfigure project-level allow rules in the target project's
-  `.claude/settings.json`: a read-only review only needs the ten mailbox tools (`mcp__agent-relay__bridge_*`)
-  pre-approved; changing code additionally needs edit, write and narrowly scoped Bash commands. agent-relay reads and
-  reuses these rules but never writes them.
-- **Messages are only data**: text in the mailbox never authorizes changes to code, Git, configuration or remote
-  systems.
+  To avoid repeated permission prompts you can preconfigure project-level allow rules in the target project's
+  `.claude/settings.json` (see "[Delegation end to end](#delegation-end-to-end)").
+- **An identity belongs to the session that registered it**: sending (`from`), ack and the auto-acknowledging
+  `bridge_wait` accept only names this session registered, otherwise they refuse with a next step. A Claude session's
+  name survives a bridge restart, while a Codex session registers again with the same thread id after a bridge restart.
+  Another session's name or wake binding can be taken over with `takeover: true` only with your agreement; a session
+  can bind wake only for itself. Only a message's recipient can reply to it (broadcasts: anyone except the sender;
+  automatic bridge notices cannot be replied to). This guards against mistakes and mix-ups, not malicious local
+  processes.
+- **You are told when a session waits for you** (`presence-and-approval`): the directory says whether each session is
+  running, stopped, waiting for approval, waiting for input, not loaded (`not-loaded`, Codex only) or unknown; sending
+  to a session that waits for approval or has stopped gives the sender a warning.
+- **Notices**: when a Claude session waits for your approval, Codex cannot receive a message, or a stopped Claude
+  session cannot take one, this Mac shows a notice, at most one each time. The body of a Codex notice is a
+  **single-line preview of at most the first 60 characters** of the message, which appears on the lock screen and
+  shared screens; a `notify-preview.off` file in the mailbox directory (`~/.agent-relay/runtime/mailbox/`) leaves only
+  ids, and `notify.off` turns notices off. A notice approves nothing. The channel, click actions and the "Automation"
+  permission are in [Notices and delivery details](docs/notifications.en.md). The place you can always see is the
+  **waiting list**: ask any session "which messages are waiting for Codex", or run doctor and read `codex-waiting`.
+- **The sender is warned when the recipient cannot be pinged**: when the recipient is neither bound for wake nor known
+  to be on a host (for example Codex registered with `wake: null`), the send result carries a warning that the recipient
+  has to check its inbox itself. No notice is shown, because there is no one known to tell.
 - **No "exactly once" promise**: every direct message has a delivery state (`queued`, `sending`, `accepted`, `failed`,
-  `unknown`, `expired`), visible in the outbox. When a wake's outcome is unclear it is marked `unknown` and **never
-  resent automatically**; a message still queued after its timeout (24 hours by default, adjustable with
-  `BRIDGE_QUEUE_TIMEOUT_MS` or `expiresInSeconds` on send) is marked `expired`: no more wakes, hidden from the inbox by
-  default, never executed later, and the sender is notified. When a Claude recipient does not hold a ping, Claude Code
-  usually sends no receipt, so the message stays `unknown` in the outbox until the recipient reads it and it becomes
-  `accepted` (seen on the real host in the 0.9.4 acceptance); this is normal, do not resend.
-- **Queued per recipient, with a cap**: one recipient has one wake in flight at a time, in send order from oldest to
-  newest; one stuck recipient does not delay others; messages the recipient already read are not woken separately.
-  Each recipient holds at most 100 undelivered messages (`BRIDGE_MAX_PENDING_PER_RECIPIENT`, 10 to 10000); at 80 % the
-  send result warns, and when full the send is refused with the reason; reading, ack, expiry or failure frees a slot.
-- **A retry key means one message**: resending the same content with the same `idempotencyKey` returns the original
-  (`duplicate: true`) and wakes no one; the same key with a different recipient, body, thread or reply target is
-  refused, naming the stored message id and saying no resend is needed. A reply can carry `replyTo` (the original's
-  id), lands on the original's thread, and the outbox shows which replies each message received; the same reply to the
-  same message is stored once, unless the previous one finally failed or expired. Give important messages an
-  `idempotencyKey` when you send them and retry an error with the same key; at most you get the original back. When a
-  step after the message was saved fails (a busy database, for example), `bridge_send` does not report an error: it
-  returns the stored id with a warning "Saved as #id; … Do not send it again." and the wake is retried in the
-  background, so an error from `bridge_send` means the message was not saved.
-- **Codex's approval selector applies per turn**: the selector in the App governs only the turns you start and is not
-  written to `config.toml`; a woken turn runs with the task's current approval and sandbox settings (see above).
+  `unknown`, `expired`); when unclear it is `unknown` and never resent automatically; a message still queued after its
+  timeout (24 hours by default) becomes `expired` and the sender is notified. The per-recipient cap, `idempotencyKey`
+  and reply rules are in [Notices and delivery details](docs/notifications.en.md#delivery) and the interface document,
+  §6.
+
+## Known issues
+
+Only the ones that still apply; what each release said at the time is in [CHANGELOG.md](CHANGELOG.md).
+
+- **A script identity cannot acknowledge the messages it receives** (found in 0.9.3): the CLI has no `inbox` or `ack`
+  command, and a session's `bridge_ack` for it is refused. Messages to a script identity stay until they expire (24
+  hours by default), and until then the identity cannot be retired. A script cannot read an answer's body either, so
+  scripts should send notices and leave out `--expects-reply`.
+- **Messages to a Claude session often stay `unknown`** (0.9.4 acceptance): when the recipient does not hold the ping,
+  Claude Code usually sends no receipt, so it becomes `accepted` only once the recipient reads it. Do not resend.
+- **A stopped Claude session cannot be woken** (0.9.0): no sender can wake a session the Claude desktop app stopped;
+  messages stay queued and you are notified after five minutes.
+- **A Codex task's first mailbox call after the ChatGPT app restarts is refused once** (0.7.1): the bridge cannot tell
+  which Codex task calls it; the session registers its original name again as the refusal says and repeats the call.
+- **A task the ChatGPT app has not opened since it restarted reports `not-loaded`** (0.8.3), not a waiting state.
+- **Codex waiting states were checked on the real host only for command approvals and questions** (0.8.4): file
+  changes, permission requests and MCP tool questions are covered by unit tests only.
+- **Open requests are not closed automatically** (0.8.0): the recipient closes them with `alsoAnswers`, or the sender
+  with `withdraws`; trust `closed` in the result.
+- **launchd has not been tried on the real host yet** (0.9.0).
 
 ## What it does not do
 
@@ -342,60 +392,21 @@ script identity the user registered, with the body from `--body-file` or stdin:
 printf 'patrol: #12 is still unhandled' | ~/.agent-relay/bin/agent-relay send --from my-patrol --to some-agent
 ```
 
-Commands, exit codes and wake limits are in the interface document, §2.4.
+Commands, exit codes and wake limits are in the interface document, §2.4. A script identity cannot acknowledge what it
+receives or read an answer's body: see "[Known issues](#known-issues)".
 
-Known issue: a script identity cannot acknowledge the messages it receives. The CLI has no `inbox` or `ack` command,
-and a session's `bridge_ack` for it is refused. Messages sent to a script identity stay until they expire (24 hours
-by default), and until then the identity cannot be retired (retiring needs no unacknowledged messages; expired ones do
-not count). A script cannot read an answer's body either (`outbox` gives only the reply ids), so scripts should send
-notices: leave out `--expects-reply`, or the recipient must answer and the answer only piles up in the script's inbox.
+## Updating and upgrading
 
-## Relationship with Spec Guard
-
-The two plugins are independent; either can be installed alone. When both are installed, Spec Guard reads
-[`interface.json`](plugins/agent-relay/interface.json) in this plugin's root (interface 2.10; Spec Guard accepts
-`>=1.0,<3.0` since 0.56.0) to decide whether agent-relay is available, and uses collaboration only through
-agent-relay's skill names; without it, Spec Guard's workflows run as usual and only the steps that need collaboration
-suggest installing it.
-
-### Migrating from Spec Guard's collaboration feature
-
-If you used Spec Guard's built-in collaboration, the old data is in `~/.spec-guard/native-collaboration/` and
-`~/.spec-guard/session-delegation/`. Let the agent follow the migration steps of `collaboration-ops`, or run:
-
-```bash
-python3 -B <plugin dir>/hooks/state_migration.py detect
-python3 -B <plugin dir>/hooks/state_migration.py migrate --confirm
-```
-
-- `detect` is read-only: it lists how much old data there is and what blocks the migration: unfinished delegations, old
-  mailbox servers still running (close or restart those sessions first), the agent-relay runtime not yet installed. A
-  stuck delegation that never started can be let through with `--acknowledge-stale <id>` once you are sure it is no
-  longer needed.
-- `migrate` first backs the old data up to `~/.agent-relay/backups/<time>/`, then copies it into agent-relay and checks
-  every table's count; it only migrates into a fresh agent-relay (empty mailbox) and never merges two mailboxes. One
-  migration at a time; it also refuses while agent-relay's own mailbox server runs (close all sessions first).
-  Everything is prepared beside the target and swapped in whole after the counts match; any failure puts back the state
-  before the migration, and the part that was not swapped in stays in `~/.agent-relay/.state-migration-failed-<time>`
-  for inspection.
-- When a migration is interrupted (process killed, power loss), `detect` reports `interrupted` and `migrate` refuses;
-  close all sessions and run `state_migration.py recover --confirm`, which always returns to the state before the
-  migration; then you can migrate again. None of these directories is deleted automatically.
-- After a successful migration, the replaced target directory (including the mailbox from before the migration) stays
-  in `~/.agent-relay/.state-migration-<time>-<random>/previous-*`, path given as `previous` in the result; delete the
-  whole directory yourself once you are sure the migration is correct.
-- Old directories, host configuration and permission files are never touched; after migrating, attach the new host
-  entries as prompted, remove the old ones with Spec Guard's own uninstall, and change project permission rules to
-  `mcp__agent-relay__bridge_*` by hand. Delete the old directories yourself once you are sure.
-
-## Updating the plugin
+### Updating the plugin
 
 A Claude Code session decides which copy of the plugin to use **when it starts**, and keeps using it: sessions already
 open, the app closed and reopened, and resumed sessions all keep the old copy. After updating, **open a new session**
 (including the desktop app's Code tab) to use the new version. (The copy a new session loads was measured on this Mac
 on 2026-10-10; "a resumed session keeps the old copy" is one case observed by the coordinator.) The mailbox tool
 parameter definitions behave the same way: an open Claude Code session does not get new parameters by reconnecting
-MCP (measured on this Mac after the 0.7.0 upgrade).
+MCP (measured on this Mac after the 0.7.0 upgrade), and a new parameter is refused (`expected boolean`); to use new
+parameters, open a new Claude Code session or a new Codex task (whether an old Codex task gets them after the app is
+reopened was not measured, so open a new task to be safe).
 
 - **Installed from a local clone**: new Claude sessions read the clone directly, so after `git -C <clone> pull
   --ff-only` just open a new session. The user-scope record's version label in `claude plugin list` does not follow,
@@ -406,6 +417,8 @@ MCP (measured on this Mac after the 0.7.0 upgrade).
 - **Installed from GitHub**: first `claude plugin marketplace update agent-relay-marketplace`, then
   `claude plugin update --scope user agent-relay@agent-relay-marketplace`. Without `--scope` this updates only the
   "current folder" project-level entry, not the user-level install (measured on this Mac). Then open a new session.
+- **Codex**: after updating the plugin, quit the ChatGPT app completely with ⌘Q and reopen it so open threads pick up
+  the new version.
 
 The `claude-plugin` item of `python3 -B <plugin dir>/hooks/native_collaboration_runtime.py doctor` checks the version
 of the copy a new session will load (it reads that copy's `plugin.json`, not the version `claude plugin list` shows)
@@ -414,10 +427,11 @@ is a stale label on that record, not the copy that loads; doctor warns and lists
 commands (`claude plugin uninstall --scope local` per folder, or an update of the record) for you to run one by one;
 doctor itself changes nothing. Records whose folder is gone are not warned about or listed: they are counted, with a
 note that they can stay or be removed as it describes; a project scope record gets a note, not a command, because
-changing it changes that repository's committed `.claude/settings.json`. When the plugin carries new bridge runtime code (a bridge change in tests or docs only
-does not count), also upgrade the runtime as in the next section.
+changing it changes that repository's committed `.claude/settings.json`. When the plugin carries new bridge runtime
+code (a bridge change in tests or docs only does not count), also upgrade the runtime as in the next section; the top
+of each CHANGELOG entry says whether it is needed.
 
-## Upgrading the runtime
+### Upgrading the runtime
 
 **Update the plugin first, then the runtime**: a new bridge may move the mailbox to a new schema (0.7.0 moves it to 6),
 which older plugins' hooks cannot read, so retiring and delegation would stop. Update the plugin on both hosts first
@@ -460,6 +474,8 @@ also need to be restarted after the upgrade; doctor cannot see those.
 - `runtime.previous-*`, `runtime.rolled-back-*` and `.runtime-*-failed-*` are never deleted automatically; delete them
   yourself once you are sure.
 
+After an upgrade each session registers its original name once again (recording its session).
+
 ## Uninstalling
 
 For a complete uninstall follow this order (the `collaboration-ops` skill asks you at each step); message history is
@@ -491,35 +507,100 @@ kept by default:
 6. Run `doctor` once more (before uninstalling the plugin also works): hosts not attached, runtime uninstalled, and the
    path of the history.
 
-When you no longer need the message history, deleting `~/.agent-relay/` is up to you.
+When you no longer need the message history, deleting `~/.agent-relay/` is up to you. A `codex-gate.off` left in the
+mailbox directory by an old version is no longer used and can be deleted (agent-relay will not delete it for you).
+
+## Advanced settings
+
+### Finding the plugin directory
+
+The commands above are written as `<plugin dir>/hooks/…`. The plugin directory is the copy the host actually loaded
+(installed from GitHub: in the host's plugin cache; installed from a local clone: `plugins/agent-relay` in the clone).
+To find it:
+
+```bash
+claude plugin list --json | python3 -c 'import json,sys; ps=[p for p in json.load(sys.stdin) if p.get("id","").startswith("agent-relay@") and p.get("enabled")]; p=next((p for p in ps if p.get("scope")=="user"), ps[0] if ps else {}); print(p.get("readFromFolder") or p.get("installPath") or "")'
+codex plugin list --json | python3 -c 'import json,sys; print(next((p["source"]["path"] for p in json.load(sys.stdin).get("installed",[]) if p.get("name")=="agent-relay" and p.get("enabled") and (p.get("source") or {}).get("path")), ""))'
+```
+
+The first is for Claude Code, the second for Codex; with both installed, either printed directory will do. When you
+let the agent do it you can skip this: the skills find the plugin directory themselves.
+
+### Using another state directory
+
+The runtime, mailbox, delegation records and migration backups live in `~/.agent-relay/` by default. Setting the
+environment variable `AGENT_RELAY_HOME` (an absolute path; a relative path is an error) moves all of them, and every
+agent-relay command uses that directory; an explicit `--root` or `--state-root` on the command line still wins. Note:
+attaching a host writes the absolute path resolved at that time into the host configuration, so changing the variable
+later does **not** move hosts already attached; install the runtime under the new directory and attach the hosts again.
+
+## Relationship with Spec Guard
+
+The two plugins are independent; either can be installed alone. When both are installed, Spec Guard reads
+[`interface.json`](plugins/agent-relay/interface.json) in this plugin's root (interface 2.10; Spec Guard accepts
+`>=1.0,<3.0` since 0.56.0) to decide whether agent-relay is available, and uses collaboration only through
+agent-relay's skill names; without it, Spec Guard's workflows run as usual and only the steps that need collaboration
+suggest installing it.
+
+### Migrating from Spec Guard's collaboration feature
+
+If you used Spec Guard's built-in collaboration, the old data is in `~/.spec-guard/native-collaboration/` and
+`~/.spec-guard/session-delegation/`. Let the agent follow the migration steps of `collaboration-ops`, or run:
+
+```bash
+python3 -B <plugin dir>/hooks/state_migration.py detect
+python3 -B <plugin dir>/hooks/state_migration.py migrate --confirm
+```
+
+- `detect` is read-only: it lists how much old data there is and what blocks the migration: unfinished delegations, old
+  mailbox servers still running (close or restart those sessions first), the agent-relay runtime not yet installed. A
+  stuck delegation that never started can be let through with `--acknowledge-stale <id>` once you are sure it is no
+  longer needed.
+- `migrate` first backs the old data up to `~/.agent-relay/backups/<time>/`, then copies it into agent-relay and checks
+  every table's count; it only migrates into a fresh agent-relay (empty mailbox) and never merges two mailboxes. One
+  migration at a time; it also refuses while agent-relay's own mailbox server runs (close all sessions first).
+  Everything is prepared beside the target and swapped in whole after the counts match; any failure puts back the state
+  before the migration, and the part that was not swapped in stays in `~/.agent-relay/.state-migration-failed-<time>`
+  for inspection.
+- When a migration is interrupted (process killed, power loss), `detect` reports `interrupted` and `migrate` refuses;
+  close all sessions and run `state_migration.py recover --confirm`, which always returns to the state before the
+  migration; then you can migrate again. None of these directories is deleted automatically.
+- After a successful migration, the replaced target directory (including the mailbox from before the migration) stays
+  in `~/.agent-relay/.state-migration-<time>-<random>/previous-*`, path given as `previous` in the result; delete the
+  whole directory yourself once you are sure the migration is correct.
+- Old directories, host configuration and permission files are never touched; after migrating, attach the new host
+  entries as prompted, remove the old ones with Spec Guard's own uninstall, and change project permission rules to
+  `mcp__agent-relay__bridge_*` by hand. Delete the old directories yourself once you are sure.
+
+## Glossary
+
+| Term | Meaning |
+|---|---|
+| Host | The application a session runs in: Claude Code (CLI or desktop app) or Codex (the ChatGPT app or CLI) |
+| Mailbox | A private local SQLite mailbox that stores every message sent through agent-relay, in `~/.agent-relay/runtime/mailbox/` |
+| Bridge | The MCP server (`agent-relay`) in each session that connects to the mailbox, offers the 10 `bridge_*` tools and handles delivery and wake |
+| Runtime | The built bridge program and mailbox under `~/.agent-relay/runtime/`; managed by `install`/`upgrade` |
+| Identity | The name a session registered in the mailbox; it belongs to that session and can be retired when done |
+| Wake binding | Binding an identity to the current session (`wake`) so the bridge wakes it when a message arrives; off by default |
+| Script identity | An identity the user registers in a terminal for scripts and launchd; it can send but not acknowledge |
+| Delivery state | How far a direct message got: `queued`, `sending`, `accepted`, `failed`, `unknown`, `expired` |
+| `held` | Two meanings: a delegation missing a prerequisite and not started (`held/<reason>`); or Claude Code holding the pings sent to a session |
+| `expectsReply` | The sender marks a message as a request; the recipient answers it with `replyTo` when done, an ack alone does not count |
+| `not-loaded` | The ChatGPT app has not opened that Codex task since it started |
+| Delegation | One side opens a new limited session on the other host to do work; the result comes back through the mailbox |
 
 ## Documentation
 
 - [Interface document](docs/collaboration-interface.md): tools, messages, states, delivery semantics, identity,
   authorization, delegation and hardening targets.
-- [Acceptance checklist](docs/acceptance/checklist.md): real-host acceptance steps.
-- [Changelog](CHANGELOG.md): version changes and known issues (in Chinese).
-- [Releasing](RELEASING.md): the maintainer's steps and checks for a new version (in Chinese).
+- [Notices and delivery details](docs/notifications.en.md): notice channel, click actions, preview switches, the
+  per-recipient cap, retry keys and reply rules.
+- [Changelog](CHANGELOG.md): version changes and upgrade steps (in Chinese).
 - [Security](SECURITY.md): what is protected, trust boundaries and how to report a security problem (in Chinese).
 - [Background wake](plugins/agent-relay/bridge/docs/BACKGROUND-WAKE.md): how wake works and why Claude pings expire.
 - [Runtime notes](plugins/agent-relay/references/collaboration-runtime.md),
   [collaboration protocol](plugins/agent-relay/references/collaboration-protocol.md).
-
-## Development and CI
-
-Local validation: `bash scripts/validate.sh` (run `npm ci` in `plugins/agent-relay/bridge` first, otherwise the bridge
-part shows skip). Every PR and every commit pushed to `main` runs the same validation on GitHub Actions `macos-15`,
-across Python 3.9 (shipped with Apple's command line tools) / 3.14 × Node 22 / 24; the log has doctor's `toolchain`
-line naming the Python and Node actually used. To make it a required check for `main`: repository Settings → Branches
-(or Rules → Rulesets) → for `main` tick "Require status checks to pass" and select the four `Python … / Node …`
-checks. Whether to do so is the maintainer's decision.
-
-Run only when needed (`ci-on-demand`): a PR (or a commit pushed to `main`) that only changes files under `CLAUDE.md`,
-`AGENTS.md`, `spec/`, `tasks/` or `.agent/` passes the four checks after printing the reason, without running tests;
-any file outside these runs the full matrix. The list is defined in [`scripts/ci_scope.py`](scripts/ci_scope.py), and
-`hooks/test_ci_exempt_guard.py` ensures the code under test reads none of these paths. Every Monday at 03:00 UTC a full
-run on `main` catches problems from Python or Node upgrades in the runners; to run it all at any time, use "Run
-workflow" for CI on the Actions page.
+- Developing, running the tests and releasing: see [CONTRIBUTING.md](CONTRIBUTING.md) (in Chinese).
 
 ## License and credits
 
