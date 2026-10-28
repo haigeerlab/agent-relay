@@ -10,7 +10,7 @@ agent-relay started as an optional collaboration feature of [Spec Guard](https:/
 and is now a standalone plugin: a project that only needs its sessions to talk to each other (a design project, for
 example) needs nothing else.
 
-> Status: 0.9.4 (interface 2.10, needs Spec Guard 0.56.0 or later). Changes, upgrade steps and known issues are in
+> Status: 0.9.4 (interface 2.10; Spec Guard is not needed, but installed alongside it must be 0.56.0 or later). Changes, upgrade steps and known issues are in
 > [CHANGELOG.md](CHANGELOG.md) (written in Chinese); the goal of each item is in the "hardening target" column of
 > [docs/collaboration-interface.md](docs/collaboration-interface.md).
 
@@ -188,6 +188,34 @@ Just say it in natural language; no tool names or internal IDs to remember:
 - "Check the agent-relay status" → `native_collaboration_runtime.py doctor`: a read-only check of the runtime, mailbox,
   host attachment, Codex approval mode and wake-bound sessions (it points out a session stuck waiting for input), each
   item with a next step; exit code 1 when anything fails.
+- "Retire identity X" → a finished name leaves the directory and its history is kept. Once you name it or approve the
+  list, the agent runs `python3 -B <plugin dir>/hooks/native_collaboration_retire.py --name <name> --confirm-retire`
+  (`--note <text>` optional); it refuses while the identity still has messages it has not acknowledged (expired ones do
+  not count), so read and acknowledge them first. Sessions cannot retire identities.
+- Reusing a retired name → registering it is refused; with your consent the session registers with
+  `reactivate: true`, or picks a new name.
+- Self-test and version: `native_collaboration_runtime.py probe` starts the runtime against disposable data and checks
+  that it answers, without touching the real mailbox; `status` reports read-only whether the runtime is ready;
+  `~/.agent-relay/bin/agent-relay --version` prints the runtime's version.
+
+### The ten mailbox tools
+
+You do not call them yourself; the agent picks them from what you say. Their names appear in permission prompts,
+`claude-allow-rules` and send results (in Claude Code the full name is `mcp__agent-relay__<tool>`). Parameters and
+results are in the [interface document](docs/collaboration-interface.md), §2.1.
+
+| Tool | What it does |
+|---|---|
+| `bridge_register` | Register this session's name, optionally binding wake (`wake`); `takeover` to take over another session's name, `reactivate` to reuse a retired one |
+| `bridge_send` | Send: `replyTo` answers a message, `expectsReply` marks a request, `idempotencyKey` prevents duplicates, `bodyFile` reads the body from a file |
+| `bridge_inbox` | Read the inbox (oldest first, long messages in pages); only the identity itself records a read |
+| `bridge_ack` | Mark handled; history kept |
+| `bridge_outbox` | How far your sent messages got; with `awaitingReply`, only requests still waiting for an answer |
+| `bridge_agents` | Directory: each session's state, unhandled messages and owed replies |
+| `bridge_sessions` | Live Claude sessions on this Mac, and "who am I" (`whoami`) |
+| `bridge_wake_status` | Wake records; with `messageId`, one message's progress |
+| `bridge_thread` | A whole conversation by thread |
+| `bridge_wait` | Wait in the current turn for a new message, or for one message's outcome |
 
 ## Authorization and safety
 
@@ -311,15 +339,16 @@ script identity the user registered, with the body from `--body-file` or stdin:
 
 ```bash
 ~/.agent-relay/bin/agent-relay register-script-identity my-patrol --confirm
-printf 'please handle #12' | ~/.agent-relay/bin/agent-relay send --from my-patrol --to some-agent --expects-reply
+printf 'patrol: #12 is still unhandled' | ~/.agent-relay/bin/agent-relay send --from my-patrol --to some-agent
 ```
 
 Commands, exit codes and wake limits are in the interface document, §2.4.
 
 Known issue: a script identity cannot acknowledge the messages it receives. The CLI has no `inbox` or `ack` command,
-and a session's `bridge_ack` for it is refused. Messages sent to a script identity (such as answers to its
-`--expects-reply` requests) stay until they expire (24 hours by default), and until then the identity cannot be
-retired (retiring needs no unacknowledged messages; expired ones do not count).
+and a session's `bridge_ack` for it is refused. Messages sent to a script identity stay until they expire (24 hours
+by default), and until then the identity cannot be retired (retiring needs no unacknowledged messages; expired ones do
+not count). A script cannot read an answer's body either (`outbox` gives only the reply ids), so scripts should send
+notices: leave out `--expects-reply`, or the recipient must answer and the answer only piles up in the script's inbox.
 
 ## Relationship with Spec Guard
 

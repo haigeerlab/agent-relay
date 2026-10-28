@@ -8,6 +8,10 @@
   Do not send it again.”警告（D261）；重要消息带 `idempotencyKey`，报错后用同一个 key 重试（D263）。
 - README 中英文写明：Claude 收件方没被扣住时通常不给回执，消息在发件箱里一直是 `unknown`，直到对方读到（0.9.4 真实宿主验收）。
 - `tasks/delivery-robustness/todo.md` 记下 0.9.4 已发布、真实宿主已升级并验收。
+- README 中英文按使用者通读的反馈修正：状态行写明不依赖 Spec Guard（同时安装时 Spec Guard 要 0.56.0 或更新）；
+  “怎么用”补上退役身份、`reactivate` 重新启用退役名字、`probe`／`status` 自检和 `agent-relay --version`，并列出 10 个信箱工具；
+  脚本示例去掉 `--expects-reply`（脚本读不到回复正文，回复会积在脚本身份的信箱里）。
+- 接口文档 §2.1 的 MCP 服务名改为现在的 `agent-relay`／`agent_relay`（原来写的是拆分前的旧名）。
 
 ### 已知问题
 
