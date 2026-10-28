@@ -201,11 +201,16 @@ class ExactArgumentTests(unittest.TestCase):
 
 
     def test_readme_says_what_a_notice_click_does_and_whose_automation_prompt_it_is(self):
-        # notice-location D188.
-        readme = (PLUGIN_ROOT.parents[1] / "README.md").read_text(encoding="utf-8")
+        # notice-location D188; the details moved from the README to docs/notifications.md (readme-restructure).
+        repo = PLUGIN_ROOT.parents[1]
+        notices = (repo / "docs" / "notifications.md").read_text(encoding="utf-8")
         for text in ("点击只切换窗口，不批准任何东西，也不向会话输入内容", "以 terminal-notifier 的名义弹一次“自动化”授权",
                      "系统设置 → 隐私与安全性 → 自动化"):
-            self.assertIn(text, readme)
+            self.assertIn(text, notices)
+        english = (repo / "docs" / "notifications.en.md").read_text(encoding="utf-8")
+        self.assertIn("A click only switches windows; it approves nothing and types", english)
+        for name, target in (("README.md", "docs/notifications.md"), ("README.en.md", "docs/notifications.en.md")):
+            self.assertIn("](%s)" % target, (repo / name).read_text(encoding="utf-8"))
 
 
     def test_delegation_skill_says_what_read_only_answers_mean(self):

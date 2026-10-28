@@ -8,8 +8,11 @@
 agent-relay 原来是 [Spec Guard](https://github.com/haigeerlab/spec-guard-plugin) 的可选协作能力，现在拆成独立插件：
 只想让会话互相通信的项目（例如设计项目）装它就够了。
 
-> 状态：0.9.4（接口 2.10；不依赖 Spec Guard，同时安装时 Spec Guard 要 0.56.0 或更新）。变化、升级步骤和已知问题见 [CHANGELOG.md](CHANGELOG.md)；
-> 各项目标见 [docs/collaboration-interface.md](docs/collaboration-interface.md) 的“加固目标”栏。
+> 状态：0.9.4（接口 2.10；不依赖 Spec Guard，同时安装时 Spec Guard 要 0.56.0 或更新）。变化、升级步骤见
+> [CHANGELOG.md](CHANGELOG.md)，现在仍有效的问题见下文“[已知问题](#已知问题)”；各项目标见
+> [docs/collaboration-interface.md](docs/collaboration-interface.md) 的“加固目标”栏。
+>
+> 装好插件后，对任意会话说一句“**检查一下 agent-relay 状态**”，它会告诉你还差哪几步（见“[快速上手](#快速上手)”）。
 
 ## 能做什么
 
@@ -17,20 +20,20 @@ agent-relay 原来是 [Spec Guard](https://github.com/haigeerlab/spec-guard-plug
 |---|---|---|
 | 协作信箱 | 同一台 Mac 上的会话互相发消息、回复；跨宿主（Claude Code ↔ Codex）走一个私有的本机 bridge | `collab` skill；Claude Code 还有 `/agent-relay:collaboration` |
 | 会话路由 | 按会话名字联系另一个会话；同宿主优先用宿主自带的通信（Claude Code `SendMessage`、Codex App 线程），只有跨宿主才用信箱 | `session-routing` skill |
-| 跨宿主会话委派 | 一句话让当前 Claude Code 创建 Codex 审查会话，或让 Codex 创建 Claude Code 开发会话（只有这两个方向，不做同宿主委派）；默认一个任务、一个新会话的有限授权；只读审查可用 `--scope` 限定范围（Claude Code 会话硬性拦截范围外的读取），按你起的名字就能联系委派会话，卡住的委派记录可用 `prune` 先预览再清理；Codex 创建 Claude Code 会话时可选“加载用户环境”（`--user-environment`，默认关），让它带上你的设置、插件和 skill。Claude Code 里装了 delegate 插件时，“派给 Codex”交给它，这里只做后备 | `session-delegation` skill |
+| 跨宿主会话委派 | 一句话让当前 Claude Code 创建 Codex 审查会话，或让 Codex 创建 Claude Code 开发会话（只有这两个方向，不做同宿主委派）；默认一个任务、一个新会话的有限授权，结果自动回到发起的会话（见“[委派：从头到尾](#委派从头到尾)”）。Claude Code 里装了 delegate 插件时，“派给 Codex”交给它，这里只做后备 | `session-delegation` skill |
 | 运行时管理 | 查看、在你同意后安装本机信箱运行时，接入或移除宿主配置，退役结束的身份 | `collaboration-ops` skill |
 
 ## 需要什么
 
 - macOS；Node.js 22.5 或更新（信箱运行时用的内置 `node:sqlite` 从 22.5.0 起才有）；Python 3.9 到 3.14
   （macOS 自带的 `/usr/bin/python3` 3.9 可用，3.9、3.10、3.14 都跑过全部测试）。
-- 委派控制器、`doctor`、运行时的 `install`／`upgrade`、身份退役和宿主适配器（`install-claude`／`install-codex`
-  及打印配置）都用宿主条目里固定的 node（顺序：`--node` →
-  Claude 条目 → Codex 条目 → PATH），不受当前 shell 的 PATH 影响；安装时 npm 也在这个 node 上运行，`--npm` 默认取它
-  旁边的 npm。选中的 node 低于 22.5.0 时直接拒绝（`node-too-old`），不会动宿主，也不会开始构建。
+- agent-relay 的命令用宿主条目里固定的那个 node，不受当前 shell 的 PATH 影响；它低于 22.5.0 时直接拒绝
+  （`node-too-old`），不会动宿主。选取顺序见[运行时说明](plugins/agent-relay/references/collaboration-runtime.md)。
 - Claude Code 和／或 Codex（App 或 CLI）。
 
-## 安装
+## 快速上手
+
+### 1. 安装插件
 
 Claude Code：
 
@@ -46,88 +49,58 @@ codex plugin marketplace add haigeerlab/agent-relay --ref v0.9.4
 codex plugin add agent-relay@agent-relay-marketplace
 ```
 
-开发时也可以把上面的 `haigeerlab/agent-relay` 换成本地克隆的路径。
+开发时也可以把上面的 `haigeerlab/agent-relay` 换成本地克隆的路径。两个宿主都要互通时，两边都装上。
 
-装上插件只会加载 skill 和命令，**不会**自动创建运行时，也不会改宿主配置。第一次用时，agent 会先只读检查，
+### 2. 初始化：对会话说“检查一下 agent-relay 状态”
+
+装上插件只会加载 skill 和命令，**不会**自动创建运行时，也不会改宿主配置。说了这句话后，agent 先只读检查，
 告诉你需要做哪几步，每一步都等你同意：
 
 1. 安装私有运行时：用插件自带、已核对哈希的 bridge 副本，在 `~/.agent-relay/runtime/` 构建运行时和私有邮箱（目录仅自己可读写）。
    不需要 git；`npm` 依赖仍按锁文件从 npm 源安装，所以这一步需要联网。
 2. 接入宿主：给 Claude Code 注册用户级 MCP 服务 `agent-relay`，或在 Codex 配置里追加 `[mcp_servers.agent_relay]`。
-   已经打开的会话需要重启才能看到。
+   Codex 接入时会给 10 个信箱工具写 `approval_mode = "approve"`（读信、回复、确认不弹卡），
+   执行时会列出写进 `~/.codex/config.toml` 的这 10 张审批表（`[mcp_servers.agent_relay.tools.<工具>]`）；
+   已安装的用 `install-codex --approve-mailbox-tools` 补上，补的时候只列补上的。
 
-### 找到插件目录
+之后**重启已经打开的会话**才能看到信箱工具。再跑一次
+`python3 -B <插件目录>/hooks/native_collaboration_runtime.py doctor`（插件目录见“[找到插件目录](#找到插件目录)”），
+各项为 ok 即可；`warn` 会写明下一步，有 fail 时退出码为 1。
 
-下文的命令都写成 `<插件目录>/hooks/…`。插件目录是宿主实际加载的那份插件（从 GitHub 装的在宿主的插件缓存里，从本地克隆
-装的就是克隆里的 `plugins/agent-relay`），可以这样查：
+### 3. 每个项目一次：信任项目
 
-```bash
-claude plugin list --json | python3 -c 'import json,sys; ps=[p for p in json.load(sys.stdin) if p.get("id","").startswith("agent-relay@") and p.get("enabled")]; p=next((p for p in ps if p.get("scope")=="user"), ps[0] if ps else {}); print(p.get("readFromFolder") or p.get("installPath") or "")'
-codex plugin list --json | python3 -c 'import json,sys; print(next((p["source"]["path"] for p in json.load(sys.stdin).get("installed",[]) if p.get("name")=="agent-relay" and p.get("enabled") and (p.get("source") or {}).get("path")), ""))'
-```
-
-第一条用于 Claude Code，第二条用于 Codex；两个都装了时，任选一个打印出来的目录即可。让 agent 去做时不用管这一步，
-技能会自己找到插件目录。
-
-### 换一个状态目录
-
-运行时、邮箱、委派记录和迁移备份默认都在 `~/.agent-relay/`。设置环境变量 `AGENT_RELAY_HOME`（必须是绝对路径，
-相对路径会直接报错）可以把它们整体换到别处，所有 agent-relay 命令都会改用这个目录；命令行里显式给出的 `--root`、
-`--state-root` 仍然优先。注意：接入宿主时写进宿主配置的是当时解析出的绝对路径，之后再改这个变量**不会**挪动
-已经接入的宿主，要在新目录下重新安装运行时并重新接入宿主才会生效。
-
-## 用之前：配置清单
-
-照着做一遍，之后就只剩“对会话说一句话”。每一项的细节在后面的章节里，这里只列要做什么。
-
-**装一次**
-
-1. 两个宿主都装上插件（见“安装”）。
-2. 让 agent “检查一下 agent-relay 状态”，按它列出的步骤初始化运行时、接入宿主；每一步都等你同意。之后重启已经打开的会话。
-3. Codex：接入时会给 10 个信箱工具写 `approval_mode = "approve"`，并把写进 `~/.codex/config.toml` 的条目列给你看，
-   不用再配。
-4. Claude Code：10 个信箱工具默认每次调用都弹确认。想免掉，运行
-   `python3 -B <插件目录>/hooks/native_collaboration_adapters.py claude-allow-rules`，把它打印的 10 条规则加进
-   `~/.claude/settings.json` 的 `permissions.allow`。加不加由你决定，agent-relay 不会改这个文件。
-5. 运行 `python3 -B <插件目录>/hooks/native_collaboration_runtime.py doctor`，各项为 ok 即可（`warn` 会写明下一步）。
-
-**每个项目一次**
-
-- Claude Code：信任这个项目。信任弹窗默认选中的是 “No, exit”，直接回车会退出，要先选到 “Yes”。
+- Claude Code：第一次打开项目时的信任弹窗**默认选中的是 “No, exit”**，直接回车会退出，要先选到 “Yes”。
 - Codex：在 App 里添加项目时，选“信任此文件夹”。
 
-**每个会话一句话**
+### 4. 可选：Claude Code 免掉信箱工具的确认弹窗
 
-- 对会话说“加入本机联调并允许唤醒，名字用 X”。不说“允许唤醒”，别的会话发来消息时它不会被叫醒。
-- 任何权限模式都能加入，包括 Claude 的 auto 模式；例外是 Bypass permissions，它会把来信提醒扣到过期
-  （见“授权与安全”）。
+Claude Code 里 10 个信箱工具默认每次调用都弹确认。想一次性放行，运行
+`python3 -B <插件目录>/hooks/native_collaboration_adapters.py claude-allow-rules`，把它打印的 10 条精确规则加进
+`~/.claude/settings.json` 的 `permissions.allow`。加不加由你决定，agent-relay 不会改这个文件；Codex 已在接入时预先放行。
+
+### 5. 每个会话一句话：加入联调
+
+对会话说“**加入本机联调并允许唤醒，名字用 X**”。
+
+- 不说“允许唤醒”，别的会话发来消息时它不会被叫醒，要自己查收件箱。
+- 任何权限模式都能加入，包括 Claude 的 auto 模式；例外是 **Bypass permissions**，它会把来信提醒扣到过期
+  （见“[授权与安全](#授权与安全)”）。
 - 名字被一个已经停止的旧会话占着时，换一个名字最省事；一定要用原名，才需要你同意接管。
 
-**用委派时额外需要**（让一边新开一个受限会话去干活，只有 Claude Code → Codex 和 Codex → Claude Code 两个方向）
+### 6. 发出第一条消息后你应该看到什么
 
-- 发起委派的会话先加入联调并允许唤醒，结果才能自动回到它这里。
-- 目标是 Claude Code 时，目标项目的 `.claude/settings.json` 或 `.claude/settings.local.json` 里要有 10 个信箱工具的
-  allow；只在用户级 `~/.claude/settings.json` 里配不算，除非用了下一条。
-- 想让委派出来的 Claude Code 会话带上你自己的设置、插件和 skill，创建时说“加载我的用户环境”，并在 allow 里
-  加上 `Skill`；缺了会在启动前显示 held 和要补的规则，不会启动一个半残的会话。
+在 Claude Code 里说“告诉 Codex 里的 X：首页稿子在 `designs/home.fig`，请确认”：
 
-**不用提前配的**
+1. 发件的会话按名字找到 X，发出消息，告诉你消息编号（`#编号`）和投递状态：一般先是 `queued`，送进对方后变成
+   `accepted`。发给 Claude 会话的消息常常停在 `unknown`，直到对方读到才变成 `accepted`，这是正常情况，**不要重发**
+   （见“[常见问题](#常见问题与故障处理)”）。
+2. 对方会话绑定了唤醒时会被叫醒，读信、处理，处理完确认（ack）；你的消息是提问或派活时，它会带 `replyTo` 回复你。
+3. 回复到了，发件的会话会被唤醒（它也绑定了唤醒时）或在你下次问“查看联调消息”时看到。
+4. 发件结果里带警告时照着做：例如对方没绑定唤醒、对方会话已停止或在等授权。
 
-对方会话干活要用的权限（读文件、跑命令等）不用提前配：那是那个会话自己的设置，需要时它自己弹窗找你。绑定了唤醒的
-Claude Code 会话卡在授权上时，这台 Mac 会弹一条通知，会话目录里也会标成“等待授权”；Codex 会话卡在授权上时目录里仍显示
-为运行中，要到 ChatGPT 应用里看。agent-relay 不替任何会话改权限。
+同宿主之间（Claude ↔ Claude、Codex ↔ Codex）优先走宿主自带的通信，不经过信箱，所以不会有消息编号。
 
-**升级之后**
-
-- 更新插件后要**新开会话**才生效；已经开着的、重开应用后的、恢复出来的会话都还用旧的那份（见“更新插件”）。
-- 新版给信箱工具加了参数时（如 0.7.0 的 `expectsReply`、`awaitingReply`），已经开着的会话即使 bridge 重启、重新加载工具，
-  拿到的仍是旧的参数定义，传新参数会被拒绝（`expected boolean`）。要用新参数，Claude Code 新开会话，Codex 新开任务。
-  （Claude Code 已实测；Codex 旧任务在重开应用后能否拿到新参数未实测，稳妥起见新开任务。）
-- Claude Code 从 GitHub 装的：`claude plugin update` 要加 `--scope user`，不加只更新当前目录那条项目级记录。
-- Codex：更新插件后用 ⌘Q 完全退出 ChatGPT 应用再打开，已经打开的线程才会连上新版。
-- bridge 有改动的版本还要升级运行时（见“升级运行时”），CHANGELOG 每一版的开头会写明要不要。
-
-## 怎么用
+## 日常用法
 
 直接用自然语言说，不需要记工具名或内部 ID：
 
@@ -135,7 +108,7 @@ Claude Code 会话卡在授权上时，这台 Mac 会弹一条通知，会话目
 - “告诉 Codex 里设计项目的那个会话：首页稿子在 `designs/home.fig`，请确认” → 按名字找到会话并发消息；
   有同名会话时会给出短编号让你选。
 - “回复一下刚才那个会话” → 回复最近的来信。
-- “创建一个 Codex 审查，看看这次改动” → 创建一个只读的审查会话，结果回到当前会话。
+- “创建一个 Codex 审查，看看这次改动” → 创建一个只读的审查会话，结果回到当前会话（见“[委派：从头到尾](#委派从头到尾)”）。
 - “继续刚才的会话”“停掉那个审查” → 同一会话第二轮、停止。
 - “我发出的哪些还没人回”“我在等谁” → 列出经信箱发出、标了要回复（`expectsReply`）却还没收到回复的请求，最老的在前，
   每条写明已等多久和对方的状态（`bridge_outbox` 带 `awaitingReply`）；“谁欠回复”“别人在等我回复什么” → 每个会话被
@@ -144,10 +117,6 @@ Claude Code 会话卡在授权上时，这台 Mac 会弹一条通知，会话目
 - “我在信箱里是谁” → 本会话的身份、宿主、会话标题和项目（`bridge_sessions` 的 `whoami`）。
 - “刚才那条消息怎么样了”“等它回复” → 按消息编号查状态，或一直等到它被确认、回复、失败或过期
   （`bridge_wake_status` / `bridge_wait` 带 `messageId`，等待时不替谁确认消息）。
-- 第一次在 Claude Code 里用，每个信箱工具都会弹一次确认（`mailbox-polish`）：想一次性放行，运行
-  `python3 -B <插件目录>/hooks/native_collaboration_adapters.py claude-allow-rules`（见“找到插件目录”），把它打印的 10 条精确规则加进
-  `~/.claude/settings.json` 的 `permissions.allow`（加不加由你决定，agent-relay 不会改这个文件；Codex 已在安装时预先放行）。
-  另外，Claude Code 第一次打开一个项目时的信任弹窗**默认选中的是 “No, exit”**，直接回车会退出，要先选到 “Yes”。
 - 长消息（`long-messages`）：发送结果只回编号和长度，不回显正文；收件方一页读不完时，结果里的 `continue` 行写明下一次
   `bridge_inbox` 的参数（`messageId`、`bodyOffset`），一段段读完即可，不需要 Bash。每页按大约 1.2 万个 token 控制，
   中文和英文都不会超过宿主的输出上限。
@@ -180,79 +149,159 @@ Claude Code 会话卡在授权上时，这台 Mac 会弹一条通知，会话目
 | `bridge_thread` | 按线程看整段对话 |
 | `bridge_wait` | 在当前这一轮里等新消息，或等某条消息出结果 |
 
+## 委派：从头到尾
+
+委派是让一边新开一个受限会话去干活，只有 Claude Code → Codex 和 Codex → Claude Code 两个方向；同宿主委派会被拒绝
+（`same-host-unsupported`），在同一个宿主里直接开新会话即可。
+
+### 开始之前
+
+- **发起委派的会话先加入联调并允许唤醒**，结果才能自动回到它这里。没加入、或处在 Bypass 模式时委派照样能创建，
+  但结果标为 `recipient-unavailable`，不会自动唤醒你，agent 会告诉你先加入。
+- **目标是 Claude Code 时**，目标项目要被信任过，并且项目的 `.claude/settings.json` 或 `.claude/settings.local.json`
+  里要有 10 个信箱工具的 allow（`mcp__agent-relay__bridge_*`）。只在用户级 `~/.claude/settings.json` 里配不算，
+  因为委派会话默认只读项目两层设置；除非用了下面的“加载用户环境”。只读审查不需要另外允许 `Read`／`Grep`／`Glob`；
+  开发才需要 `Edit`、`Write` 和符合任务范围的 `Bash(...)`。agent-relay 会读取并复用这些项目级 allow，但不会替你写。
+- 想先确认配够了没有，问一句“委派前检查一下权限”：agent 运行只读的 `permissions`，列出需要的 allow、实际读了哪些
+  设置文件和还缺什么，不写任何文件。
+
+### 一次委派的经过
+
+1. 你说“创建一个 Codex 审查，看看这次改动”。这句话本身就是“一个会话、一个任务”的授权。
+2. agent 显示一条**不阻塞的创建通知**：目标宿主、项目简称、baseline 短标识、权限（默认 `safe-review`，只读）、
+   数量 1 和到期时间（默认 8 小时），然后直接创建，不再问你一遍。想每次都先问你，就说“每次启动前都问我”。
+3. 目标会话在自己的宿主里干活；需要它自己的设置里没有的权限时，它照常弹窗找你。
+4. 干完后，目标会话把简短结果经信箱发回发起的会话，发起的会话被唤醒并读到它。结果里的 `resultDelivery`
+   为 `enqueued` 只表示已经写进信箱，不表示你这边已经读过；`pending`、`missing`、`unverified`、`recipient-unavailable`
+   各有含义，agent 会原样告诉你。
+5. 之后可以说“继续刚才的会话”（同一个会话第二轮）、“刚才那个审查怎么样了”或“停掉那个审查”。
+   同名时 agent 给出短区分项让你选。
+
+两种权限：默认 `safe-review` 只读所选项目、diff 并做本地只读验证；`bounded-development` 只在你选的干净独立 worktree 里
+写源码和验证。push、merge、发布、远端事项写入、删除和全局配置都要另外授权。
+
+### 被 held 了怎么办
+
+缺前置条件时，委派不会启动一个半残的会话，而是显示 `held` 和一个最小的下一步。agent-relay 不会替你改设置、接受信任
+或改成 bypass，补好之后再说一次即可。
+
+| 显示 | 原因 | 怎么补 |
+|---|---|---|
+| `held/project-allow-rules` | 目标项目缺少信箱工具的 allow | 把它列出的规则加进目标项目的 `.claude/settings.json` 或 `.claude/settings.local.json` |
+| `held/project-trust` | 你还没在 Claude Code 里信任目标项目 | 在 Claude Code 里打开这个项目，信任弹窗选 “Yes” |
+| `held/mcp-project-approval` | 目标项目还没接受这次的临时 MCP | 按提示在 Claude Code 里批准 |
+| `held/host-permission-prompt` | 宿主仍要人工做一个权限决定 | 按提示处理那个权限 |
+| `held/identity-retired` | Codex 委派用的信箱身份已经退役，追问的结果回不来，所以没发出 | 新建一个委派，或由你决定恢复这个名字 |
+
+### 可选项
+
+- **只审某些文件**：说“只审 `src/` 和 `README.md`”，范围写进给会话的约束，结果末尾列出实际读过的文件。Claude Code
+  会话另有钩子硬性拒绝范围外的读取；Codex 会话只靠约束。只用于只读审查。
+- **加载用户环境**（只用于 Codex → Claude Code，默认关）：说“加载我的用户环境”，委派出来的 Claude Code 会话会带上你自己的
+  设置、插件和 skill，这时用户级 allow 也算数，但要在 allow 里加上 `Skill`；缺了会在启动前显示 held 和要补的规则。
+- **清理卡住的委派记录**：说“清理卡住的委派”，agent 先只读列出记录（名称、短编号、状态、宿主是否还在）给你看，你确认后
+  才把选中的标为取消；只改记录，不删除，也不碰宿主。
+
+## 常见问题与故障处理
+
+**信箱工具报 `Transport closed`**
+这个会话和信箱的连接断了，通常是运行时刚升级或 bridge 进程被结束，重试不会好转。Codex：用 ⌘Q 完全退出 ChatGPT
+应用再打开；Claude Code：新开一个会话。连上之后先用原名重新登记一次再继续。
+
+**消息一直是 `unknown`**
+唤醒结果说不清时就标为 `unknown`，bridge **绝不自动重发**，你也不要重发。发给 Claude 会话时，对方没被扣住时
+Claude Code 通常不给回执，消息会一直是 `unknown`，直到对方读到才变成 `accepted`，这是正常情况。想知道进展，问
+“刚才那条消息怎么样了”或“等它回复”。
+
+**发送报错**
+`bridge_send` 报错就说明这条没有存下。存下之后的步骤失败（例如数据库忙）时不报错，而是返回已存的编号并附警告
+“Saved as #编号; … Do not send it again.”，唤醒由后台稍后重试。
+
+**发给 Claude 会话的提醒被扣（held）、最后过期**
+对方处于 Bypass permissions 时，Claude Code 会把提醒扣下等你批准，桌面应用里没有批准入口。见“[授权与安全](#授权与安全)”
+的第一条。会话刚启动时 Claude Code 也会把提醒扣住几秒再自动放行，这不是 Bypass；bridge 要扣满 90 秒才通知发信方，
+扣住期间不要重发。
+
+**委派显示 `held/...`**
+见“[被 held 了怎么办](#被-held-了怎么办)”。
+
+**Codex 会话显示 `not-loaded`**
+ChatGPT 应用这次启动后还没打开过这个任务。在 ChatGPT 里点开它，消息就会送达；这不是连接或身份故障。ChatGPT 刚启动、
+正在加载很多任务时，2 秒内没回应也会暂时显示为 `not-loaded`，下一次调用会纠正。
+
+**发送或 ack 被拒，说名字不是本会话注册的、或记在一个 Codex 任务名下**
+bridge 重启后（Codex 还包括 ChatGPT 重启或长时间闲置的任务重新打开后），会话要用原名重新登记一次，再重做刚才那一步。
+不需要接管（takeover）。
+
+**Claude 会话没在运行，消息送不进去**
+Claude 桌面应用会在会话空闲时停掉它的进程。消息照旧排队，满 5 分钟会通知你；打开那个会话后消息就会送进去。发件方用
+`bridge_outbox` 能看到 `pendingReason` 是 `offline`。
+
+**会话在等你授权**
+通讯录里会写明。Claude 会话卡在授权弹窗上时，这台 Mac 会弹一条通知；Codex 任务（ChatGPT 已加载的）在批准框或等你回答
+时，通讯录报 `waiting-approval` 或 `waiting-input`，但不弹通知，要到 ChatGPT 应用里处理。
+
+**升级后传新参数被拒（`expected boolean`）**
+已经开着的会话拿到的还是旧的工具定义。Claude Code 新开会话，Codex 新开任务。
+
+**没看到通知**
+多数 Mac 上 `osascript` 的通知会被悄悄丢掉。装上 terminal-notifier 并在第一次弹出时允许它；
+`doctor --test-notification` 会弹一条测试通知。详见[通知与投递细节](docs/notifications.md)。
+
+**其他情况**
+先跑 `doctor`，它对每一项都给出下一步。更细的排查顺序见
+[运行时说明](plugins/agent-relay/references/collaboration-runtime.md)“Troubleshooting order”。
+
 ## 授权与安全
 
+> **Bypass 模式的 Claude 会话收不到唤醒。** Claude 会话处于 Bypass permissions 时，Claude Code 会把别的会话发来的
+> 提醒扣下等你批准；桌面应用里没有批准入口，提醒会过期。绑定唤醒本身不受影响，但要真正唤醒，需要你自己把
+> Claude Code 的 `crossSessionInbound` 设为 `"accept"`，或换一个权限模式。详见
+> [BACKGROUND-WAKE.md](plugins/agent-relay/bridge/docs/BACKGROUND-WAKE.md)“Why Claude pings expire”。agent-relay 不会替你改。
+
 - **默认不唤醒**：加入信箱时默认 `wake: null`，空闲的会话不会被别人唤醒；只有你明确要求，当前会话才绑定唤醒。
-- **被唤醒的会话按它自己的权限运行**（`wake-any-mode`）：任何权限模式的会话都可以绑定唤醒。被唤醒的那一轮能做什么，
-  完全由这个会话自己的设置决定，bridge 不改、不降、也不代为批准；会话需要更高权限时，照常自己弹窗找你。来信始终是不可信
-  内容，不构成任何授权。**风险**：Codex 用“帮我批准”、Claude 用 auto 模式时，被唤醒那一轮的操作由该会话的自动审查或
-  分类器来批，不一定经过你本人——这是你给那个会话选的模式。`install-codex` 给 10 个信箱工具写了
-  `approval_mode = "approve"`，所以读信、回复、确认不弹卡（已安装的用 `install-codex --approve-mailbox-tools` 补上）。
-  执行时会列出写进 `~/.codex/config.toml` 的这 10 张审批表（`[mcp_servers.agent_relay.tools.<工具>]`），补的时候只列补上的。
-  旧版本在信箱目录留下的 `codex-gate.off` 已不再使用，可以删掉（agent-relay 不会替你删）。
-- **Bypass 模式的 Claude 会话收不到唤醒**：Claude 会话处于 Bypass permissions 时，Claude Code 会把别的会话发来的提醒
-  扣下等你批准；桌面应用里没有批准入口，提醒会过期。绑定唤醒本身不受影响，但要真正唤醒，需要你自己把 Claude Code 的
-  `crossSessionInbound` 设为 `"accept"`，或换一个权限模式。详见
-  [BACKGROUND-WAKE.md](plugins/agent-relay/bridge/docs/BACKGROUND-WAKE.md)“Why Claude pings expire”。agent-relay 不会替你改。
-  会话刚启动时 Claude Code 也会把提醒扣住几秒再自动放行，这不是 Bypass；bridge 要扣满 90 秒才通知发信方，扣住期间不要重发。
-- **会话在等你授权时会告诉你**（`presence-and-approval`）：会话目录（`bridge_agents`，或问任意会话“有哪些会话”）会写明
-  每个会话是运行中、已停止、等待授权、等待输入还是未知；给一个等授权或已停止的会话发消息时，发件方会收到提示。
-  某个 Claude 会话卡在授权弹窗上、而发给它的消息还没处理时，这台 Mac 上会弹一条通知“某会话在等你授权”，同一次等待只
-  提醒一次；通知不带消息正文，也不能在通知里批准——要你自己回到那个会话处理。Codex 会话分得出运行中、已停止和
-  未加载（`not-loaded`：ChatGPT 这次启动后还没打开过它，点开就能收到），分不出是否在等授权。
-- **Codex 收不到时会通知你**：Codex 没开、被挂起、或身份没绑定唤醒时，bridge 立刻在这台 Mac 上弹一条通知，Codex 只是
-  在忙则 10 分钟后仍未送达才通知；每条消息最多一次。通知的标题写发件会话，副标题写消息编号、收件身份和原因（需要你动手时
-  写明怎么做），正文是**消息开头最多 60 字的单行预览**。预览会出现在锁屏和共享屏幕上（macOS 的“显示预览”设置可限制）；
-  不想显示正文，就在信箱目录（`~/.agent-relay/runtime/mailbox/`）放一个 `notify-preview.off` 文件，退回只写编号的样式；
-  完全不要通知就放 `notify.off`。
-- **Claude 会话没在运行时也会通知你**：Claude 桌面应用会在会话空闲时停掉它的进程，bridge 只能把消息送进还在运行的会话。
-  发给这种会话的消息送不进去满 5 分钟时，这台 Mac 上弹一条通知，写明哪个会话（联调名）、几条消息送不进去、最早一条
-  几点发出；同一次离线只提醒一次，打开那个会话后消息就会送进去。通知不带消息正文，也没有点击动作。发件方用
-  `bridge_outbox` 能看到这些消息的 `pendingReason` 是 `offline`。`notify.off` 同样关掉它。
-  **通道**：装了 Homebrew 的 terminal-notifier（只认 `/opt/homebrew/bin` 与 `/usr/local/bin`，不按 PATH 找）就用它，
-  否则用 `osascript`。`osascript` 的通知记在“脚本编辑器”名下，而脚本编辑器从不申请通知权限，所以多数 Mac 上会被**悄悄
-  丢掉**、系统设置里也找不到开关；想看到横幅就 `brew install terminal-notifier`（是否安装由你决定），第一次弹出时允许它。
-  bridge 看不到 macOS 是否真的显示了，所以 wake 详情和发件方警告只写“已尝试通知”（attempted）。doctor 的
-  `notifications` 检查按实际通道判断看起来是否允许，`doctor --test-notification` 走同一通道弹一条测试通知让你确认。
-- **通知写明会话在哪，点击能过去**：“等你授权”的通知副标题里写会话名、项目目录名和位置（Claude 桌面应用、
-  终端的 tty、后台会话和打开它的 `claude attach <编号>`）；Codex 的通知在应用确认持有那个线程时写“Codex app”。
-  用 terminal-notifier 时，点击通知会把对应的应用带到前台，Terminal 和 iTerm 还会切到那个标签页；后台会话、
-  tmux／ssh 里的会话和位置判断不出来的通知没有点击动作。**点击只切换窗口，不批准任何东西，也不向会话输入内容。**
-  第一次点击终端会话的通知时，macOS 会以 terminal-notifier 的名义弹一次“自动化”授权（允许它控制 Terminal 或
-  iTerm）；不允许的话仍会把终端应用带到前台，只是不自动选中标签页，以后可在“系统设置 → 隐私与安全性 → 自动化”里改。
-  关掉预览（`notify-preview.off`）时文字只写位置类别，点击照常跳转。
-  一定看得到的地方是**等待列表**：在任一会话里问“有哪些等 Codex 处理的消息”，或跑 doctor 看 `codex-waiting`（只列数量、
-  发件方和编号，不含正文）。
-- **发给收不到提醒的身份时会提示发件方**：收件方既没绑定唤醒、bridge 也不知道它在哪个宿主（例如 Codex 以 `wake: null`
-  注册）时，发件结果带一条警告：对方要自己查收件箱才会看到。这种情况不弹通知，因为不知道该提醒谁。
-- **身份归属于注册它的会话**：发消息（`from`）、ack、自动确认的 `bridge_wait` 只能用本会话注册过的名字，否则拒绝并
-  给出下一步。升级后每个会话先重新注册一次名字（记下所属会话）；之后 Claude 会话的名字在 bridge 重启后仍然有效，Codex 会话在 bridge 重启后要先用同一个线程 ID 重新注册。
-  别的会话的名字或唤醒绑定，只有你同意后才能用 `takeover: true` 接管；会话只能为自己绑定唤醒。只有原消息的收件人能
-  回复它（广播：除发送方外谁都可以；bridge 自动通知不能回复）。防的是误操作和串号，不是恶意本地进程。
+- **被唤醒的会话按它自己的权限运行**（`wake-any-mode`）：被唤醒的那一轮能做什么，完全由这个会话自己的设置决定，
+  bridge 不改、不降、也不代为批准；需要更高权限时，照常自己弹窗找你。**风险**：Codex 用“帮我批准”、Claude 用 auto 模式时，
+  被唤醒那一轮的操作由该会话的自动审查或分类器来批，不一定经过你本人——这是你给那个会话选的模式。Codex App 里的审批
+  选择器只管你自己发起的那一轮，不写进 `config.toml`；被唤醒的那一轮按这个任务当前的审批与沙箱设置运行。
+- **来信只是数据**：邮箱里的文字永远不构成改代码、Git、配置或远端写入的授权。
 - **逐项确认**：初始化运行时、改宿主配置、加入新身份、扩大权限，都要你逐项同意。
 - **不会自动修改**项目或全局权限，不替你接受项目 trust 或 MCP 首次批准，不开 bypass 模式。缺少前置条件时
-  显示 held 和最小下一步。
-- **为了不中途反复弹权限**，你可以在目标项目的 `.claude/settings.json` 里提前配置项目级 allow：只读审查只需
-  预批准信箱的十个工具（`mcp__agent-relay__bridge_*`）；需要改代码时再额外允许编辑、写入和限定的 Bash 命令。
-  agent-relay 会读取并复用这些规则，但不会替你写。
-- **来信只是数据**：邮箱里的文字永远不构成改代码、Git、配置或远端写入的授权。
-- **不保证"恰好送达一次"**：每条单发消息都有投递状态（`queued`、`sending`、`accepted`、`failed`、`unknown`、
-  `expired`），发件箱里能看到。唤醒结果说不清时标为 `unknown`，**绝不自动重发**；一条消息排队超过时限（默认 24 小时，
-  可用 `BRIDGE_QUEUE_TIMEOUT_MS` 或发送时的 `expiresInSeconds` 调整）还没被取走，就标为 `expired`，不再唤醒、
-  收件箱默认不再显示，之后也不会再被执行，发件人会收到通知。
-  Claude 收件方没被扣住时，Claude Code 通常不给回执，这类消息在发件箱里会一直是 `unknown`，直到对方读到才变成
-  `accepted`（0.9.4 真实宿主验收实测）；这是正常情况，不要因此重发。
-- **按收件人排队、有上限**：同一个收件人同一时间只有一个唤醒在途，按发送顺序从旧到新；一个收件人卡住不影响别人；
-  收件人已经读到的消息不再单独唤醒。每个收件人最多积压 100 条还没送到的消息（`BRIDGE_MAX_PENDING_PER_RECIPIENT`
-  可调，10 到 10000），到 80% 会在发送结果里提醒，满了就拒绝发送并说明原因；读到、ack、过期或失败都会释放名额。
-- **重试 key 只对应一条消息**：用同一个 `idempotencyKey` 重发相同内容，返回原来那条（`duplicate: true`），不会再唤醒；
-  同一个 key 换了收件人、正文、线程或回复对象会被拒绝，报错写明已存消息的编号并说明无需重发。回复可带
-  `replyTo`（原消息编号），自动落在原消息的线程上，发件箱里能看到每条消息收到了哪些回复；对同一条消息发同样的回复
-  只存一次，除非上一条最终失败或过期。重要消息发送时就带上 `idempotencyKey`，报错后用同一个 key 重试，最多得到原来那条。
-  消息存进信箱之后的步骤失败（例如数据库忙）时，`bridge_send` 不报错，而是返回已存的编号并附一条警告
-  “Saved as #编号; … Do not send it again.”，唤醒由后台稍后重试；所以 `bridge_send` 报错就说明这条没有存下。
-- **Codex 的审批选择器按轮生效**：App 里的选择器只管你自己发起的那一轮，不写进 `config.toml`；被唤醒的那一轮按
-  这个任务当前的审批与沙箱设置运行（见上）。
+  显示 held 和最小下一步。为了不中途反复弹权限，你可以在目标项目的 `.claude/settings.json` 里提前配置项目级 allow
+  （见“[委派：从头到尾](#委派从头到尾)”）。
+- **身份归属于注册它的会话**：发消息（`from`）、ack、自动确认的 `bridge_wait` 只能用本会话注册过的名字，否则拒绝并
+  给出下一步。Claude 会话的名字在 bridge 重启后仍然有效，Codex 会话在 bridge 重启后要先用同一个线程 ID 重新注册。
+  别的会话的名字或唤醒绑定，只有你同意后才能用 `takeover: true` 接管；会话只能为自己绑定唤醒。只有原消息的收件人能
+  回复它（广播：除发送方外谁都可以；bridge 自动通知不能回复）。防的是误操作和串号，不是恶意本地进程。
+- **会话在等你时会告诉你**（`presence-and-approval`）：通讯录写明每个会话是运行中、已停止、等待授权、等待输入、
+  未加载（`not-loaded`，只有 Codex）还是未知；给一个等授权或已停止的会话发消息时，发件方会收到提示。
+- **通知**：Claude 会话在等你授权、Codex 收不到消息、Claude 会话停了送不进去时，这台 Mac 会弹通知，每次最多一条。
+  Codex 收不到的通知正文是**消息开头最多 60 字的单行预览**，会出现在锁屏和共享屏幕上；在信箱目录
+  （`~/.agent-relay/runtime/mailbox/`）放 `notify-preview.off` 文件只写编号，放 `notify.off` 完全不要通知。
+  通知不能批准任何东西。通道、点击跳转和“自动化”授权见[通知与投递细节](docs/notifications.md)。
+  一定看得到的地方是**等待列表**：在任一会话里问“有哪些等 Codex 处理的消息”，或跑 doctor 看 `codex-waiting`。
+- **发给收不到提醒的身份时会提示发件方**：收件方既没绑定唤醒、bridge 也不知道它在哪个宿主（例如 Codex 以 `wake: null`
+  注册）时，发件结果带一条警告：对方要自己查收件箱才会看到。这种情况不弹通知，因为不知道该提醒谁。
+- **不保证“恰好送达一次”**：每条单发消息都有投递状态（`queued`、`sending`、`accepted`、`failed`、`unknown`、
+  `expired`），说不清时标为 `unknown`，绝不自动重发；排队超过时限（默认 24 小时）还没被取走就标为 `expired`，
+  发件人会收到通知。排队上限、`idempotencyKey` 和回复的规则见[通知与投递细节](docs/notifications.md#投递)和接口文档 §6。
+
+## 已知问题
+
+只列现在仍有效的；各版本当时的说明见 [CHANGELOG.md](CHANGELOG.md)。
+
+- **脚本身份没法确认（ack）收到的消息**（0.9.3 发现）：CLI 没有 `inbox`／`ack` 命令，会话用 `bridge_ack` 代它确认也会被
+  拒绝。发给脚本身份的消息只能等过期（默认 24 小时），在那之前这个身份也退役不了。脚本也读不到回复的正文，所以脚本发的
+  应是通知，不要带 `--expects-reply`。
+- **发给 Claude 会话的消息常停在 `unknown`**（0.9.4 验收）：对方没被扣住时 Claude Code 通常不给回执，直到对方读到才变成
+  `accepted`。不要因此重发。
+- **停掉的 Claude 会话叫不醒**（0.9.0）：Claude 桌面应用停掉的会话，谁发信都叫不醒，消息排队并在 5 分钟后通知你。
+- **Codex 任务在 ChatGPT 重启后第一次信箱调用会被拒一次**（0.7.1）：bridge 认不出调用它的 Codex 任务，会话按报错用原名
+  重新登记后重做即可。
+- **ChatGPT 刚重启、还没打开的任务报 `not-loaded`**（0.8.3），不会报等待状态。
+- **Codex 的等待状态只在真实宿主上核对过运行命令批准和提问**（0.8.4）：改文件、权限申请、MCP 工具提问只有单元测试。
+- **已经开着的请求不会自动关闭**（0.8.0）：要由收件方用 `alsoAnswers` 或发件方用 `withdraws` 清理；以结果里的 `closed` 为准。
+- **还没在真实宿主上用 launchd 实测**（0.9.0）。
 
 ## 不做什么
 
@@ -272,12 +321,115 @@ Claude Code 会话卡在授权上时，这台 Mac 会弹一条通知，会话目
 printf '巡检发现 #12 未处理' | ~/.agent-relay/bin/agent-relay send --from my-patrol --to some-agent
 ```
 
-命令清单、退出码和唤醒的限制见接口文档 §2.4。
+命令清单、退出码和唤醒的限制见接口文档 §2.4。脚本身份不能确认收到的消息、读不到回复正文，见“[已知问题](#已知问题)”。
 
-已知问题：脚本身份没法确认（ack）收到的消息——CLI 没有 `inbox`／`ack` 命令，会话用 `bridge_ack` 代它确认也会被拒绝。
-所以发给脚本身份的消息只能等过期（默认 24 小时），在那之前这个身份也退役不了（退役要求没有未确认的消息，已过期的不算）。
-脚本也读不到回复的正文（`outbox` 只给回复的编号），所以脚本发的应是通知；不要带 `--expects-reply`，否则收件方必须回复，
-回复却只会积在脚本身份的信箱里。
+## 更新与升级
+
+### 更新插件
+
+Claude Code 会话在**启动时**定下用哪一份插件，之后一直用这一份：已经开着的会话、关掉应用后重新打开、恢复
+（resume）原来的会话，都还是旧的那份。更新插件后要**新开一个会话**（包括桌面应用的 Code 标签页）才会用上新版。
+（2026-10-10 在本机实测新会话加载的副本；“恢复的会话仍用旧副本”是协调方观测到的一例。）信箱工具的参数定义也一样：
+已开着的 Claude Code 会话重连 MCP 也拿不到新参数（0.7.0 升级后在本机实测），传新参数会被拒绝（`expected boolean`）；
+要用新参数，Claude Code 新开会话，Codex 新开任务（Codex 旧任务在重开应用后能否拿到新参数未实测，稳妥起见新开任务）。
+
+- **从本地克隆装的**：Claude 新会话直接读克隆目录，`git -C <克隆> pull --ff-only` 之后新开会话即可。用户级记录在
+  `claude plugin list` 里的版本标签不会跟着变，doctor 会因此报 warn；再跑
+  `claude plugin marketplace update agent-relay-marketplace` 和
+  `claude plugin update --scope user agent-relay@agent-relay-marketplace` 刷新它（0.9.2 升级时在本机实测），这两步只改标签。Codex 再执行一次 `codex plugin add agent-relay@agent-relay-marketplace`。
+- **从 GitHub 装的**：先 `claude plugin marketplace update agent-relay-marketplace`，再
+  `claude plugin update --scope user agent-relay@agent-relay-marketplace`。不带 `--scope` 时这条命令只更新“当前目录”
+  那条项目级记录，不更新用户级安装（本机实测）。之后新开会话。
+- **Codex**：更新插件后用 ⌘Q 完全退出 ChatGPT 应用再打开，已经打开的线程才会连上新版。
+
+`python3 -B <插件目录>/hooks/native_collaboration_runtime.py doctor` 的 `claude-plugin` 一项会核对新会话会加载的那份
+副本的版本（读副本里的 `plugin.json`，不看 `claude plugin list` 显示的版本），不一致时给出要执行的命令。
+`claude plugin list` 显示的版本与 doctor 报的不一致时，那是那条记录上的旧标签，不代表加载了旧版；doctor 会给出 warn，
+列出这些记录和清理命令（逐个目录 `claude plugin uninstall --scope local` 或更新记录），由你逐条执行，doctor 自己不动手。
+目录已删的记录不告警，也不列出，只计数并说明可以留着、或照它给的办法删掉；project scope 的记录只给说明、不给命令，因为改它会改
+那个仓库里提交的 `.claude/settings.json`。
+插件里带了新版 bridge 运行代码时（bridge 里只改了测试或文档不算），还要按下一节升级运行时；CHANGELOG 每一版的开头会写明要不要。
+
+### 升级运行时
+
+**先更新插件，再升级运行时**：新版 bridge 可能把信箱升到新的 schema（0.7.0 升到 6），旧版插件的钩子读不了新 schema，
+退役命令和委派会因此停下。所以先把两个宿主的插件都更新到新版（新开会话、⌘Q 重开 ChatGPT），再做下面的升级。
+
+插件更新带来新版 bridge 运行代码时，`status` 会报告 `bridge.current: false`（bridge 里只改了测试或文档不算）。
+agent 会先问你，在你关掉所有正在用信箱的会话后再执行 `python3 -B <插件目录>/hooks/native_collaboration_runtime.py upgrade --confirm`：先把邮箱备份到 `~/.agent-relay/backups/<时间>/`，
+在旁边装好新版，把 `mailbox/` 和 `data/` 挪过去再整体替换，核对通过才算完成，失败会自动换回。旧目录
+`runtime.previous-<时间>` 保留，确认无误后由你删除；宿主接入不用动。新版 bridge 会把邮箱升级到 schema 7（从更早的 schema 一次升到位，升级前自动备份）：
+回到旧运行时还能打开它，但旧版 agent-relay 插件读不了新 schema（0.7.x 最多认到 6），所以回滚时要连插件一起回滚，或者用备份恢复邮箱
+（之后收到的消息会丢失）。
+
+停 bridge 有两种方式，升级前任选其一，然后在“终端”里用 `pgrep -fl "agent-relay/runtime/dist/server.js"` 确认没有输出：
+
+- **退出应用**：关掉所有 Claude Code 会话，⌘Q 退出 ChatGPT 应用（Codex 的 bridge 由它启动）。升级完成后重新打开即可。
+- **只结束 bridge 进程**：`pkill -TERM -f "[a]gent-relay/runtime/dist/server.js"`（方括号让它不会匹配到执行它的 shell
+  自己）。升级完成后，Claude Code 会话重开即可；ChatGPT 应用要 ⌘Q 完全退出再打开，否则已经打开的 Codex 线程会一直报
+  “Transport closed”。
+
+升级成功时，输出的 `next` 会提醒你重开 ChatGPT 应用。之后 doctor 的 `codex-restart` 一项会比较 ChatGPT 应用的启动时间
+和最近一次升级（最新的 `runtime.previous-<时间>`）：应用还是升级前打开的就报 warn，重开后变成 ok。终端里运行的
+`codex` 会话升级后同样要重开，doctor 看不出来。
+
+- **回滚**：同样关掉所有会话后执行 `python3 -B <插件目录>/hooks/native_collaboration_runtime.py rollback --confirm`，回到最新的
+  `runtime.previous-<时间>`，信箱和数据一起带过去；先备份信箱，当前版本保留为 `runtime.rolled-back-<时间>`。
+- **中途被打断**：升级、重装或回滚半路停下（进程被杀、断电），`~/.agent-relay/runtime-swap.json` 会留下记录，`status` 报
+  `interrupted`，doctor 判为 fail，其他命令拒绝执行。关掉所有会话后执行 `python3 -B <插件目录>/hooks/native_collaboration_runtime.py recover --confirm`：
+  一律回到切换前的运行时（不往前补完），没换成的那份保留为 `.runtime-<类型>-failed-<时间>`。之后可以再升级一次。
+- `runtime.previous-*`、`runtime.rolled-back-*`、`.runtime-*-failed-*` 都不会自动删除，确认无误后由你删。
+
+升级后每个会话先用原名重新注册一次（记下所属会话）。
+
+## 卸载
+
+完整卸载按下面的顺序做（`collaboration-ops` skill 会逐步先问你），消息历史默认保留：
+
+1. 关掉所有正在用信箱的会话（Claude 这一步要关掉**所有** Claude Code 会话，见第 3 步）。
+2. `python3 -B <插件目录>/hooks/native_collaboration_runtime.py doctor`：看清当前接入了哪些宿主。
+3. 移除宿主配置：`python3 -B <插件目录>/hooks/native_collaboration_adapters.py uninstall-codex --confirm-uninstall` 和
+   `uninstall-claude --confirm-uninstall`。
+   - 每次写宿主配置（安装和卸载都算）之前，都会先把要改的文件复制到
+     `~/.agent-relay/backups/<UTC 时间>/host-config/`，并打印路径。这些副本可能含 MCP 的 API key 等凭据，
+     目录和文件只有你自己能读（0700 / 0600），用完请自行删除。
+   - Codex：连同你选"始终允许"时 Codex 写入的工具审批子表（只有一行 `approval_mode`）一起移除；node 换了版本也能
+     识别。别的差异会逐行指出（只写行号和键名，不打印值），留给你处理。
+   - Claude：移除 MCP 条目；若这台机器是 0.4.0 或更早装的，还会移除当时写下的 7 条禁用规则（0.5.0 起服务只提供
+     十个信箱工具，安装不再写这些规则），其他设置不动。还有任何 Claude Code 会话开着（或这个运行时的 bridge 还在跑）
+     时，只移除条目、保留 7 条规则：开着的旧版会话会按新设置重新过滤它缓存的工具列表，规则一删就会露出已删除的
+     worker 工具。所以这一步由你在**关掉所有 Claude Code 会话之后、在终端里**执行；从任何 Claude
+     会话里跑（包括让 agent 代跑）都会保留规则，并打印可以照抄的终端命令。
+4. 移除运行时：`python3 -B <插件目录>/hooks/native_collaboration_runtime.py uninstall --confirm`。只删构建产物，`mailbox/`（消息历史和备份）
+   和 `data/` 保留；以后再 `install` 会围绕它们重建。
+5. 卸载插件：`claude plugin uninstall agent-relay@agent-relay-marketplace`；
+   `codex plugin remove agent-relay@agent-relay-marketplace`。
+6. 再跑一次 `doctor`（卸载插件前跑也可以）：宿主未接入、运行时已卸载并给出历史所在路径。
+
+不再需要消息历史时，删除 `~/.agent-relay/` 由你自己来做。旧版本在信箱目录留下的 `codex-gate.off` 已不再使用，
+可以删掉（agent-relay 不会替你删）。
+
+## 进阶设置
+
+### 找到插件目录
+
+上文的命令都写成 `<插件目录>/hooks/…`。插件目录是宿主实际加载的那份插件（从 GitHub 装的在宿主的插件缓存里，从本地克隆
+装的就是克隆里的 `plugins/agent-relay`），可以这样查：
+
+```bash
+claude plugin list --json | python3 -c 'import json,sys; ps=[p for p in json.load(sys.stdin) if p.get("id","").startswith("agent-relay@") and p.get("enabled")]; p=next((p for p in ps if p.get("scope")=="user"), ps[0] if ps else {}); print(p.get("readFromFolder") or p.get("installPath") or "")'
+codex plugin list --json | python3 -c 'import json,sys; print(next((p["source"]["path"] for p in json.load(sys.stdin).get("installed",[]) if p.get("name")=="agent-relay" and p.get("enabled") and (p.get("source") or {}).get("path")), ""))'
+```
+
+第一条用于 Claude Code，第二条用于 Codex；两个都装了时，任选一个打印出来的目录即可。让 agent 去做时不用管这一步，
+技能会自己找到插件目录。
+
+### 换一个状态目录
+
+运行时、邮箱、委派记录和迁移备份默认都在 `~/.agent-relay/`。设置环境变量 `AGENT_RELAY_HOME`（必须是绝对路径，
+相对路径会直接报错）可以把它们整体换到别处，所有 agent-relay 命令都会改用这个目录；命令行里显式给出的 `--root`、
+`--state-root` 仍然优先。注意：接入宿主时写进宿主配置的是当时解析出的绝对路径，之后再改这个变量**不会**挪动
+已经接入的宿主，要在新目录下重新安装运行时并重新接入宿主才会生效。
 
 ## 与 Spec Guard 的关系
 
@@ -308,109 +460,33 @@ python3 -B <插件目录>/hooks/state_migration.py migrate --confirm
 - 旧目录、宿主配置和权限文件一律不动；迁移后按提示接入新的宿主条目、用 Spec Guard 自己的卸载删掉旧条目，
   并把项目权限规则手动改成 `mcp__agent-relay__bridge_*`。旧目录确认无误后由你自己删除。
 
-## 更新插件
+## 术语表
 
-Claude Code 会话在**启动时**定下用哪一份插件，之后一直用这一份：已经开着的会话、关掉应用后重新打开、恢复
-（resume）原来的会话，都还是旧的那份。更新插件后要**新开一个会话**（包括桌面应用的 Code 标签页）才会用上新版。
-（2026-10-10 在本机实测新会话加载的副本；“恢复的会话仍用旧副本”是协调方观测到的一例。）信箱工具的参数定义也一样：
-已开着的 Claude Code 会话重连 MCP 也拿不到新参数（0.7.0 升级后在本机实测）。
-
-- **从本地克隆装的**：Claude 新会话直接读克隆目录，`git -C <克隆> pull --ff-only` 之后新开会话即可。用户级记录在
-  `claude plugin list` 里的版本标签不会跟着变，doctor 会因此报 warn；再跑
-  `claude plugin marketplace update agent-relay-marketplace` 和
-  `claude plugin update --scope user agent-relay@agent-relay-marketplace` 刷新它（0.9.2 升级时在本机实测），这两步只改标签。Codex 再执行一次 `codex plugin add agent-relay@agent-relay-marketplace`。
-- **从 GitHub 装的**：先 `claude plugin marketplace update agent-relay-marketplace`，再
-  `claude plugin update --scope user agent-relay@agent-relay-marketplace`。不带 `--scope` 时这条命令只更新“当前目录”
-  那条项目级记录，不更新用户级安装（本机实测）。之后新开会话。
-
-`python3 -B <插件目录>/hooks/native_collaboration_runtime.py doctor` 的 `claude-plugin` 一项会核对新会话会加载的那份
-副本的版本（读副本里的 `plugin.json`，不看 `claude plugin list` 显示的版本），不一致时给出要执行的命令。
-`claude plugin list` 显示的版本与 doctor 报的不一致时，那是那条记录上的旧标签，不代表加载了旧版；doctor 会给出 warn，
-列出这些记录和清理命令（逐个目录 `claude plugin uninstall --scope local` 或更新记录），由你逐条执行，doctor 自己不动手。
-目录已删的记录不告警，也不列出，只计数并说明可以留着、或照它给的办法删掉；project scope 的记录只给说明、不给命令，因为改它会改
-那个仓库里提交的 `.claude/settings.json`。
-插件里带了新版 bridge 运行代码时（bridge 里只改了测试或文档不算），还要按下一节升级运行时。
-
-## 升级运行时
-
-**先更新插件，再升级运行时**：新版 bridge 可能把信箱升到新的 schema（0.7.0 升到 6），旧版插件的钩子读不了新 schema，
-退役命令和委派会因此停下。所以先把两个宿主的插件都更新到新版（新开会话、⌘Q 重开 ChatGPT），再做下面的升级。
-
-插件更新带来新版 bridge 运行代码时，`status` 会报告 `bridge.current: false`（bridge 里只改了测试或文档不算）。
-agent 会先问你，在你关掉所有正在用信箱的会话后再执行 `python3 -B <插件目录>/hooks/native_collaboration_runtime.py upgrade --confirm`：先把邮箱备份到 `~/.agent-relay/backups/<时间>/`，
-在旁边装好新版，把 `mailbox/` 和 `data/` 挪过去再整体替换，核对通过才算完成，失败会自动换回。旧目录
-`runtime.previous-<时间>` 保留，确认无误后由你删除；宿主接入不用动。新版 bridge 会把邮箱升级到 schema 7（从更早的 schema 一次升到位，升级前自动备份）：
-回到旧运行时还能打开它，但旧版 agent-relay 插件读不了新 schema（0.7.x 最多认到 6），所以回滚时要连插件一起回滚，或者用备份恢复邮箱
-（之后收到的消息会丢失）。
-
-停 bridge 有两种方式，升级前任选其一，然后在“终端”里用 `pgrep -fl "agent-relay/runtime/dist/server.js"` 确认没有输出：
-
-- **退出应用**：关掉所有 Claude Code 会话，⌘Q 退出 ChatGPT 应用（Codex 的 bridge 由它启动）。升级完成后重新打开即可。
-- **只结束 bridge 进程**：`pkill -TERM -f "[a]gent-relay/runtime/dist/server.js"`（方括号让它不会匹配到执行它的 shell
-  自己）。升级完成后，Claude Code 会话重开即可；ChatGPT 应用要 ⌘Q 完全退出再打开，否则已经打开的 Codex 线程会一直报
-  “Transport closed”。
-
-升级成功时，输出的 `next` 会提醒你重开 ChatGPT 应用。之后 doctor 的 `codex-restart` 一项会比较 ChatGPT 应用的启动时间
-和最近一次升级（最新的 `runtime.previous-<时间>`）：应用还是升级前打开的就报 warn，重开后变成 ok。终端里运行的
-`codex` 会话升级后同样要重开，doctor 看不出来。
-
-- **回滚**：同样关掉所有会话后执行 `python3 -B <插件目录>/hooks/native_collaboration_runtime.py rollback --confirm`，回到最新的
-  `runtime.previous-<时间>`，信箱和数据一起带过去；先备份信箱，当前版本保留为 `runtime.rolled-back-<时间>`。
-- **中途被打断**：升级、重装或回滚半路停下（进程被杀、断电），`~/.agent-relay/runtime-swap.json` 会留下记录，`status` 报
-  `interrupted`，doctor 判为 fail，其他命令拒绝执行。关掉所有会话后执行 `python3 -B <插件目录>/hooks/native_collaboration_runtime.py recover --confirm`：
-  一律回到切换前的运行时（不往前补完），没换成的那份保留为 `.runtime-<类型>-failed-<时间>`。之后可以再升级一次。
-- `runtime.previous-*`、`runtime.rolled-back-*`、`.runtime-*-failed-*` 都不会自动删除，确认无误后由你删。
-
-## 卸载
-
-完整卸载按下面的顺序做（`collaboration-ops` skill 会逐步先问你），消息历史默认保留：
-
-1. 关掉所有正在用信箱的会话（Claude 这一步要关掉**所有** Claude Code 会话，见第 3 步）。
-2. `python3 -B <插件目录>/hooks/native_collaboration_runtime.py doctor`：看清当前接入了哪些宿主。
-3. 移除宿主配置：`python3 -B <插件目录>/hooks/native_collaboration_adapters.py uninstall-codex --confirm-uninstall` 和
-   `uninstall-claude --confirm-uninstall`。
-   - 每次写宿主配置（安装和卸载都算）之前，都会先把要改的文件复制到
-     `~/.agent-relay/backups/<UTC 时间>/host-config/`，并打印路径。这些副本可能含 MCP 的 API key 等凭据，
-     目录和文件只有你自己能读（0700 / 0600），用完请自行删除。
-   - Codex：连同你选"始终允许"时 Codex 写入的工具审批子表（只有一行 `approval_mode`）一起移除；node 换了版本也能
-     识别。别的差异会逐行指出（只写行号和键名，不打印值），留给你处理。
-   - Claude：移除 MCP 条目；若这台机器是 0.4.0 或更早装的，还会移除当时写下的 7 条禁用规则（0.5.0 起服务只提供
-     十个信箱工具，安装不再写这些规则），其他设置不动。还有任何 Claude Code 会话开着（或这个运行时的 bridge 还在跑）
-     时，只移除条目、保留 7 条规则：开着的旧版会话会按新设置重新过滤它缓存的工具列表，规则一删就会露出已删除的
-     worker 工具。所以这一步由你在**关掉所有 Claude Code 会话之后、在终端里**执行；从任何 Claude
-     会话里跑（包括让 agent 代跑）都会保留规则，并打印可以照抄的终端命令。
-4. 移除运行时：`python3 -B <插件目录>/hooks/native_collaboration_runtime.py uninstall --confirm`。只删构建产物，`mailbox/`（消息历史和备份）
-   和 `data/` 保留；以后再 `install` 会围绕它们重建。
-5. 卸载插件：`claude plugin uninstall agent-relay@agent-relay-marketplace`；
-   `codex plugin remove agent-relay@agent-relay-marketplace`。
-6. 再跑一次 `doctor`（卸载插件前跑也可以）：宿主未接入、运行时已卸载并给出历史所在路径。
-
-不再需要消息历史时，删除 `~/.agent-relay/` 由你自己来做。
+| 术语 | 意思 |
+|---|---|
+| 宿主 | 会话跑在哪个应用里：Claude Code（CLI 或桌面应用）或 Codex（ChatGPT 应用或 CLI） |
+| 信箱 | 本机的一个私有 SQLite 邮箱，所有经 agent-relay 的消息都存在这里，在 `~/.agent-relay/runtime/mailbox/` |
+| bridge | 每个会话里连着信箱的那个 MCP 服务（`agent-relay`），提供 10 个 `bridge_*` 工具，负责投递和唤醒 |
+| 运行时 | `~/.agent-relay/runtime/` 下构建好的 bridge 程序和信箱；`install`／`upgrade` 管它 |
+| 身份 | 会话在信箱里注册的名字；归注册它的会话所有，用完可以退役 |
+| 唤醒绑定 | 把身份绑到当前会话（`wake`），有信来时 bridge 叫醒这个会话；默认不绑 |
+| 脚本身份 | 用户在终端登记、给脚本和 launchd 发信用的身份，只能发不能确认 |
+| 投递状态 | 一条单发消息走到哪一步：`queued`、`sending`、`accepted`、`failed`、`unknown`、`expired` |
+| `held` | 两种意思：委派缺前置条件、没有启动（`held/<原因>`）；或者 Claude Code 把发给某个会话的提醒扣住了 |
+| `expectsReply` | 发件方把消息标成“要回复的请求”；收件方处理完要用 `replyTo` 回复，只 ack 不算 |
+| `not-loaded` | Codex 任务所在的 ChatGPT 应用这次启动后还没打开过它 |
+| 委派 | 一边新开一个受限的会话去另一个宿主干活，结果经信箱回来 |
 
 ## 文档
 
 - [接口文档](docs/collaboration-interface.md)：工具、消息、状态、投递语义、身份、授权、委派与加固目标。
-- [验收清单](docs/acceptance/checklist.md)：真实宿主验收步骤。
-- [变更记录](CHANGELOG.md)：版本变化与已知问题。
-- [发版流程](RELEASING.md)：维护者发一个新版本的步骤与检查。
+- [通知与投递细节](docs/notifications.md)：通知通道、点击跳转、预览开关，以及排队上限、重试 key 和回复规则。
+- [变更记录](CHANGELOG.md)：版本变化与升级步骤。
 - [安全说明](SECURITY.md)：防护范围、信任边界与如何报告安全问题。
 - [后台唤醒](plugins/agent-relay/bridge/docs/BACKGROUND-WAKE.md)：唤醒的实现方式与 Claude 提醒过期的原因。
 - [运行时说明](plugins/agent-relay/references/collaboration-runtime.md)、
   [协作协议](plugins/agent-relay/references/collaboration-protocol.md)。
-
-## 开发与 CI
-
-本地验证：`bash scripts/validate.sh`（先在 `plugins/agent-relay/bridge` 里 `npm ci`，否则 bridge 部分显示 skip）。
-每个 PR 和推到 `main` 的提交都会在 GitHub Actions 的 `macos-15` 上跑同一套验证，组合为 Python 3.9（苹果命令行工具自带）
-/ 3.14 × Node 22 / 24，日志里有 doctor 的 `toolchain` 一行，写明实际用的 Python 与 Node。要把它设为 `main` 的必需检查：
-仓库 Settings → Branches（或 Rules → Rulesets）→ 为 `main` 勾选 “Require status checks to pass”，选上四个
-`Python … / Node …` 检查。是否这样设由维护者决定。
-
-按改动决定跑不跑（`ci-on-demand`）：一个 PR（或推到 `main` 的提交）如果只改了 `CLAUDE.md`、`AGENTS.md`、`spec/`、`tasks/`、
-`.agent/` 下的文件，四个检查只打印原因就通过，不跑测试；只要有一个文件不在这几处，就照常跑完整矩阵。名单定义在
-[`scripts/ci_scope.py`](scripts/ci_scope.py)，`hooks/test_ci_exempt_guard.py` 保证测试跑到的代码都不读这些路径。每周一 03:00 UTC
-在 `main` 上定时全量跑一次，及早发现运行环境里 Python 或 Node 升级带来的问题；随时想全量跑，在 Actions 页面对 CI 点
-“Run workflow”。
+- 参与开发、跑测试、发版：见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 许可与致谢
 

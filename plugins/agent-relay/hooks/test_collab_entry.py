@@ -104,7 +104,7 @@ class CollabEntryContractTest(unittest.TestCase):
     def test_readme_commands_use_the_installed_plugin_directory(self):
         # install-docs-accuracy D179 (review item 4): a user who installed the plugin has no plugins/agent-relay/.
         readme = (PLUGIN_ROOT.parents[1] / "README.md").read_text(encoding="utf-8")
-        user_part = readme.split("## 开发与 CI", 1)[0]
+        user_part = readme.split("## 许可与致谢", 1)[0]
         self.assertNotIn("plugins/agent-relay/hooks/", user_part)
         self.assertIn("### 找到插件目录", user_part)
         self.assertIn("<插件目录>/hooks/state_migration.py", user_part)
