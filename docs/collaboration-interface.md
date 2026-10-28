@@ -57,8 +57,9 @@ How to read it:
 
 ### 2.1 MCP mailbox tools
 
-The MCP server exposes exactly these ten tools to hosts. Current server name `spec-guard-native-collaboration`
-(Claude) / `spec_guard_native_collaboration` (Codex), S:plugins/spec-guard/hooks/native_collaboration_adapters.py:23-24.
+The MCP server exposes exactly these ten tools to hosts. Server name `agent-relay` (Claude) / `agent_relay` (Codex),
+`plugins/agent-relay/hooks/native_collaboration_adapters.py:26-27`; before the split it was
+`spec-guard-native-collaboration` / `spec_guard_native_collaboration`, S:plugins/spec-guard/hooks/native_collaboration_adapters.py:23-24.
 
 | Item | Current (baseline) | Hardening target |
 |---|---|---|

@@ -8,7 +8,7 @@
 agent-relay 原来是 [Spec Guard](https://github.com/haigeerlab/spec-guard-plugin) 的可选协作能力，现在拆成独立插件：
 只想让会话互相通信的项目（例如设计项目）装它就够了。
 
-> 状态：0.9.4（接口 2.10，需要 Spec Guard 0.56.0 或更新）。变化、升级步骤和已知问题见 [CHANGELOG.md](CHANGELOG.md)；
+> 状态：0.9.4（接口 2.10；不依赖 Spec Guard，同时安装时 Spec Guard 要 0.56.0 或更新）。变化、升级步骤和已知问题见 [CHANGELOG.md](CHANGELOG.md)；
 > 各项目标见 [docs/collaboration-interface.md](docs/collaboration-interface.md) 的“加固目标”栏。
 
 ## 能做什么
@@ -155,6 +155,30 @@ Claude Code 会话卡在授权上时，这台 Mac 会弹一条通知，会话目
   不超过 256 KiB、UTF-8）。
 - “检查一下 agent-relay 状态” → `native_collaboration_runtime.py doctor`：只读检查运行时、信箱、宿主接入、Codex
   审批模式和已绑定唤醒的会话（会话卡在等待输入时会提示），每项给出下一步；有 fail 时退出码为 1。
+- “退役 X 这个身份” → 用完的名字不再出现在通讯录里，历史保留。由你点名或确认清单后，agent 运行
+  `python3 -B <插件目录>/hooks/native_collaboration_retire.py --name <名字> --confirm-retire`（可加 `--note <说明>`）；
+  这个身份还有没确认（ack）的消息时拒绝执行（已过期的不算），要先读完并确认。会话自己不能退役身份。
+- 想再用一个已退役的名字 → 注册会被拒绝；经你同意后，会话注册时带 `reactivate: true` 重新启用它，或者换个新名字。
+- 自检和版本：`native_collaboration_runtime.py probe` 用一次性的临时数据启动运行时、确认它能正常应答，不碰真实信箱；
+  `status` 只读报告运行时是否就绪；`~/.agent-relay/bin/agent-relay --version` 报运行时的版本。
+
+### 10 个信箱工具
+
+平时不用直接调用，agent 按你的话选用；在权限弹窗、`claude-allow-rules` 和发件结果里会看到这些名字
+（Claude Code 里全名是 `mcp__agent-relay__<工具>`）。参数和返回值见[接口文档](docs/collaboration-interface.md) §2.1。
+
+| 工具 | 作用 |
+|---|---|
+| `bridge_register` | 注册本会话的名字，可选绑定唤醒（`wake`）；接管别人的名字要 `takeover`，重新启用退役的名字要 `reactivate` |
+| `bridge_send` | 发消息：`replyTo` 回复某条、`expectsReply` 标成要回复的请求、`idempotencyKey` 防重发、`bodyFile` 从文件读正文 |
+| `bridge_inbox` | 读收件箱（从旧到新，长消息分页）；本人读到才记为已读 |
+| `bridge_ack` | 标记已处理，历史保留 |
+| `bridge_outbox` | 我发出的消息处理到哪一步；带 `awaitingReply` 只列还在等回复的请求 |
+| `bridge_agents` | 通讯录：每个会话的状态、未处理消息、欠的回复 |
+| `bridge_sessions` | 本机运行中的 Claude 会话，以及“我是谁”（`whoami`） |
+| `bridge_wake_status` | 唤醒记录；带 `messageId` 查某条消息的进度 |
+| `bridge_thread` | 按线程看整段对话 |
+| `bridge_wait` | 在当前这一轮里等新消息，或等某条消息出结果 |
 
 ## 授权与安全
 
@@ -245,14 +269,15 @@ Claude Code 会话卡在授权上时，这台 Mac 会弹一条通知，会话目
 
 ```bash
 ~/.agent-relay/bin/agent-relay register-script-identity my-patrol --confirm
-printf '请处理 #12' | ~/.agent-relay/bin/agent-relay send --from my-patrol --to some-agent --expects-reply
+printf '巡检发现 #12 未处理' | ~/.agent-relay/bin/agent-relay send --from my-patrol --to some-agent
 ```
 
 命令清单、退出码和唤醒的限制见接口文档 §2.4。
 
 已知问题：脚本身份没法确认（ack）收到的消息——CLI 没有 `inbox`／`ack` 命令，会话用 `bridge_ack` 代它确认也会被拒绝。
-所以发给脚本身份的消息（例如对它 `--expects-reply` 请求的回复）只能等过期（默认 24 小时），在那之前这个身份也退役不了
-（退役要求没有未确认的消息，已过期的不算）。
+所以发给脚本身份的消息只能等过期（默认 24 小时），在那之前这个身份也退役不了（退役要求没有未确认的消息，已过期的不算）。
+脚本也读不到回复的正文（`outbox` 只给回复的编号），所以脚本发的应是通知；不要带 `--expects-reply`，否则收件方必须回复，
+回复却只会积在脚本身份的信箱里。
 
 ## 与 Spec Guard 的关系
 
