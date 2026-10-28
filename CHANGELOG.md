@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+只改文档，不用升级运行时，也不用更新插件。
+
+- README 中英文补上 0.9.4 用户能感知的变化：`bridge_send` 报错就说明没存下，存下之后的步骤失败只给“Saved as #编号 …
+  Do not send it again.”警告（D261）；重要消息带 `idempotencyKey`，报错后用同一个 key 重试（D263）。
+- README 中英文写明：Claude 收件方没被扣住时通常不给回执，消息在发件箱里一直是 `unknown`，直到对方读到（0.9.4 真实宿主验收）。
+- `tasks/delivery-robustness/todo.md` 记下 0.9.4 已发布、真实宿主已升级并验收。
+
+### 已知问题
+
+- 脚本身份没法确认（ack）收到的消息：CLI 没有 `inbox`／`ack` 命令，会话的 `bridge_ack` 代它确认会被拒绝。发给它的消息
+  只能等过期，在那之前这个身份退役不了（0.9.3 真实宿主验收发现；README“脚本与 launchd”已写明）。
+
 ## [0.9.4] - 2026-10-27
 
 **bridge 有改动，要 `upgrade --confirm` 升级运行时；接口 2.9 → 2.10（只增加内容）；信箱 schema 7 不变。**
