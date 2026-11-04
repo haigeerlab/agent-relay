@@ -11,6 +11,9 @@
   “派给 Codex 执行”交给 `delegate:run`。原来写的 `delegate:delegate` 在 delegate 0.8.2 里已经没有。
 - README 中英文补充：退役身份因有没确认的消息被拒后怎么办（回原会话读完并 ack／原会话不在了经同意 `takeover` 接管后 ack／
   等过期，别的会话不能代 ack）；前置条件列出可选的 terminal-notifier；“发出第一条消息后”补上收件那个会话里会看到什么。
+- README 中英文：停掉的 Claude 会话除了打开它，还能从桌面应用里另一个 Claude 会话发跨会话消息（`SendMessage`）把它叫醒，
+  再让它读信箱（2026-11-04 真实宿主实测：测试会话的进程结束后，跨会话消息让桌面应用重新拉起它并处理了这条消息）；
+  信箱消息本身仍叫不醒它，Codex 会话没有这条路。
 - 接口文档开头写明怎么读出现行行为：Current (baseline) 栏，加上 Hardening target 栏里标了 done 或 “Since interface …” 的部分。
 
 - README 中英文补上 0.9.4 用户能感知的变化：`bridge_send` 报错就说明没存下，存下之后的步骤失败只给“Saved as #编号 …
