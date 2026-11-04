@@ -2,7 +2,10 @@
 
 ## [Unreleased]
 
-只改技能和文档，运行时不用升级；技能有改动，更新插件并新开会话（Codex 新开任务）即可。
+## [0.9.5] - 2026-11-04
+
+**只改技能和文档，运行时不用升级；更新插件并新开会话即可。接口 2.10、信箱 schema 7 不变；bridge 与 0.9.4 相同，
+`agent-relay --version` 仍报 0.9.4。**
 
 - 同宿主走哪条路的说法统一（技能 `collab`，README 中英文“能做什么”和“发出第一条消息后”）：同宿主默认走宿主自带的通信；
   要留消息编号、要对方回复（`expectsReply`），或宿主没有原生通道时用信箱。原来写的“只有跨宿主才用信箱”与 `session-routing`
@@ -38,6 +41,18 @@
 
 - 脚本身份没法确认（ack）收到的消息：CLI 没有 `inbox`／`ack` 命令，会话的 `bridge_ack` 代它确认会被拒绝。发给它的消息
   只能等过期，在那之前这个身份退役不了（0.9.3 真实宿主验收发现；README“脚本与 launchd”已写明）。
+
+### 从 0.9.4 升级
+
+schema 不变；bridge 与 0.9.4 相同，不需要 `upgrade --confirm`（还在更早版本的，按那一版的说明升级运行时）。
+
+1. 把主克隆快进到 v0.9.5：`git -C <克隆> pull --ff-only`（从 GitHub 装的，把 `~/.codex/config.toml` 里的 `ref` 改成
+   `"v0.9.5"` 并 `codex plugin marketplace upgrade`）。
+2. Codex：`codex plugin add agent-relay@agent-relay-marketplace`。
+3. Claude Code：`claude plugin marketplace update agent-relay-marketplace`，再
+   `claude plugin update --scope user agent-relay@agent-relay-marketplace`，刷新用户级记录的标签。
+4. 新开 Claude Code 会话；Codex 新开任务（已经打开的会话还用旧技能）。
+5. 新会话里跑 `doctor`，各项应为 ok（`claude-plugin` 显示加载的是 0.9.5，`runtime` 为 ok）。
 
 ## [0.9.4] - 2026-10-27
 
