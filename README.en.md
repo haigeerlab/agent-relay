@@ -308,6 +308,11 @@ registers its original name once again and repeats the step. No takeover is need
 **A Claude session is not running and messages do not go in**
 The Claude desktop app stops the process of an idle session. Messages stay queued and you are notified after five
 minutes; opening the session delivers them. The sender sees `pendingReason: offline` in `bridge_outbox`.
+Two ways out: open that session; or, in another Claude session in the desktop app, say "send <that session's title>:
+show collaboration messages, acknowledge them when handled". The desktop app's cross-session message (`SendMessage`)
+starts the stopped session again, and it handles its mailbox once it reads it. When the two sessions run in different
+permission modes, that message may be held for your approval. A mailbox message alone does not wake it, and a Codex
+session has no such route: open the session.
 
 **A session waits for your approval**
 The directory says so. When a Claude session sits on an approval prompt, this Mac shows a notice; when a Codex task
@@ -385,8 +390,9 @@ Only the ones that still apply; what each release said at the time is in [CHANGE
   scripts should send notices and leave out `--expects-reply`.
 - **Messages to a Claude session often stay `unknown`** (0.9.4 acceptance): when the recipient does not hold the ping,
   Claude Code usually sends no receipt, so it becomes `accepted` only once the recipient reads it. Do not resend.
-- **A stopped Claude session cannot be woken** (0.9.0): no sender can wake a session the Claude desktop app stopped;
-  messages stay queued and you are notified after five minutes.
+- **A mailbox message cannot wake a stopped Claude session** (0.9.0): a session the Claude desktop app stopped is not
+  woken by mailbox messages; they stay queued and you are notified after five minutes. Open it, or wake it with a
+  cross-session message from another Claude desktop session (see "[Troubleshooting](#troubleshooting)").
 - **A Codex task's first mailbox call after the ChatGPT app restarts is refused once** (0.7.1): the bridge cannot tell
   which Codex task calls it; the session registers its original name again as the refusal says and repeats the call.
 - **A task the ChatGPT app has not opened since it restarted reports `not-loaded`** (0.8.3), not a waiting state.
