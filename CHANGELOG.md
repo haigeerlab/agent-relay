@@ -2,7 +2,16 @@
 
 ## [Unreleased]
 
-只改文档，不用升级运行时，也不用更新插件。
+只改技能和文档，运行时不用升级；技能有改动，更新插件并新开会话（Codex 新开任务）即可。
+
+- 同宿主走哪条路的说法统一（技能 `collab`，README 中英文“能做什么”和“发出第一条消息后”）：同宿主默认走宿主自带的通信；
+  要留消息编号、要对方回复（`expectsReply`），或宿主没有原生通道时用信箱。原来写的“只有跨宿主才用信箱”与 `session-routing`
+  里 Codex → Codex 派活走信箱（`codex-work-via-mailbox`）矛盾。
+- 技能 `session-delegation` 与 README：Claude Code 里装了 delegate 插件时，“派给 Codex 审查”交给 `delegate:review`、
+  “派给 Codex 执行”交给 `delegate:run`。原来写的 `delegate:delegate` 在 delegate 0.8.2 里已经没有。
+- README 中英文补充：退役身份因有没确认的消息被拒后怎么办（回原会话读完并 ack／原会话不在了经同意 `takeover` 接管后 ack／
+  等过期，别的会话不能代 ack）；前置条件列出可选的 terminal-notifier；“发出第一条消息后”补上收件那个会话里会看到什么。
+- 接口文档开头写明怎么读出现行行为：Current (baseline) 栏，加上 Hardening target 栏里标了 done 或 “Since interface …” 的部分。
 
 - README 中英文补上 0.9.4 用户能感知的变化：`bridge_send` 报错就说明没存下，存下之后的步骤失败只给“Saved as #编号 …
   Do not send it again.”警告（D261）；重要消息带 `idempotencyKey`，报错后用同一个 key 重试（D263）。

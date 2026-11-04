@@ -1,6 +1,6 @@
 ---
 name: session-delegation
-description: 在同一台 Mac 上按自然语言跨宿主创建、继续、查看或取消受限的审查与开发会话：Claude Code 创建 Codex 会话，或 Codex 创建 Claude Code 会话。用户说“创建一个 Codex 审查”“让 Claude Code 去这个项目开发”“继续刚才的会话”等时使用；Claude Code 里装了 delegate 插件（有 delegate:delegate）时，“派给 Codex 审查／执行”交给它，本 skill 只做后备。
+description: 在同一台 Mac 上按自然语言跨宿主创建、继续、查看或取消受限的审查与开发会话：Claude Code 创建 Codex 会话，或 Codex 创建 Claude Code 会话。用户说“创建一个 Codex 审查”“让 Claude Code 去这个项目开发”“继续刚才的会话”等时使用；Claude Code 里装了 delegate 插件（有 delegate:review／delegate:run）时，“派给 Codex 审查”交给 delegate:review、“派给 Codex 执行”交给 delegate:run，本 skill 只做后备。
 ---
 
 # Session delegation
@@ -10,8 +10,9 @@ Codex → Claude Code；同宿主委派（Claude → Claude、Codex → Codex）
 拒绝，此时告诉用户在同宿主内直接开新会话。只支持同一台 Mac；不跨机器，
 不提供常驻 worker pool，不选择模型，不自动合并、发布、写远端 Issue/MR，也不让被创建的会话继续创建后代。
 
-**与 delegate 插件的分工**：在 Claude Code 里，当前会话有 `delegate:delegate` skill（delegate 插件已安装）时，
-“派给 Codex 审查／执行／排查”这类请求交给它，本 skill 不启动；没有时由本 skill 接手。Codex 一侧没有 delegate
+**与 delegate 插件的分工**：在 Claude Code 里，当前会话有 `delegate:review`／`delegate:run`（delegate 插件已安装）时，
+“派给 Codex 审查”交给 `delegate:review`，“派给 Codex 执行／排查”交给 `delegate:run`，本 skill 不启动；没有时由本 skill
+接手。Codex 一侧没有 delegate
 插件，Codex → Claude Code 的委派始终由本 skill 处理。
 
 用户只是要求联系、回复、等待或查看一个已有会话时，转交 `session-routing`；不得为了传话创建新会话。

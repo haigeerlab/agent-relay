@@ -96,9 +96,10 @@ class SessionDelegationEntryTests(unittest.TestCase):
         text = self.delegation_text()
         for phrase in ("Claude Code → Codex", "Codex → Claude Code", "same-host-unsupported", "不能 `continue`",
                        "第一次运行就申请沙箱外写入", "state-not-writable", "复用同一组 key",
-                       "`delegate:delegate`", "本 skill 只做后备"):
+                       "`delegate:review`", "`delegate:run`", "本 skill 只做后备"):
             self.assertIn(phrase, text)
         self.assertNotIn("`host-native`：", text)
+        self.assertNotIn("delegate:delegate", text)
         # delegation-hygiene D166, D167, D169.
         for phrase in ("--scope", "scope-review-only", "Files read:", "软限制", "`prune`",
                        "--include-unknown-hosts", "不删除、不碰宿主"):

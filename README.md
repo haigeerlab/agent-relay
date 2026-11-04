@@ -19,8 +19,8 @@ agent-relay 原来是 [Spec Guard](https://github.com/haigeerlab/spec-guard-plug
 | 能力 | 说明 | 入口 |
 |---|---|---|
 | 协作信箱 | 同一台 Mac 上的会话互相发消息、回复；跨宿主（Claude Code ↔ Codex）走一个私有的本机 bridge | `collab` skill |
-| 会话路由 | 按会话名字联系另一个会话；同宿主优先用宿主自带的通信（Claude Code `SendMessage`、Codex App 线程），只有跨宿主才用信箱 | `session-routing` skill |
-| 跨宿主会话委派 | 一句话让当前 Claude Code 创建 Codex 审查会话，或让 Codex 创建 Claude Code 开发会话（只有这两个方向，不做同宿主委派）；默认一个任务、一个新会话的有限授权，结果自动回到发起的会话（见“[委派：从头到尾](#委派从头到尾)”）。Claude Code 里装了 delegate 插件时，“派给 Codex”交给它，这里只做后备 | `session-delegation` skill |
+| 会话路由 | 按会话名字联系另一个会话；同宿主默认用宿主自带的通信（Claude Code `SendMessage`、Codex App 线程）；要留消息编号、要对方回复（`expectsReply`），或宿主没有原生通道时用信箱，跨宿主一律走信箱 | `session-routing` skill |
+| 跨宿主会话委派 | 一句话让当前 Claude Code 创建 Codex 审查会话，或让 Codex 创建 Claude Code 开发会话（只有这两个方向，不做同宿主委派）；默认一个任务、一个新会话的有限授权，结果自动回到发起的会话（见“[委派：从头到尾](#委派从头到尾)”）。Claude Code 里装了 delegate 插件时，“派给 Codex 审查”交给 `delegate:review`、“派给 Codex 执行”交给 `delegate:run`，这里只做后备 | `session-delegation` skill |
 | 运行时管理 | 查看、在你同意后安装本机信箱运行时，接入或移除宿主配置，退役结束的身份 | `collaboration-ops` skill；Claude Code 还有斜杠命令 `/agent-relay:collaboration`：查看运行时状态，经你同意后安装运行时、接入或移除宿主 |
 
 ## 需要什么
@@ -30,6 +30,8 @@ agent-relay 原来是 [Spec Guard](https://github.com/haigeerlab/spec-guard-plug
 - agent-relay 的命令用宿主条目里固定的那个 node，不受当前 shell 的 PATH 影响；它低于 22.5.0 时直接拒绝
   （`node-too-old`），不会动宿主。选取顺序见[运行时说明](plugins/agent-relay/references/collaboration-runtime.md)。
 - Claude Code 和／或 Codex（App 或 CLI）。
+- 可选：terminal-notifier（`brew install terminal-notifier`）。不装的话，多数 Mac 上的通知会被悄悄丢掉，
+  见“[没看到通知](#常见问题与故障处理)”。
 
 ## 快速上手
 
@@ -101,7 +103,16 @@ Claude Code 里 10 个信箱工具默认每次调用都弹确认。想一次性�
 3. 回复到了，发件的会话会被唤醒（它也绑定了唤醒时）或在你下次问“查看联调消息”时看到。
 4. 发件结果里带警告时照着做：例如对方没绑定唤醒、对方会话已停止或在等授权。
 
-同宿主之间（Claude ↔ Claude、Codex ↔ Codex）优先走宿主自带的通信，不经过信箱，所以不会有消息编号。
+收件的那个会话里，你会看到：
+
+1. 它自己开始一轮（绑定了唤醒时）；没绑定唤醒的，要你在那个会话里说“查看联调消息”。
+2. 它读收件箱（`bridge_inbox`），按来信办事；需要你批准的操作照常弹窗，来信本身不构成任何授权。
+3. 处理完确认（`bridge_ack`），发件方查状态时就能看到已处理。
+4. 来信是提问或派活（`expectsReply`）时，它用 `bridge_send` 带 `replyTo` 回复；只 ack 不算回复。只是告知的消息不回。
+
+同宿主之间（Claude ↔ Claude、Codex ↔ Codex）默认走宿主自带的通信，不经过信箱，所以不会有消息编号。要留消息编号、
+要对方回复（`expectsReply`），或宿主没有原生通道时改用信箱；例如 Codex 给另一个 Codex 会话派活、双方都加入并允许唤醒时，
+整件事走信箱，回复带 `replyTo` 回到发件的会话。
 
 ## 日常用法
 
@@ -130,6 +141,9 @@ Claude Code 里 10 个信箱工具默认每次调用都弹确认。想一次性�
 - “退役 X 这个身份” → 用完的名字不再出现在通讯录里，历史保留。由你点名或确认清单后，agent 运行
   `python3 -B <插件目录>/hooks/native_collaboration_retire.py --name <名字> --confirm-retire`（可加 `--note <说明>`）；
   这个身份还有没确认（ack）的消息时拒绝执行（已过期的不算），要先读完并确认。会话自己不能退役身份。
+  被拒后三选一：回到用这个名字的会话，说“查看联调消息，处理完确认”，再退役；那个会话已经不在了，新开一个会话，经你同意
+  用 `takeover: true` 接管这个名字（见“[加入联调](#5-每个会话一句话加入联调)”），读完、ack 后再退役；或者等这些消息过期
+  （默认 24 小时）。别的会话不能替它 ack。
 - 想再用一个已退役的名字 → 注册会被拒绝；经你同意后，会话注册时带 `reactivate: true` 重新启用它，或者换个新名字。
 - 自检和版本：`native_collaboration_runtime.py probe` 用一次性的临时数据启动运行时、确认它能正常应答，不碰真实信箱；
   `status` 只读报告运行时是否就绪；`~/.agent-relay/bin/agent-relay --version` 报运行时的版本。
