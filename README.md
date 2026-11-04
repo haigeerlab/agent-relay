@@ -8,7 +8,7 @@
 agent-relay 原来是 [Spec Guard](https://github.com/haigeerlab/spec-guard-plugin) 的可选协作能力，现在拆成独立插件：
 只想让会话互相通信的项目（例如设计项目）装它就够了。
 
-> 状态：0.9.4（接口 2.10；不依赖 Spec Guard，同时安装时 Spec Guard 要 0.56.0 或更新）。变化、升级步骤见
+> 状态：0.9.5（接口 2.10；不依赖 Spec Guard，同时安装时 Spec Guard 要 0.56.0 或更新）。变化、升级步骤见
 > [CHANGELOG.md](CHANGELOG.md)，现在仍有效的问题见下文“[已知问题](#已知问题)”；各项目标见
 > [docs/collaboration-interface.md](docs/collaboration-interface.md) 的“加固目标”栏。
 >
@@ -47,7 +47,7 @@ claude plugin install agent-relay@agent-relay-marketplace
 Codex（固定到发布的版本）：
 
 ```bash
-codex plugin marketplace add haigeerlab/agent-relay --ref v0.9.4
+codex plugin marketplace add haigeerlab/agent-relay --ref v0.9.5
 codex plugin add agent-relay@agent-relay-marketplace
 ```
 
