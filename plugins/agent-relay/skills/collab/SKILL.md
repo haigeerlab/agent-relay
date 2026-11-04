@@ -152,6 +152,9 @@ bridge 尝试过桌面通知，macOS 可能没显示，不要说成用户已经�
 
 ## 与同宿主原生通信的边界
 
-Claude Code ↔ Claude Code 有 `ListAgents`／`SendMessage` 时走 `host-native-claude`；Codex ↔ Codex 有
-task/thread 工具时走 `host-native-codex`。同宿主原生成功时不复制正文到 bridge。同宿主能力明确不可用时，
-只有 `session-routing` 在既有授权和两端已加入的前提下明确选择 bridge，才发送一次；结果未知时只对账，不重发。
+同宿主默认走原生：Claude Code ↔ Claude Code 有 `ListAgents`／`SendMessage` 时走 `host-native-claude`；Codex ↔ Codex
+有 task/thread 工具时走 `host-native-codex`。要留消息编号、要对方回复（`expectsReply`），或宿主没有原生通道时用信箱，
+例如 Codex 给另一个 Codex 会话派活且双方都加入并允许唤醒时，`session-routing` 的 selector 返回 `codex-work-via-mailbox`，
+整件事走信箱。路线一律由 `session-routing` 的 selector 决定，本 skill 不自行换路。同宿主原生成功时不复制正文到 bridge。
+同宿主能力明确不可用时，只有 `session-routing` 在既有授权和两端已加入的前提下明确选择 bridge，才发送一次；
+结果未知时只对账，不重发。

@@ -6,7 +6,7 @@ the accepted [collaboration-split Proposal](../spec/proposals/collaboration-spli
 
 How to read it:
 
-- **Current (baseline)** is what ships today. Every fact cites its evidence: `[BL §…]` is a section of the
+- **Current (baseline)** is the behaviour agent-relay started from. Every fact cites its evidence: `[BL §…]` is a section of the
   [pre-split baseline](baselines/collaboration-pre-split.md); `S:path:line` is Spec Guard at `54d0426`;
   `B:path:line` is the pinned upstream bridge `WebisityStudio/claude-codex-mcp-bridge@8f12c880` (MIT), vendored
   unchanged at [`plugins/agent-relay/bridge/`](../plugins/agent-relay/bridge/UPSTREAM.md) (`bridge-vendoring`), so a
@@ -15,6 +15,8 @@ How to read it:
   names its owning hardening module, where the values are decided.
 - The agent-relay translation must reproduce the current column, apart from the two naming changes
   approved as D1 (section 13). The hardening modules must reach the target column.
+- **What ships now** is the Current (baseline) column plus the parts of the Hardening target column marked
+  done ("Done in …", "done: …") or "Since interface …".
 
 ## 1. Scope and versioning
 

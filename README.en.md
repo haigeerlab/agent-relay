@@ -23,8 +23,8 @@ example) needs nothing else.
 | Capability | Description | Entry point |
 |---|---|---|
 | Collaboration mailbox | Sessions on the same Mac send and reply to messages; across hosts (Claude Code ↔ Codex) they go through a private local bridge | `collab` skill |
-| Session routing | Reach another session by its name; on the same host the host's own messaging is preferred (Claude Code `SendMessage`, Codex App threads), the mailbox only across hosts | `session-routing` skill |
-| Cross-host session delegation | One sentence makes the current Claude Code create a Codex review session, or Codex create a Claude Code development session (only these two directions; no same-host delegation); by default a limited authorization for one task in one new session, with the result coming back to the session that asked (see "[Delegation end to end](#delegation-end-to-end)"). When the delegate plugin is installed in Claude Code, "send it to Codex" goes to it and this is only the fallback | `session-delegation` skill |
+| Session routing | Reach another session by its name; on the same host the host's own messaging is the default (Claude Code `SendMessage`, Codex App threads); the mailbox is used when you need a message id, need an answer (`expectsReply`), or the host has no native channel, and always across hosts | `session-routing` skill |
+| Cross-host session delegation | One sentence makes the current Claude Code create a Codex review session, or Codex create a Claude Code development session (only these two directions; no same-host delegation); by default a limited authorization for one task in one new session, with the result coming back to the session that asked (see "[Delegation end to end](#delegation-end-to-end)"). When the delegate plugin is installed in Claude Code, "send it to Codex for review" goes to `delegate:review` and "have Codex do it" to `delegate:run`; this is only the fallback | `session-delegation` skill |
 | Runtime management | Inspect and, with your consent, install the local mailbox runtime, attach or detach host configuration, retire identities that ended | `collaboration-ops` skill; Claude Code also has the slash command `/agent-relay:collaboration`: shows the runtime status and, with your consent, installs the runtime or attaches or removes host entries |
 
 ## Requirements
@@ -35,6 +35,8 @@ example) needs nothing else.
   refused (`node-too-old`) before any host is touched. The selection order is in the
   [runtime notes](plugins/agent-relay/references/collaboration-runtime.md).
 - Claude Code and/or Codex (App or CLI).
+- Optional: terminal-notifier (`brew install terminal-notifier`). Without it most Macs silently drop the
+  notifications; see "[Troubleshooting](#troubleshooting)".
 
 ## Quick start
 
@@ -120,8 +122,20 @@ In Claude Code, say "tell X in Codex: the home page draft is at `designs/home.fi
 4. If the send result carries a warning, follow it: for example the recipient is not bound for wake, has stopped, or
    waits for an approval.
 
-Between sessions on the same host (Claude ↔ Claude, Codex ↔ Codex) the host's own messaging is preferred and the
-mailbox is not used, so there is no message id.
+In the receiving session you will see:
+
+1. It starts a turn by itself (when bound for wake); otherwise you say "show collaboration messages" in that session.
+2. It reads its inbox (`bridge_inbox`) and works on the message; actions that need your approval prompt as usual, and
+   the message itself authorizes nothing.
+3. When done it acknowledges (`bridge_ack`), so the sender sees the message as handled when checking its status.
+4. When the message is a question or a work request (`expectsReply`) it answers with `bridge_send` and `replyTo`; an
+   acknowledgement alone is not an answer. Plain notices get no reply.
+
+Between sessions on the same host (Claude ↔ Claude, Codex ↔ Codex) the host's own messaging is the default and the
+mailbox is not used, so there is no message id. The mailbox is used instead when you need a message id, need an answer
+(`expectsReply`), or the host has no native channel; for example when a Codex session hands work to another Codex
+session and both have joined with wake allowed, the whole exchange goes through the mailbox and the answer comes back
+to the sender with `replyTo`.
 
 ## Everyday use
 
@@ -159,6 +173,11 @@ Just say it in natural language; no tool names or internal IDs to remember:
   list, the agent runs `python3 -B <plugin dir>/hooks/native_collaboration_retire.py --name <name> --confirm-retire`
   (`--note <text>` optional); it refuses while the identity still has messages it has not acknowledged (expired ones do
   not count), so read and acknowledge them first. Sessions cannot retire identities.
+  When refused, pick one: go back to the session using that name, say "show collaboration messages, acknowledge them
+  when handled", then retire; if that session is gone, open a new session and, with your consent, take over the name
+  with `takeover: true` (see "[Join](#5-one-sentence-per-session-join)"), read and
+  acknowledge, then retire; or wait for those messages to expire (24 hours by default). Another session cannot
+  acknowledge them on its behalf.
 - Reusing a retired name → registering it is refused; with your consent the session registers with
   `reactivate: true`, or picks a new name.
 - Self-test and version: `native_collaboration_runtime.py probe` starts the runtime against disposable data and checks
