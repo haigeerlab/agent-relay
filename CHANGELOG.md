@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.9.6] - 2026-11-20
+
+**bridge 有改动，要 `upgrade --confirm` 升级运行时；接口 2.10 → 2.11（只增加内容：脚本命令 `inbox`、`ack`）；信箱 schema 7 不变。**
+
 - **脚本身份能读收件箱和确认了**（模块 `script-inbox-ack`，D271–D275，账本 99V3EDK）：运行时 CLI 新增
   `~/.agent-relay/bin/agent-relay inbox <脚本身份>`（输出与 `bridge_inbox` 相同，读到即记已读，参数 `--from-agent`、
   `--thread`、`--after-id`、`--include-acknowledged`、`--include-expired`、`--limit`、`--max-chars`、`--max-body-chars`，
@@ -14,6 +18,26 @@
 - **doctor 对目录已删的 project scope 记录给对删法**（模块 `post-090-docs`，D269，账本 M04WZ94 第 2 条）：这类记录在目录删后
   仍留在 `installed_plugins.json` 里；说明原来一律写 `--scope local`，对它会失败。现在按记录的 scope 给
   `claude plugin uninstall --scope local …` 或 `--scope project …`（重建空目录后在里面跑，不会写出任何文件）。只改 hooks，运行时不用升级。
+
+- **Claude 回执的回归测试**（D270，账本 M4D0XJA）：锁定 Claude 每条回执都新开连接，held 之后迟到的 `delivered` 不会丢。只加测试。
+- CI：放入接入结论，准入检查钉住的版本升级（#178）。不影响使用。
+- bridge 的版本号随运行时改动抬到 0.9.6，`agent-relay --version` 和 MCP 的 `serverInfo.version` 报 0.9.6。
+
+### 从 0.9.5 升级
+
+schema 不变；bridge 的运行时文件有改动，要升级运行时（步骤见 README“更新插件”“升级运行时”）。
+
+1. 把主克隆快进到 v0.9.6：`git -C <克隆> pull --ff-only`（从 GitHub 装的，把 `~/.codex/config.toml` 里的 `ref` 改成
+   `"v0.9.6"` 并 `codex plugin marketplace upgrade`）。
+2. Codex：`codex plugin add agent-relay@agent-relay-marketplace`。
+3. Claude Code：`claude plugin marketplace update agent-relay-marketplace`，再
+   `claude plugin update --scope user agent-relay@agent-relay-marketplace`，刷新用户级记录的标签。
+4. **升级运行时**：关掉所有用到信箱的会话或只结束 bridge（见 README“升级运行时”），确认 `pgrep -fl
+   "agent-relay/runtime/dist/server.js"` 没有输出，再执行 `python3 -B <插件目录>/hooks/native_collaboration_runtime.py
+   upgrade --confirm`，输出应为 `"state": "upgraded"`，其中 `launcher.ok` 为 `true`。
+5. Codex 用 ⌘Q 完全退出 ChatGPT 应用再打开，然后新开 Claude Code 和 Codex 会话。
+6. 新会话里跑 `doctor`，各项应为 ok（`claude-plugin` 显示加载的是 0.9.6，`runtime` 为 ok；环境类的 warn 按它给的下一步处理）；
+   `~/.agent-relay/bin/agent-relay --version` 应报 0.9.6，`~/.agent-relay/bin/agent-relay --help` 里有 `inbox` 和 `ack`。
 
 ## [0.9.5] - 2026-11-04
 

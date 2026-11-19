@@ -48,7 +48,7 @@ How to read it:
   agent-relay 0.9.4 implements `2.10` (`delivery-robustness` D259–D265: a `bridge_send` that fails after storing the
   message returns it with a "Saved as #id" warning instead of an error; a Claude hold is announced to the sender only
   after it has lasted 90 seconds, and the hold explanation says a just-started session is the usual cause; schema 7
-  unchanged). The next runtime release implements `2.11` (`script-inbox-ack` D271–D275: the script commands `inbox`
+  unchanged). agent-relay 0.9.6 implements `2.11` (`script-inbox-ack` D271–D275: the script commands `inbox`
   and `ack` of §2.4, acting only as a script identity; schema 7 unchanged).
 - **Plugin version.** agent-relay follows its own semver, independent of Spec Guard. Its release notes state
   the interface version it implements.
