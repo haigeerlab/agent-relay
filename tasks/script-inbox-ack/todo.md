@@ -6,4 +6,6 @@
 - [x] Task 4: wording (D274) — 4 assertions red first, then D251 warning, `identity.ts` refusal, register preview, `sessions` note
 - [x] Task 5: interface 2.11 and docs (D275) — `test_packaging.py` red first, `interface.json`, `relay_status.py`, interface doc §1/§2.4/`bridge_send` row, README zh/en (known issue removed, script section, retire paragraph on broadcasts, glossary, interface number; the 0.9.5 status line is left for the release), collaboration-ops skill, both CHANGELOGs, UPSTREAM rows, manifest
 - [x] Checkpoint (report): bridge green — `scripts/validate.sh` pass: 48 files, 968 tests (bridge `npm run check` 334)
-- [ ] Checkpoint (gate): PR review and merge — user merges; result to the owner session
+- [x] Checkpoint (gate): PR review and merge — 用户批准「CI 绿后合并」（2026-11-20）；CI 4 个组合与 admission 全绿后合并（PR #179）；结果发给负责人
+
+Release: not in this PR; the owner session schedules it (interface 2.11, runtime upgrade needed) and the real-host acceptance with the two test script identities.
