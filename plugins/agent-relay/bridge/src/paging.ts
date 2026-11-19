@@ -66,11 +66,16 @@ export function bodyPart(message: BridgeMessage, offset: number, maxChars?: numb
     ...(end < message.body.length ? { bodyTruncated: true as const, nextOffset: end } : {}) };
 }
 
-/** long-messages D153: one line per shortened body saying how to read the rest. */
-export function continueLines(views: MessageView[], agent: string | null): string[] {
+/** How to fetch the rest of message `id` from `offset`, for the reader `agent` (null: whoever received it). */
+export type ContinueLine = (agent: string | null, id: number, offset: number) => string;
+
+const BRIDGE_INBOX_LINE: ContinueLine = (agent, id, offset) =>
+  `bridge_inbox {agent: ${agent === null ? '"<recipient>"' : JSON.stringify(agent)}, messageId: ${id}, bodyOffset: ${offset}}`;
+
+/** long-messages D153: one line per shortened body saying how to read the rest (script-inbox-ack D271: `line`). */
+export function continueLines(views: MessageView[], agent: string | null, line: ContinueLine = BRIDGE_INBOX_LINE): string[] {
   return views.filter((view) => view.nextOffset !== undefined).map((view) =>
-    `Message #${view.id} is longer than this page; read the rest with bridge_inbox ` +
-    `{agent: ${agent === null ? '"<recipient>"' : JSON.stringify(agent)}, messageId: ${view.id}, bodyOffset: ${view.nextOffset}}`);
+    `Message #${view.id} is longer than this page; read the rest with ${line(agent, view.id, view.nextOffset as number)}`);
 }
 
 /**
