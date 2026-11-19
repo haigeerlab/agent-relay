@@ -1,6 +1,6 @@
 # Spec: delivery-robustness
 
-<!-- spec-guard: review pending -->
+<!-- spec-guard: review approved 31a238ce5879 -->
 
 ## Objective
 
