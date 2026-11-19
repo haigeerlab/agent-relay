@@ -6,5 +6,7 @@
 - [x] Checkpoint (report): local validation — `scripts/validate.sh` pass on Python 3.9.6, 3.10.7, 3.14.3 with Node v24.18.0 first on PATH (48 files, 937 tests each; bridge `npm run check` 303 ok); spec-guard verify-artifacts: one warning, `spec/claude-plugin-label.md` revised after approval (the D257 change-log line), re-reviewed and approved by the user 2026-10-24 ("批准"), marker rewritten
 - [x] Task 4: PR and CI — #161 merged as cb0869b (2026-10-24), all four CI jobs passed; owner session told; ledger comment on AJM8B1H
 - [x] Checkpoint (gate): module review — 模块审查经 delegate 派 Codex：无挡合并；第 1、4、5 条在本 PR 修，第 2、3 条留下一版（账本 AJM8B1H）（PR #162）
+- [x] Task 5: folder-gone project scope records (D269, M04WZ94 item 2) — measured with a throwaway HOME on Claude Code 2.1.328 (record stays; only `--scope project` in the recreated folder removes it, writing no file); 2 tests first (red), then `_plugin_labels` counts gone records per scope and the note names each scope's command; `spec/claude-plugin-label.md` change-log line; CHANGELOG `[Unreleased]`
+- [ ] Checkpoint (gate): user approves the D269 addition and merges the PR
 
 Release: goes into 0.9.3 (release PR opened 2026-10-25); the tag, the GitHub Release and the upgrade on this Mac are done by the user, one step at a time.

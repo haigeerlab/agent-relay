@@ -67,6 +67,29 @@ Readers: the user; the owner session (review, release, acceptance).
   review checkpoint is ticked (review done, nothing required).
 - **D258 clone installs refresh the label.** Assumption 7.
 
+### Folder-gone project scope records (2026-11-20, ledger M04WZ94 item 2, after 0.9.5)
+
+The module review of #161 found that `_plugin_labels` counts every folder-gone record, whatever its scope, and the
+note always gives `--scope local`; assumptions 2 and 4 did not cover a `project` scope record whose folder is gone.
+Measured on Claude Code 2.1.328 with a throwaway `HOME`/`CLAUDE_CONFIG_DIR` and a local directory marketplace (no real
+record touched):
+
+- Deleting the project folder removes its `.claude/settings.json`, but the record stays in
+  `~/.claude/plugins/installed_plugins.json` and in `claude plugin list --json`. A record's `enabled` follows the
+  settings in effect where the listing runs, so with a user-scope install the folder-gone project record is listed as
+  `enabled: true` and reaches `_plugin_labels`.
+- `claude plugin uninstall --scope local …` in the recreated folder fails ("installed in project scope, not local");
+  `--scope project` run anywhere else fails ("not installed in project scope").
+- `claude plugin uninstall --scope project …` run in the recreated empty folder removes the record and creates no file
+  (no `.claude/` in the folder or its parent repository). It worked with and without `git init`, also inside another git
+  repository; so did `--scope local` for a local record.
+
+- **D269 a folder-gone record is removed with its own scope.** Still counted, not warned about and not listed
+  (assumption 2); the note names the scope's command: `--scope local` or `--scope project`, both (with "the one
+  matching the record's scope") when both are present. Assumption 4's no-command rule does not apply: the folder is
+  recreated empty, so nothing committed is changed. The `git init` clause stays (harmless, measured on 0.9.1). Live
+  records, the older-copy branch and README are unchanged (README already says "as it describes").
+
 ## Requirements
 
 1. Red first (`test_doctor.py`, fixture listings): a folder-gone record's note carries the keep-or-remove advice; a

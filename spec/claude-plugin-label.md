@@ -108,3 +108,6 @@ sentence and the skills line.
   `shlex.quote`d; a live `project` scope record gets a note (it lives in that repository's committed
   `.claude/settings.json`) and no command; `next` lists the user-scope steps first, then one command per folder,
   sorted.
+- 2026-11-20, `post-090-docs` D269 (ledger M04WZ94 item 2): a folder-gone `project` scope record also stays in
+  `installed_plugins.json` and is removed only with `uninstall --scope project` in the recreated folder (measured); the
+  folder-gone note now names the command for each scope it counted.

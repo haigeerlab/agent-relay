@@ -795,6 +795,30 @@ class ClaudePluginCopyTests(unittest.TestCase):
         self.assertIn("claude plugin uninstall --scope local agent-relay@agent-relay-marketplace", result["detail"])
         self.assertIn("then delete the folder", result["detail"])
 
+    # post-090-docs D269 (M04WZ94 item 2): a folder-gone project scope record keeps its entry and needs --scope project.
+
+    def test_a_folder_gone_project_record_is_removed_with_scope_project(self):
+        result = self.check(self.listed(
+            self.entry(self.clone, folder=self.clone),
+            self.entry(self.cache_010, scope="project", folder=self.clone, project=self.base / "deleted-repo")))
+        self.assertEqual(result["state"], "ok", result)
+        self.assertIn("1 record whose folder is gone carries an old label; it can stay", result["detail"])
+        self.assertIn("claude plugin uninstall --scope project agent-relay@agent-relay-marketplace` in it", result["detail"])
+        self.assertNotIn("--scope local", result["detail"])
+        self.assertNotIn("kept in", result["detail"])
+        self.assertNotIn("deleted-repo", result["detail"])
+
+    def test_folder_gone_local_and_project_records_name_both_scopes(self):
+        result = self.check(self.listed(
+            self.entry(self.clone, folder=self.clone),
+            self.entry(self.cache_010, scope="project", folder=self.clone, project=self.base / "deleted-repo"),
+            self.entry(self.cache_052, scope="local", folder=self.clone, project=self.base / "deleted-worktree")))
+        self.assertEqual(result["state"], "ok", result)
+        self.assertIn("2 records whose folder is gone carry an old label; they can stay", result["detail"])
+        self.assertIn("`claude plugin uninstall --scope local agent-relay@agent-relay-marketplace` or "
+                      "`claude plugin uninstall --scope project agent-relay@agent-relay-marketplace` "
+                      "(the one matching the record's scope) in it", result["detail"])
+
     def test_a_folder_with_a_space_is_quoted_in_the_cleanup_command(self):
         folder = self.live("my project")
         result = self.check(self.listed(self.entry(self.cache_010, scope="local", folder=self.clone, project=folder)))
