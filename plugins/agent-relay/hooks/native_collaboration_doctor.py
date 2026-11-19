@@ -580,11 +580,17 @@ def _claude_plugin(listing: Callable[[], tuple[int, str] | None], expected: str 
     labels, cleanup, gone = _plugin_labels(labelled, has_user)
     if gone:
         # post-090-docs D257: say they may stay, and the removal measured on the 0.9.1 acceptance (local records).
-        many = gone > 1
-        notes.append(f"{gone} record{'s' if many else ''} whose folder is gone carr{'y' if many else 'ies'} an old label; "
+        # D269: a project scope record outlives its folder too and is removed only with --scope project.
+        count = sum(gone.values())
+        many = count > 1
+        commands = " or ".join(f"`claude plugin uninstall --scope {scope} agent-relay@agent-relay-marketplace`"
+                               for scope in sorted(gone))
+        if len(gone) > 1:
+            commands += " (the one matching the record's scope)"
+        notes.append(f"{count} record{'s' if many else ''} whose folder is gone carr{'y' if many else 'ies'} an old label; "
                      f"{'they' if many else 'it'} can stay, or you can remove {'them' if many else 'it'}: create the "
-                     "folder again (run `git init` in it first if it sits inside another git repository), run `claude plugin "
-                     "uninstall --scope local agent-relay@agent-relay-marketplace` in it, then delete the folder")
+                     "folder again (run `git init` in it first if it sits inside another git repository), run "
+                     f"{commands} in it, then delete the folder")
     restart = "a session started before an update keeps its copy, even when resumed; only new sessions load the update"
     if not stale:
         detail = f"every agent-relay copy Claude Code loads is {expected}; {restart}"
@@ -597,22 +603,22 @@ def _claude_plugin(listing: Callable[[], tuple[int, str] | None], expected: str 
 
 
 def _plugin_labels(labelled: list[tuple[str, str | None, str, str]],
-                   has_user: bool) -> tuple[list[str], list[str], int]:
+                   has_user: bool) -> tuple[list[str], list[str], dict[str, int]]:
     """claude-plugin-label D246-D247: one line per label that disagrees with the copy its record loads, the user's
-    cleanup steps (doctor runs none of them), and how many such records belong to folders that are gone.
+    cleanup steps (doctor runs none of them), and how many such records belong to folders that are gone, per scope.
     post-090-docs D257: the user steps first, then one command per folder (quoted, sorted); a project scope record
     gets a note instead, since changing it rewrites that repository's committed .claude/settings.json."""
     found: dict[tuple[str, str, str], list[str]] = {}
     user_steps: list[str] = []
     folder_steps: list[tuple[str, str]] = []
     shared: list[str] = []
-    gone = 0
+    gone: dict[str, int] = {}
     for scope, project, label, path in labelled:
         version = _copy_version(Path(path))
         if version is None or version == label:
             continue
         if project is not None and not Path(project).exists():
-            gone += 1
+            gone[scope] = gone.get(scope, 0) + 1
             continue
         user = scope + (":" + project if project else "")
         if user not in found.setdefault((label, path, version), []):

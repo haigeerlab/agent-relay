@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+- **doctor 对目录已删的 project scope 记录给对删法**（模块 `post-090-docs`，D269，账本 M04WZ94 第 2 条）：这类记录在目录删后
+  仍留在 `installed_plugins.json` 里；说明原来一律写 `--scope local`，对它会失败。现在按记录的 scope 给
+  `claude plugin uninstall --scope local …` 或 `--scope project …`（重建空目录后在里面跑，不会写出任何文件）。只改 hooks，运行时不用升级。
+
 ## [0.9.5] - 2026-11-04
 
 **只改技能和文档，运行时不用升级；更新插件并新开会话即可。接口 2.10、信箱 schema 7 不变；bridge 与 0.9.4 相同，
