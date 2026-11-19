@@ -15,6 +15,7 @@ import { CHANNEL_CAPABILITY, channelSession } from "./claude-channel.js";
 import { claudeSessions, claudeSessionsOrNull } from "./claude-wake.js";
 import { claudePresence, codexTaskPresence, type Presence } from "./presence.js";
 import { Housekeeper } from "./housekeeping.js";
+import { readInbox, readReceipt } from "./inbox-read.js";
 import { waitForInbox } from "./inbox-waiter.js";
 import { BRIDGE_AGENT, CLAUDE_HOLD_EXPLANATION, isClaudeHold } from "./notices.js";
 import { clampLimit, continueLines, fitMessages } from "./paging.js";
@@ -135,17 +136,8 @@ function main(): void {
   });
   const housekeeper = new Housekeeper(store, { log });
 
-  // agent-relay inbox-read-receipt D99, D100: only the identity itself records a read (delivery, wake) or activity;
-  // anyone may still list. The result says which, so a bystander knows it changed nothing.
+  // agent-relay inbox-read-receipt D99, D100: only the identity itself records a read (delivery, wake) or activity.
   const ownRead = (agent: string) => caller.owns(agent, store.getAgent(agent));
-  const readReceipt = (agent: string, recorded: boolean) => recorded
-    ? { readRecorded: true }
-    : {
-        readRecorded: false,
-        readNote: `This read was not recorded: ${JSON.stringify(agent)} is not an identity of this session, so its messages ` +
-          "stay unread for delivery and its recipient will still be pinged. If " + JSON.stringify(agent) + " is this " +
-          "session's own name (for example after the bridge restarted), call bridge_register with it from this session again.",
-      };
 
   // agent-relay mailbox-polish D154: a view shows the delivery state after the read this call recorded.
   const afterRead = <T extends { id: number; deliveryState: unknown }>(view: T): T =>
@@ -376,42 +368,8 @@ function main(): void {
       },
     },
     async ({ agent, includeAcknowledged, fromAgent, threadId, afterId, includeExpired, messageId, bodyOffset, limit, maxChars, maxBodyChars }) => {
-      const recorded = ownRead(agent);
-      // agent-relay long-messages D152: one message, one part of its body.
-      if (messageId !== undefined) {
-        const message = store.messagePart(agent, messageId, { bodyOffset, maxChars });
-        if (!message) {
-          // agent-relay read-own-sent D213: say why, as a fact, and whom to ask; never point at another inbox.
-          const parties = store.messageParties(messageId);
-          if (!parties) throw new Error(`There is no message #${messageId}.`);
-          throw new Error(`Message #${messageId} was not sent to ${JSON.stringify(agent)} and not sent by it; by id an ` +
-            `agent reads only messages it received or sent. For the text, ask its sender ${JSON.stringify(parties.from)} ` +
-            `or its recipient ${JSON.stringify(parties.to)}.`);
-        }
-        // presence-polish D177: an offset past the end is a mistake to report, not an empty part.
-        const length = message.bodyLength ?? message.body.length;
-        if (bodyOffset !== undefined && bodyOffset > length) {
-          throw new Error(`bodyOffset ${bodyOffset} is past the end of message #${messageId} (${length} characters).`);
-        }
-        // read-own-sent D212: reading back a sent message records nothing, for the sender or its recipient.
-        if (recorded && message.direction === "received") {
-          store.wakes.recordRead(agent, [message.id]);
-          store.touch(agent);
-        }
-        const receipt = message.direction === "sent"
-          ? { readRecorded: false, readNote: `Message #${message.id} was sent by ${JSON.stringify(agent)}; reading it back ` +
-              "records nothing for it or its recipient." }
-          : readReceipt(agent, recorded);
-        return jsonResult({ agent, message: afterRead(message), ...receipt });
-      }
-      const page = store.inboxPage(agent, { includeAcknowledged, fromAgent, threadId, afterId, includeExpired, limit, maxChars, maxBodyChars });
-      if (recorded) {
-        store.wakes.recordRead(agent, page.messages.map((message) => message.id));
-        store.touch(agent);
-      }
-      const more = continueLines(page.messages, agent);
-      return jsonResult({ agent, ...page, messages: page.messages.map(afterRead), ...(more.length ? { continue: more } : {}),
-        ...readReceipt(agent, recorded) });
+      return jsonResult(readInbox(store, { agent, includeAcknowledged, fromAgent, threadId, afterId, includeExpired,
+        messageId, bodyOffset, limit, maxChars, maxBodyChars }, { recorded: ownRead(agent) }));
     },
   );
 

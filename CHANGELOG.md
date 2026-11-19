@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+- **脚本身份能读收件箱和确认了**（模块 `script-inbox-ack`，D271–D275，账本 99V3EDK）：运行时 CLI 新增
+  `~/.agent-relay/bin/agent-relay inbox <脚本身份>`（输出与 `bridge_inbox` 相同，读到即记已读，参数 `--from-agent`、
+  `--thread`、`--after-id`、`--include-acknowledged`、`--include-expired`、`--limit`、`--max-chars`、`--max-body-chars`，
+  长消息用 `--message-id N --body-offset M` 分段读）和 `ack <脚本身份> --ids 12,15`（输出与 `bridge_ack` 相同，直发和群发都能
+  确认）。只代表脚本身份：给会话身份的名字明确拒绝，说明只有它自己的会话能读和确认；会话照旧不能代脚本身份确认。
+  原来发给脚本身份的消息只能等过期，群发永不过期，收过群发的脚本身份就永远退役不了。发给脚本身份时的提示改为说明
+  脚本下次运行 `inbox` 才读到。README 中英文的退役说明改正：群发不会过期，必须确认。**接口 2.11（`interface.json` 加
+  `inbox`、`ack`），信箱 schema 7 不变；改了运行时，要 `upgrade --confirm`。**
+
 - **doctor 对目录已删的 project scope 记录给对删法**（模块 `post-090-docs`，D269，账本 M04WZ94 第 2 条）：这类记录在目录删后
   仍留在 `installed_plugins.json` 里；说明原来一律写 `--scope local`，对它会失败。现在按记录的 scope 给
   `claude plugin uninstall --scope local …` 或 `--scope project …`（重建空目录后在里面跑，不会写出任何文件）。只改 hooks，运行时不用升级。

@@ -48,7 +48,7 @@ export class CallerIdentity {
     }
     if (agent.host?.app === "script") {
       throw new IdentityError(
-        `"${name}" is a script identity: only the agent-relay runtime CLI (agent-relay send) acts as it, so this ` +
+        `"${name}" is a script identity: only the agent-relay runtime CLI (agent-relay send, inbox and ack) acts as it, so this ` +
           `session cannot ${action} it. Use this session's own name. ${never}`,
       );
     }

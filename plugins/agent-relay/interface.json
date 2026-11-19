@@ -1,5 +1,5 @@
 {
-  "interface": "2.10",
+  "interface": "2.11",
   "status": [
     "python3",
     "-B",
@@ -26,6 +26,18 @@
       "<script identity>",
       "--to",
       "<agent>"
+    ],
+    "inbox": [
+      "~/.agent-relay/bin/agent-relay",
+      "inbox",
+      "<script identity>"
+    ],
+    "ack": [
+      "~/.agent-relay/bin/agent-relay",
+      "ack",
+      "<script identity>",
+      "--ids",
+      "<ids>"
     ]
   }
 }

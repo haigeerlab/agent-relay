@@ -4,6 +4,7 @@ import { readBodyFile } from "./body-file.js";
 import { BridgeStore } from "./bridge-store.js";
 import { CLAUDE_AWAITING_RECEIPT, claudeSessions } from "./claude-wake.js";
 import { parseCliCommand, type ParsedCliCommand } from "./cli-logic.js";
+import { readInbox } from "./inbox-read.js";
 import { retireAgent } from "./lifecycle.js";
 import { sendMessage } from "./send.js";
 import { VERSION } from "./version.js";
@@ -28,6 +29,10 @@ Commands:
                                   Send as a script identity; the body comes from --body-file or stdin
   register-script-identity <name> [--confirm]
                                   Record <name> as a script identity (only with --confirm)
+  inbox <script identity> [--from-agent NAME] [--thread ID] [--after-id ID] [--include-acknowledged]
+       [--include-expired] [--limit N] [--max-chars N] [--max-body-chars N] [--message-id ID [--body-offset N]]
+                                  Print bridge_inbox's result for a script identity; records the read
+  ack <script identity> --ids IDS  Acknowledge messages for a script identity (bridge_ack's result)
   help                            Show this help
   --version                       Print the agent-relay release this runtime was built from
 
@@ -96,7 +101,7 @@ async function read(parsed: ParsedCliCommand): Promise<number> {
         mailboxPath: dbPath, thisSession: null, codexSessionId: null, channelMode: "off",
         whoami: { host: null, sessionName: null, project: null,
           identities: scripts.map((agent) => ({ name: agent.name, provenHere: true, recordedHost: agent.host, wake: null })),
-          note: "A script is not a session; it sends only as a script identity." },
+          note: "A script is not a session; it acts only as a script identity (send, inbox, ack)." },
       });
     }
     process.stdout.write(JSON.stringify(result) + "\n");
@@ -113,7 +118,7 @@ function registerScript(parsed: ParsedCliCommand): number {
   if (!dbPath) return fail(NO_SCRIPT_MAILBOX, 2);
   const name = parsed.target as string;
   if (!parsed.confirm) {
-    console.log(`Would record "${name}" as a script identity: only agent-relay send acts as it, no session can, and it ` +
+    console.log(`Would record "${name}" as a script identity: only the agent-relay CLI (send, inbox, ack) acts as it, no session can, and it ` +
       "is never woken. Run again with --confirm once the user agrees.");
     return 0;
   }
@@ -126,6 +131,61 @@ function registerScript(parsed: ParsedCliCommand): number {
   try {
     const agent = store.registerScriptIdentity(name);
     process.stdout.write(JSON.stringify({ registered: agent.name, host: agent.host }) + "\n");
+    return 0;
+  } catch (error) {
+    return fail(error);
+  } finally {
+    store.close();
+  }
+}
+
+/**
+ * agent-relay script-access D244, script-inbox-ack D273: the CLI acts only as a live script identity. A session's name
+ * is refused with who may act as it; identity-check D37 stays as it is for sessions.
+ */
+function requireScriptIdentity(store: BridgeStore, name: string): void {
+  const agent = store.getAgent(name);
+  if (agent?.retiredAt) throw new Error(`"${name}" was retired at ${agent.retiredAt}; the CLI acts only as a live script identity.`);
+  if (agent && agent.host?.app !== "script") {
+    throw new Error(`"${name}" is a session identity: only its own session reads its inbox as itself and acknowledges ` +
+      "its messages (bridge_inbox, bridge_ack). The agent-relay CLI acts only as a script identity.");
+  }
+  if (!agent) throw new Error(`"${name}" is not a script identity; register one with register-script-identity <name> --confirm.`);
+}
+
+/** script-inbox-ack D271: the rest of a long body, as the CLI reads it. */
+const cliContinueLine = (agent: string | null, id: number, offset: number) =>
+  `agent-relay inbox ${agent} --message-id ${id} --body-offset ${offset}`;
+
+/** script-inbox-ack D271, D272: the script identity's own read and acknowledgement, so the mailbox opens writable. */
+function inboxOrAck(parsed: ParsedCliCommand): number {
+  const dbPath = mailboxPath();
+  if (!dbPath) return fail(NO_SCRIPT_MAILBOX, 2);
+  let store: BridgeStore;
+  try {
+    store = new BridgeStore(dbPath);
+  } catch (error) {
+    return fail(error);
+  }
+  try {
+    const agent = parsed.target as string;
+    requireScriptIdentity(store, agent);
+    let result: unknown;
+    if (parsed.command === "ack") {
+      const acknowledged = store.ack(agent, parsed.ackIds as number[]);
+      store.touch(agent);
+      result = { acknowledged, remainingUnread: store.countUnread(agent) };
+    } else {
+      const options = parsed.inbox;
+      const given = <T>(value: T | null): T | undefined => value ?? undefined;
+      result = readInbox(store, {
+        agent, fromAgent: given(options.fromAgent), threadId: given(options.threadId), afterId: given(options.afterId),
+        includeAcknowledged: options.includeAcknowledged, includeExpired: options.includeExpired,
+        limit: given(options.limit), maxChars: given(options.maxChars), maxBodyChars: given(options.maxBodyChars),
+        messageId: given(options.messageId), bodyOffset: given(options.bodyOffset),
+      }, { recorded: true, continueLine: cliContinueLine });
+    }
+    process.stdout.write(JSON.stringify(result) + "\n");
     return 0;
   } catch (error) {
     return fail(error);
@@ -165,11 +225,7 @@ async function send(parsed: ParsedCliCommand): Promise<number> {
   }
   const dispatcher = new WakeDispatcher(store);
   try {
-    // agent-relay script-access D244: the CLI acts only as a script identity.
-    const sender = store.getAgent(options.from as string);
-    if (!sender || sender.host?.app !== "script" || sender.retiredAt) {
-      throw new Error(`"${options.from}" is not a script identity; register one with register-script-identity <name> --confirm.`);
-    }
+    requireScriptIdentity(store, options.from as string);
     const result = await sendMessage(store, {
       from: options.from as string, to: options.to as string, body,
       threadId: options.threadId ?? undefined, idempotencyKey: options.idempotencyKey ?? undefined,
@@ -212,6 +268,7 @@ function main(): void {
     case "agents": case "outbox": case "sessions": void read(parsed).then((code) => { process.exitCode = code; }); return;
     case "send": void send(parsed).then((code) => { process.exitCode = code; }); return;
     case "register-script-identity": process.exitCode = registerScript(parsed); return;
+    case "inbox": case "ack": process.exitCode = inboxOrAck(parsed); return;
     default: process.exitCode = help();
   }
 }
