@@ -28,6 +28,10 @@ Commands:
                                   Send as a script identity; the body comes from --body-file or stdin
   register-script-identity <name> [--confirm]
                                   Record <name> as a script identity (only with --confirm)
+  inbox <script identity> [--from-agent NAME] [--thread ID] [--after-id ID] [--include-acknowledged]
+       [--include-expired] [--limit N] [--max-chars N] [--max-body-chars N] [--message-id ID [--body-offset N]]
+                                  Print bridge_inbox's result for a script identity; records the read
+  ack <script identity> --ids IDS  Acknowledge messages for a script identity (bridge_ack's result)
   help                            Show this help
   --version                       Print the agent-relay release this runtime was built from
 

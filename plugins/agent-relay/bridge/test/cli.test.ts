@@ -202,3 +202,47 @@ test("help says --version is the release the runtime was built from (D252)", () 
   const result = cli(["help"], dbPath);
   assert.match(result.stdout, /--version\s+Print the agent-relay release this runtime was built from/);
 });
+
+// agent-relay script-inbox-ack D271, D272: inbox takes bridge_inbox's fields in kebab case; ack takes --ids.
+test("inbox and ack parse bridge_inbox's and bridge_ack's fields", () => {
+  const inbox = parseCliCommand(["inbox", "patrol", "--from-agent", "asker", "--thread", "t1", "--after-id", "4",
+    "--include-acknowledged", "--include-expired", "--limit", "10", "--max-chars", "2000", "--max-body-chars", "0"]);
+  assert.equal(inbox.command, "inbox");
+  assert.equal(inbox.target, "patrol");
+  assert.deepEqual(inbox.inbox, { fromAgent: "asker", threadId: "t1", afterId: 4, includeAcknowledged: true,
+    includeExpired: true, limit: 10, maxChars: 2000, maxBodyChars: 0, messageId: null, bodyOffset: null });
+  const part = parseCliCommand(["inbox", "patrol", "--message-id=7", "--body-offset=1200"]);
+  assert.deepEqual([part.inbox.messageId, part.inbox.bodyOffset], [7, 1200]);
+  const plain = parseCliCommand(["inbox", "patrol"]);
+  assert.deepEqual(plain.inbox, { fromAgent: null, threadId: null, afterId: null, includeAcknowledged: false,
+    includeExpired: false, limit: null, maxChars: null, maxBodyChars: null, messageId: null, bodyOffset: null });
+  const ack = parseCliCommand(["ack", "patrol", "--ids", "3, 4"]);
+  assert.deepEqual([ack.command, ack.target, ack.ackIds], ["ack", "patrol", [3, 4]]);
+});
+
+test("inbox and ack refuse what bridge_inbox and bridge_ack would refuse", () => {
+  const refused: Array<[string[], RegExp]> = [
+    [["inbox"], /inbox needs the script identity/],
+    [["ack"], /ack needs the script identity/],
+    [["ack", "patrol"], /ack needs --ids/],
+    [["ack", "patrol", "--ids", "0"], /--ids takes message ids/],
+    [["ack", "patrol", "--ids", "a,b"], /--ids takes message ids/],
+    [["inbox", "patrol", "--limit", "0"], /--limit takes a whole number from 1 to 200/],
+    [["inbox", "patrol", "--limit", "201"], /--limit takes a whole number from 1 to 200/],
+    [["inbox", "patrol", "--max-chars", "999"], /--max-chars takes a whole number from 1000 to 400000/],
+    [["inbox", "patrol", "--max-body-chars", "-1"], /--max-body-chars takes a whole number from 0 to 400000/],
+    [["inbox", "patrol", "--after-id", "1.5"], /--after-id takes a whole number from 0/],
+    [["inbox", "patrol", "--message-id", "0"], /--message-id takes a whole number from 1/],
+    [["inbox", "patrol", "--body-offset", "5"], /--body-offset needs --message-id/],
+    [["inbox", "patrol", "--from", "x"], /--from is for send; inbox filters senders with --from-agent/],
+    [["inbox", "patrol", "--bogus"], /Unknown option/],
+  ];
+  for (const [args, message] of refused) assert.throws(() => parseCliCommand(args), message, args.join(" "));
+});
+
+test("help lists inbox and ack", () => {
+  const dbPath = join(mkdtempSync(join(tmpdir(), "agent-relay-cli-")), "bridge.sqlite");
+  const result = cli(["help"], dbPath);
+  assert.match(result.stdout, /\n {2}inbox <script identity> /);
+  assert.match(result.stdout, /\n {2}ack <script identity> --ids IDS/);
+});
