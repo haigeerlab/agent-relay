@@ -1,0 +1,34 @@
+{
+  "schema": "repo-readiness.conclusion/v1",
+  "repo": "haigeerlab/agent-relay",
+  "default_branch": "main",
+  "head": "66abdd9fd9d911b1acfadb9e2c90e79f8382fd93",
+  "tier": {
+    "id": null,
+    "name": "未达标"
+  },
+  "trust_cap": "L0",
+  "apps": [],
+  "basis": {
+    "report_sha256": "f72409b3e8e6fe397a5dc9382df3f244128a60615d107d60837fba7a85ca7033",
+    "rulesets": [
+      {
+        "id": "autopr-onboarding",
+        "kind": "base",
+        "version": "2.0.0-trial.1",
+        "sha256": "24faf34a6667cf08ef88440b4edf7dfae66934c350a6459acf8d48abf1ecad80"
+      }
+    ],
+    "tool": {
+      "version": "0.2.0",
+      "commit": "c77aabad9351e78e27e2415df776bce6c8306fd5"
+    }
+  },
+  "issued_at": "2026-11-19T16:53:54Z",
+  "valid_until": "2026-12-03T16:53:54Z",
+  "declarations_expire_at": null,
+  "waivers": [],
+  "attestation": {
+    "method": "none"
+  }
+}
