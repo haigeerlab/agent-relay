@@ -83,8 +83,11 @@ test("no session may act as a script identity (D244)", () => {
   const agent = store.registerScriptIdentity("di-patrol");
   for (const caller of [new CallerIdentity({ app: "claude", sessionId: "s1" }), new CallerIdentity(null)]) {
     assert.equal(caller.owns("di-patrol", agent), false);
-    assert.throws(() => caller.require("di-patrol", agent, "send as"), (error: unknown) =>
-      error instanceof IdentityError && /script identity/.test(error.message));
+    // script-inbox-ack D274: the refusal names every command that acts as it.
+    assert.throws(() => caller.require("di-patrol", agent, "acknowledge messages for"), (error: unknown) =>
+      error instanceof IdentityError &&
+      /"di-patrol" is a script identity: only the agent-relay runtime CLI \(agent-relay send, inbox and ack\) acts as it/
+        .test(error.message));
   }
   store.close();
 });
@@ -110,7 +113,8 @@ test("a send to a script identity warns that nothing wakes it, instead of the st
   const script = await checkRecipient(store, "di-patrol", { now: later });
   assert.equal(script.ok, true);
   assert.equal(script.warnings.filter((w) => /script identity/.test(w)).length, 1);
-  assert.match(script.warnings.join("\n"), /nothing wakes it/);
+  // script-inbox-ack D274: where the script reads it, and what happens until then.
+  assert.match(script.warnings.join("\n"), /"di-patrol" is a script identity: nothing wakes it\. Its script reads this the next time it runs agent-relay inbox; until then the message stays queued and may expire\./);
   assert.doesNotMatch(script.warnings.join("\n"), /no background ping binding/);
   for (const name of ["hub", "worker"]) {
     const other = await checkRecipient(store, name, { now: later });

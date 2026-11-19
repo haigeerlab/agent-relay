@@ -67,6 +67,7 @@ test("agents, outbox and sessions print the views and leave the mailbox unchange
   assert.equal(parsed.thisSession, null);
   assert.equal(parsed.codexSessionId, null);
   assert.deepEqual(parsed.claude, []);
+  assert.equal(parsed.whoami.note, "A script is not a session; it acts only as a script identity (send, inbox, ack).");
 });
 
 test("a missing mailbox exits non-zero with one sentence on stderr (D242)", async () => {
@@ -84,6 +85,8 @@ test("register-script-identity changes nothing without --confirm (D244)", async 
   const preview = await cli(["register-script-identity", "di-patrol"], env);
   assert.equal(preview.code, 0, preview.stderr);
   assert.match(preview.stdout, /--confirm/);
+  // script-inbox-ack D274
+  assert.match(preview.stdout, /only the agent-relay CLI \(send, inbox, ack\) acts as it/);
   let store = new BridgeStore(dbPath, { readOnly: true });
   assert.equal(store.getAgent("di-patrol"), undefined);
   store.close();

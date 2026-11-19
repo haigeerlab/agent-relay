@@ -117,9 +117,10 @@ export async function checkRecipient(
       ? `"${to}"'s Claude session is not running. The message will wait in its inbox until that conversation reads it.`
       : `"${to}"'s Codex task is not open. The message will wait in its inbox until that task reads it.`);
   } else if (host?.app === "script") {
-    // post-090-bridge D251: a script identity has no session to wake; its script runs on its own schedule.
-    warnings.push(`"${to}" is a script identity: nothing wakes it or prompts it to read this. ` +
-      "An answer, if any, comes only when its script next runs.");
+    // post-090-bridge D251, script-inbox-ack D274: a script identity has no session to wake; its script reads its inbox
+    // with the CLI on its own schedule.
+    warnings.push(`"${to}" is a script identity: nothing wakes it. Its script reads this the next time it runs ` +
+      "agent-relay inbox; until then the message stays queued and may expire.");
   } else if (presence?.state === "not-loaded") {
     // codex-not-loaded D200: usually not opened since the ChatGPT app started; a deleted task looks the same.
     warnings.push(`"${to}"'s Codex task did not answer: open it in the ChatGPT app and the message is delivered. If the ` +

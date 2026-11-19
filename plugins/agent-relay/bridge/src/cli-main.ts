@@ -101,7 +101,7 @@ async function read(parsed: ParsedCliCommand): Promise<number> {
         mailboxPath: dbPath, thisSession: null, codexSessionId: null, channelMode: "off",
         whoami: { host: null, sessionName: null, project: null,
           identities: scripts.map((agent) => ({ name: agent.name, provenHere: true, recordedHost: agent.host, wake: null })),
-          note: "A script is not a session; it sends only as a script identity." },
+          note: "A script is not a session; it acts only as a script identity (send, inbox, ack)." },
       });
     }
     process.stdout.write(JSON.stringify(result) + "\n");
@@ -118,7 +118,7 @@ function registerScript(parsed: ParsedCliCommand): number {
   if (!dbPath) return fail(NO_SCRIPT_MAILBOX, 2);
   const name = parsed.target as string;
   if (!parsed.confirm) {
-    console.log(`Would record "${name}" as a script identity: only agent-relay send acts as it, no session can, and it ` +
+    console.log(`Would record "${name}" as a script identity: only the agent-relay CLI (send, inbox, ack) acts as it, no session can, and it ` +
       "is never woken. Run again with --confirm once the user agrees.");
     return 0;
   }
