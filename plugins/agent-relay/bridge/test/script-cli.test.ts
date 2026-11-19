@@ -103,7 +103,7 @@ test("send refuses a session's name, a body on argv, and returns bridge_send's o
   seed.close();
   const asSession = await cli(["send", "--from", "hub", "--to", "dev"], env, "hi");
   assert.notEqual(asSession.code, 0);
-  assert.match(asSession.stderr, /not a script identity/);
+  assert.match(asSession.stderr, /"hub" is a session identity/);
   const onArgv = await cli(["send", "--from", "di-patrol", "--to", "dev", "the body"], env);
   assert.notEqual(onArgv.code, 0);
   assert.match(onArgv.stderr, /stdin|--body-file/);
@@ -257,4 +257,112 @@ test("send to a session that never sends a receipt pings once and leaves the wak
   } finally {
     await fake.close();
   }
+});
+
+// agent-relay script-inbox-ack D271–D273: a script identity reads and acknowledges its own inbox through the CLI.
+function inboxSeed(dbPath: string): { direct: number; broadcast: number } {
+  const seed = new BridgeStore(dbPath);
+  seed.register("hub", [], { app: "claude", sessionId: "s1" });
+  seed.registerScriptIdentity("di-patrol");
+  const direct = seed.send({ fromAgent: "hub", toAgent: "di-patrol", body: "please check #12", expectsReply: true }).id;
+  const broadcast = seed.send({ fromAgent: "hub", toAgent: "*", body: "everyone: release tonight" }).id;
+  seed.close();
+  return { direct, broadcast };
+}
+
+test("inbox lists a script identity's direct messages and broadcasts and records the read (D271)", async () => {
+  const { dbPath, env } = setup();
+  const { direct, broadcast } = inboxSeed(dbPath);
+  const run = await cli(["inbox", "di-patrol"], env);
+  assert.equal(run.code, 0, run.stderr);
+  const result = JSON.parse(run.stdout);
+  assert.equal(result.agent, "di-patrol");
+  assert.equal(result.readRecorded, true);
+  assert.equal("readNote" in result, false);
+  assert.deepEqual(result.messages.map((m: { id: number }) => m.id), [direct, broadcast]);
+  assert.equal(result.messages[0].body, "please check #12");
+  assert.equal(result.messages[0].deliveryState, "accepted");
+  for (const field of ["count", "totalUnread", "hasMore", "nextAfterId"]) assert.ok(field in result, field);
+  const store = new BridgeStore(dbPath);
+  try {
+    const row = store.database.prepare("SELECT read_at, delivery_state FROM messages WHERE id = ?").get(direct) as
+      { read_at: number | null; delivery_state: string };
+    assert.notEqual(row.read_at, null);
+    assert.equal(row.delivery_state, "accepted");
+    // Reading is not handling: both still wait for an acknowledgement.
+    assert.equal(store.countUnread("di-patrol"), 2);
+  } finally {
+    store.close();
+  }
+  const filtered = JSON.parse((await cli(["inbox", "di-patrol", "--from-agent", "nobody"], env)).stdout);
+  assert.equal(filtered.count, 0);
+});
+
+test("inbox reads a long body in parts, with continue lines that name the CLI (D271)", async () => {
+  const { dbPath, env } = setup();
+  const seed = new BridgeStore(dbPath);
+  seed.register("hub", [], { app: "claude", sessionId: "s1" });
+  seed.registerScriptIdentity("di-patrol");
+  const body = "x".repeat(5000);
+  const id = seed.send({ fromAgent: "hub", toAgent: "di-patrol", body }).id;
+  seed.close();
+  const page = JSON.parse((await cli(["inbox", "di-patrol", "--max-chars", "1000"], env)).stdout);
+  assert.equal(page.messages[0].bodyTruncated, true);
+  const offset = page.messages[0].nextOffset as number;
+  assert.deepEqual(page.continue, [`Message #${id} is longer than this page; read the rest with agent-relay inbox ` +
+    `di-patrol --message-id ${id} --body-offset ${offset}`]);
+  const part = await cli(["inbox", "di-patrol", "--message-id", String(id), "--body-offset", String(offset)], env);
+  assert.equal(part.code, 0, part.stderr);
+  const message = JSON.parse(part.stdout).message;
+  assert.equal(message.bodyOffset, offset);
+  assert.equal(message.body, body.slice(offset, offset + message.body.length));
+  const past = await cli(["inbox", "di-patrol", "--message-id", String(id), "--body-offset", "6000"], env);
+  assert.equal(past.code, 1);
+  assert.match(past.stderr, /past the end/);
+});
+
+test("ack acknowledges a direct message and a broadcast, so nothing blocks retirement (D272)", async () => {
+  const { dbPath, env } = setup();
+  const { direct, broadcast } = inboxSeed(dbPath);
+  const run = await cli(["ack", "di-patrol", "--ids", `${direct},${broadcast}`], env);
+  assert.equal(run.code, 0, run.stderr);
+  assert.deepEqual(JSON.parse(run.stdout), { acknowledged: 2, remainingUnread: 0 });
+  const again = JSON.parse((await cli(["ack", "di-patrol", "--ids", String(direct)], env)).stdout);
+  assert.deepEqual(again, { acknowledged: 0, remainingUnread: 0 });
+  const store = new BridgeStore(dbPath);
+  try {
+    // native_collaboration_retire.py blocks on the bridge's unread rule (cleanup-gaps D59): nothing is left.
+    assert.equal(store.countUnread("di-patrol"), 0);
+  } finally {
+    store.close();
+  }
+  const empty = JSON.parse((await cli(["inbox", "di-patrol"], env)).stdout);
+  assert.equal(empty.count, 0);
+});
+
+test("inbox and ack act only as a live script identity and change nothing otherwise (D273)", async () => {
+  const { dbPath, env } = setup();
+  const { direct } = inboxSeed(dbPath);
+  const seed = new BridgeStore(dbPath);
+  seed.register("dev");
+  seed.send({ fromAgent: "hub", toAgent: "dev", body: "for dev" });
+  seed.registerScriptIdentity("old-patrol");
+  seed.retire("old-patrol", { by: "operator" });
+  seed.close();
+  const before = snapshot(dbPath);
+  const session = /"(hub|dev)" is a session identity: only its own session reads its inbox as itself and acknowledges its messages \(bridge_inbox, bridge_ack\)\. The agent-relay CLI acts only as a script identity\./;
+  for (const args of [["inbox", "hub"], ["inbox", "dev"], ["ack", "dev", "--ids", String(direct)],
+    ["send", "--from", "hub", "--to", "dev"]]) {
+    const run = await cli(args, env, "hi");
+    assert.equal(run.code, 1, args.join(" "));
+    assert.match(run.stderr, session, args.join(" "));
+    assert.equal(run.stdout, "");
+  }
+  const unknown = await cli(["ack", "nobody", "--ids", "1"], env);
+  assert.equal(unknown.code, 1);
+  assert.match(unknown.stderr, /"nobody" is not a script identity; register one with register-script-identity/);
+  const retired = await cli(["inbox", "old-patrol"], env);
+  assert.equal(retired.code, 1);
+  assert.match(retired.stderr, /"old-patrol" was retired/);
+  assert.deepEqual(snapshot(dbPath), before);
 });
