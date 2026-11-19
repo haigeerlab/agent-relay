@@ -99,3 +99,62 @@ test("Claude authenticates as peer, preserves exact session and reports real hel
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+/**
+ * wake-receipt-timeout D270: Claude Code opens a new connection for every receipt (it writes one line and ends the
+ * connection 150 ms later on macOS), so a delivered receipt sent long after held never meets the callback server's
+ * 2-second idle timeout on the held connection.
+ */
+test("a delivered receipt sent on its own connection more than 2 seconds after held is still recorded", { skip: process.platform !== "darwin" }, async () => {
+  const root = mkdtempSync(join(tmpdir(), "wake-claude-late-"));
+  const directory = "/tmp/cc-socks-" + process.getuid!();
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const path = join(directory, process.pid + "-" + randomBytes(4).toString("hex") + ".sock");
+  const procStart = execFileSync("/bin/ps", ["-p", String(process.pid), "-o", "lstart="],
+    { encoding: "utf8", env: { ...process.env, TZ: "UTC", LC_ALL: "C" } }).trim();
+  const token = randomBytes(16).toString("hex");
+  writeFileSync(join(root, process.pid + ".json"), JSON.stringify({ pid: process.pid, sessionId: "late-session",
+    name: "fixture", cwd: root, procStart, messagingSocketPath: path, version: "2.1.328", peerProtocol: 1 }), { mode: 0o644 });
+  writeFileSync(join(root, process.pid + "." + createHash("sha256").update(resolve(path)).digest("hex") + ".key"),
+    JSON.stringify({ peerToken: token, procStart }), { mode: 0o600 });
+  // Claude Code's receipt sender: one connection per receipt, one line, end after 150 ms.
+  const receipt = (to: string, status: string, msgId: string) => {
+    const reply = createConnection(to);
+    reply.on("error", () => {});
+    reply.once("connect", () => {
+      reply.write(JSON.stringify({ type: "control", action: "peer_message_status", status, orig_msg_id: msgId,
+        from: "uds:" + path }) + "\n");
+      setTimeout(() => reply.end(), 150);
+    });
+  };
+  const server = createServer(socket => {
+    let buffer = "";
+    socket.on("error", () => {});
+    socket.on("data", data => {
+      buffer += data.toString();
+      let newline;
+      while ((newline = buffer.indexOf("\n")) >= 0) {
+        const packet = JSON.parse(buffer.slice(0, newline)); buffer = buffer.slice(newline + 1);
+        if (packet.type !== "user") continue;
+        receipt(packet.from.slice(4), "held", packet.msg_id);
+        setTimeout(() => receipt(packet.from.slice(4), "delivered", packet.msg_id), 2600);
+      }
+    });
+  });
+  await new Promise<void>(ok => server.listen(path, ok));
+  chmodSync(path, 0o600);
+  const late: string[] = [];
+  const adapter = new ClaudeWake((_job, result) => late.push(result.state));
+  const job: WakeJob = { id: 1, messageId: 1, mailboxPath: "/test/bridge.sqlite", agent: "b",
+    target: { app: "claude", sessionId: "late-session" }, state: "sending",
+    attemptId: "attempt-late", attempts: 1, retryAt: 0, createdAt: Date.now(), detail: "" };
+  try {
+    assert.equal((await adapter.wake(job, root)).state, "held");
+    await new Promise(ok => setTimeout(ok, 3200));
+    assert.deepEqual(late, ["held", "accepted"]);
+  } finally {
+    await adapter.close();
+    await new Promise<void>(ok => server.close(() => ok()));
+    rmSync(root, { recursive: true, force: true });
+  }
+});
