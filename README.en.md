@@ -171,12 +171,15 @@ Just say it in natural language; no tool names or internal IDs to remember:
   item with a next step; exit code 1 when anything fails.
 - "Retire identity X" → a finished name leaves the directory and its history is kept. Once you name it or approve the
   list, the agent runs `python3 -B <plugin dir>/hooks/native_collaboration_retire.py --name <name> --confirm-retire`
-  (`--note <text>` optional); it refuses while the identity still has messages it has not acknowledged (expired ones do
-  not count), so read and acknowledge them first. Sessions cannot retire identities.
+  (`--note <text>` optional); it refuses while the identity still has messages it has not acknowledged, so read and
+  acknowledge them first: an expired direct message does not count, **a broadcast never expires**, so every broadcast it
+  received must be acknowledged. Sessions cannot retire identities. A script identity reads with
+  `~/.agent-relay/bin/agent-relay inbox <name>` and acknowledges with `ack <name> --ids …` (see the script section).
   When refused, pick one: go back to the session using that name, say "show collaboration messages, acknowledge them
   when handled", then retire; if that session is gone, open a new session and, with your consent, take over the name
   with `takeover: true` (see "[Join](#5-one-sentence-per-session-join)"), read and
-  acknowledge, then retire; or wait for those messages to expire (24 hours by default). Another session cannot
+  acknowledge, then retire; or wait for the direct messages to expire (24 hours by default; broadcasts never expire and
+  can only be acknowledged). Another session cannot
   acknowledge them on its behalf.
 - Reusing a retired name → registering it is refused; with your consent the session registers with
   `reactivate: true`, or picks a new name.
@@ -384,10 +387,6 @@ Run `doctor` first; it gives a next step for every item. The full troubleshootin
 
 Only the ones that still apply; what each release said at the time is in [CHANGELOG.md](CHANGELOG.md).
 
-- **A script identity cannot acknowledge the messages it receives** (found in 0.9.3): the CLI has no `inbox` or `ack`
-  command, and a session's `bridge_ack` for it is refused. Messages to a script identity stay until they expire (24
-  hours by default), and until then the identity cannot be retired. A script cannot read an answer's body either, so
-  scripts should send notices and leave out `--expects-reply`.
 - **Messages to a Claude session often stay `unknown`** (0.9.4 acceptance): when the recipient does not hold the ping,
   Claude Code usually sends no receipt, so it becomes `accepted` only once the recipient reads it. Do not resend.
 - **A mailbox message cannot wake a stopped Claude session** (0.9.0): a session the Claude desktop app stopped is not
@@ -415,16 +414,22 @@ Only the ones that still apply; what each release said at the time is in [CHANGE
 
 Scripts and launchd jobs (PATH only `/usr/bin:/bin`, no access to `~/Documents`) read the mailbox and send through
 `~/.agent-relay/bin/agent-relay`, written by `install` and `upgrade` with absolute node and runtime paths. `agents`,
-`outbox <name>` and `sessions` are read-only and print what the matching MCP tool returns; `send` sends only as a
-script identity the user registered, with the body from `--body-file` or stdin:
+`outbox <name>` and `sessions` are read-only and print what the matching MCP tool returns; `send`, `inbox` and `ack` act
+only as a script identity the user registered (a session identity's name is refused); `send` takes the body from
+`--body-file` or stdin, `inbox` prints what `bridge_inbox` returns and records the read, `ack` acknowledges direct
+messages and broadcasts:
 
 ```bash
 ~/.agent-relay/bin/agent-relay register-script-identity my-patrol --confirm
 printf 'patrol: #12 is still unhandled' | ~/.agent-relay/bin/agent-relay send --from my-patrol --to some-agent
+~/.agent-relay/bin/agent-relay inbox my-patrol            # messages and answers to it, broadcasts included; records the read
+~/.agent-relay/bin/agent-relay ack my-patrol --ids 12,15  # acknowledge once handled
 ```
 
-Commands, exit codes and wake limits are in the interface document, §2.4. A script identity cannot acknowledge what it
-receives or read an answer's body: see "[Known issues](#known-issues)".
+A script identity is never woken: what is sent to it waits until its script next runs `inbox`, stays `queued` until
+then, and may expire. A script may send requests with `--expects-reply` and read the answers with `inbox`; it answers a
+request sent to it with `send --reply-to <id>`. Commands, exit codes and wake limits are in the interface document,
+§2.4.
 
 ## Updating and upgrading
 
@@ -564,7 +569,7 @@ later does **not** move hosts already attached; install the runtime under the ne
 ## Relationship with Spec Guard
 
 The two plugins are independent; either can be installed alone. When both are installed, Spec Guard reads
-[`interface.json`](plugins/agent-relay/interface.json) in this plugin's root (interface 2.10; Spec Guard accepts
+[`interface.json`](plugins/agent-relay/interface.json) in this plugin's root (interface 2.11; Spec Guard accepts
 `>=1.0,<3.0` since 0.56.0) to decide whether agent-relay is available, and uses collaboration only through
 agent-relay's skill names; without it, Spec Guard's workflows run as usual and only the steps that need collaboration
 suggest installing it.
@@ -609,7 +614,7 @@ python3 -B <plugin dir>/hooks/state_migration.py migrate --confirm
 | Runtime | The built bridge program and mailbox under `~/.agent-relay/runtime/`; managed by `install`/`upgrade` |
 | Identity | The name a session registered in the mailbox; it belongs to that session and can be retired when done |
 | Wake binding | Binding an identity to the current session (`wake`) so the bridge wakes it when a message arrives; off by default |
-| Script identity | An identity the user registers in a terminal for scripts and launchd; it can send but not acknowledge |
+| Script identity | An identity the user registers in a terminal for scripts and launchd; it sends, reads its inbox and acknowledges through the CLI, and is never woken |
 | Delivery state | How far a direct message got: `queued`, `sending`, `accepted`, `failed`, `unknown`, `expired` |
 | `held` | Two meanings: a delegation missing a prerequisite and not started (`held/<reason>`); or Claude Code holding the pings sent to a session |
 | `expectsReply` | The sender marks a message as a request; the recipient answers it with `replyTo` when done, an ack alone does not count |

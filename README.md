@@ -140,10 +140,11 @@ Claude Code 里 10 个信箱工具默认每次调用都弹确认。想一次性�
   审批模式和已绑定唤醒的会话（会话卡在等待输入时会提示），每项给出下一步；有 fail 时退出码为 1。
 - “退役 X 这个身份” → 用完的名字不再出现在通讯录里，历史保留。由你点名或确认清单后，agent 运行
   `python3 -B <插件目录>/hooks/native_collaboration_retire.py --name <名字> --confirm-retire`（可加 `--note <说明>`）；
-  这个身份还有没确认（ack）的消息时拒绝执行（已过期的不算），要先读完并确认。会话自己不能退役身份。
+  这个身份还有没确认（ack）的消息时拒绝执行，要先读完并确认：已过期的直发消息不算，**群发不会过期**，收到的群发都要确认。
+  会话自己不能退役身份。脚本身份用 `~/.agent-relay/bin/agent-relay inbox <名字>` 读、`ack <名字> --ids …` 确认（见“脚本”一节）。
   被拒后三选一：回到用这个名字的会话，说“查看联调消息，处理完确认”，再退役；那个会话已经不在了，新开一个会话，经你同意
-  用 `takeover: true` 接管这个名字（见“[加入联调](#5-每个会话一句话加入联调)”），读完、ack 后再退役；或者等这些消息过期
-  （默认 24 小时）。别的会话不能替它 ack。
+  用 `takeover: true` 接管这个名字（见“[加入联调](#5-每个会话一句话加入联调)”），读完、ack 后再退役；或者等直发消息过期
+  （默认 24 小时；群发不会过期，只能确认）。别的会话不能替它 ack。
 - 想再用一个已退役的名字 → 注册会被拒绝；经你同意后，会话注册时带 `reactivate: true` 重新启用它，或者换个新名字。
 - 自检和版本：`native_collaboration_runtime.py probe` 用一次性的临时数据启动运行时、确认它能正常应答，不碰真实信箱；
   `status` 只读报告运行时是否就绪；`~/.agent-relay/bin/agent-relay --version` 报运行时的版本。
@@ -311,9 +312,6 @@ Claude 桌面应用会在会话空闲时停掉它的进程。消息照旧排队�
 
 只列现在仍有效的；各版本当时的说明见 [CHANGELOG.md](CHANGELOG.md)。
 
-- **脚本身份没法确认（ack）收到的消息**（0.9.3 发现）：CLI 没有 `inbox`／`ack` 命令，会话用 `bridge_ack` 代它确认也会被
-  拒绝。发给脚本身份的消息只能等过期（默认 24 小时），在那之前这个身份也退役不了。脚本也读不到回复的正文，所以脚本发的
-  应是通知，不要带 `--expects-reply`。
 - **发给 Claude 会话的消息常停在 `unknown`**（0.9.4 验收）：对方没被扣住时 Claude Code 通常不给回执，直到对方读到才变成
   `accepted`。不要因此重发。
 - **停掉的 Claude 会话，信箱叫不醒**（0.9.0）：Claude 桌面应用停掉的会话，信箱消息叫不醒，消息排队并在 5 分钟后通知你。
@@ -336,14 +334,19 @@ Claude 桌面应用会在会话空闲时停掉它的进程。消息照旧排队�
 
 脚本和 launchd 任务（PATH 只有 `/usr/bin:/bin`、读不了 `~/Documents`）用 `~/.agent-relay/bin/agent-relay` 读信箱和发信，
 它由 `install`、`upgrade` 写好，写死了 node 和运行时的绝对路径。`agents`、`outbox <名字>`、`sessions` 只读，输出与
-对应 MCP 工具逐字段相同；`send` 只能以用户确认登记的脚本身份发信，正文从 `--body-file` 或标准输入读：
+对应 MCP 工具逐字段相同；`send`、`inbox`、`ack` 只能以用户确认登记的脚本身份操作（给会话身份的名字会被拒绝），`send` 的
+正文从 `--body-file` 或标准输入读，`inbox` 的输出与 `bridge_inbox` 相同、读到即记为已读，`ack` 确认直发和群发：
 
 ```bash
 ~/.agent-relay/bin/agent-relay register-script-identity my-patrol --confirm
 printf '巡检发现 #12 未处理' | ~/.agent-relay/bin/agent-relay send --from my-patrol --to some-agent
+~/.agent-relay/bin/agent-relay inbox my-patrol            # 发给它的消息和回复（含群发），读到即记已读
+~/.agent-relay/bin/agent-relay ack my-patrol --ids 12,15  # 处理完确认
 ```
 
-命令清单、退出码和唤醒的限制见接口文档 §2.4。脚本身份不能确认收到的消息、读不到回复正文，见“[已知问题](#已知问题)”。
+脚本身份不会被唤醒：发给它的消息要等脚本下次运行 `inbox` 才读到，在那之前停在 `queued`，超时会过期。脚本可以带
+`--expects-reply` 发请求，回复用 `inbox` 读；要回复发给它的请求，用 `send --reply-to <编号>`。命令清单、退出码和唤醒的
+限制见接口文档 §2.4。
 
 ## 更新与升级
 
@@ -455,7 +458,7 @@ codex plugin list --json | python3 -c 'import json,sys; print(next((p["source"][
 ## 与 Spec Guard 的关系
 
 两个插件互相独立，可以只装其中一个。同时安装时，Spec Guard 读取本插件根目录的
-[`interface.json`](plugins/agent-relay/interface.json)（接口 2.10；Spec Guard 0.56.0 起接受 `>=1.0,<3.0`）判断 agent-relay 是否可用，只通过 agent-relay 的
+[`interface.json`](plugins/agent-relay/interface.json)（接口 2.11；Spec Guard 0.56.0 起接受 `>=1.0,<3.0`）判断 agent-relay 是否可用，只通过 agent-relay 的
 skill 名使用协作；未安装时 Spec Guard 的工作流照常运行，只在需要协作的步骤提示安装。
 
 ### 从 Spec Guard 的协作能力迁移
@@ -491,7 +494,7 @@ python3 -B <插件目录>/hooks/state_migration.py migrate --confirm
 | 运行时 | `~/.agent-relay/runtime/` 下构建好的 bridge 程序和信箱；`install`／`upgrade` 管它 |
 | 身份 | 会话在信箱里注册的名字；归注册它的会话所有，用完可以退役 |
 | 唤醒绑定 | 把身份绑到当前会话（`wake`），有信来时 bridge 叫醒这个会话；默认不绑 |
-| 脚本身份 | 用户在终端登记、给脚本和 launchd 发信用的身份，只能发不能确认 |
+| 脚本身份 | 用户在终端登记、给脚本和 launchd 用的身份，用 CLI 发信、读收件箱、确认，不会被唤醒 |
 | 投递状态 | 一条单发消息走到哪一步：`queued`、`sending`、`accepted`、`failed`、`unknown`、`expired` |
 | `held` | 两种意思：委派缺前置条件、没有启动（`held/<原因>`）；或者 Claude Code 把发给某个会话的提醒扣住了 |
 | `expectsReply` | 发件方把消息标成“要回复的请求”；收件方处理完要用 `replyTo` 回复，只 ack 不算 |

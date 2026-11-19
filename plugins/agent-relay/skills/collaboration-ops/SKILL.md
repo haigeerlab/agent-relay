@@ -127,7 +127,8 @@ session closed) → `native_collaboration_runtime.py uninstall --confirm` (remov
 keeps `mailbox/` and `data/`) → remove the plugin from each host → `doctor`. Deleting the history is the user's own
 step.
 
-A script identity (for a script or launchd job that sends through `~/.agent-relay/bin/agent-relay send`) is registered
+A script identity (for a script or launchd job that sends, reads its inbox and acknowledges through
+`~/.agent-relay/bin/agent-relay send`, `inbox` and `ack`) is registered
 only when the user names it and agrees; show the preview first, then confirm:
 
 ```bash
@@ -135,7 +136,8 @@ only when the user names it and agrees; show the preview first, then confirm:
 ~/.agent-relay/bin/agent-relay register-script-identity '<name>' --confirm
 ```
 
-No session can act as a script identity, and it is never woken. Commands and limits: interface document §2.4.
+No session can act as a script identity, and it is never woken; only those CLI commands act as it. Commands and
+limits: interface document §2.4.
 
 An ended native identity may be retired only when the user names it or approves a reviewed exact list:
 
@@ -144,7 +146,8 @@ python3 -B "$ROOT/hooks/native_collaboration_retire.py" \
   --name '<exact-name>' --confirm-retire
 ```
 
-Retirement refuses unacknowledged deliveries and keeps message history. Retire only through this script; do not run the
+Retirement refuses unacknowledged deliveries and keeps message history; an expired direct message does not count, a
+broadcast never expires and must be acknowledged (a script identity with `agent-relay ack <name> --ids …`). Retire only through this script; do not run the
 runtime's `dist/cli.js` directly (without `BRIDGE_DB_PATH` it refuses). Never infer that a registered identity
 is stale solely from age or process state.
 
