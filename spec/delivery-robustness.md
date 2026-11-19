@@ -1,6 +1,6 @@
 # Spec: delivery-robustness
 
-<!-- spec-guard: review approved e575e84167b5 -->
+<!-- spec-guard: review pending -->
 
 ## Objective
 
@@ -107,6 +107,28 @@ not released yet, so no version change.
   against D259); tests for S47 (a finish that failed is `unknown` after 30 s and not sent again; CLI `send` failing
   after the commit exits 0 with the warning and stores one row), for D266's two idle cases while another connection
   holds the write lock, for D267, and for D268.
+
+### Late receipt after a hold (2026-11-20, ledger M4D0XJA, after 0.9.5)
+
+The 0.9.4 acceptance left a risk it did not reproduce: the callback server destroys each connection after 2 s idle
+(`socket.setTimeout(2000, …)` in `ClaudeWake.listen`), so a "delivered" receipt sent on the held receipt's connection
+more than 2 s later would be lost. The README says a just-started session holds a ping for a few seconds, so a release
+after 2 s can happen. Read in Claude Code 2.1.328 (the installed binary; the receipt sender `tAn` → `Ae`):
+
+- Every `peer_message_status` receipt opens its own connection to the `from` address, writes one line and ends the
+  connection (after 150 ms on macOS); the 5 s send timeout is the sender's own. A held receipt and the delivered receipt
+  after it never share a connection.
+- With that sender, a delivered receipt 2.6 s after held reaches `onLateReceipt` (test below, green without a code
+  change). The same timing on one connection loses it (tried as a control, not kept): the risk exists only if Claude
+  Code starts reusing the connection.
+- A ping Claude does not hold gets no receipt at all (acceptance rounds 1, 3, 4); that is a host fact for the host
+  differences document, not a bridge change. The README already says it (FAQ "消息一直是 `unknown`", known limits).
+
+- **D270 the callback server's 2 s idle timeout stays.** Claude sends each receipt on a new connection, so the timeout
+  bounds only a connection that has stopped talking and never cuts a later receipt; a longer or held-extended timeout
+  would keep sockets open for nothing. A regression test pins the measured sender (new connection per receipt,
+  delivered 2.6 s after held) so a change in either side shows up. If Claude Code ever reuses the connection, D268
+  still keeps a read or acknowledged hold from being announced. No code, interface or schema change.
 
 ## Requirements
 

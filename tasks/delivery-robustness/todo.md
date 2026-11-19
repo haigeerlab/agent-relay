@@ -15,6 +15,8 @@
 - [x] Task 11: README hold line and S47 tests — bridge README line; finish-failed-then-unknown test and CLI send-after-commit test (both green: guards existing behaviour)
 - [x] Checkpoint (report): everything green — see the PR
 - [x] Checkpoint (gate): review-fix PR merged by the user — PR #165 merged as f39dbf3 (2026-10-27)
+- [x] Task 12: late receipt after a hold (D270, ledger M4D0XJA) — read Claude Code 2.1.328's receipt sender (one connection per receipt); regression test: delivered 2.6 s after held on its own connection is recorded (green; the same timing on one connection fails, kept out); spec section and D270; no code change
+- [ ] Checkpoint (gate): the user approves the D270 supplement and merges the PR
 
 Release: released as 0.9.4 (PR #166, v0.9.4 = 0386e9f, 2026-10-27; the bridge version moved from 0.9.3 to 0.9.4 there); the runtime on this Mac was upgraded on 2026-10-27 and the real-host acceptance passed 5/5 (a held Claude ping got its `delivered` receipt about a second later; a ping Claude did not hold got no receipt and stays `unknown` until read, now in the README).
 
