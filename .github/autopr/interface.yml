@@ -1,0 +1,10 @@
+# .github/autopr/interface.yml: interface contract v1. This file is T4: never auto-merged, a human merges it.
+
+version: 1
+entries:
+  check:
+    # Same command as the CI Validate step (.github/workflows/ci.yml:94). Run `npm ci` in
+    # plugins/agent-relay/bridge first, or the bridge part reports skip.
+    run: "bash scripts/validate.sh"
+    timeout_minutes: 20   # the CI job timeout
+    report: wrapped

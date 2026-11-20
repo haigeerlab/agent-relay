@@ -1,0 +1,56 @@
+# .github/autopr/risk-tiers.yml: extends the central "plugin" category template, then adds this repo's own paths.
+# This file is T4: never auto-merged, a human merges it.
+# Merge rules: repo paths > template paths; a file matching several tiers takes the highest. Template T4 paths
+# must not be lowered (R1 checks).
+# Checked path by path against `git ls-files` of main@48f9a26 by relay-autopr-basic on 2026-11-20.
+# Template paths kept as they are: T4 .github/**, LICENSE, spec/**, tasks/**, .agent/**, .claude-plugin/**,
+# **/plugin.json, scripts/validate.sh; T3 CLAUDE.md, AGENTS.md; T1 **/test_*.py; T0 docs/**, README*.md, CHANGELOG.md.
+
+version: 1
+extends: plugin
+
+T4_paths:   # release, the gates themselves, interfaces the pipeline or other plugins depend on
+  - ".claude-plugin/**"                             # marketplace manifest
+  - "plugins/agent-relay/.claude-plugin/**"         # plugin manifest and version
+  - "plugins/agent-relay/.codex-plugin/**"          # plugin manifest and version
+  - "plugins/agent-relay/interface.json"            # interface version; Spec Guard accepts a range of it
+  - "plugins/agent-relay/bridge/UPSTREAM.sha256"    # checked file by file at install
+  - "plugins/agent-relay/bridge/UPSTREAM.md"        # provenance record
+  - "plugins/agent-relay/bridge/LICENSE"            # upstream licence
+  - "plugins/agent-relay/bridge/package.json"       # bridge version and dependencies
+  - "plugins/agent-relay/bridge/package-lock.json"  # bridge version and dependencies
+  - "plugins/agent-relay/bridge/src/version.ts"     # runtime version reported by `agent-relay --version`
+  - "scripts/validate.sh"                           # the check entry
+  - "scripts/ci_scope.py"                           # decides whether CI tests or skips
+  - "scripts/bridge-manifest.py"                    # writes UPSTREAM.sha256
+  - "RELEASING.md"                                  # release and revert procedure
+  - "LICENSE"
+
+T3_paths:   # host interfaces, the user's local state, agent instructions
+  - "CLAUDE.md"
+  - "AGENTS.md"
+  - "plugins/agent-relay/bridge/src/**"             # mailbox runtime and schema run on the user's machine
+  - "plugins/agent-relay/bridge/scripts/build.mjs"  # runtime build
+  - "plugins/agent-relay/bridge/tsconfig.json"      # runtime build
+  - "plugins/agent-relay/hooks/native_collaboration_runtime.py"   # install, upgrade, rollback of the runtime
+  - "plugins/agent-relay/hooks/native_collaboration_adapters.py"  # writes host config
+  - "plugins/agent-relay/hooks/native_collaboration_retire.py"    # removes host config
+  - "plugins/agent-relay/hooks/host_backup.py"                    # host config backups
+  - "plugins/agent-relay/hooks/host_config_removal.py"            # host config removal
+  - "plugins/agent-relay/hooks/state_migration.py"                # moves the user's state home
+  - "plugins/agent-relay/hooks/delegation_scope_hook.py"          # limits what delegated sessions may do
+  - "plugins/agent-relay/hooks/defect_guard.py"                   # keeps defects from being reported as retryable
+  - "docs/collaboration-interface.md"               # interface document other plugins read
+  - "SECURITY.md"
+  # Every other path not listed here falls to the template default, T3.
+
+T2_paths:
+  - "plugins/agent-relay/commands/**"
+  - "plugins/agent-relay/skills/**"
+  - "plugins/agent-relay/references/**"
+  - "scripts/acceptance/**"
+
+T1_paths:
+  - "plugins/agent-relay/hooks/test_*.py"
+  - "plugins/agent-relay/bridge/test/**"
+  - "plugins/agent-relay/bridge/tsconfig.test.json"
