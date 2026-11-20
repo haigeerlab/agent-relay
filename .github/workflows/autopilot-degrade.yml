@@ -1,0 +1,27 @@
+# Copy to <repo>/.github/workflows/autopilot-degrade.yml in a caller repo (e.g. agent-relay).
+# Replace BOTH <HUB_SHA> occurrences with the same 40-char autopilot-hub commit SHA, and
+# <MAIN_CI> with the `name:` of the repo's main CI workflow (agent-relay: CI).
+# Adding or updating this file is a T4 change: the repo owner commits it, a human merges it.
+name: autopilot-degrade
+
+on:
+  push:
+    branches: [main]
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+  actions: read
+
+jobs:
+  degrade:
+    uses: haigeerlab/autopilot-hub/.github/workflows/degrade.yml@37e57f2637d510f6be92b06a5ca9f2e69a5a9a5b
+    with:
+      hub_ref: 37e57f2637d510f6be92b06a5ca9f2e69a5a9a5b
