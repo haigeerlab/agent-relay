@@ -518,3 +518,4 @@ agent-relay 以 [MIT 许可](LICENSE) 发布。
 信箱运行时基于 Tesla Major 的 [claude-codex-mcp-bridge](https://github.com/WebisityStudio/claude-codex-mcp-bridge)（MIT），
 固定提交 `8f12c88` 的副本收在 [`plugins/agent-relay/bridge/`](plugins/agent-relay/bridge/) 由 agent-relay 维护；
 来源、许可原文和改动记录见 [`UPSTREAM.md`](plugins/agent-relay/bridge/UPSTREAM.md)。
+
