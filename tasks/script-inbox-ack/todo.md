@@ -8,4 +8,4 @@
 - [x] Checkpoint (report): bridge green — `scripts/validate.sh` pass: 48 files, 968 tests (bridge `npm run check` 334)
 - [x] Checkpoint (gate): PR review and merge — 用户批准「CI 绿后合并」（2026-11-20）；CI 4 个组合与 admission 全绿后合并（PR #179）；结果发给负责人
 
-Release: not in this PR; the owner session schedules it (interface 2.11, runtime upgrade needed) and the real-host acceptance with the two test script identities.
+Release: in 0.9.6 (interface 2.11, runtime upgrade needed; the bridge version moves from 0.9.4 to 0.9.6 there); the real-host upgrade and the acceptance with the two test script identities are the owner session's.

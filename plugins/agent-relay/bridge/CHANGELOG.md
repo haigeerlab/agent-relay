@@ -1,12 +1,12 @@
 # Changelog
 
-## Unreleased
+## agent-relay 0.9.6
 
 `script-inbox-ack` (D271–D275), schema 7 unchanged, interface 2.11: the runtime CLI gains `inbox <script identity>`
 (`bridge_inbox`'s result from the shared `readInbox` in `src/inbox-read.ts`, recording the read; CLI continue lines)
 and `ack <script identity> --ids …` (`bridge_ack`'s result, broadcasts included); `send`, `inbox` and `ack` share one
 script-identity check that refuses a session identity with who may act as it; D251's warning and the script-identity
-wording name `inbox` and `ack`.
+wording name `inbox` and `ack`. The package version is 0.9.6.
 
 ## agent-relay 0.9.4
 
