@@ -27,3 +27,23 @@
 - 代码和代码注释仍按仓库原有语言，不因为这条规则改动。
 - 已有的英文提交历史不改。
 - 例外：给不归本团队的外部开源项目提 PR 时，跟随对方仓库的语言；这种情况要先问用户。
+
+## autopr（自动维护）
+
+本节与 `CLAUDE.md` 的同名一节保持一致，两处一起改；改本节的“先问”边界要先问用户。
+
+- 检查入口：`bash scripts/validate.sh`（先在 `plugins/agent-relay/bridge` 里 `npm ci`）。它与 `.github/autopr/interface.yml` 的 `check.run`、CI 的 Validate 步骤是同一个命令。
+- 先问：合并 PR、推送 `main`、打 tag、建 Release 或发版（见 `RELEASING.md`）、改 `.github/`（CI、autopr 登记文件、准入与降级 workflow）、改分支保护或规则集、改 `scripts/ci_scope.py` 的豁免名单、改本节的“先问”边界，一律先问用户，拿到明确同意再做。
+- autopr 例外：agent 身份可以在 `autopr/*` 分支上提交、推送并开 PR，不用逐次先问；合并 PR、`main`、tag、发版仍然先问。
+
+### 规则 ↔ 执行者
+
+| 规则 | 执行者 |
+|---|---|
+| 本地检查与 CI 跑同一个入口 | `.github/workflows/ci.yml:94`（Validate 步骤直接跑 `bash scripts/validate.sh`） |
+| Claude 与 Codex 两份插件清单版本一致 | `plugins/agent-relay/hooks/test_packaging.py:22` |
+| CI 豁免路径不被测试读到 | `plugins/agent-relay/hooks/test_ci_exempt_guard.py:112`；名单增减是判断题，由用户定 |
+| bridge 的文件都登记在 `UPSTREAM.sha256` | `plugins/agent-relay/hooks/test_bridge_vendoring.py:16` |
+| Spec Guard 约定（能力图、模块 spec、tasks 隔离） | `/spec-guard:verify-artifacts` 查目录结构，手动跑，不在 CI；其余是判断题 |
+| 提交与 PR 用中文 | 判断题，仓库里没有检查 |
+| 先问边界与 autopr 例外 | 判断题，没有检查 |

@@ -1,0 +1,20 @@
+# .github/autopr/readiness.yml: self-assessment against the onboarding standard v2.0.
+# This file is T4: never auto-merged, a human merges it. Entry format: readiness.example.v2.yml.
+
+standard: "2.0"
+repo: haigeerlab/agent-relay
+category: plugin
+owner: agent-relay-owner
+target_tier: basic
+target_reason: "先到基础档：agent 能在 autopr/* 分支上自检、开 PR，合并全部由人做。标准档要的宿主无头冒烟（P1）、种子环境（E2）和更多规则执行者（K2）本仓库现在都没有；它改的是用户本机的信箱运行时和宿主配置，先不追求更高档。"
+assessed_at: 2026-11-20
+assessed_by: relay-autopr-basic
+apps: {}
+
+basic:
+  V2: { status: gap, plan: "建议项：scripts/validate.sh 加 --changed 快档，只跑改动涉及的测试；未排期" }
+  D1: { status: met, evidence: "CLAUDE.md:41 检查入口，CLAUDE.md:42 先问边界，CLAUDE.md:43 autopr/* 例外；AGENTS.md:35-37 同一节" }
+  D2: { status: met, evidence: "CLAUDE.md 共 55 行，手工维护，没有仓库概览（1-24 行是 Spec Guard 生成的约定块，只写约定）；规则 ↔ 执行者表在 CLAUDE.md:45-55，每条规则指向检查或标明是判断题" }
+  K1: { status: met, evidence: "CLAUDE.md:49-52 四条规则有执行者：.github/workflows/ci.yml:94、plugins/agent-relay/hooks/test_packaging.py:22、plugins/agent-relay/hooks/test_ci_exempt_guard.py:112、plugins/agent-relay/hooks/test_bridge_vendoring.py:16" }
+  R1: { status: met, evidence: ".github/autopr/risk-tiers.yml:12-27 列出 15 条 T4 路径（发布、清单、接口版本、bridge 完整性、检查与 CI 范围脚本），:29-44 列出 15 条 T3 路径；2026-11-20 对照 main@48f9a26 的 git ls-files 逐条核对，模板的 T4 路径没有降档" }
+  R2: { status: met, evidence: "RELEASING.md:69-81 撤回一次合并：revert PR 的步骤、发版后的处理、谁做（agent 准备，用户合并）、多久（约 15 分钟，已发版约 1 小时）" }

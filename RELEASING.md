@@ -65,3 +65,17 @@ gh release create v0.x.y --title "agent-relay 0.x.y (interface 2.0)" --notes-fil
 2. `doctor` 各项为 ok（环境类的 warn 按它给的下一步处理）。
 3. 请协调会话在新会话里做真实宿主验收，按 [验收清单](docs/acceptance/checklist.md) 里涉及这一版的条目。
 4. 验收中发现的问题进下一版，不改已发布的标签。
+
+## 撤回一次合并
+
+一个已合并的 PR 要撤回时照着做。`main` 只能经 PR 合入，撤回也走 PR，谁都不能直推。
+
+1. 找到合并提交：`gh pr view <编号> --json mergeCommit`。
+2. 从 `origin/main` 切 `autopr/revert-<编号>`，执行 `git revert -m 1 <合并提交>`（本仓库用 merge commit 合并）。
+3. 开 PR，标题形如 `revert: <原 PR 标题>`，写明撤回原因；等 CI 四个组合与 `autopilot-admission` 通过，由用户合并。
+4. 被撤回的改动已进了某个发布标签时：不改已发布的标签，按上文发一个补丁版本。bridge 的运行时文件有改动时，用户在本机
+   `upgrade --confirm` 到新版本，或关掉所有会话后用 `native_collaboration_runtime.py rollback --confirm` 回到上一个运行时
+   （README“升级运行时”）；信箱 schema 变过时要连插件一起回滚。
+
+谁做：agent 准备撤回 PR，用户合并；发版和真实宿主上的回滚由用户做。多久：没发版的撤回约 15 分钟（CI 一轮 3～4 分钟，
+加上审和合并）；已发版的再加一次补丁发版和本机升级，约 1 小时。
