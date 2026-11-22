@@ -630,6 +630,8 @@ python3 -B <plugin dir>/hooks/state_migration.py migrate --confirm
 - [Changelog](CHANGELOG.md): version changes and upgrade steps (in Chinese).
 - [Security](SECURITY.md): what is protected, trust boundaries and how to report a security problem (in Chinese).
 - [Background wake](plugins/agent-relay/bridge/docs/BACKGROUND-WAKE.md): how wake works and why Claude pings expire.
+- [Host differences](docs/host-differences.md): how the Claude and Codex desktop apps differ in session lifecycle,
+  messaging, plugins and permissions, with evidence levels and how to recheck (in Chinese).
 - [Runtime notes](plugins/agent-relay/references/collaboration-runtime.md),
   [collaboration protocol](plugins/agent-relay/references/collaboration-protocol.md).
 - Developing, running the tests and releasing: see [CONTRIBUTING.md](CONTRIBUTING.md) (in Chinese).

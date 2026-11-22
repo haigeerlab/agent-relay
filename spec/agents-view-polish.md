@@ -41,7 +41,7 @@ Readers: the user; the round-2 coordinator and the usage observer (review, re-ch
 4. **C: Claude presence gains `activity`**: `"busy"` or `"idle"`, only when `state` is `running`, taken from the registry
    status. `state` keeps its values and meaning. Codex presence has no reliable busy signal and gets no `activity`.
 5. **D: `bridge_agents` waits at most 2 s for the ChatGPT app**, the awaiting view's constant; a task that does not
-   answer in time is still `not-loaded` (user's choice (a): loaded tasks answer in milliseconds, host-differences H2).
+   answer in time is still `not-loaded` (user's choice (a): loaded tasks answer in milliseconds, `docs/host-differences.md` H2).
    **`bridge_send` gets the same cap** for its recipient presence check and its notice-location lookup (added by the
    user on 2026-10-17 when approving this spec: a send to a task that is not open also waited ten seconds).
 6. **Not in scope**: the meaning of `running`, Codex busy tracking, schema changes, deleting retired identities.
