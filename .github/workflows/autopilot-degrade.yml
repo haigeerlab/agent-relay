@@ -12,7 +12,7 @@ on:
     types: [completed]
     branches: [main]
   issues:
-    types: [labeled]
+    types: [labeled, closed]  # closed: slice 11, only an admin's close lifts a degrade issue
 
 permissions:
   contents: read
@@ -22,6 +22,6 @@ permissions:
 
 jobs:
   degrade:
-    uses: haigeerlab/autopilot-hub/.github/workflows/degrade.yml@3081e7b47fc192b5c2652cc3397937297d7c7f12
+    uses: haigeerlab/autopilot-hub/.github/workflows/degrade.yml@713a3d81f24d226e5c31c1802c0e7ab912e54812
     with:
-      hub_ref: 3081e7b47fc192b5c2652cc3397937297d7c7f12
+      hub_ref: 713a3d81f24d226e5c31c1802c0e7ab912e54812

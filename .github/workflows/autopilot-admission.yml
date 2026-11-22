@@ -15,6 +15,6 @@ permissions:
 
 jobs:
   admission:
-    uses: haigeerlab/autopilot-hub/.github/workflows/admission.yml@3081e7b47fc192b5c2652cc3397937297d7c7f12
+    uses: haigeerlab/autopilot-hub/.github/workflows/admission.yml@713a3d81f24d226e5c31c1802c0e7ab912e54812
     with:
-      hub_ref: 3081e7b47fc192b5c2652cc3397937297d7c7f12
+      hub_ref: 713a3d81f24d226e5c31c1802c0e7ab912e54812
