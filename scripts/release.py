@@ -9,6 +9,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from urllib.parse import urlsplit
 
 REPO = Path(__file__).resolve().parents[1]
 SCHEMA = "agent-relay.release/v1"
@@ -19,6 +20,7 @@ _runtime_spec = importlib.util.spec_from_file_location(
 _runtime = importlib.util.module_from_spec(_runtime_spec)
 _runtime_spec.loader.exec_module(_runtime)
 state_home = _runtime.state_home
+RUNTIME_FILES = _runtime.RUNTIME_FILES
 
 
 class ReleaseError(Exception):
@@ -87,7 +89,88 @@ def write_record(record, step, facts):
 
 
 def check(args):
-    raise ReleaseError("not implemented yet", "refused", "not-implemented")
+    def git(*command):
+        return run(["git", "-C", str(args.repo), *command]).stdout.strip()
+
+    github = args.github
+    if github is None:
+        url = git("remote", "get-url", args.remote)
+        path = urlsplit(url).path if "://" in url else url.partition(":")[2]
+        path = path.strip("/")
+        if path.endswith(".git"):
+            path = path[:-4]
+        if not re.fullmatch(r"[^/\s:]+/[^/\s:]+", path):
+            raise ReleaseError("无法从远端地址解析 GitHub 仓库，请指定 --github owner/repo。", "refused", "usage")
+        github = path
+
+    pr = json.loads(run(["gh", "api", f"repos/{github}/pulls/{args.pr}"]).stdout)
+    if not pr.get("merged"):
+        raise ReleaseError("发版 PR 尚未合并。", "refused", "not-merged")
+    sha = pr["merge_commit_sha"]
+    git("fetch", args.remote)
+    if git("rev-parse", args.remote + "/main") != sha:
+        raise ReleaseError("远端 main 已不在发版 PR 的合并提交。", "refused", "main-moved")
+    runs = json.loads(run(["gh", "run", "list", "--repo", github, "--commit", sha,
+                           "--json", "conclusion,status,workflowName"]).stdout)
+    if not runs or any(item.get("status") != "completed" or item.get("conclusion") != "success" for item in runs):
+        raise ReleaseError("合并提交的 CI 为空、尚未结束或未全部成功。", "refused", "ci-not-green")
+
+    def show(path, ref=sha):
+        return git("show", ref + ":" + path)
+
+    plugin = "plugins/agent-relay/"
+    try:
+        versions = [validate_version(json.loads(show(plugin + host + "/plugin.json"))["version"])
+                    for host in (".claude-plugin", ".codex-plugin")]
+    except (subprocess.CalledProcessError, ValueError, KeyError, TypeError, ReleaseError):
+        raise ReleaseError("两份插件清单必须包含有效的三段版本号。", "refused", "version-mismatch")
+    if versions[0] != versions[1]:
+        raise ReleaseError("Claude 与 Codex 插件清单的版本号不一致。", "refused", "version-mismatch")
+    args.version = version = versions[0]
+    for name, label in (("README.md", "状态："), ("README.en.md", "Status:")):
+        try:
+            text = show(name)
+        except subprocess.CalledProcessError:
+            text = ""
+        status = re.search(r"^>\s*" + label + r"\s*" + re.escape(version) + r"(?=\s|（|\(|$)", text, re.MULTILINE)
+        ref = re.search(r"--ref\s+v" + re.escape(version) + r"(?=\s|[`\"']|$)", text)
+        if not status or not ref:
+            raise ReleaseError(name + " 的状态行或安装 --ref 与插件版本不一致。", "refused", "readme-mismatch")
+    try:
+        changelog = show("CHANGELOG.md")
+    except subprocess.CalledProcessError:
+        changelog = ""
+    if not re.search(r"^## \[" + re.escape(version) + r"\](?:\s.*)?$", changelog, re.MULTILINE):
+        raise ReleaseError("CHANGELOG.md 缺少本版本的章节。", "refused", "changelog-missing")
+    try:
+        bridge_version = validate_version(json.loads(show(plugin + "bridge/package.json"))["version"])
+    except (subprocess.CalledProcessError, ValueError, KeyError, TypeError, ReleaseError):
+        raise ReleaseError("bridge 的版本号无效。", "refused", "bridge-version")
+    if tuple(map(int, bridge_version.split("."))) > tuple(map(int, version.split("."))):
+        raise ReleaseError("bridge 的版本号高于插件版本。", "refused", "bridge-version")
+
+    tags = git("tag", "--merged", sha, "--sort=-v:refname").splitlines()
+    remote_tag = git("ls-remote", args.remote, "refs/tags/v" + version)
+    # Unmerged local tags also block publication.
+    local_tag = git("tag", "--list", "v" + version)
+    if local_tag or remote_tag:
+        raise ReleaseError("本版本的 tag 已存在于本地或远端。", "refused", "tag-exists")
+    previous = next((tag for tag in tags if tag.startswith("v")), None)
+    interface_to = json.loads(show(plugin + "interface.json"))["interface"]
+    interface_from = json.loads(show(plugin + "interface.json", previous))["interface"] if previous else None
+    bridge = plugin + "bridge/"
+    if previous:
+        paths = git("diff", "--name-only", previous, sha, "--", bridge).splitlines()
+    else:
+        paths = git("ls-tree", "-r", "--name-only", sha, "--", bridge).splitlines()
+    runtime_files = sorted(path[len(bridge):] for path in paths
+                           if any(path[len(bridge):].startswith(entry) if entry.endswith("/")
+                                  else path[len(bridge):] == entry for entry in RUNTIME_FILES))
+    facts = {"status": "ok", "mergeCommit": sha, "previousTag": previous,
+             "interface": {"from": interface_from, "to": interface_to},
+             "runtimeUpgrade": previous is None or bool(runtime_files), "runtimeFiles": runtime_files}
+    write_record(read_record(version), "check", facts)
+    return facts
 
 
 def prepare(args):

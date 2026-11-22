@@ -2,7 +2,8 @@
 
 - [x] Task 1: skeleton, output contract and test fixture (D278; AC9)
   - Accepted by the owner: focused suite 14 tests, local path check and `bash scripts/validate.sh` pass (50 files, 989 tests).
-- [ ] Task 2: `check --pr` (D279; AC1)
+- [x] Task 2: `check --pr` (D279; AC1)
+  - Accepted by the owner: focused suite 33 tests, local path check and `bash scripts/validate.sh` pass (50 files, 1008 tests).
 - [ ] Task 3: `prepare` (D280; AC2)
 - [ ] Task 4: `publish` (D281; AC3)
 - [ ] Task 5: `install` host detection and Codex config edit (D282; AC4)
