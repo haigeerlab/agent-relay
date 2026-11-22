@@ -141,7 +141,7 @@ OpenSwarm `rubinownz111/openswarm@8f31ce72` (MIT), README and `docs/protocol.md`
 ## Real-host acceptance (pre-split, 2026-10-06)
 
 Run against the installed guide plugin (Claude and Codex `spec-guard` 0.49.0) and the pinned native runtime,
-all sessions in the main checkout `/Users/vilin/Documents/haigeerlab/spec-guard-plugin` (`main` = `54d0426`).
+all sessions in the main checkout `/Users/<user>/Documents/haigeerlab/spec-guard-plugin` (`main` = `54d0426`).
 Message bodies outside the synthetic test identities were not read. All test identities used the
 `sg-baseline-*` prefix or were created by the delegation controller (`sg-dl-*`).
 
@@ -151,7 +151,7 @@ Message bodies outside the synthetic test identities were not read. All test ide
 |---|---|---|
 | A1, B1 | Claude Code 2.1.289 background sessions | `claude --bg --permission-mode default --tools "ListAgents,SendMessage"` plus a session-only `--allowedTools` list of the ten mailbox tools; no settings file changed |
 | E3 | Claude Code background session (delegation origin) | `--permission-mode dontAsk`, Bash limited to git read-only, `date`, `printf` and the installed controller |
-| C, D | Codex App threads (app-managed codex-cli 0.160.1), project `spec-guard-plugin` | created through the App UI, worktree mode on (`/Users/vilin/.codex/worktrees/2a02/spec-guard-plugin`, detached `54d0426`) |
+| C, D | Codex App threads (app-managed codex-cli 0.160.1), project `spec-guard-plugin` | created through the App UI, worktree mode on (`/Users/<user>/.codex/worktrees/2a02/spec-guard-plugin`, detached `54d0426`) |
 
 Operator setup errors, recorded so they are not mistaken for product behavior: the first A/B sessions were
 started with `--tools ""`, which removes `ListAgents`/`SendMessage` (A reported `SG_CC_NO_TOOLS`); the first two

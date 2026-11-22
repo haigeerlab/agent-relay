@@ -1,7 +1,7 @@
 # Plan: cross-host-delegation
 
 Based on [`spec/cross-host-delegation.md`](../../spec/cross-host-delegation.md) (reviewed by the user on
-2026-10-07, D11 and D12 accepted). Repository `/Users/vilin/Documents/haigeerlab/agent-relay`, branch `main`,
+2026-10-07, D11 and D12 accepted). Repository `/Users/<user>/Documents/haigeerlab/agent-relay`, branch `main`,
 local only. Reread [`docs/collaboration-split-brief.md`](../../docs/collaboration-split-brief.md) after any context
 reset.
 
