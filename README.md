@@ -508,6 +508,7 @@ python3 -B <插件目录>/hooks/state_migration.py migrate --confirm
 - [变更记录](CHANGELOG.md)：版本变化与升级步骤。
 - [安全说明](SECURITY.md)：防护范围、信任边界与如何报告安全问题。
 - [后台唤醒](plugins/agent-relay/bridge/docs/BACKGROUND-WAKE.md)：唤醒的实现方式与 Claude 提醒过期的原因。
+- [宿主差异](docs/host-differences.md)：Claude 桌面版与 Codex 桌面版在会话生命周期、消息、插件、权限上的行为差异，带证据等级和复核方法。
 - [运行时说明](plugins/agent-relay/references/collaboration-runtime.md)、
   [协作协议](plugins/agent-relay/references/collaboration-protocol.md)。
 - 参与开发、跑测试、发版：见 [CONTRIBUTING.md](CONTRIBUTING.md)。

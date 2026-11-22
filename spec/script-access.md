@@ -29,7 +29,7 @@ commands); the Spec Guard owner (interface 2.8 is within its accepted `>=1.0,<3.
 - `bridge_agents`, `bridge_outbox` and `bridge_sessions` are MCP handlers in `server.ts`; the store's reads call
   `expireDue` (a write) first, and opening a `BridgeStore` may migrate the schema.
 - Wakes are dispatched by the `WakeDispatcher` inside each bridge process (every 2 s). A Claude session is woken only
-  while its process runs (host differences H1, H4); a Codex task only while the ChatGPT app has it loaded (D200).
+  while its process runs (`docs/host-differences.md` H1, H4); a Codex task only while the ChatGPT app has it loaded (D200).
 
 ## Assumptions (accepted by the user 2026-10-20)
 
