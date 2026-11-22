@@ -1,7 +1,7 @@
 # Plan: mailbox-core
 
 Based on [`spec/mailbox-core.md`](../../spec/mailbox-core.md) (reviewed by the user on 2026-10-07, D9 accepted).
-Repository `/Users/vilin/Documents/haigeerlab/agent-relay`, branch `main`, local only. Reread
+Repository `/Users/<user>/Documents/haigeerlab/agent-relay`, branch `main`, local only. Reread
 [`docs/collaboration-split-brief.md`](../../docs/collaboration-split-brief.md) after any context reset.
 
 ## Overview

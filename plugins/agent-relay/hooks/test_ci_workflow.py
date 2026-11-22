@@ -68,7 +68,7 @@ class CiWorkflowTests(unittest.TestCase):
         steps = self.steps()
         self.assertIn("uses: actions/checkout@", steps[0])
         self.assertIn("fetch-depth: 0", steps[0], "the scope needs the PR base and the push's before")
-        scope = steps[1]
+        scope = steps[2]
         self.assertIn("id: scope", scope)
         self.assertRegex(scope, r"(?m)^        run: python3 -B scripts/ci_scope\.py$")
         self.assertIn("CI_EVENT: ${{ github.event_name }}", scope)
@@ -77,7 +77,7 @@ class CiWorkflowTests(unittest.TestCase):
         self.assertNotIn("if:", scope, "the scope step itself always runs")
 
     def test_every_later_step_runs_unless_the_scope_is_skip(self):
-        later = self.steps()[2:]
+        later = self.steps()[3:]
         self.assertGreaterEqual(len(later), 6)
         for step in later:
             # `!= 'skip'`, not `== 'full'`: a missing output must run the tests, not pass without them.
@@ -85,6 +85,12 @@ class CiWorkflowTests(unittest.TestCase):
         joined = "\n".join(later)
         for needed in ("npm ci", "toolchain", "bash scripts/validate.sh"):
             self.assertIn(needed, joined, f"{needed} must stay after the scope step")
+
+    def test_local_path_check_runs_before_the_scope_and_is_never_skipped(self):
+        # S107: a change to exempt paths only (spec/, tasks/) skips the tests, but not this check.
+        check = self.steps()[1]
+        self.assertRegex(check, r"(?m)^        run: python3 -B scripts/check_local_paths\.py$")
+        self.assertNotIn("if:", check)
 
 
 if __name__ == "__main__":

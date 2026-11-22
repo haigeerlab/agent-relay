@@ -37,6 +37,10 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
+      # Path privacy (S107): runs before the scope decision, so a change to exempt paths only is checked too.
+      - name: No local home paths
+        run: python3 -B scripts/check_local_paths.py
+
       # The four jobs always run and report, so the required checks never wait (D136); in skip mode every later step
       # is skipped. Event data reaches the script through the environment, never the shell command line.
       - name: Scope

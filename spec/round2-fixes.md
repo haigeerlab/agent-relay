@@ -26,7 +26,7 @@ the reinstall with system Python before release.
   in PATH the private delegation server dies in the MCP handshake; create fails `mcp-catalog-invalid` after the host
   was touched, leaving envelopes `unknown` that `status`/`cancel` cannot clear (e168ea, 269770).
 - **R2-1.** `native_collaboration_runtime.py doctor` has `--node` default `node`; the probe uses PATH's node, not the
-  host entries' (`/Users/vilin/.nvm/versions/node/v24.18.0/bin/node`), and reports `probe: fail` for a working runtime.
+  host entries' (`/Users/<user>/.nvm/versions/node/v24.18.0/bin/node`), and reports `probe: fail` for a working runtime.
 - **R2-9.** Reproduced with a minimal script: `/usr/bin/python3` 3.9.6 (SQLite 3.43.2) cannot open a WAL-mode
   database with `mode=ro` when no `-wal`/`-shm` sits beside it ("unable to open database file"). `state_migration`
   hits this in its second `_sqlite_copy` (reading the backup copy the backup API wrote); `_reinstall_around_history`

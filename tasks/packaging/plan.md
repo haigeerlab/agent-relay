@@ -1,7 +1,7 @@
 # Plan: packaging
 
 Based on [`spec/packaging.md`](../../spec/packaging.md) (reviewed by the user on 2026-10-07, scoped install plan
-approved). Repository `/Users/vilin/Documents/haigeerlab/agent-relay`, branch `main`, local only. Reread
+approved). Repository `/Users/<user>/Documents/haigeerlab/agent-relay`, branch `main`, local only. Reread
 [`docs/collaboration-split-brief.md`](../../docs/collaboration-split-brief.md) after any context reset.
 
 ## Overview
@@ -14,7 +14,7 @@ verification on both hosts with Spec Guard's probe, then Codex cleanup.
 - `relay_status.py` reuses `native_collaboration_runtime.status()` (read-only); it adds no logic of its own beyond
   mapping `state == "ready"` to `ready: true` and printing the setup hint.
 - The Spec Guard probe used for verification is the one in the Spec Guard worktree at the merged `main`
-  (`/Users/vilin/Documents/haigeerlab/spec-guard-plugin/.claude/worktrees/cranky-allen-f2237a`, commit recorded),
+  (`/Users/<user>/Documents/haigeerlab/spec-guard-plugin/.claude/worktrees/cranky-allen-f2237a`, commit recorded),
   not the installed 0.49.0 (which predates the probe).
 - Verification for every task: `/bin/bash scripts/validate.sh`.
 
@@ -48,11 +48,11 @@ the plugin root), `relay_status` absent → `ready: false` + hint, ready → `re
 Show exactly, before running:
 
 ```bash
-# Claude, in /Users/vilin/Documents/haigeerlab/agent-relay (writes .claude/settings.local.json there)
-claude plugin marketplace add /Users/vilin/Documents/haigeerlab/agent-relay --scope local
+# Claude, in /Users/<user>/Documents/haigeerlab/agent-relay (writes .claude/settings.local.json there)
+claude plugin marketplace add /Users/<user>/Documents/haigeerlab/agent-relay --scope local
 claude plugin install agent-relay@agent-relay-marketplace --scope local
 # Codex (writes ~/.codex/config.toml; removed after verification)
-codex plugin marketplace add /Users/vilin/Documents/haigeerlab/agent-relay
+codex plugin marketplace add /Users/<user>/Documents/haigeerlab/agent-relay
 codex plugin add agent-relay@agent-relay-marketplace
 ```
 

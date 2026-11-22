@@ -20,7 +20,7 @@ Readers: the user; the round-2 coordinator, who re-checks E1/E2 on the real host
 - `bridge/src/notify.ts` `notifyUndelivered`: exclusive mark file, then `execFile("osascript", [... text])`; off with
   `AGENT_RELAY_NOTIFY=off` or `notify.off`; `AGENT_RELAY_NOTIFY_LOG` records instead (tests).
 - `/opt/homebrew/bin/terminal-notifier` → `../Cellar/terminal-notifier/2.0.0/bin/terminal-notifier`, a two-line bash
-  script that `exec`s `…/terminal-notifier.app/Contents/MacOS/terminal-notifier "$@"`; owner `vilin`, mode `r-xr-xr-x`.
+  script that `exec`s `…/terminal-notifier.app/Contents/MacOS/terminal-notifier "$@"`; owner `<user>`, mode `r-xr-xr-x`.
   `/usr/local/bin/terminal-notifier` does not exist here (that is the Intel Homebrew prefix).
 - Notification Center prefs: `fr.julienxx.oss.terminal-notifier` `auth 7`, flags `0x2802056` (has `0x2000000`);
   `com.apple.ScriptEditor2` `flags 0x200e`, no `auth`.

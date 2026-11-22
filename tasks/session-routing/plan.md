@@ -1,7 +1,7 @@
 # Plan: session-routing
 
 Based on [`spec/session-routing.md`](../../spec/session-routing.md) (reviewed by the user on 2026-10-07, D10
-accepted). Repository `/Users/vilin/Documents/haigeerlab/agent-relay`, branch `main`, local only. Reread
+accepted). Repository `/Users/<user>/Documents/haigeerlab/agent-relay`, branch `main`, local only. Reread
 [`docs/collaboration-split-brief.md`](../../docs/collaboration-split-brief.md) after any context reset.
 
 ## Overview

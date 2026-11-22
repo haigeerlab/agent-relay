@@ -1,7 +1,7 @@
 # Plan: acceptance-kit
 
 Based on [`spec/acceptance-kit.md`](../../spec/acceptance-kit.md) (reviewed by the user on 2026-10-07, D8
-accepted). Repository `/Users/vilin/Documents/haigeerlab/agent-relay`, branch `main`, local only. Reread
+accepted). Repository `/Users/<user>/Documents/haigeerlab/agent-relay`, branch `main`, local only. Reread
 [`docs/collaboration-split-brief.md`](../../docs/collaboration-split-brief.md) after any context reset.
 
 ## Overview

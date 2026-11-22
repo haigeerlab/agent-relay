@@ -1,7 +1,7 @@
 # Plan: state-migration
 
 Based on [`spec/state-migration.md`](../../spec/state-migration.md) (reviewed by the user on 2026-10-07, D12
-refinement, D13, D14 accepted). Repository `/Users/vilin/Documents/haigeerlab/agent-relay`, branch `main`, local only.
+refinement, D13, D14 accepted). Repository `/Users/<user>/Documents/haigeerlab/agent-relay`, branch `main`, local only.
 Reread [`docs/collaboration-split-brief.md`](../../docs/collaboration-split-brief.md) after any context reset.
 
 ## Overview

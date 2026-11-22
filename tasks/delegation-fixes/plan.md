@@ -1,7 +1,7 @@
 # Plan: delegation-fixes
 
 Based on [`spec/delegation-fixes.md`](../../spec/delegation-fixes.md) (D15–D17 accepted by the user on 2026-10-07;
-D18 for round 1 finding 7 added by the project owner; live checks run by the agent). Repository `/Users/vilin/Documents/haigeerlab/agent-relay`, local only.
+D18 for round 1 finding 7 added by the project owner; live checks run by the agent). Repository `/Users/<user>/Documents/haigeerlab/agent-relay`, local only.
 Reread [`docs/collaboration-split-brief.md`](../../docs/collaboration-split-brief.md) after any context reset.
 
 **Start condition:** met — integration round 1 passed on 2026-10-07

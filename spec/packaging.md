@@ -64,8 +64,8 @@ Confirmed by the user on 2026-10-07:
 /bin/bash scripts/validate.sh
 claude plugin validate .
 claude plugin validate plugins/agent-relay
-python3 -B /Users/vilin/Documents/haigeerlab/spec-guard-plugin/plugins/spec-guard/hooks/agent_relay_probe.py --host claude --project <agent-relay>
-python3 -B /Users/vilin/Documents/haigeerlab/spec-guard-plugin/plugins/spec-guard/hooks/agent_relay_probe.py --host codex
+python3 -B /Users/<user>/Documents/haigeerlab/spec-guard-plugin/plugins/spec-guard/hooks/agent_relay_probe.py --host claude --project <agent-relay>
+python3 -B /Users/<user>/Documents/haigeerlab/spec-guard-plugin/plugins/spec-guard/hooks/agent_relay_probe.py --host codex
 ```
 
 ## Project structure
