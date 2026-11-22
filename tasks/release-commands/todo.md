@@ -11,5 +11,3 @@
 - [ ] Task 9: `RELEASING.md` calls the subcommands (Requirement 3)
 - [ ] Checkpoint (report): owner's read-only dry run of `check` on this Mac
 - [ ] Checkpoint (gate): PR review and merge by the user
-
-<!-- spec-guard: external-review declined -->
