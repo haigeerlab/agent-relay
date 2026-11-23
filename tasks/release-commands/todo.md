@@ -12,7 +12,8 @@
   - Accepted by the owner: focused suite 53 tests, local path check and `bash scripts/validate.sh` pass (50 files, 1028 tests).
 - [x] Task 6: `install --confirm` run and verify (D282; AC3, AC5)
   - Accepted by the owner: focused suite 62 tests, local path check and `bash scripts/validate.sh` pass (50 files, 1037 tests).
-- [ ] Task 7: `upgrade` (D283; AC6)
+- [x] Task 7: `upgrade` (D283; AC6)
+  - Accepted by the owner: focused suite 69 tests, local path check and `bash scripts/validate.sh` pass (50 files, 1044 tests).
 - [ ] Task 8: `smoke` and `evidence` (D284, D285; AC7, AC8)
 - [ ] Task 9: `RELEASING.md` calls the subcommands (Requirement 3)
 - [ ] Checkpoint (report): owner's read-only dry run of `check` on this Mac

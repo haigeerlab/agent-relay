@@ -484,7 +484,54 @@ def install(args):
 
 
 def upgrade(args):
-    raise ReleaseError("not implemented yet", "refused", "not-implemented")
+    """D283: never stops a bridge, never rolls back; the user closes the sessions using the mailbox."""
+    record = read_record(args.version)
+    steps = record.get("steps", {})
+    checked = steps.get("check", {})
+    if checked.get("status") != "ok":
+        raise ReleaseError("本版本尚无成功的 check 记录，请先运行 check。", "refused", "needs-check")
+    if checked.get("runtimeUpgrade") is False:
+        facts = {"status": "ok", "skipped": True, "message": "本版本没有改动运行时文件，无需升级运行时。"}
+        write_record(record, "upgrade", facts)
+        return facts
+    installed = steps.get("install", {})
+    copy = ((installed.get("hosts") or {}).get("claude") or {}).get("path")
+    if installed.get("status") != "ok" or not copy:
+        raise ReleaseError("本版本尚无成功的 install 记录，请先运行 install。", "refused", "needs-install")
+
+    script = str(Path(copy) / "hooks" / "native_collaboration_runtime.py")
+    command = ["python3", "-B", script, "upgrade", "--confirm"]
+    running = _runtime._servers_running(_runtime.default_root())
+    if not args.confirm:
+        return {"status": "preview", "running": running, "command": command}
+    if running:
+        facts = {"status": "waiting-on-user", "running": running, "command": command,
+                 "message": "仍有 " + str(running) + " 个 bridge 在运行，未做任何改动。请用户关闭所有使用信箱的会话"
+                            "（Claude Code 会话，并用 ⌘Q 退出 ChatGPT），之后再运行 upgrade --confirm。"}
+        write_record(record, "upgrade", facts)
+        return facts
+
+    try:
+        output = run(command, timeout=900).stdout
+    except subprocess.CalledProcessError as error:
+        output = error.stdout or ""
+    lines = [line for line in output.splitlines() if line.strip()]
+    try:
+        result = json.loads(lines[-1])
+    except (IndexError, ValueError):
+        result = {}
+    state = result.get("state") if isinstance(result, dict) else None
+    if state in ("upgraded", "current"):
+        facts = {"status": "ok", "state": state, "previous": result.get("previous"), "backup": result.get("backup")}
+        write_record(record, "upgrade", facts)
+        return facts
+    recovery = [["python3", "-B", script, step, "--confirm"] for step in ("rollback", "recover")]
+    facts = {"status": "failed", "reason": "runtime-upgrade-failed", "state": state, "recovery": recovery,
+             "diagnostic": result.get("diagnostic") if isinstance(result, dict) else None,
+             "error": "运行时升级未成功，未自动回滚或恢复。需要时请用户确认后自行运行：" +
+                      "；".join(" ".join(item) for item in recovery)}
+    write_record(record, "upgrade", facts)
+    return facts
 
 
 def smoke(args):
@@ -541,6 +588,8 @@ def main(argv=None):
     messages = {"ok": "步骤已完成。", "preview": "预览已生成。", "refused": "已拒绝执行。",
                 "waiting-on-user": "等待用户操作。", "failed": "步骤执行失败。"}
     print(messages[result["status"]])
+    if result.get("message"):
+        print(result["message"])
     if result.get("reason") == "not-implemented":
         print("该步骤尚未实现。")
     elif result.get("error"):

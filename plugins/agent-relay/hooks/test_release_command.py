@@ -217,7 +217,7 @@ class ReleaseCommandTests(unittest.TestCase):
                 self.assertEqual(report["reason"], "invalid-version")
 
     def test_remaining_subcommands_are_placeholders(self):
-        for step in ("upgrade", "smoke", "evidence"):
+        for step in ("smoke", "evidence"):
             with self.subTest(step=step):
                 args = ["--version", self.fixture.version]
                 args += ["--repo", str(self.fixture.repo), "--remote", "origin", "--github", "example/agent-relay"]
@@ -1179,6 +1179,139 @@ class ReleaseInstallConfirmTests(unittest.TestCase):
         self.assertEqual(self.clone_git(clone, "rev-parse", "HEAD"), head)
         self.assertEqual(self.config.read_bytes(), text.encode())
         self.assertFalse(self.backup.exists())
+
+
+class ReleaseUpgradeTests(unittest.TestCase):
+    """D283: never stop the bridge; run the installed copy's runtime upgrade only when nothing runs."""
+
+    def setUp(self):
+        self.fixture = Fixture()
+        self.addCleanup(self.fixture.close)
+        self.release = load_release()
+        self.record_path = self.fixture.state / "release" / (self.fixture.version + ".json")
+        self.copy = self.fixture.root / "claude-copy"
+        self.script = self.copy / "hooks" / "native_collaboration_runtime.py"
+        self.script.parent.mkdir(parents=True)
+        self.script.write_text(FAKE_TOOL, encoding="utf-8")
+        self.script.chmod(0o755)
+        self.server = str(self.fixture.state / "runtime" / "dist" / "server.js")
+        self.command = ["python3", "-B", str(self.script), "upgrade", "--confirm"]
+        self.record("check", {"status": "ok", "mergeCommit": self.fixture.head, "runtimeUpgrade": True,
+                              "runtimeFiles": ["src/"]})
+        self.record("install", {"status": "ok", "hosts": {
+            "claude": {"path": str(self.copy), "version": self.fixture.version},
+            "codex": {"path": "/elsewhere", "version": self.fixture.version}}})
+
+    def record(self, step, facts):
+        with patch.dict(os.environ, self.fixture.env, clear=True):
+            self.release.write_record(self.release.read_record(self.fixture.version), step, facts)
+
+    def servers(self, count):
+        others = "/usr/bin/other --flag\nnode /some/other/dist/server.js\n"
+        self.fixture.answer("ps", ["-axo", "command"],
+                            stdout=others + "".join("node " + self.server + "\n" for _ in range(count)))
+
+    def runtime_answer(self, result, returncode=0):
+        stdout = result if isinstance(result, str) else json.dumps(result) + "\n"
+        self.fixture.answer("native_collaboration_runtime.py", ["upgrade", "--confirm"], stdout=stdout,
+                            returncode=returncode)
+
+    def upgrade(self, *args, status="ok", reason=None):
+        code, report, stdout = self.fixture.run_release("upgrade", "--version", self.fixture.version, *args)
+        self.assertEqual(code, {"ok": 0, "preview": 0, "refused": 2, "waiting-on-user": 3, "failed": 1}[status],
+                         stdout)
+        self.assertEqual(report["schema"], "agent-relay.release/v1")
+        self.assertEqual(report["step"], "upgrade")
+        self.assertEqual(report["version"], self.fixture.version)
+        self.assertEqual(report["status"], status, stdout)
+        if reason:
+            self.assertEqual(report["reason"], reason, stdout)
+        return report, stdout
+
+    def runtime_calls(self):
+        return [call for call in self.fixture.calls() if call[0] == "native_collaboration_runtime.py"]
+
+    def recorded(self):
+        return json.loads(self.record_path.read_text(encoding="utf-8"))["steps"].get("upgrade")
+
+    def test_upgrade_skips_when_check_found_no_runtime_change(self):
+        self.record("check", {"status": "ok", "mergeCommit": self.fixture.head, "runtimeUpgrade": False,
+                              "runtimeFiles": []})
+        self.record("install", {"status": "failed"})
+        for args in ((), ("--confirm",)):
+            with self.subTest(args=args):
+                report, stdout = self.upgrade(*args)
+                self.assertIs(report["skipped"], True)
+                self.assertEqual(self.recorded()["skipped"], True)
+        self.assertEqual(self.fixture.calls(), [])
+
+    def test_upgrade_needs_recorded_check_and_install(self):
+        cases = (("check", {"status": "refused"}, "needs-check"), ("install", {"status": "failed"}, "needs-install"))
+        for step, facts, reason in cases:
+            with self.subTest(step=step):
+                self.record(step, facts)
+                for args in ((), ("--confirm",)):
+                    self.upgrade(*args, status="refused", reason=reason)
+                self.record("check", {"status": "ok", "mergeCommit": self.fixture.head, "runtimeUpgrade": True})
+        self.assertEqual(self.fixture.calls(), [])
+        self.assertIsNone(self.recorded())
+
+    def test_upgrade_preview_counts_servers_and_runs_nothing(self):
+        self.assertTrue(callable(self.release._runtime._servers_running))
+        self.servers(2)
+        report, stdout = self.upgrade(status="preview")
+        self.assertEqual(report["running"], 2)
+        self.assertEqual(report["command"], self.command)
+        self.assertEqual(self.fixture.calls(), [["ps", "-axo", "command"]])
+
+    def test_upgrade_confirm_waits_for_user_while_a_bridge_runs(self):
+        self.servers(1)
+        report, stdout = self.upgrade("--confirm", status="waiting-on-user")
+        self.assertEqual(report["running"], 1)
+        self.assertIn("ChatGPT", stdout)
+        self.assertIn("关闭", stdout)
+        self.assertIn("未做任何改动", stdout)
+        self.assertEqual(self.runtime_calls(), [])
+        self.assertEqual(self.recorded()["status"], "waiting-on-user")
+
+    def test_upgrade_confirm_runs_installed_runtime_once_when_nothing_runs(self):
+        for state in ("upgraded", "current"):
+            with self.subTest(state=state):
+                self.fixture.calls_log.write_text("", encoding="utf-8")
+                self.servers(0)
+                answer = {"state": state}
+                if state == "upgraded":
+                    answer.update({"previous": "/runtime.previous-x", "backup": "/backups/x"})
+                self.runtime_answer(answer)
+                report, stdout = self.upgrade("--confirm")
+                self.assertEqual(self.fixture.calls(), [["ps", "-axo", "command"],
+                                                        ["native_collaboration_runtime.py", "upgrade", "--confirm"]])
+                self.assertEqual(report["state"], state)
+                self.assertEqual(report["previous"], answer.get("previous"))
+                self.assertEqual(report["backup"], answer.get("backup"))
+                self.assertEqual(self.recorded()["status"], "ok")
+
+    def test_upgrade_failure_prints_rollback_and_recover_without_running_them(self):
+        outputs = ((json.dumps({"state": "error", "diagnostic": "build failed"}) + "\n", 1),
+                   ("not json at all\n", 0), ("", 1))
+        for output, returncode in outputs:
+            with self.subTest(output=output):
+                self.fixture.calls_log.write_text("", encoding="utf-8")
+                self.servers(0)
+                self.runtime_answer(output, returncode)
+                report, stdout = self.upgrade("--confirm", status="failed", reason="runtime-upgrade-failed")
+                for command in ("rollback", "recover"):
+                    expected = ["python3", "-B", str(self.script), command, "--confirm"]
+                    self.assertIn(" ".join(expected), stdout)
+                    self.assertIn(expected, report["recovery"])
+                self.assertEqual(self.runtime_calls(), [["native_collaboration_runtime.py", "upgrade", "--confirm"]])
+                self.assertEqual(self.recorded()["status"], "failed")
+
+    def test_release_command_never_stops_a_process(self):
+        source = SCRIPT.read_text(encoding="utf-8")
+        for forbidden in ("kill(", '"pkill"', '"kill"', "killall", "osascript"):
+            self.assertNotIn(forbidden, source)
+        self.assertFalse(any("kill" in part for call in self.fixture.calls() for part in call))
 
 if __name__ == "__main__":
     unittest.main()
