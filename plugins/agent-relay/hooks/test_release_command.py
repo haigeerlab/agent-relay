@@ -98,7 +98,7 @@ class Fixture:
         executable = self.bin / "git"
         executable.write_text(LOGGING_GIT, encoding="utf-8")
         executable.chmod(0o755)
-        self.git("init", "-q", "--bare", "--template=", str(self.remote))
+        self.git("init", "-q", "--bare", "-b", "main", "--template=", str(self.remote))
         self.git("init", "-q", "-b", "main", "--template=")
         self.git("remote", "add", "origin", str(self.remote))
         self.version = "1.2.3"
