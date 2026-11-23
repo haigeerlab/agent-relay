@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Step-by-step maintainer release commands (D278 output, D286 local records)."""
 import argparse
+from datetime import datetime, timezone
 import hashlib
 import importlib.util
 import io
@@ -8,6 +9,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -186,6 +188,18 @@ def check(args):
     return facts
 
 
+def manifest_of(root):
+    """Relative path -> sha256 for every file under root, minus preflight.IGNORED names."""
+    root = Path(root)
+    manifest = {}
+    for path in sorted(root.rglob("*")):
+        relative = path.relative_to(root)
+        if any(part in _preflight.IGNORED for part in relative.parts) or not path.is_file():
+            continue
+        manifest[relative.as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return manifest
+
+
 def prepare(args):
     record = read_record(args.version)
     checked = record.get("steps", {}).get("check", {})
@@ -203,13 +217,7 @@ def prepare(args):
                 raise ReleaseError("归档含绝对路径或上级目录，已拒绝解包。", "refused", "unsafe-archive")
         archive.extractall(directory, members=members)
 
-    plugin = directory / "plugins" / "agent-relay"
-    manifest = {}
-    for path in sorted(plugin.rglob("*")):
-        relative = path.relative_to(plugin)
-        if any(part in _preflight.IGNORED for part in relative.parts) or not path.is_file():
-            continue
-        manifest[relative.as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+    manifest = manifest_of(directory / "plugins" / "agent-relay")
     manifest_path = directory / "MANIFEST.json"
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
                              encoding="utf-8")
@@ -337,30 +345,142 @@ def codex_ref_change(text, version):
     return text[:start + ref.start()] + replacement + text[start + ref.end():]
 
 
+PLUGIN_ID = "agent-relay@agent-relay-marketplace"
+
+
+def claude_copy(source):
+    """The copy Claude runs, found as preflight.py finds it: the directory source, else the user-scope install."""
+    records, marketplaces = _preflight._claude_records()
+    items = (records or {}).get("plugins", {}).get(PLUGIN_ID, [])
+    item = next((entry for entry in (items if isinstance(items, list) else [])
+                 if isinstance(entry, dict) and entry.get("scope") == "user"), {})
+    if source["kind"] == "directory":
+        path = _preflight._directory_plugin(marketplaces.get("agent-relay-marketplace"))
+    else:
+        path = item.get("installPath")
+    return {"path": str(path) if path else None, "version": item.get("version")}
+
+
+def codex_copy():
+    """The copy Codex runs: plugins/cache/<market>/agent-relay/<version> for the installed version."""
+    listing = json.loads(run(["codex", "plugin", "list", "--json"]).stdout)
+    for plugin in listing.get("installed", []) if isinstance(listing, dict) else []:
+        if not isinstance(plugin, dict) or plugin.get("name") != "agent-relay":
+            continue
+        market = str(plugin.get("pluginId") or "").partition("@")[2]
+        version = plugin.get("version")
+        if re.fullmatch(r"[A-Za-z0-9_.-]+", market) and isinstance(version, str) \
+                and re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
+            home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+            return {"path": str(home / "plugins" / "cache" / market / "agent-relay" / version), "version": version}
+    return {"path": None, "version": None}
+
+
+def copy_differences(copy, manifest):
+    """Empty when the copy matches MANIFEST.json file by file."""
+    if not copy["path"] or not Path(copy["path"]).is_dir():
+        return {"copy": "not-found"}
+    found = manifest_of(copy["path"])
+    differences = {"missing": sorted(set(manifest) - set(found)), "extra": sorted(set(found) - set(manifest)),
+                   "changed": sorted(name for name in set(manifest) & set(found) if manifest[name] != found[name])}
+    return {kind: names for kind, names in differences.items() if names}
+
+
+def _prepare_clone(path, tag_commit, pull):
+    """Refuse an unready clone before touching it; fast-forward it to the tag's commit when it is behind."""
+    git = ["git", "-C", path]
+
+    def not_clean(message):
+        return ReleaseError("Claude 的本地 clone " + message + "，未做任何改动。", "refused", "clone-not-clean")
+
+    try:
+        dirty = run([*git, "status", "--porcelain"]).stdout.strip()
+        branch = run([*git, "symbolic-ref", "--short", "-q", "HEAD"]).stdout.strip()
+        head = run([*git, "rev-parse", "HEAD"]).stdout.strip()
+    except subprocess.CalledProcessError:
+        raise not_clean("无法读取状态")
+    if dirty:
+        raise not_clean("有未提交的改动")
+    if branch != "main":
+        raise not_clean("不在 main 分支")
+    if head == tag_commit:
+        return False
+    try:
+        run([*git, "fetch"], timeout=300)
+        run([*git, "merge-base", "--is-ancestor", "HEAD", tag_commit])
+    except subprocess.CalledProcessError:
+        raise not_clean("无法快进到 tag 所在提交")
+    run(pull, timeout=300)
+    if run([*git, "rev-parse", "HEAD"]).stdout.strip() != tag_commit:
+        raise ReleaseError("Claude 的本地 clone 快进后不在 tag 所在提交。", "refused", "clone-not-at-tag")
+    return True
+
+
 def install(args):
     record = read_record(args.version)
-    if record.get("steps", {}).get("publish", {}).get("status") != "ok":
+    steps = record.get("steps", {})
+    if steps.get("publish", {}).get("status") != "ok":
         raise ReleaseError("本版本尚无成功的 publish 记录，请先运行 publish。", "refused", "needs-publish")
-    if args.confirm:
-        raise ReleaseError("not implemented yet", "refused", "not-implemented")
 
     claude = claude_source()
     config = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / "config.toml"
     text = config.read_bytes().decode("utf-8")
     changed = codex_ref_change(text, args.version)
     _, codex, _ = _codex_marketplace(text)
-    commands = []
-    if claude["kind"] == "directory":
-        commands.append(["git", "-C", claude["path"], "pull", "--ff-only"])
-    commands.extend([
+    backup = state_home() / "release" / (args.version + "-config.toml.bak")
+    pull = ["git", "-C", claude["path"], "pull", "--ff-only"] if claude["kind"] == "directory" else None
+    host_commands = [
         ["claude", "plugin", "marketplace", "update", "agent-relay-marketplace"],
-        ["claude", "plugin", "update", "--scope", "user", "agent-relay@agent-relay-marketplace"],
-        ["codex", "plugin", "add", "agent-relay@agent-relay-marketplace"],
-    ])
-    return {"status": "preview", "sources": {"claude": claude, "codex": codex}, "commands": commands,
-            "codexConfig": {"path": str(config),
-                            "backup": str(state_home() / "release" / (args.version + "-config.toml.bak")),
-                            "refChange": changed is not None and changed != text, "ref": "v" + args.version}}
+        ["claude", "plugin", "update", "--scope", "user", PLUGIN_ID],
+        ["codex", "plugin", "add", PLUGIN_ID],
+    ]
+    if not args.confirm:
+        return {"status": "preview", "sources": {"claude": claude, "codex": codex},
+                "commands": ([pull] if pull else []) + host_commands,
+                "codexConfig": {"path": str(config), "backup": str(backup),
+                                "refChange": changed is not None and changed != text, "ref": "v" + args.version}}
+
+    prepared = steps.get("prepare", {})
+    try:
+        manifest = json.loads((Path(prepared["dir"]) / "MANIFEST.json").read_text(encoding="utf-8"))
+    except (KeyError, TypeError, OSError, ValueError):
+        manifest = None
+    if prepared.get("status") != "ok" or not isinstance(manifest, dict):
+        raise ReleaseError("找不到本版本 prepare 生成的 MANIFEST.json，请先重新运行 prepare。",
+                           "refused", "needs-prepare")
+    tag_commit = steps["publish"]["peeledCommit"]
+
+    ran, skipped = [], []
+    if pull:
+        (ran if _prepare_clone(claude["path"], tag_commit, pull) else skipped).append(pull)
+    for command in host_commands[:2]:
+        run(command, timeout=300)
+        ran.append(command)
+    ref_changed = changed is not None and changed != text
+    if changed is not None and not ref_changed:
+        skipped.append(["write", str(config)])
+    else:
+        backup.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(config, backup)
+        if ref_changed:
+            config.write_bytes(changed.encode("utf-8"))
+    run(host_commands[2], timeout=300)
+    ran.append(host_commands[2])
+
+    hosts = {"claude": claude_copy(claude), "codex": codex_copy()}
+    differences = {host: found for host, copy in hosts.items() if (found := copy_differences(copy, manifest))}
+    facts = {"status": "ok", "hosts": hosts, "ran": ran, "skipped": skipped,
+             "codexConfig": {"path": str(config), "backup": str(backup) if backup.exists() else None,
+                             "refChanged": ref_changed},
+             "time": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+    if differences:
+        lines = [{"claude": "Claude", "codex": "Codex"}[host] + " " + kind + " " +
+                 (", ".join(names) if isinstance(names, list) else names)
+                 for host, found in differences.items() for kind, names in found.items()]
+        facts.update({"status": "failed", "reason": "copy-mismatch", "differences": differences,
+                      "error": "宿主副本与 MANIFEST.json 不一致：" + "；".join(lines)})
+    write_record(record, "install", facts)
+    return facts
 
 
 def upgrade(args):

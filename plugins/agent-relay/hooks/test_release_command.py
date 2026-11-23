@@ -924,13 +924,261 @@ class ReleaseInstallTests(unittest.TestCase):
                 self.assertEqual({path: path.read_bytes() for path in paths}, before)
         self.assertEqual(self.fixture.calls(), [])
 
-    def test_install_confirm_stays_unimplemented_without_changes(self):
-        paths = (self.config, self.marketplaces, self.record_path)
-        before = {path: path.read_bytes() for path in paths}
-        self.install("--confirm", status="refused", reason="not-implemented")
-        self.assertEqual({path: path.read_bytes() for path in paths}, before)
-        self.assertEqual(self.fixture.calls(), [])
 
+class ReleaseInstallConfirmTests(unittest.TestCase):
+    """D282 second half: run the host commands in order, then verify each host copy file by file."""
+
+    PLUGIN_ID = "agent-relay@agent-relay-marketplace"
+
+    def setUp(self):
+        self.fixture = Fixture()
+        self.addCleanup(self.fixture.close)
+        self.release = load_release()
+        self.record_path = self.fixture.state / "release" / (self.fixture.version + ".json")
+        self.backup = self.fixture.state / "release" / (self.fixture.version + "-config.toml.bak")
+        self.url = "https://github.com/example/agent-relay.git"
+        self.config = self.fixture.codex / "config.toml"
+        self.git_config = ('# keep\n[marketplaces.agent-relay-marketplace]\n'
+                           'source = "' + self.url + '"\nref = "main"\n\n[other]\nref = "x"\n')
+        self.config.write_bytes(self.git_config.encode())
+        self.marketplaces = self.fixture.claude / "plugins" / "known_marketplaces.json"
+        self.marketplaces.parent.mkdir()
+        self.claude_copy = self.fixture.root / "claude-copy"
+        self.codex_copy = (self.fixture.codex / "plugins" / "cache" / "agent-relay-marketplace" / "agent-relay"
+                           / self.fixture.version)
+        self.write_marketplace({"source": "git", "url": self.url})
+        self.write_installed(self.claude_copy)
+        self.fixture.answer("codex", ["plugin", "list", "--json"], stdout=json.dumps({"installed": [
+            {"name": "other", "pluginId": "other@x", "version": "9.9.9"},
+            {"name": "agent-relay", "pluginId": self.PLUGIN_ID, "version": self.fixture.version, "enabled": True},
+        ]}))
+        self.release_at(self.fixture.head)
+
+    def release_at(self, sha):
+        """Record check, a real prepare of `sha`, and publish; then lay down matching host copies."""
+        with patch.dict(os.environ, self.fixture.env, clear=True):
+            self.release.write_record(self.release.read_record(self.fixture.version), "check", {
+                "status": "ok", "mergeCommit": sha, "interface": {"from": None, "to": "2.11"}})
+        code, report, stdout = self.fixture.run_release("prepare", "--version", self.fixture.version)
+        self.assertEqual(code, 0, stdout)
+        self.prepared = Path(report["dir"])
+        self.addCleanup(shutil.rmtree, self.prepared, True)
+        with patch.dict(os.environ, self.fixture.env, clear=True):
+            self.release.write_record(self.release.read_record(self.fixture.version), "publish", {
+                "status": "ok", "tag": "v" + self.fixture.version, "peeledCommit": sha})
+        for copy in (self.claude_copy, self.codex_copy):
+            if copy.exists():
+                shutil.rmtree(copy)
+            shutil.copytree(self.prepared / "plugins" / "agent-relay", copy)
+        self.fixture.calls_log.write_text("", encoding="utf-8")
+
+    def write_marketplace(self, source):
+        self.marketplaces.write_text(json.dumps({
+            "agent-relay-marketplace": {"source": source, "installLocation": "/unused-cache"}}) + "\n",
+            encoding="utf-8")
+
+    def write_installed(self, path):
+        (self.fixture.claude / "plugins" / "installed_plugins.json").write_text(json.dumps({"plugins": {
+            self.PLUGIN_ID: [
+                {"scope": "local", "installPath": "/not-this-one", "version": "0.0.1"},
+                {"scope": "user", "installPath": str(path), "version": self.fixture.version},
+            ]}}), encoding="utf-8")
+
+    def make_clone(self):
+        clone = self.fixture.root / "clone"
+        subprocess.run([REAL_GIT, "clone", "-q", str(self.fixture.remote), str(clone)], env=self.fixture.env,
+                       capture_output=True, check=True, timeout=30)
+        self.write_marketplace({"source": "directory", "path": str(clone)})
+        return clone
+
+    def clone_git(self, clone, *args):
+        return subprocess.run([REAL_GIT, "-c", "core.hooksPath=" + os.devnull, "-C", str(clone), *args],
+                              env=self.fixture.env, capture_output=True, text=True, check=True,
+                              timeout=30).stdout.strip()
+
+    def install(self, status="ok", reason=None):
+        code, report, stdout = self.fixture.run_release("install", "--version", self.fixture.version, "--confirm")
+        self.assertEqual(code, {"ok": 0, "refused": 2, "failed": 1}[status], stdout)
+        self.assertEqual(report["schema"], "agent-relay.release/v1")
+        self.assertEqual(report["step"], "install")
+        self.assertEqual(report["version"], self.fixture.version)
+        self.assertEqual(report["status"], status, stdout)
+        if reason:
+            self.assertEqual(report["reason"], reason, stdout)
+        return report, stdout
+
+    def writes(self):
+        """Every call that changes a clone or a host, in order."""
+        found = []
+        for call in self.fixture.calls():
+            if call[0] == "git" and "pull" in call:
+                found.append("pull")
+            elif call[:3] == ["claude", "plugin", "marketplace"]:
+                found.append("claude marketplace update")
+            elif call[:3] == ["claude", "plugin", "update"]:
+                found.append("claude plugin update")
+            elif call[:3] == ["codex", "plugin", "add"]:
+                found.append("codex plugin add")
+            elif call[0] in ("claude", "codex") and call[1:] != ["plugin", "list", "--json"]:
+                found.append(" ".join(call))
+        return found
+
+    def test_confirm_runs_host_commands_in_order_and_records_both_copies(self):
+        # Files hosts add to their own copies are never compared (preflight.IGNORED).
+        (self.codex_copy / "migrated-command-skills").mkdir()
+        (self.codex_copy / "migrated-command-skills" / "x.md").write_text("added by Codex\n", encoding="utf-8")
+        (self.claude_copy / "bridge" / "node_modules").mkdir()
+        (self.claude_copy / "bridge" / "node_modules" / "dep.js").write_text("built\n", encoding="utf-8")
+        report, stdout = self.install()
+        self.assertEqual(self.fixture.calls(), [
+            ["claude", "plugin", "marketplace", "update", "agent-relay-marketplace"],
+            ["claude", "plugin", "update", "--scope", "user", self.PLUGIN_ID],
+            ["codex", "plugin", "add", self.PLUGIN_ID],
+            ["codex", "plugin", "list", "--json"],
+        ])
+        # The backup holds the pre-change bytes, so it was taken before the edit.
+        self.assertEqual(self.backup.read_bytes(), self.git_config.encode())
+        self.assertEqual(self.config.read_bytes(),
+                         self.git_config.replace('ref = "main"', 'ref = "v1.2.3"').encode())
+        self.assertEqual(report["hosts"]["claude"], {"path": str(self.claude_copy), "version": "1.2.3"})
+        self.assertEqual(report["hosts"]["codex"], {"path": str(self.codex_copy), "version": "1.2.3"})
+        self.assertEqual(report["codexConfig"], {"path": str(self.config), "backup": str(self.backup),
+                                                 "refChanged": True})
+        recorded = json.loads(self.record_path.read_text(encoding="utf-8"))["steps"]["install"]
+        self.assertEqual(recorded["status"], "ok")
+        self.assertEqual(recorded["hosts"], report["hosts"])
+        self.assertRegex(recorded["time"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d")
+        self.assertIn("publish", json.loads(self.record_path.read_text(encoding="utf-8"))["steps"])
+
+    def test_confirm_fast_forwards_directory_clone_to_tag_before_host_commands(self):
+        clone = self.make_clone()
+        old_head = self.clone_git(clone, "rev-parse", "HEAD")
+        tag_commit = self.fixture.commit({"README.md": "> 状态：1.2.3（接口 2.11）\n安装：--ref v1.2.3\n更多\n"})
+        self.fixture.git("push", "-q", "origin", "main")
+        self.release_at(tag_commit)
+        self.assertNotEqual(old_head, tag_commit)
+        report, stdout = self.install()
+        self.assertEqual(self.clone_git(clone, "rev-parse", "HEAD"), tag_commit)
+        self.assertEqual(self.writes(), ["pull", "claude marketplace update", "claude plugin update",
+                                         "codex plugin add"])
+        pull = next(call for call in self.fixture.calls() if "pull" in call)
+        self.assertEqual(pull, ["git", "-C", str(clone), "pull", "--ff-only"])
+        self.assertEqual(report["hosts"]["claude"]["path"], str((clone / "plugins" / "agent-relay").resolve()))
+
+    def test_confirm_refuses_unready_clone_and_leaves_everything_unchanged(self):
+        def dirty(clone):
+            (clone / "untracked.txt").write_text("local\n", encoding="utf-8")
+
+        def other_branch(clone):
+            self.clone_git(clone, "checkout", "-q", "-b", "work")
+
+        def ahead(clone):
+            (clone / "local.txt").write_text("local\n", encoding="utf-8")
+            self.clone_git(clone, "add", "local.txt")
+            self.clone_git(clone, "commit", "-q", "-m", "local only")
+
+        for name, change in (("dirty", dirty), ("other branch", other_branch), ("ahead of tag", ahead)):
+            with self.subTest(name=name):
+                clone = self.make_clone()
+                change(clone)
+                before = (self.clone_git(clone, "rev-parse", "HEAD"), self.clone_git(clone, "status", "--porcelain"),
+                          self.clone_git(clone, "branch", "--show-current"), self.config.read_bytes())
+                self.fixture.calls_log.write_text("", encoding="utf-8")
+                self.install(status="refused", reason="clone-not-clean")
+                self.assertEqual((self.clone_git(clone, "rev-parse", "HEAD"),
+                                  self.clone_git(clone, "status", "--porcelain"),
+                                  self.clone_git(clone, "branch", "--show-current"), self.config.read_bytes()),
+                                 before)
+                self.assertEqual(self.writes(), [])
+                self.assertFalse(self.backup.exists())
+                self.assertNotIn("install", json.loads(self.record_path.read_text(encoding="utf-8"))["steps"])
+                shutil.rmtree(clone)
+
+    def test_confirm_refuses_clone_that_does_not_land_on_the_tag(self):
+        clone = self.make_clone()
+        tag_commit = self.fixture.commit({"one.txt": "1\n"})
+        self.fixture.commit({"two.txt": "2\n"})
+        self.fixture.git("push", "-q", "origin", "main")
+        self.release_at(tag_commit)
+        self.install(status="refused", reason="clone-not-at-tag")
+        self.assertEqual(self.writes(), ["pull"])
+        self.assertEqual(self.config.read_bytes(), self.git_config.encode())
+
+    def test_confirm_rerun_skips_effects_already_present(self):
+        clone = self.make_clone()
+        already = self.git_config.replace('ref = "main"', 'ref = "v1.2.3"').encode()
+        self.config.write_bytes(already)
+        report, stdout = self.install()
+        self.assertEqual(self.writes(), ["claude marketplace update", "claude plugin update", "codex plugin add"])
+        self.assertFalse(any(call[0] == "git" and "fetch" in call for call in self.fixture.calls()))
+        self.assertEqual(self.config.read_bytes(), already)
+        self.assertFalse(self.backup.exists())
+        self.assertEqual(report["codexConfig"]["refChanged"], False)
+        self.assertEqual(self.clone_git(clone, "status", "--porcelain"), "")
+
+    def test_confirm_keeps_local_path_codex_config_and_backs_it_up(self):
+        text = '[marketplaces.agent-relay-marketplace]\nsource = "' + str(self.fixture.repo) + '"\n'
+        self.config.write_bytes(text.encode())
+        self.install()
+        self.assertEqual(self.config.read_bytes(), text.encode())
+        self.assertEqual(self.backup.read_bytes(), text.encode())
+
+    def test_confirm_fails_naming_a_changed_missing_or_extra_file(self):
+        target = "hooks/extra.py"
+
+        def changed(copy):
+            (copy / ".claude-plugin" / "plugin.json").write_text("{}", encoding="utf-8")
+            return "changed", ".claude-plugin/plugin.json"
+
+        def missing(copy):
+            (copy / "bridge" / "src" / "x.ts").unlink()
+            return "missing", "bridge/src/x.ts"
+
+        def extra(copy):
+            (copy / "hooks").mkdir(exist_ok=True)
+            (copy / target).write_text("print()\n", encoding="utf-8")
+            return "extra", target
+
+        for host in ("claude", "codex"):
+            for change in (changed, missing, extra):
+                with self.subTest(host=host, change=change.__name__):
+                    self.release_at(self.fixture.head)
+                    copy = self.claude_copy if host == "claude" else self.codex_copy
+                    kind, name = change(copy)
+                    report, stdout = self.install(status="failed", reason="copy-mismatch")
+                    self.assertEqual(report["differences"], {host: {kind: [name]}})
+                    self.assertIn(name, report["error"])
+                    self.assertIn(name, stdout)
+                    recorded = json.loads(self.record_path.read_text(encoding="utf-8"))["steps"]["install"]
+                    self.assertEqual(recorded["status"], "failed")
+                    self.assertEqual(recorded["differences"], report["differences"])
+
+    def test_confirm_fails_when_a_host_copy_cannot_be_found(self):
+        self.fixture.answer("codex", ["plugin", "list", "--json"], stdout=json.dumps({"installed": []}))
+        shutil.rmtree(self.claude_copy)
+        report, stdout = self.install(status="failed", reason="copy-mismatch")
+        self.assertEqual(report["differences"], {"claude": {"copy": "not-found"}, "codex": {"copy": "not-found"}})
+
+    def test_confirm_needs_prepared_manifest_before_any_command(self):
+        (self.prepared / "MANIFEST.json").unlink()
+        before = self.config.read_bytes()
+        self.install(status="refused", reason="needs-prepare")
+        self.assertEqual(self.fixture.calls(), [])
+        self.assertEqual(self.config.read_bytes(), before)
+
+    def test_confirm_refuses_ambiguous_codex_config_before_any_command(self):
+        clone = self.make_clone()
+        self.fixture.commit({"one.txt": "1\n"})
+        self.fixture.git("push", "-q", "origin", "main")
+        self.release_at(self.fixture.git("rev-parse", "HEAD"))
+        text = self.git_config + '[marketplaces.agent-relay-marketplace]\nref = "x"\n'
+        self.config.write_bytes(text.encode())
+        head = self.clone_git(clone, "rev-parse", "HEAD")
+        self.install(status="refused", reason="codex-ref-ambiguous")
+        self.assertEqual(self.writes(), [])
+        self.assertEqual(self.clone_git(clone, "rev-parse", "HEAD"), head)
+        self.assertEqual(self.config.read_bytes(), text.encode())
+        self.assertFalse(self.backup.exists())
 
 if __name__ == "__main__":
     unittest.main()
