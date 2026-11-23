@@ -217,7 +217,7 @@ class ReleaseCommandTests(unittest.TestCase):
                 self.assertEqual(report["reason"], "invalid-version")
 
     def test_remaining_subcommands_are_placeholders(self):
-        for step in ("publish", "install", "upgrade", "smoke", "evidence"):
+        for step in ("install", "upgrade", "smoke", "evidence"):
             with self.subTest(step=step):
                 args = ["--version", self.fixture.version]
                 args += ["--repo", str(self.fixture.repo), "--remote", "origin", "--github", "example/agent-relay"]
@@ -611,6 +611,171 @@ class ReleasePrepareTests(unittest.TestCase):
                 self.assertEqual(list(destination.iterdir()), [])
                 with patch.dict(os.environ, self.fixture.env, clear=True):
                     self.assertNotIn("prepare", self.release.read_record(self.fixture.version)["steps"])
+
+
+class ReleasePublishTests(unittest.TestCase):
+    def setUp(self):
+        self.fixture = Fixture()
+        self.addCleanup(self.fixture.close)
+        self.release = load_release()
+        with patch.dict(os.environ, self.fixture.env, clear=True):
+            self.release.write_record(self.release.read_record(self.fixture.version), "check", {
+                "status": "ok", "mergeCommit": self.fixture.head, "interface": {"from": None, "to": "2.11"}})
+        code, report, stdout = self.fixture.run_release("prepare", "--version", self.fixture.version)
+        self.assertEqual(code, 0, stdout)
+        self.directory = Path(report["dir"])
+        self.addCleanup(shutil.rmtree, self.directory)
+        self.record_path = self.fixture.state / "release" / (self.fixture.version + ".json")
+        self.tag = "v" + self.fixture.version
+        self.url = "https://github.com/example/agent-relay/releases/tag/" + self.tag
+        self.create = ["gh", "release", "create", self.tag, "--verify-tag", "--title",
+                       "agent-relay 1.2.3 (interface 2.11)", "--notes-file",
+                       str(self.directory / "release-notes.md"), "--repo", "example/agent-relay"]
+        self.view = ["gh", "release", "view", self.tag, "--json", "url", "--jq", ".url",
+                     "--repo", "example/agent-relay"]
+        self.fixture.answer("gh", self.create[1:], stdout=self.url + "\n")
+        self.fixture.answer("gh", self.view[1:], returncode=1)
+        self.fixture.calls_log.write_text("", encoding="utf-8")
+
+    def publish(self, *args, status="ok", reason=None):
+        code, report, stdout = self.fixture.run_release(
+            "publish", "--version", self.fixture.version, "--github", "example/agent-relay", *args)
+        self.assertEqual(code, {"ok": 0, "preview": 0, "refused": 2, "failed": 1}[status], stdout)
+        self.assertEqual(report["schema"], "agent-relay.release/v1")
+        self.assertEqual(report["step"], "publish")
+        self.assertEqual(report["version"], self.fixture.version)
+        self.assertEqual(report["status"], status, stdout)
+        if reason:
+            self.assertEqual(report["reason"], reason, stdout)
+        return report
+
+    def writes(self):
+        writes = []
+        for call in self.fixture.calls():
+            if call[0] == "git" and call[3] in ("tag", "push"):
+                writes.append(call)
+            elif call[:3] == ["gh", "release", "create"]:
+                writes.append(call)
+        return writes
+
+    def test_publish_needs_recorded_check_and_prepare_ok(self):
+        original = json.loads(self.record_path.read_text())
+        for step in ("check", "prepare"):
+            for status in (None, "preview", "refused", "failed", "waiting-on-user"):
+                with self.subTest(step=step, status=status):
+                    record = json.loads(json.dumps(original))
+                    if status is None:
+                        del record["steps"][step]
+                    else:
+                        record["steps"][step]["status"] = status
+                    self.record_path.write_text(json.dumps(record), encoding="utf-8")
+                    before = self.record_path.read_bytes()
+                    self.publish("--confirm", status="refused", reason="needs-" + step)
+                    self.assertEqual(self.record_path.read_bytes(), before)
+        self.assertEqual(self.fixture.calls(), [])
+
+    def test_publish_preview_lists_three_commands_without_writes(self):
+        before = self.record_path.read_bytes()
+        refs = self.fixture.git("show-ref")
+        report = self.publish(status="preview")
+        self.assertEqual(report["commands"], [
+            ["git", "-C", str(self.fixture.repo), "tag", "-a", self.tag, self.fixture.head,
+             "-m", "agent-relay 1.2.3"],
+            ["git", "-C", str(self.fixture.repo), "push", "origin", self.tag], self.create])
+        self.assertEqual(self.writes(), [])
+        self.assertEqual(self.fixture.git("show-ref"), refs)
+        self.assertEqual(self.fixture.git("ls-remote", "origin", "refs/tags/" + self.tag), "")
+        self.assertEqual(self.record_path.read_bytes(), before)
+
+    def test_publish_confirm_creates_annotated_tag_and_release_in_order(self):
+        before = json.loads(self.record_path.read_text())
+        # Publication must use the recorded merge commit even when local HEAD is later.
+        self.fixture.commit({"later.txt": "Not the release commit.\n"})
+        report = self.publish("--confirm")
+        self.assertEqual(self.fixture.git("-C", str(self.fixture.remote), "cat-file", "-t",
+                                          "refs/tags/" + self.tag), "tag")
+        self.assertEqual(self.fixture.git("-C", str(self.fixture.remote), "rev-parse", self.tag + "^{}"),
+                         self.fixture.head)
+        self.assertEqual(report["tag"], self.tag)
+        self.assertEqual(report["releaseUrl"], self.url)
+        self.assertEqual(report["peeledCommit"], self.fixture.head)
+        writes = self.writes()
+        self.assertEqual([call[3] if call[0] == "git" else call[2] for call in writes],
+                         ["tag", "push", "create"])
+        self.assertEqual(writes[-1], self.create)
+        self.assertEqual(self.fixture.calls()[-1], ["git", "-C", str(self.fixture.repo), "ls-remote",
+                                                   "origin", "refs/tags/" + self.tag + "^{}"])
+        record = json.loads(self.record_path.read_text())
+        self.assertEqual(record["steps"]["check"], before["steps"]["check"])
+        self.assertEqual(record["steps"]["prepare"], before["steps"]["prepare"])
+        self.assertEqual(record["steps"]["publish"], {key: value for key, value in report.items()
+                                                    if key not in ("schema", "step", "version")})
+
+    def test_publish_refuses_when_remote_main_moved(self):
+        before = self.record_path.read_bytes()
+        later = self.fixture.commit({"later.txt": "Remote main moved.\n"})
+        self.fixture.git("push", "-q", "origin", "HEAD:refs/heads/later")
+        self.fixture.git("-C", str(self.fixture.remote), "update-ref", "refs/heads/main", later)
+        self.assertEqual(self.fixture.git("rev-parse", "origin/main"), self.fixture.head)
+        for args in ((), ("--confirm",)):
+            with self.subTest(args=args):
+                self.publish(*args, status="refused", reason="main-moved")
+        self.assertEqual(self.writes(), [])
+        self.assertEqual(self.record_path.read_bytes(), before)
+
+    def test_publish_rerun_is_ok_without_any_writes(self):
+        self.publish("--confirm")
+        self.fixture.answer("gh", self.view[1:], stdout=self.url + "\n")
+        before = self.record_path.read_bytes()
+        refs = self.fixture.git("show-ref")
+        self.fixture.calls_log.write_text("", encoding="utf-8")
+        for args in ((), ("--confirm",)):
+            with self.subTest(args=args):
+                report = self.publish(*args)
+                self.assertIs(report["alreadyPublished"], True)
+                self.assertEqual(report["releaseUrl"], self.url)
+                self.assertEqual(report["peeledCommit"], self.fixture.head)
+        self.assertIn(self.view, self.fixture.calls())
+        self.assertEqual(self.writes(), [])
+        self.assertEqual(self.fixture.git("show-ref"), refs)
+        self.assertEqual(self.record_path.read_bytes(), before)
+
+    def test_publish_refuses_remote_tag_at_another_commit(self):
+        before = self.record_path.read_bytes()
+        other = self.fixture.commit({"other.txt": "Wrong release commit.\n"})
+        for annotated in (False, True):
+            with self.subTest(annotated=annotated):
+                args = ["tag", "-f"] + (["-a", "-m", "Wrong tag"] if annotated else [])
+                self.fixture.git(*args, self.tag, other)
+                self.fixture.git("push", "-q", "--force", "origin", self.tag)
+                for confirm in ((), ("--confirm",)):
+                    self.publish(*confirm, status="refused", reason="tag-mismatch")
+        self.assertEqual(self.writes(), [])
+        self.assertEqual(self.record_path.read_bytes(), before)
+
+    def test_publish_fails_when_remote_tag_changes_after_create(self):
+        other = self.fixture.commit({"other.txt": "Unexpected remote tag target.\n"})
+        before = self.record_path.read_bytes()
+        original_run = self.release.run
+
+        def run_with_moved_tag(args, *positional, **kwargs):
+            result = original_run(args, *positional, **kwargs)
+            if args[:3] == ["gh", "release", "create"]:
+                self.fixture.git("tag", "-a", "unexpected", other, "-m", "Changed remote tag")
+                self.fixture.git("push", "-q", "--force", "origin",
+                                 "refs/tags/unexpected:refs/tags/" + self.tag)
+            return result
+
+        stdout = io.StringIO()
+        with patch.dict(os.environ, self.fixture.env, clear=True), contextlib.redirect_stdout(stdout):
+            with patch.object(self.release, "run", side_effect=run_with_moved_tag):
+                code = self.release.main(["publish", "--repo", str(self.fixture.repo), "--version",
+                                          self.fixture.version, "--github", "example/agent-relay", "--confirm"])
+        report = json.loads(stdout.getvalue().splitlines()[-1])
+        self.assertEqual(code, 1, stdout.getvalue())
+        self.assertEqual(report["status"], "failed")
+        self.assertEqual(report["reason"], "tag-mismatch")
+        self.assertEqual(self.record_path.read_bytes(), before)
 
 
 if __name__ == "__main__":

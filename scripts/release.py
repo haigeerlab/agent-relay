@@ -96,13 +96,10 @@ def write_record(record, step, facts):
     return updated
 
 
-def check(args):
-    def git(*command):
-        return run(["git", "-C", str(args.repo), *command]).stdout.strip()
-
+def github_repository(args):
     github = args.github
     if github is None:
-        url = git("remote", "get-url", args.remote)
+        url = run(["git", "-C", str(args.repo), "remote", "get-url", args.remote]).stdout.strip()
         path = urlsplit(url).path if "://" in url else url.partition(":")[2]
         path = path.strip("/")
         if path.endswith(".git"):
@@ -110,6 +107,14 @@ def check(args):
         if not re.fullmatch(r"[^/\s:]+/[^/\s:]+", path):
             raise ReleaseError("无法从远端地址解析 GitHub 仓库，请指定 --github owner/repo。", "refused", "usage")
         github = path
+    return github
+
+
+def check(args):
+    def git(*command):
+        return run(["git", "-C", str(args.repo), *command]).stdout.strip()
+
+    github = github_repository(args)
 
     pr = json.loads(run(["gh", "api", f"repos/{github}/pulls/{args.pr}"]).stdout)
     if not pr.get("merged"):
@@ -221,7 +226,57 @@ def prepare(args):
 
 
 def publish(args):
-    raise ReleaseError("not implemented yet", "refused", "not-implemented")
+    record = read_record(args.version)
+    steps = record.get("steps", {})
+    for step in ("check", "prepare"):
+        if steps.get(step, {}).get("status") != "ok":
+            raise ReleaseError("本版本尚无成功的 " + step + " 记录，请先运行 " + step + "。",
+                               "refused", "needs-" + step)
+    checked = steps["check"]
+    sha = checked["mergeCommit"]
+    git = ["git", "-C", str(args.repo)]
+    main_ref = run([*git, "ls-remote", args.remote, "refs/heads/main"]).stdout.split()
+    if not main_ref or main_ref[0] != sha:
+        raise ReleaseError("远端 main 已不在发版 PR 的合并提交。", "refused", "main-moved")
+
+    tag = "v" + args.version
+    tag_ref = "refs/tags/" + tag
+    remote_refs = run([*git, "ls-remote", args.remote, tag_ref, tag_ref + "^{}"]).stdout
+    refs = {ref: commit for commit, ref in (line.split() for line in remote_refs.splitlines())}
+    remote_commit = refs.get(tag_ref + "^{}", refs.get(tag_ref))
+    if remote_commit is not None and remote_commit != sha:
+        raise ReleaseError("远端 tag 指向其他提交，已拒绝发布。", "refused", "tag-mismatch")
+
+    github = github_repository(args)
+    if remote_commit is not None:
+        try:
+            release_url = run(["gh", "release", "view", tag, "--json", "url", "--jq", ".url",
+                               "--repo", github]).stdout.strip()
+        except subprocess.CalledProcessError:
+            pass
+        else:
+            return {"status": "ok", "alreadyPublished": True, "tag": tag,
+                    "releaseUrl": release_url, "peeledCommit": remote_commit}
+
+    commands = [
+        [*git, "tag", "-a", tag, sha, "-m", "agent-relay " + args.version],
+        [*git, "push", args.remote, tag],
+        ["gh", "release", "create", tag, "--verify-tag", "--title",
+         "agent-relay " + args.version + " (interface " + str(checked["interface"]["to"]) + ")",
+         "--notes-file", str(Path(steps["prepare"]["dir"]) / "release-notes.md"), "--repo", github],
+    ]
+    if not args.confirm:
+        return {"status": "preview", "commands": commands}
+
+    for command in commands[:2]:
+        run(command)
+    release_url = run(commands[2]).stdout.strip()
+    peeled = run([*git, "ls-remote", args.remote, tag_ref + "^{}"]).stdout.split()
+    if not peeled or peeled[0] != sha:
+        raise ReleaseError("发布后远端 tag 未解析到合并提交。", "failed", "tag-mismatch")
+    facts = {"status": "ok", "tag": tag, "releaseUrl": release_url, "peeledCommit": peeled[0]}
+    write_record(record, "publish", facts)
+    return facts
 
 
 def install(args):
