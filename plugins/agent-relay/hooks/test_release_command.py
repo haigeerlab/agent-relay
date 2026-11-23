@@ -216,21 +216,6 @@ class ReleaseCommandTests(unittest.TestCase):
                                             "prepare", version, "refused", 2)
                 self.assertEqual(report["reason"], "invalid-version")
 
-    def test_remaining_subcommands_are_placeholders(self):
-        for step in ("smoke", "evidence"):
-            with self.subTest(step=step):
-                args = ["--version", self.fixture.version]
-                args += ["--repo", str(self.fixture.repo), "--remote", "origin", "--github", "example/agent-relay"]
-                if step in ("publish", "install", "upgrade"):
-                    args.append("--confirm")
-                if step == "evidence":
-                    args += ["--output", str(self.fixture.root / "evidence.md")]
-                report = self.assert_report(self.fixture.run_release(step, *args), step,
-                                            self.fixture.version, "refused", 2)
-                self.assertEqual(report["reason"], "not-implemented")
-        self.assertEqual(self.fixture.calls(), [])
-        self.assertEqual(list(self.fixture.state.iterdir()), [])
-
     def test_unexpected_exception_still_has_json_last_line(self):
         release = load_release()
         stdout = io.StringIO()
@@ -1312,6 +1297,179 @@ class ReleaseUpgradeTests(unittest.TestCase):
         for forbidden in ("kill(", '"pkill"', '"kill"', "killall", "osascript"):
             self.assertNotIn(forbidden, source)
         self.assertFalse(any("kill" in part for call in self.fixture.calls() for part in call))
+
+
+class ReleaseSmokeEvidenceBase(unittest.TestCase):
+    def setUp(self):
+        self.fixture = Fixture()
+        self.addCleanup(self.fixture.close)
+        self.release = load_release()
+        self.record_path = self.fixture.state / "release" / (self.fixture.version + ".json")
+        self.copy = self.fixture.root / "claude-copy"
+        self.script = self.copy / "hooks" / "native_collaboration_runtime.py"
+        self.script.parent.mkdir(parents=True)
+        self.script.write_text(FAKE_TOOL, encoding="utf-8")
+        self.script.chmod(0o755)
+
+    def record(self, step, facts):
+        with patch.dict(os.environ, self.fixture.env, clear=True):
+            self.release.write_record(self.release.read_record(self.fixture.version), step, facts)
+
+    def run_step(self, step, *args, status="ok", reason=None):
+        code, report, stdout = self.fixture.run_release(step, "--version", self.fixture.version, *args)
+        self.assertEqual(code, {"ok": 0, "refused": 2, "waiting-on-user": 3, "failed": 1}[status], stdout)
+        self.assertEqual(report["schema"], "agent-relay.release/v1")
+        self.assertEqual(report["step"], step)
+        self.assertEqual(report["version"], self.fixture.version)
+        self.assertEqual(report["status"], status, stdout)
+        if reason:
+            self.assertEqual(report["reason"], reason, stdout)
+        return report, stdout
+
+    def recorded(self, step):
+        if not self.record_path.exists():
+            return None
+        return json.loads(self.record_path.read_text(encoding="utf-8"))["steps"].get(step)
+
+
+class ReleaseSmokeTests(ReleaseSmokeEvidenceBase):
+    """D284: read-only doctor and status of the installed copy."""
+
+    CHECKS = ("runtime", "claude-plugin", "codex-plugin", "codex-restart")
+
+    def setUp(self):
+        super().setUp()
+        self.record("check", {"status": "ok", "mergeCommit": self.fixture.head, "runtimeUpgrade": True})
+        self.record("install", {"status": "ok", "hosts": {
+            "claude": {"path": str(self.copy), "version": self.fixture.version},
+            "codex": {"path": "/elsewhere", "version": self.fixture.version}}})
+        self.doctor()
+        self.status()
+
+    def doctor(self, overrides=None, overall=None, returncode=0, stdout=None):
+        states = {name: "ok" for name in self.CHECKS}
+        states.update(overrides or {})
+        checks = [{"check": name, "state": state, "detail": "d", "next": None} for name, state in states.items()]
+        if overall is None:
+            overall = "fail" if "fail" in states.values() else "warn" if "warn" in states.values() else "ok"
+        if stdout is None:
+            stdout = json.dumps({"state": overall, "root": "/runtime", "checks": checks}) + "\n"
+        self.fixture.answer("native_collaboration_runtime.py", ["doctor"], stdout=stdout, returncode=returncode)
+
+    def status(self, current=True):
+        self.fixture.answer("native_collaboration_runtime.py", ["status"],
+                            stdout=json.dumps({"state": "ready", "bridge": {"current": current}}) + "\n")
+
+    def test_smoke_needs_recorded_install(self):
+        self.record("install", {"status": "failed"})
+        self.run_step("smoke", status="refused", reason="needs-install")
+        self.assertEqual(self.fixture.calls(), [])
+
+    def test_smoke_all_ok_lists_every_check_and_runs_only_read_commands(self):
+        report, stdout = self.run_step("smoke")
+        self.assertEqual(report["checks"], [{"name": name, "state": "ok"} for name in self.CHECKS])
+        self.assertEqual(self.fixture.calls(), [["native_collaboration_runtime.py", "doctor"],
+                                                ["native_collaboration_runtime.py", "status"]])
+        self.assertEqual(self.recorded("smoke")["status"], "ok")
+
+    def test_smoke_doctor_fail_is_failed(self):
+        self.doctor({"runtime": "fail", "codex-restart": "warn"}, returncode=1)
+        report, stdout = self.run_step("smoke", status="failed", reason="doctor-fail")
+        self.assertIn({"name": "runtime", "state": "fail"}, report["checks"])
+        self.assertEqual(self.recorded("smoke")["status"], "failed")
+
+    def test_smoke_unreadable_doctor_output_is_failed(self):
+        self.doctor(stdout="Traceback: boom\n", returncode=1)
+        self.run_step("smoke", status="failed", reason="doctor-unreadable")
+
+    def test_smoke_codex_restart_warn_waits_for_user(self):
+        self.doctor({"codex-restart": "warn"})
+        report, stdout = self.run_step("smoke", status="waiting-on-user")
+        self.assertEqual(report["waiting"], ["codex-restart"])
+        self.assertIn("ChatGPT", stdout)
+        self.assertEqual(self.recorded("smoke")["status"], "waiting-on-user")
+
+    def test_smoke_claude_plugin_not_ok_waits_for_user(self):
+        for state in ("warn", "skip"):
+            with self.subTest(state=state):
+                self.doctor({"claude-plugin": state})
+                report, stdout = self.run_step("smoke", status="waiting-on-user")
+                self.assertEqual(report["waiting"], ["claude-plugin"])
+                self.assertIn("Claude Code", stdout)
+
+    def test_smoke_bridge_not_current_waits_only_when_upgrade_was_needed(self):
+        self.status(current=False)
+        report, stdout = self.run_step("smoke", status="waiting-on-user")
+        self.assertEqual(report["waiting"], ["runtime-upgrade"])
+        self.assertIn("upgrade", stdout)
+        self.record("check", {"status": "ok", "mergeCommit": self.fixture.head, "runtimeUpgrade": False})
+        self.run_step("smoke")
+
+
+class ReleaseEvidenceTests(ReleaseSmokeEvidenceBase):
+    """D285: a Markdown summary of the local record, never written into the repo."""
+
+    def full_record(self):
+        self.record("check", {"status": "ok", "mergeCommit": self.fixture.head, "previousTag": "v1.2.2",
+                              "interface": {"from": "2.10", "to": "2.11"}, "runtimeUpgrade": True,
+                              "runtimeFiles": ["src/"]})
+        self.record("prepare", {"status": "ok", "dir": "/prepared", "manifestSha256": "abc", "files": 7})
+        self.record("publish", {"status": "ok", "tag": "v1.2.3", "releaseUrl": "https://example.invalid/r/v1.2.3",
+                                "peeledCommit": self.fixture.head})
+        self.record("install", {"status": "ok", "hosts": {
+            "claude": {"path": "/claude-copy", "version": "1.2.3"},
+            "codex": {"path": "/codex-copy", "version": "1.2.3"}}, "time": "2026-11-23T00:00:00+00:00"})
+        self.record("upgrade", {"status": "ok", "state": "upgraded", "previous": "/runtime.previous-x",
+                                "backup": "/backups/x"})
+        self.record("smoke", {"status": "waiting-on-user", "waiting": ["codex-restart"],
+                              "message": "请用 ⌘Q 退出 ChatGPT 后重新打开。",
+                              "checks": [{"name": "runtime", "state": "ok"}, {"name": "codex-restart",
+                                                                               "state": "warn"}]})
+
+    def test_evidence_with_only_check_names_the_missing_steps(self):
+        self.record("check", {"status": "ok", "mergeCommit": self.fixture.head, "previousTag": None,
+                              "interface": {"from": None, "to": "2.11"}, "runtimeUpgrade": True,
+                              "runtimeFiles": []})
+        report, stdout = self.run_step("evidence")
+        self.assertEqual(report["missing"], ["prepare", "publish", "install", "upgrade", "smoke"])
+        self.assertIn(self.fixture.head, stdout)
+        for step in report["missing"]:
+            self.assertIn(step, stdout)
+        self.assertEqual(self.fixture.calls(), [])
+        self.assertEqual(self.fixture.git("status", "--porcelain"), "")
+
+    def test_evidence_without_any_record_is_ok(self):
+        report, stdout = self.run_step("evidence")
+        self.assertEqual(report["missing"], ["check", "prepare", "publish", "install", "upgrade", "smoke"])
+        self.assertFalse(self.record_path.exists())
+
+    def test_evidence_summarises_every_recorded_step(self):
+        self.full_record()
+        before = self.record_path.read_bytes()
+        report, stdout = self.run_step("evidence")
+        self.assertEqual(report["missing"], [])
+        self.assertEqual(report["waiting"], ["smoke: codex-restart"])
+        for text in (self.fixture.head, "v1.2.3", "https://example.invalid/r/v1.2.3", "v1.2.2", "2.10", "2.11",
+                     "src/", "/claude-copy", "/codex-copy", "upgraded", "/backups/x", "codex-restart", "ChatGPT"):
+            self.assertIn(text, stdout)
+        self.assertEqual(self.record_path.read_bytes(), before)
+
+    def test_evidence_output_inside_repo_is_refused(self):
+        self.full_record()
+        for target in (self.fixture.repo / "evidence.md", self.fixture.root / "outside" / ".." / "repo" / "e.md"):
+            with self.subTest(target=target):
+                self.run_step("evidence", "--output", str(target), status="refused", reason="output-in-repo")
+                self.assertFalse((self.fixture.repo / target.name).exists())
+        self.assertEqual(self.fixture.git("status", "--porcelain"), "")
+
+    def test_evidence_output_outside_repo_is_written(self):
+        self.full_record()
+        target = self.fixture.root / "evidence.md"
+        report, stdout = self.run_step("evidence", "--output", str(target))
+        self.assertEqual(report["output"], str(target.resolve()))
+        text = target.read_text(encoding="utf-8")
+        self.assertIn("v1.2.3", text)
+        self.assertIn("/claude-copy", text)
 
 if __name__ == "__main__":
     unittest.main()

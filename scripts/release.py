@@ -534,12 +534,133 @@ def upgrade(args):
     return facts
 
 
+def _last_json(command):
+    """The last stdout line of a command as a dict, also when it exits non-zero; None when unreadable."""
+    try:
+        output = run(command, timeout=300).stdout
+    except subprocess.CalledProcessError as error:
+        output = error.stdout or ""
+    lines = [line for line in output.splitlines() if line.strip()]
+    try:
+        found = json.loads(lines[-1])
+    except (IndexError, ValueError):
+        return None
+    return found if isinstance(found, dict) else None
+
+
 def smoke(args):
-    raise ReleaseError("not implemented yet", "refused", "not-implemented")
+    """D284: read-only doctor and status of the installed Claude copy's runtime script."""
+    record = read_record(args.version)
+    steps = record.get("steps", {})
+    installed = steps.get("install", {})
+    copy = ((installed.get("hosts") or {}).get("claude") or {}).get("path")
+    if installed.get("status") != "ok" or not copy:
+        raise ReleaseError("本版本尚无成功的 install 记录，请先运行 install。", "refused", "needs-install")
+    script = str(Path(copy) / "hooks" / "native_collaboration_runtime.py")
+    report = _last_json(["python3", "-B", script, "doctor"])
+    current = _last_json(["python3", "-B", script, "status"])
+    if report is None or not isinstance(report.get("checks"), list):
+        facts = {"status": "failed", "reason": "doctor-unreadable", "error": "doctor 的输出不是可解析的 JSON。"}
+        write_record(record, "smoke", facts)
+        return facts
+    checks = [{"name": item.get("check"), "state": item.get("state")}
+              for item in report["checks"] if isinstance(item, dict)]
+    states = {item["name"]: item["state"] for item in checks}
+    facts = {"status": "ok", "doctor": report.get("state"), "checks": checks,
+             "bridgeCurrent": ((current or {}).get("bridge") or {}).get("current")}
+    if report.get("state") == "fail" or "fail" in states.values():
+        failed = [item["name"] for item in checks if item["state"] == "fail"]
+        facts.update({"status": "failed", "reason": "doctor-fail",
+                      "error": "doctor 检查失败：" + ", ".join(str(name) for name in failed)})
+        write_record(record, "smoke", facts)
+        return facts
+    waiting, messages = [], []
+    if steps.get("check", {}).get("runtimeUpgrade") is True and facts["bridgeCurrent"] is not True:
+        waiting.append("runtime-upgrade")
+        messages.append("运行时 bridge 还不是本版本的：请用户关闭所有使用信箱的会话，再运行 upgrade --confirm。")
+    if "claude-plugin" in states and states["claude-plugin"] != "ok":
+        waiting.append("claude-plugin")
+        messages.append("Claude Code 插件检查为 " + str(states["claude-plugin"]) +
+                        "：请用户按 doctor 的提示处理，并新开 Claude Code 会话。")
+    if states.get("codex-restart") == "warn":
+        waiting.append("codex-restart")
+        messages.append("ChatGPT 在运行时升级前就已打开：请用户用 ⌘Q 退出 ChatGPT 后重新打开。")
+    if waiting:
+        facts.update({"status": "waiting-on-user", "waiting": waiting, "message": "\n".join(messages)})
+    write_record(record, "smoke", facts)
+    return facts
+
+
+STEPS = ("check", "prepare", "publish", "install", "upgrade", "smoke")
+
+
+def _evidence_markdown(version, steps):
+    def value(item):
+        return "—" if item is None or item == [] else ", ".join(map(str, item)) if isinstance(item, list) else str(item)
+
+    def state(step):
+        facts = steps.get(step)
+        return "未记录" if facts is None else str(facts.get("status"))
+
+    check = steps.get("check", {})
+    publish = steps.get("publish", {})
+    hosts = steps.get("install", {}).get("hosts") or {}
+    upgrade = steps.get("upgrade", {})
+    smoke = steps.get("smoke", {})
+    interface = check.get("interface") or {}
+    lines = [
+        "# agent-relay " + version + " 发版记录", "",
+        "## 发版", "",
+        "- check：" + state("check") + "；合并提交 " + value(check.get("mergeCommit")),
+        "- prepare：" + state("prepare") + "；文件数 " + value(steps.get("prepare", {}).get("files")),
+        "- publish：" + state("publish") + "；tag " + value(publish.get("tag")) + "；Release " +
+        value(publish.get("releaseUrl")), "",
+        "## 影响", "",
+        "- 上一个 tag：" + value(check.get("previousTag")),
+        "- 接口：" + value(interface.get("from")) + " → " + value(interface.get("to")),
+        "- 需要升级运行时：" + value(check.get("runtimeUpgrade")) + "；运行时文件 " + value(check.get("runtimeFiles")), "",
+        "## 宿主副本", "",
+        "- install：" + state("install") + "；时间 " + value(steps.get("install", {}).get("time")),
+    ]
+    for host, label in (("claude", "Claude"), ("codex", "Codex")):
+        copy = hosts.get(host) or {}
+        lines.append("- " + label + "：" + value(copy.get("path")) + "（版本 " + value(copy.get("version")) + "）")
+    lines += ["", "## 运行时升级", "",
+              "- upgrade：" + state("upgrade") + ("；已跳过（无需升级）" if upgrade.get("skipped") else "；" +
+              value(upgrade.get("state")) + "；旧运行时 " + value(upgrade.get("previous")) + "；备份 " +
+              value(upgrade.get("backup"))), "",
+              "## 冒烟", "",
+              "- smoke：" + state("smoke") + "；doctor " + value(smoke.get("doctor"))]
+    lines += ["  - " + str(item.get("name")) + "：" + str(item.get("state")) for item in smoke.get("checks", [])]
+    missing = [step for step in STEPS if step not in steps]
+    waiting = [step + (": " + ", ".join(steps[step]["waiting"]) if steps[step].get("waiting") else "")
+               for step in STEPS if step in steps and steps[step].get("status") == "waiting-on-user"]
+    lines += ["", "## 仍需用户处理", ""]
+    for step in STEPS:
+        facts = steps.get(step)
+        if facts is not None and facts.get("status") == "waiting-on-user":
+            lines.append("- " + step + "：" + value(facts.get("message")))
+        elif facts is not None and facts.get("status") != "ok":
+            lines.append("- " + step + "：状态 " + str(facts.get("status")) + "，" + value(facts.get("error")))
+    lines += ["- 未完成的步骤：" + (", ".join(missing) if missing else "无"), ""]
+    return "\n".join(lines), missing, waiting
 
 
 def evidence(args):
-    raise ReleaseError("not implemented yet", "refused", "not-implemented")
+    """D285: render the local record; never writes inside the repo."""
+    record = read_record(args.version)
+    text, missing, waiting = _evidence_markdown(args.version, record.get("steps", {}))
+    output = None
+    if args.output is not None:
+        target = Path(args.output).resolve()
+        if target.is_relative_to(Path(args.repo).resolve()):
+            raise ReleaseError("--output 不能位于仓库内。", "refused", "output-in-repo")
+        target.write_text(text, encoding="utf-8")
+        output = str(target)
+        print("汇总已写入：" + output)
+    else:
+        print(text)
+    return {"status": "ok", "missing": missing, "waiting": waiting, "output": output}
 
 
 def parser():
