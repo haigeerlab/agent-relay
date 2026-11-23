@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Release commands: isolated repositories, fake host tools and the D278/D286 contract."""
 import contextlib
+import hashlib
 import importlib.util
 import io
 import json
@@ -9,6 +10,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -215,7 +217,7 @@ class ReleaseCommandTests(unittest.TestCase):
                 self.assertEqual(report["reason"], "invalid-version")
 
     def test_remaining_subcommands_are_placeholders(self):
-        for step in ("prepare", "publish", "install", "upgrade", "smoke", "evidence"):
+        for step in ("publish", "install", "upgrade", "smoke", "evidence"):
             with self.subTest(step=step):
                 args = ["--version", self.fixture.version]
                 args += ["--repo", str(self.fixture.repo), "--remote", "origin", "--github", "example/agent-relay"]
@@ -474,6 +476,141 @@ class ReleaseCheckTests(unittest.TestCase):
         self.fixture.git("tag", "v9.0.0", side)
         self.fixture.git("checkout", "-q", "main")
         self.assertEqual(self.check()["previousTag"], "v1.2.10")
+
+
+class ReleasePrepareTests(unittest.TestCase):
+    def setUp(self):
+        self.fixture = Fixture()
+        self.addCleanup(self.fixture.close)
+        self.addCleanup(self.assert_local_calls)
+        self.release = load_release()
+
+    def assert_local_calls(self):
+        for call in self.fixture.calls():
+            self.assertEqual(call[:3], ["git", "-C", str(self.fixture.repo)], call)
+            self.assertIn(call[3], ("archive", "show"), call)
+
+    def record_check(self, status="ok"):
+        with patch.dict(os.environ, self.fixture.env, clear=True):
+            return self.release.write_record(self.release.read_record(self.fixture.version), "check",
+                                             {"status": status, "mergeCommit": self.fixture.head})
+
+    def prepare(self):
+        code, report, stdout = self.fixture.run_release("prepare", "--version", self.fixture.version)
+        self.assertEqual(code, 0, stdout)
+        self.assertEqual(report["schema"], "agent-relay.release/v1")
+        self.assertEqual(report["step"], "prepare")
+        self.assertEqual(report["version"], self.fixture.version)
+        self.assertEqual(report["status"], "ok", stdout)
+        directory = Path(report["dir"])
+        self.addCleanup(shutil.rmtree, directory)
+        self.assertTrue(directory.name.startswith("agent-relay-release-"))
+        return report, directory
+
+    def test_prepare_needs_recorded_check_ok(self):
+        for status in (None, "refused", "failed", "preview", "waiting-on-user"):
+            with self.subTest(status=status):
+                if status is not None:
+                    self.record_check(status)
+                code, report, stdout = self.fixture.run_release("prepare", "--version", self.fixture.version)
+                self.assertEqual(code, 2, stdout)
+                self.assertEqual(report["status"], "refused")
+                self.assertEqual(report["reason"], "needs-check")
+                with patch.dict(os.environ, self.fixture.env, clear=True):
+                    self.assertNotIn("prepare", self.release.read_record(self.fixture.version)["steps"])
+        self.assertEqual(self.fixture.calls(), [])
+
+    def test_prepare_archives_checked_commit_and_records_sorted_manifest(self):
+        plugin = "plugins/agent-relay/"
+        binary = self.fixture.repo / plugin / "binary.dat"
+        binary.write_bytes(bytes(range(256)))
+        self.fixture.head = self.fixture.commit({
+            plugin + "z-last.txt": "Last.\n", plugin + "a-first.txt": "中文内容\n",
+            plugin + ".DS_Store": "Ignored file.\n",
+            plugin + "bridge/node_modules/dependency.js": "Ignored dependency.\n",
+            plugin + "hooks/__pycache__/cache.pyc": "Ignored cache.\n",
+            plugin + ".codex-plugin/migrated-command-skills/generated.md": "Ignored skill.\n",
+        })
+        before = self.record_check()
+        # Both a later commit and dirty files must be absent from the prepared tree.
+        self.fixture.commit({plugin + "later.txt": "Not checked.\n", "CHANGELOG.md": "Later notes.\n"})
+        binary.write_bytes(b"Dirty binary.\n")
+        report, directory = self.prepare()
+        tracked = self.fixture.git("ls-tree", "-r", "--name-only", self.fixture.head, "--",
+                                   ".claude-plugin", "plugins/agent-relay").splitlines()
+        actual = {path.relative_to(directory).as_posix() for path in directory.rglob("*") if path.is_file()}
+        self.assertEqual(actual, set(tracked) | {"MANIFEST.json", "release-notes.md"})
+        self.assertEqual({path.name for path in directory.iterdir()},
+                         {".claude-plugin", "plugins", "MANIFEST.json", "release-notes.md"})
+        self.assertEqual({path.name for path in (directory / "plugins").iterdir()}, {"agent-relay"})
+        expected = {}
+        for name in tracked:
+            contents = subprocess.run([REAL_GIT, "-C", str(self.fixture.repo), "show",
+                                       self.fixture.head + ":" + name], env=self.fixture.env,
+                                      capture_output=True, check=True, timeout=30).stdout
+            self.assertEqual((directory / name).read_bytes(), contents)
+            relative = Path(name).relative_to("plugins/agent-relay") if name.startswith(plugin) else None
+            if relative is not None and not any(part in self.release._preflight.IGNORED for part in relative.parts):
+                expected[relative.as_posix()] = hashlib.sha256(contents).hexdigest()
+        manifest_path = directory / "MANIFEST.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        self.assertEqual(manifest, expected)
+        self.assertEqual(list(manifest), sorted(expected))
+        self.assertEqual(report["manifestSha256"], hashlib.sha256(manifest_path.read_bytes()).hexdigest())
+        self.assertEqual(report["files"], len(expected))
+        self.assertEqual((directory / "release-notes.md").read_text(encoding="utf-8"),
+                         "\nRelease test notes.\n\n")
+        with patch.dict(os.environ, self.fixture.env, clear=True):
+            self.assertEqual(self.release.read_record(self.fixture.version)["steps"],
+                             {**before["steps"], "prepare": {key: value for key, value in report.items()
+                                                            if key not in ("schema", "step", "version")}})
+        self.assertIn(["git", "-C", str(self.fixture.repo), "archive", "--format=tar", self.fixture.head,
+                       ".claude-plugin", "plugins/agent-relay"], self.fixture.calls())
+
+    def test_prepare_notes_at_end_of_changelog_and_rerun_uses_fresh_directory(self):
+        notes = "\n### Fixed\n\n- 修复内容。  \n"
+        self.fixture.head = self.fixture.commit({
+            "CHANGELOG.md": "# Changelog\n\n## [1.2.4]\n\nNewer notes.\n\n## [1.2.3] - 2026-01-01\n" + notes})
+        self.record_check()
+        first, first_dir = self.prepare()
+        second, second_dir = self.prepare()
+        self.assertNotEqual(first_dir, second_dir)
+        self.assertEqual(first["manifestSha256"], second["manifestSha256"])
+        for directory in (first_dir, second_dir):
+            self.assertEqual((directory / "release-notes.md").read_text(encoding="utf-8"), notes)
+        with patch.dict(os.environ, self.fixture.env, clear=True):
+            self.assertEqual(self.release.read_record(self.fixture.version)["steps"]["prepare"]["dir"], str(second_dir))
+
+    def test_prepare_empty_notes_without_trailing_newline(self):
+        self.fixture.head = self.fixture.commit({"CHANGELOG.md": "# Changelog\n\n## [1.2.3]"})
+        self.record_check()
+        _, directory = self.prepare()
+        self.assertEqual((directory / "release-notes.md").read_bytes(), b"")
+
+    def test_prepare_refuses_absolute_and_parent_archive_paths_before_extraction(self):
+        self.record_check()
+        for name in ("/outside.txt", "../outside.txt", "plugins/../outside.txt"):
+            with self.subTest(name=name):
+                contents = io.BytesIO()
+                with tarfile.open(fileobj=contents, mode="w") as archive:
+                    archive.addfile(tarfile.TarInfo("safe.txt"))
+                    archive.addfile(tarfile.TarInfo(name))
+                destination = self.fixture.root / "prepared"
+                destination.mkdir(exist_ok=True)
+                stdout = io.StringIO()
+                answer = subprocess.CompletedProcess([], 0, stdout=contents.getvalue())
+                with patch.dict(os.environ, self.fixture.env, clear=True), contextlib.redirect_stdout(stdout):
+                    with patch.object(self.release, "run", return_value=answer), \
+                            patch.object(self.release.tempfile, "mkdtemp", return_value=str(destination)):
+                        code = self.release.main(["prepare", "--repo", str(self.fixture.repo),
+                                                  "--version", self.fixture.version])
+                report = json.loads(stdout.getvalue().splitlines()[-1])
+                self.assertEqual(code, 2, stdout.getvalue())
+                self.assertEqual(report["status"], "refused")
+                self.assertEqual(report["reason"], "unsafe-archive")
+                self.assertEqual(list(destination.iterdir()), [])
+                with patch.dict(os.environ, self.fixture.env, clear=True):
+                    self.assertNotIn("prepare", self.release.read_record(self.fixture.version)["steps"])
 
 
 if __name__ == "__main__":

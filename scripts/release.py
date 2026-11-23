@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """Step-by-step maintainer release commands (D278 output, D286 local records)."""
 import argparse
+import hashlib
 import importlib.util
+import io
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import subprocess
 import sys
+import tarfile
 import tempfile
 from urllib.parse import urlsplit
 
@@ -21,6 +24,11 @@ _runtime = importlib.util.module_from_spec(_runtime_spec)
 _runtime_spec.loader.exec_module(_runtime)
 state_home = _runtime.state_home
 RUNTIME_FILES = _runtime.RUNTIME_FILES
+
+_preflight_spec = importlib.util.spec_from_file_location(
+    "release_preflight", REPO / "scripts" / "acceptance" / "preflight.py")
+_preflight = importlib.util.module_from_spec(_preflight_spec)
+_preflight_spec.loader.exec_module(_preflight)
 
 
 class ReleaseError(Exception):
@@ -46,9 +54,9 @@ class ArgumentParser(argparse.ArgumentParser):
         self.error(message or "无法解析参数")
 
 
-def run(args, timeout=30):
+def run(args, timeout=30, *, text=True):
     """The only process entry point; callers pass an argument list."""
-    return subprocess.run(args, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+    return subprocess.run(args, stdin=subprocess.DEVNULL, capture_output=True, text=text,
                           timeout=timeout, check=True)
 
 
@@ -174,7 +182,42 @@ def check(args):
 
 
 def prepare(args):
-    raise ReleaseError("not implemented yet", "refused", "not-implemented")
+    record = read_record(args.version)
+    checked = record.get("steps", {}).get("check", {})
+    if checked.get("status") != "ok":
+        raise ReleaseError("本版本尚无成功的 check 记录，请先运行 check。", "refused", "needs-check")
+    sha = checked["mergeCommit"]
+    archived = run(["git", "-C", str(args.repo), "archive", "--format=tar", sha,
+                    ".claude-plugin", "plugins/agent-relay"], text=False).stdout
+    directory = Path(tempfile.mkdtemp(prefix="agent-relay-release-"))
+    with tarfile.open(fileobj=io.BytesIO(archived), mode="r:") as archive:
+        members = archive.getmembers()
+        for member in members:
+            path = PurePosixPath(member.name)
+            if path.is_absolute() or ".." in path.parts:
+                raise ReleaseError("归档含绝对路径或上级目录，已拒绝解包。", "refused", "unsafe-archive")
+        archive.extractall(directory, members=members)
+
+    plugin = directory / "plugins" / "agent-relay"
+    manifest = {}
+    for path in sorted(plugin.rglob("*")):
+        relative = path.relative_to(plugin)
+        if any(part in _preflight.IGNORED for part in relative.parts) or not path.is_file():
+            continue
+        manifest[relative.as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+    manifest_path = directory / "MANIFEST.json"
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+                             encoding="utf-8")
+    changelog = run(["git", "-C", str(args.repo), "show", sha + ":CHANGELOG.md"]).stdout
+    section = re.search(r"^## \[" + re.escape(args.version) + r"\](?:[ \t][^\n]*)?(?:\n|\Z)(.*?)(?=^## \[|\Z)",
+                        changelog, re.MULTILINE | re.DOTALL)
+    if section is None:
+        raise ReleaseError("CHANGELOG.md 缺少本版本的章节。", "refused", "changelog-missing")
+    (directory / "release-notes.md").write_text(section.group(1), encoding="utf-8")
+    facts = {"status": "ok", "dir": str(directory),
+             "manifestSha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(), "files": len(manifest)}
+    write_record(record, "prepare", facts)
+    return facts
 
 
 def publish(args):
