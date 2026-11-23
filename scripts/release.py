@@ -279,8 +279,88 @@ def publish(args):
     return facts
 
 
+def claude_source():
+    """Read the marketplace's declared source, never its cached install location."""
+    home = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
+    marketplaces = json.loads((home / "plugins" / "known_marketplaces.json").read_text(encoding="utf-8"))
+    source = marketplaces.get("agent-relay-marketplace", {}).get("source", {})
+    kind = source.get("source")
+    if kind == "directory" and source.get("path"):
+        return {"kind": "directory", "path": source["path"]}
+    if kind in ("git", "github") and (source.get("url") or source.get("repo")):
+        return {"kind": "git", **{key: source[key] for key in ("url", "repo", "ref") if key in source}}
+    raise ReleaseError("无法识别 Claude 的 agent-relay-marketplace 来源。", "refused", "claude-source-unknown")
+
+
+def _codex_marketplace(text):
+    """Locate the target table and its scalar source without reserializing TOML."""
+    def ambiguous():
+        return ReleaseError("Codex 市场段缺失、来源不明或 ref 行不唯一。", "refused", "codex-ref-ambiguous")
+
+    headers = list(re.finditer(r"^[ \t]*(\[[^\r\n]+?\])[ \t]*(?:#[^\r\n]*)?(?:\r?\n|$)", text, re.MULTILINE))
+    targets = [index for index, header in enumerate(headers)
+               if header.group(1) == "[marketplaces.agent-relay-marketplace]"]
+    if len(targets) != 1:
+        raise ambiguous()
+    index = targets[0]
+    start = headers[index].end()
+    end = headers[index + 1].start() if index + 1 < len(headers) else len(text)
+    section = text[start:end]
+    fields = {}
+    for field in re.finditer(r'''^[ \t]*(source|path|url|ref)[ \t]*=[ \t]*("(?:[^"\\\r\n]|\\.)*"|'[^'\r\n]*')[ \t]*(?:#[^\r\n]*)?\r?$''',
+                             section, re.MULTILINE):
+        raw = field.group(2)
+        fields[field.group(1)] = json.loads(raw) if raw.startswith('"') else raw[1:-1]
+    location = fields.get("path") or fields.get("url") or fields.get("source")
+    if not location:
+        raise ambiguous()
+    if "path" in fields or not re.match(r"[a-zA-Z][a-zA-Z0-9+.-]*://|[^/\s]+@[^:\s]+:", location):
+        source = {"kind": "directory", "path": location}
+    else:
+        source = {"kind": "git", "url": location}
+        if "ref" in fields:
+            source["ref"] = fields["ref"]
+    refs = list(re.finditer(r"^([ \t]*)ref[ \t]*=[^\r\n]*(\r\n|\n|$)", section, re.MULTILINE))
+    if source["kind"] == "git" and len(refs) != 1:
+        raise ambiguous()
+    return start, source, refs
+
+
+def codex_ref_change(text, version):
+    """Return a one-line edit, or None for a local source; never write config."""
+    validate_version(version)
+    start, source, refs = _codex_marketplace(text)
+    if source["kind"] == "directory":
+        return None
+    ref = refs[0]
+    replacement = ref.group(1) + 'ref = "v' + version + '"' + ref.group(2)
+    return text[:start + ref.start()] + replacement + text[start + ref.end():]
+
+
 def install(args):
-    raise ReleaseError("not implemented yet", "refused", "not-implemented")
+    record = read_record(args.version)
+    if record.get("steps", {}).get("publish", {}).get("status") != "ok":
+        raise ReleaseError("本版本尚无成功的 publish 记录，请先运行 publish。", "refused", "needs-publish")
+    if args.confirm:
+        raise ReleaseError("not implemented yet", "refused", "not-implemented")
+
+    claude = claude_source()
+    config = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / "config.toml"
+    text = config.read_bytes().decode("utf-8")
+    changed = codex_ref_change(text, args.version)
+    _, codex, _ = _codex_marketplace(text)
+    commands = []
+    if claude["kind"] == "directory":
+        commands.append(["git", "-C", claude["path"], "pull", "--ff-only"])
+    commands.extend([
+        ["claude", "plugin", "marketplace", "update", "agent-relay-marketplace"],
+        ["claude", "plugin", "update", "--scope", "user", "agent-relay@agent-relay-marketplace"],
+        ["codex", "plugin", "add", "agent-relay@agent-relay-marketplace"],
+    ])
+    return {"status": "preview", "sources": {"claude": claude, "codex": codex}, "commands": commands,
+            "codexConfig": {"path": str(config),
+                            "backup": str(state_home() / "release" / (args.version + "-config.toml.bak")),
+                            "refChange": changed is not None and changed != text, "ref": "v" + args.version}}
 
 
 def upgrade(args):

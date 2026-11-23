@@ -8,7 +8,8 @@
   - Accepted by the owner: focused suite 38 tests, local path check and `bash scripts/validate.sh` pass (50 files, 1013 tests).
 - [x] Task 4: `publish` (D281; AC3)
   - Accepted by the owner: focused suite 45 tests, local path check and `bash scripts/validate.sh` pass (50 files, 1020 tests).
-- [ ] Task 5: `install` host detection and Codex config edit (D282; AC4)
+- [x] Task 5: `install` host detection and Codex config edit (D282; AC4)
+  - Accepted by the owner: focused suite 53 tests, local path check and `bash scripts/validate.sh` pass (50 files, 1028 tests).
 - [ ] Task 6: `install --confirm` run and verify (D282; AC3, AC5)
 - [ ] Task 7: `upgrade` (D283; AC6)
 - [ ] Task 8: `smoke` and `evidence` (D284, D285; AC7, AC8)

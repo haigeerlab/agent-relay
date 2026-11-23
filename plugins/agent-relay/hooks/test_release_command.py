@@ -217,7 +217,7 @@ class ReleaseCommandTests(unittest.TestCase):
                 self.assertEqual(report["reason"], "invalid-version")
 
     def test_remaining_subcommands_are_placeholders(self):
-        for step in ("install", "upgrade", "smoke", "evidence"):
+        for step in ("upgrade", "smoke", "evidence"):
             with self.subTest(step=step):
                 args = ["--version", self.fixture.version]
                 args += ["--repo", str(self.fixture.repo), "--remote", "origin", "--github", "example/agent-relay"]
@@ -776,6 +776,160 @@ class ReleasePublishTests(unittest.TestCase):
         self.assertEqual(report["status"], "failed")
         self.assertEqual(report["reason"], "tag-mismatch")
         self.assertEqual(self.record_path.read_bytes(), before)
+
+
+class ReleaseInstallTests(unittest.TestCase):
+    def setUp(self):
+        self.fixture = Fixture()
+        self.addCleanup(self.fixture.close)
+        self.release = load_release()
+        self.marketplaces = self.fixture.claude / "plugins" / "known_marketplaces.json"
+        self.marketplaces.parent.mkdir()
+        self.config = self.fixture.codex / "config.toml"
+        self.url = "https://github.com/example/agent-relay.git"
+        self.git_config = ('[marketplaces.agent-relay-marketplace]\n'
+                           'source = "' + self.url + '"\nref = "main"\n')
+        self.config.write_bytes(self.git_config.encode())
+        self.claude_source = {"source": "git", "url": self.url, "ref": "main"}
+        self.write_marketplace(self.claude_source)
+        with patch.dict(os.environ, self.fixture.env, clear=True):
+            self.release.write_record(self.release.read_record(self.fixture.version), "publish", {
+                "status": "ok", "tag": "v" + self.fixture.version, "peeledCommit": self.fixture.head})
+        self.record_path = self.fixture.state / "release" / (self.fixture.version + ".json")
+
+    def write_marketplace(self, source):
+        self.marketplaces.write_text(json.dumps({
+            "other": {"source": {"source": "directory", "path": "/unrelated"}},
+            "agent-relay-marketplace": {"source": source, "installLocation": "/unused-cache"},
+        }, indent=2) + "\n", encoding="utf-8")
+
+    def install(self, *args, status="preview", reason=None):
+        code, report, stdout = self.fixture.run_release("install", "--version", self.fixture.version, *args)
+        self.assertEqual(code, {"preview": 0, "refused": 2}[status], stdout)
+        self.assertEqual(report["schema"], "agent-relay.release/v1")
+        self.assertEqual(report["step"], "install")
+        self.assertEqual(report["version"], self.fixture.version)
+        self.assertEqual(report["status"], status, stdout)
+        if reason:
+            self.assertEqual(report["reason"], reason, stdout)
+        return report
+
+    def test_claude_source_detects_directory_git_and_github(self):
+        cases = [
+            ({"source": "directory", "path": str(self.fixture.repo)},
+             {"kind": "directory", "path": str(self.fixture.repo)}),
+            (self.claude_source, {"kind": "git", "url": self.url, "ref": "main"}),
+            ({"source": "github", "repo": "example/agent-relay"},
+             {"kind": "git", "repo": "example/agent-relay"}),
+        ]
+        for source, expected in cases:
+            with self.subTest(source=source), patch.dict(os.environ, self.fixture.env, clear=True):
+                self.write_marketplace(source)
+                before = self.marketplaces.read_bytes()
+                self.assertEqual(self.release.claude_source(), expected)
+                self.assertEqual(self.marketplaces.read_bytes(), before)
+        self.assertEqual(self.fixture.calls(), [])
+
+    def test_codex_ref_change_preserves_every_other_byte_and_line_ending(self):
+        for newline in ("\n", "\r\n"):
+            for trailing in ("", newline):
+                for last_ref in (False, True):
+                    with self.subTest(newline=newline, trailing=trailing, last_ref=last_ref):
+                        prefix = ('# 注释 and unrelated ref\n[marketplaces.other]\nref = "other"\n'
+                                  '[marketplaces.agent-relay-marketplace] # target [comment]\n'
+                                  '# ref = "comment"\nsource = "' + self.url + '"\n')
+                        suffix = "" if last_ref else '\n# keep this comment\n[other]\nref = "untouched"'
+                        old = '\t  ref  = "main" # old pin'
+                        text = (prefix + old + suffix).replace("\n", newline) + trailing
+                        expected = text.replace(old, '\t  ref = "v1.2.3"')
+                        self.assertEqual(self.release.codex_ref_change(text, self.fixture.version).encode(),
+                                         expected.encode())
+
+    def test_codex_ref_change_refuses_missing_or_ambiguous_ref(self):
+        cases = [
+            '[marketplaces.other]\nsource = "' + self.url + '"\nref = "main"\n',
+            self.git_config + 'ref = "another"\n',
+            self.git_config.replace('ref = "main"\n', '# ref = "comment only"\n'),
+        ]
+        for text in cases:
+            with self.subTest(text=text):
+                with self.assertRaises(self.release.ReleaseError) as caught:
+                    self.release.codex_ref_change(text, self.fixture.version)
+                self.assertEqual(caught.exception.status, "refused")
+                self.assertEqual(caught.exception.reason, "codex-ref-ambiguous")
+
+    def test_codex_local_path_source_needs_no_ref_change(self):
+        for key in ("source", "path"):
+            with self.subTest(key=key):
+                text = '[marketplaces.agent-relay-marketplace]\n' + key + ' = "' + str(self.fixture.repo) + '"\n'
+                self.assertIsNone(self.release.codex_ref_change(text, self.fixture.version))
+                self.config.write_bytes(text.encode())
+                report = self.install()
+                self.assertEqual(report["sources"]["codex"], {"kind": "directory", "path": str(self.fixture.repo)})
+                self.assertEqual(self.config.read_bytes(), text.encode())
+
+    def test_install_needs_recorded_publish_ok(self):
+        for status in (None, "preview", "refused", "failed", "waiting-on-user"):
+            for confirm in ((), ("--confirm",)):
+                with self.subTest(status=status, confirm=confirm):
+                    record = {"schema": self.release.SCHEMA, "version": self.fixture.version, "steps": {}}
+                    if status is not None:
+                        record["steps"]["publish"] = {"status": status}
+                    self.record_path.write_text(json.dumps(record), encoding="utf-8")
+                    before = self.record_path.read_bytes()
+                    self.install(*confirm, status="refused", reason="needs-publish")
+                    self.assertEqual(self.record_path.read_bytes(), before)
+        self.assertEqual(self.fixture.calls(), [])
+
+    def test_install_preview_lists_sources_and_exact_commands_without_changes(self):
+        for directory in (False, True):
+            with self.subTest(directory=directory):
+                source = {"source": "directory", "path": str(self.fixture.repo)} if directory else self.claude_source
+                self.write_marketplace(source)
+                # Exercise raw decoding as well as the pure function's CRLF preservation.
+                self.config.write_bytes(self.git_config.replace("\n", "\r\n").encode())
+                paths = (self.config, self.marketplaces, self.record_path)
+                before = {path: path.read_bytes() for path in paths}
+                refs = self.fixture.git("show-ref")
+                report = self.install()
+                self.assertEqual(report["sources"]["claude"],
+                                 {"kind": "directory", "path": str(self.fixture.repo)} if directory else
+                                 {"kind": "git", "url": self.url, "ref": "main"})
+                self.assertEqual(report["sources"]["codex"], {"kind": "git", "url": self.url, "ref": "main"})
+                commands = [["git", "-C", str(self.fixture.repo), "pull", "--ff-only"]] if directory else []
+                commands += [
+                    ["claude", "plugin", "marketplace", "update", "agent-relay-marketplace"],
+                    ["claude", "plugin", "update", "--scope", "user", "agent-relay@agent-relay-marketplace"],
+                    ["codex", "plugin", "add", "agent-relay@agent-relay-marketplace"],
+                ]
+                self.assertEqual(report["commands"], commands)
+                self.assertEqual(report["codexConfig"], {
+                    "path": str(self.config),
+                    "backup": str(self.record_path.parent / "1.2.3-config.toml.bak"),
+                    "refChange": True, "ref": "v1.2.3"})
+                self.assertEqual({path: path.read_bytes() for path in paths}, before)
+                self.assertEqual(self.fixture.git("show-ref"), refs)
+                self.assertEqual(self.fixture.git("status", "--porcelain"), "")
+                self.assertEqual(sorted(path.name for path in self.record_path.parent.iterdir()), ["1.2.3.json"])
+        self.assertEqual(self.fixture.calls(), [])
+
+    def test_install_preview_refuses_ambiguous_config_without_changes(self):
+        for text in ('# missing section\n', self.git_config + 'ref = "second"\n',
+                     self.git_config.replace('ref = "main"\n', '')):
+            with self.subTest(text=text):
+                self.config.write_bytes(text.encode())
+                paths = (self.config, self.marketplaces, self.record_path)
+                before = {path: path.read_bytes() for path in paths}
+                self.install(status="refused", reason="codex-ref-ambiguous")
+                self.assertEqual({path: path.read_bytes() for path in paths}, before)
+        self.assertEqual(self.fixture.calls(), [])
+
+    def test_install_confirm_stays_unimplemented_without_changes(self):
+        paths = (self.config, self.marketplaces, self.record_path)
+        before = {path: path.read_bytes() for path in paths}
+        self.install("--confirm", status="refused", reason="not-implemented")
+        self.assertEqual({path: path.read_bytes() for path in paths}, before)
+        self.assertEqual(self.fixture.calls(), [])
 
 
 if __name__ == "__main__":
