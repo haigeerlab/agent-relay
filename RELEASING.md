@@ -48,23 +48,61 @@ bridge 目录的文件都登记在 `bridge/UPSTREAM.sha256` 里，安装时逐�
 
 ## 发版
 
-PR 合并后，在合并提交上：
+PR 合并后，按顺序调用 `scripts/release.py` 的各个步骤（模块 `release-commands`）。每一步先打几行中文说明，最后一行是一行
+JSON：`{"schema": "agent-relay.release/v1", "step", "version", "status", ...}`；`status` 为 `ok`、`preview`、`refused`、
+`waiting-on-user`、`failed`，退出码分别是 0、0、2、3、1，`refused` 带一个固定的 `reason`。每一步的结果记在本机
+`~/.agent-relay/release/<版本>.json`（不进仓库），后一步读前一步的记录；前一步没有成功记录时报 `needs-<步骤>`。
+
+谁能跑：`check`、`prepare`、`smoke`、`evidence` 只读或只写本机临时目录，autopilot 和 agent 可以自己跑；`publish`、
+`install`、`upgrade` 不带 `--confirm` 只出预览，带 `--confirm` 才执行，**要用户明确同意之后**才加 `--confirm`。命令不判断
+同意从哪来，这是调用方的责任。
+
+1. `python3 scripts/release.py check --pr <发版 PR 编号>`：确认 PR 已合并、远端 `main` 仍在合并提交、合并提交上的 CI 全部
+   通过、两份 `plugin.json` 版本一致、两份 README 的状态行和 `--ref` 是这一版、CHANGELOG 有这一版的章节、bridge 版本不高于
+   插件版本、这一版的 tag 还不存在。通过时报出影响：上一个 tag、接口版本从几到几、要不要升级运行时（`runtimeUpgrade`，
+   按 `RUNTIME_FILES` 比较 bridge 的改动）。
+2. `python3 scripts/release.py prepare --version 0.x.y`：把合并提交的 `.claude-plugin` 和 `plugins/agent-relay` 解到一个新的
+   临时目录，写 `MANIFEST.json`（每个文件的 sha256）和 `release-notes.md`（这一版的 CHANGELOG 段落）。不重跑测试：完整测试是
+   合并提交上 CI 的四个组合，`check` 已核过。这是 autopilot 不经用户能走到的最后一步（“备好等批”）。
+3. `python3 scripts/release.py publish --version 0.x.y`，用户同意后加 `--confirm`：打附注标签 `v0.x.y` 到合并提交、推送标签、
+   `gh release create --verify-tag`（标题带接口版本，说明用 `release-notes.md`），再核对远端标签解析到合并提交。标签和
+   Release 已经在时重跑直接报 `ok`，不再写。
+
+## 发版后
+
+1. `python3 scripts/release.py install --version 0.x.y`，用户同意后加 `--confirm`：在两个宿主上更新插件。
+   - Claude Code 从本地克隆装的：克隆有未提交改动、不在 `main` 或不能快进时拒绝（`clone-not-clean`），否则
+     `git pull --ff-only` 到标签所在提交；然后 `claude plugin marketplace update agent-relay-marketplace` 和
+     `claude plugin update --scope user agent-relay@agent-relay-marketplace`，刷新用户级记录的标签，否则 doctor 报 warn
+     （模块 `post-090-docs` D258）。
+   - Codex：先把 `config.toml` 备份到本机记录目录，只把 `[marketplaces.agent-relay-marketplace]` 的 `ref` 一行改成
+     `v0.x.y`（段缺失或 `ref` 不唯一时拒绝，文件不动；本地路径来源不改），再 `codex plugin add agent-relay@agent-relay-marketplace`。
+   - 最后把两个宿主正在用的副本逐个文件和 `MANIFEST.json` 比对，有缺、多、不同的文件就报 `failed` 并列出来。终端输出可能
+     乱序，以安装后的文件为准。
+2. `python3 scripts/release.py upgrade --version 0.x.y`：`check` 判定不用升级运行时（只改 hooks、skills、文档，或 bridge 里只改
+   测试、文档）时直接跳过。要升级时，**先由用户关掉所有用到信箱的会话**（Claude Code 会话，并用 ⌘Q 退出 ChatGPT）；命令从不
+   停 bridge、不退出任何应用。用户同意后加 `--confirm`：还有 bridge 在跑就报 `waiting-on-user`（退出码 3），什么都不改；
+   没有在跑的才调用已安装副本的 `native_collaboration_runtime.py upgrade --confirm`。升级失败时只打印 `rollback --confirm`
+   和 `recover --confirm` 两条命令，由用户决定是否执行，命令不会自己回滚（README“升级运行时”）。
+3. 用户重新打开 ChatGPT、新开 Claude Code 会话，然后 `python3 scripts/release.py smoke --version 0.x.y`：只读跑已安装副本的
+   `doctor` 和 `status`。doctor 有 fail 报 `failed`；运行时该升级没升、Claude 插件检查不是 ok、ChatGPT 还没在升级后重开，报
+   `waiting-on-user` 并写出用户要做什么；环境类的 warn 按 doctor 给的下一步处理。
+4. `python3 scripts/release.py evidence --version 0.x.y [--output <仓库外的文件>]`：把本机记录汇总成一段 Markdown（合并提交、
+   标签、Release、影响、两个宿主的副本、运行时升级、冒烟结果、还等用户做的事），缺的步骤会写出来；`--output` 不能在仓库里。
+5. 请协调会话在新会话里做真实宿主验收，按 [验收清单](docs/acceptance/checklist.md) 里涉及这一版的条目。
+6. 验收中发现的问题进下一版，不改已发布的标签。
+
+### 命令不可用时
+
+`scripts/release.py` 跑不了时（例如本机缺 `gh`），手动做同样的事，前提检查照上面第 1 步逐项核对：
 
 ```bash
 git tag -a v0.x.y <合并提交> -m "agent-relay 0.x.y"
 git push origin v0.x.y
-gh release create v0.x.y --title "agent-relay 0.x.y (interface 2.0)" --notes-file <这一版的 CHANGELOG 段落>
+gh release create v0.x.y --verify-tag --title "agent-relay 0.x.y (interface 2.0)" --notes-file <这一版的 CHANGELOG 段落>
 ```
 
-## 发版后
-
-1. 用户在真实宿主上更新：先把本机克隆拉到新标签，两个宿主都更新插件（Claude Code 从本地克隆装的，拉完再跑
-   `claude plugin marketplace update agent-relay-marketplace` 和
-   `claude plugin update --scope user agent-relay@agent-relay-marketplace` 刷新标签）；bridge 的运行时文件有改动时（只改测试或文档不算，
-   见上文）关掉所有用到信箱的会话，再跑 `upgrade --confirm`（步骤见 README“更新插件”“升级运行时”）。终端输出可能乱序，以安装后的文件和 `doctor` 为准。
-2. `doctor` 各项为 ok（环境类的 warn 按它给的下一步处理）。
-3. 请协调会话在新会话里做真实宿主验收，按 [验收清单](docs/acceptance/checklist.md) 里涉及这一版的条目。
-4. 验收中发现的问题进下一版，不改已发布的标签。
+宿主更新和运行时升级见 README“更新插件”“升级运行时”。
 
 ## 撤回一次合并
 

@@ -688,9 +688,9 @@ def parser():
 def main(argv=None):
     args = argparse.Namespace(step=None, version=None)
     result = {}
-    print("正在检查发版命令。")
     try:
         args = parser().parse_args(argv, namespace=args)
+        print("正在检查发版命令。")
         if args.version is not None:
             validate_version(args.version)
         result = args.handler(args)
@@ -698,8 +698,7 @@ def main(argv=None):
         exit_code = EXIT_CODES[result["status"]]
         json.dumps(result, ensure_ascii=False)
     except HelpRequested:
-        result = {"status": "ok"}
-        exit_code = 0
+        return 0  # argparse already printed the help; nothing else goes to stdout
     except ReleaseError as error:
         result = {"status": error.status, "reason": error.reason, "error": str(error)}
         exit_code = EXIT_CODES[error.status]
@@ -711,9 +710,7 @@ def main(argv=None):
     print(messages[result["status"]])
     if result.get("message"):
         print(result["message"])
-    if result.get("reason") == "not-implemented":
-        print("该步骤尚未实现。")
-    elif result.get("error"):
+    if result.get("error"):
         print("原因：" + result["error"])
     report = {**result, "schema": SCHEMA, "step": args.step, "version": args.version}
     print(json.dumps(report, ensure_ascii=False))

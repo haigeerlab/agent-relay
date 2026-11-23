@@ -193,10 +193,21 @@ class ReleaseCommandTests(unittest.TestCase):
         report = self.assert_report(self.fixture.run_release("check"), "check", None, "refused", 2)
         self.assertEqual(report["reason"], "usage")
 
-    def test_help_also_ends_with_json(self):
-        for args, step in ((["--help"], None), (["prepare", "--help"], "prepare")):
+    def test_help_prints_only_argparse_help(self):
+        for args in (["--help"], ["prepare", "--help"], ["check", "-h"]):
             with self.subTest(args=args):
-                self.assert_report(self.fixture.run_release(*args), step, None, "ok", 0)
+                done = subprocess.run([sys.executable, "-B", str(SCRIPT), *args], cwd=self.fixture.repo,
+                                      env=self.fixture.env, capture_output=True, text=True, timeout=30)
+                self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+                self.assertTrue(done.stdout.startswith("usage:"), done.stdout)
+                self.assertNotIn("步骤已完成", done.stdout)
+                self.assertNotIn("正在检查发版命令", done.stdout)
+                self.assertNotIn("agent-relay.release/v1", done.stdout)
+                self.assertEqual(done.stderr, "")
+        self.assertEqual(self.fixture.calls(), [])
+
+    def test_no_placeholder_branch_remains(self):
+        self.assertNotIn("not-implemented", SCRIPT.read_text(encoding="utf-8"))
 
     def test_argument_errors_keep_the_output_contract(self):
         for args, step in (([], None), (["check", "--pr", "not-a-number"], "check"),

@@ -16,7 +16,8 @@
   - Accepted by the owner: focused suite 69 tests, local path check and `bash scripts/validate.sh` pass (50 files, 1044 tests).
 - [x] Task 8: `smoke` and `evidence` (D284, D285; AC7, AC8)
   - Accepted by the owner: focused suite 80 tests, local path check and `bash scripts/validate.sh` pass (50 files, 1055 tests).
-- [ ] Task 9: `RELEASING.md` calls the subcommands (Requirement 3)
+- [x] Task 9: `RELEASING.md` calls the subcommands (Requirement 3)
+  - Accepted by the owner: also help output is argparse only and the placeholder branch is gone; focused suite 81 tests, local path check and `bash scripts/validate.sh` pass (50 files, 1056 tests).
 - [x] Checkpoint (report): owner's read-only dry run of `check` on this Mac
   - Against the real remote, `check --pr 182` (v0.9.6) is `refused` with `main-moved`: D279 requires `<remote>/main` to
     equal the merge commit, so on any release older than main it stops there, and the Plan's `tag-exists` expectation
