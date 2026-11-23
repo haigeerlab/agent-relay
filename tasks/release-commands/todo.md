@@ -17,5 +17,11 @@
 - [x] Task 8: `smoke` and `evidence` (D284, D285; AC7, AC8)
   - Accepted by the owner: focused suite 80 tests, local path check and `bash scripts/validate.sh` pass (50 files, 1055 tests).
 - [ ] Task 9: `RELEASING.md` calls the subcommands (Requirement 3)
-- [ ] Checkpoint (report): owner's read-only dry run of `check` on this Mac
+- [x] Checkpoint (report): owner's read-only dry run of `check` on this Mac
+  - Against the real remote, `check --pr 182` (v0.9.6) is `refused` with `main-moved`: D279 requires `<remote>/main` to
+    equal the merge commit, so on any release older than main it stops there, and the Plan's `tag-exists` expectation
+    cannot be reached that way.
+  - Re-run against a local bare copy whose `main` is reset to the v0.9.6 merge commit `48f9a26`, with the real
+    `--github` repo for PR and CI lookups: `refused` with `tag-exists` and `version` 0.9.6, so every earlier D279 check
+    passed on a real release; no record written.
 - [ ] Checkpoint (gate): PR review and merge by the user
