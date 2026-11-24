@@ -36,6 +36,7 @@
 - 检查入口：`bash scripts/validate.sh`（先在 `plugins/agent-relay/bridge` 里 `npm ci`）。它与 `.github/autopr/interface.yml` 的 `check.run`、CI 的 Validate 步骤是同一个命令。
 - 先问：合并 PR、推送 `main`、打 tag、建 Release 或发版（见 `RELEASING.md`）、改 `.github/`（CI、autopr 登记文件、准入与降级 workflow）、改分支保护或规则集、改 `scripts/ci_scope.py` 的豁免名单、改本节的“先问”边界，一律先问用户，拿到明确同意再做。
 - autopr 例外：agent 身份可以在 `autopr/*` 分支上提交、推送并开 PR，不用逐次先问；合并 PR、`main`、tag、发版仍然先问。
+- 合并方式（插件开发规范 F3）：会话问用户“可以合并吗”，用户在对话里回“合并”后，会话执行 `gh pr merge --auto --merge`，由 GitHub 等必需检查 `CI required` 通过后合并；仓库没开 Allow auto-merge 时，会话等 `CI required` 通过再执行 `gh pr merge --merge`。会话核实 PR 已合并、记下合并提交，再告诉用户；用户不用去 GitHub 点，也不用回来报“合完了”。
 
 ### 规则 ↔ 执行者
 
