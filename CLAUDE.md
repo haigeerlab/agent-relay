@@ -23,6 +23,7 @@
   UI 自验按 `spec-guard:spec-guard-ops` 的共享检查点规则
 <!-- END:agent-skills-convention -->
 
+<!-- shared:begin -->
 ## 提交与 PR 的语言
 
 本项目的提交信息、PR 标题和 PR 描述一律用中文，不能是全英文。
@@ -36,7 +37,7 @@
 
 ## autopr（自动维护）
 
-本节与 `AGENTS.md` 的同名一节保持一致，两处一起改；改本节的“先问”边界要先问用户。
+`CLAUDE.md` 与 `AGENTS.md` 的本节逐字一致，两处一起改；改本节的“先问”边界要先问用户。
 
 - 检查入口：`bash scripts/validate.sh`（先在 `plugins/agent-relay/bridge` 里 `npm ci`）。它与 `.github/autopr/interface.yml` 的 `check.run`、CI 的 Validate 步骤是同一个命令。
 - 先问：合并 PR、推送 `main`、打 tag、建 Release 或发版（见 `RELEASING.md`）、改 `.github/`（CI、autopr 登记文件、准入与降级 workflow）、改分支保护或规则集、改 `scripts/ci_scope.py` 的豁免名单、改本节的“先问”边界，一律先问用户，拿到明确同意再做。
@@ -53,3 +54,4 @@
 | Spec Guard 约定（能力图、模块 spec、tasks 隔离） | `/spec-guard:verify-artifacts` 查目录结构，手动跑，不在 CI；其余是判断题 |
 | 提交与 PR 用中文 | 判断题，仓库里没有检查 |
 | 先问边界与 autopr 例外 | 判断题，没有检查 |
+<!-- shared:end -->
