@@ -47,7 +47,7 @@
 
 | 规则 | 执行者 |
 |---|---|
-| 本地检查与 CI 跑同一个入口 | `.github/workflows/ci.yml:94`（Validate 步骤直接跑 `bash scripts/validate.sh`） |
+| 本地检查与 CI 跑同一个入口 | `.github/workflows/ci.yml:100`（Validate 步骤直接跑 `bash scripts/validate.sh`） |
 | Claude 与 Codex 两份插件清单版本一致 | `plugins/agent-relay/hooks/test_packaging.py:22` |
 | CI 豁免路径不被测试读到 | `plugins/agent-relay/hooks/test_ci_exempt_guard.py:112`；名单增减是判断题，由用户定 |
 | bridge 的文件都登记在 `UPSTREAM.sha256` | `plugins/agent-relay/hooks/test_bridge_vendoring.py:16` |

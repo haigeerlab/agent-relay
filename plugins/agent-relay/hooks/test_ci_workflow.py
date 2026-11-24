@@ -25,9 +25,12 @@ class CiWorkflowTests(unittest.TestCase):
         self.assertNotIn("pull_request_target", self.text)
 
     def test_least_privilege(self):
-        self.assertRegex(self.text, r"(?m)^permissions:\n  contents: read\n")
+        # C8: no permission at the top; each job asks for what it needs, and no job may write.
+        self.assertRegex(self.text, r"(?m)^permissions: \{\}\n")
+        self.assertEqual(self.text.count("permissions:\n      contents: read\n"), 2)
+        self.assertNotRegex(self.text, r": write\b")
         self.assertNotIn("secrets.", self.text)
-        self.assertIn("persist-credentials: false", self.text)
+        self.assertEqual(self.text.count("uses: actions/checkout@"), self.text.count("persist-credentials: false"))
         self.assertNotIn("self-hosted", self.text)
 
     def test_every_action_is_pinned_to_a_full_sha(self):
@@ -60,8 +63,8 @@ class CiWorkflowTests(unittest.TestCase):
         self.assertRegex(self.text, r"(?m)^  schedule:\n    - cron: '0 3 \* \* 1'$")
 
     def steps(self):
-        """The job's steps, each as its own text block, in order."""
-        body = self.text.split("\n    steps:\n", 1)[1]
+        """The validate job's steps, each as its own text block, in order."""
+        body = self.text.split("\n    steps:\n", 1)[1].split("\n\n  # ", 1)[0]
         return [block for block in re.split(r"\n(?=      - )", body) if block.startswith("      - ")]
 
     def test_scope_is_decided_from_environment_with_full_history(self):
@@ -83,7 +86,7 @@ class CiWorkflowTests(unittest.TestCase):
             # `!= 'skip'`, not `== 'full'`: a missing output must run the tests, not pass without them.
             self.assertRegex(step, r"(?m)^        if: steps\.scope\.outputs\.scope != 'skip'( && .+)?$", step)
         joined = "\n".join(later)
-        for needed in ("npm ci", "toolchain", "bash scripts/validate.sh"):
+        for needed in ("npm ci", "toolchain", "bash scripts/validate.sh", "git diff --exit-code"):
             self.assertIn(needed, joined, f"{needed} must stay after the scope step")
 
     def test_local_path_check_runs_before_the_scope_and_is_never_skipped(self):
@@ -91,6 +94,26 @@ class CiWorkflowTests(unittest.TestCase):
         check = self.steps()[1]
         self.assertRegex(check, r"(?m)^        run: python3 -B scripts/check_local_paths\.py$")
         self.assertNotIn("if:", check)
+
+    def test_plugin_manifests_and_frontmatter_are_checked(self):
+        # C7: the CLI is pinned to an exact version and fails on warnings (--strict), and the frontmatter check fails where the CLI only warns.
+        self.assertRegex(self.text, r"npm install --global @anthropic-ai/claude-code@\d+\.\d+\.\d+\n")
+        self.assertRegex(self.text, r"pip install pyyaml==\d+\.\d+\.\d+\n")
+        self.assertIn("claude plugin validate --strict plugins/agent-relay\n", self.text)
+        self.assertIn("claude plugin validate --strict .\n", self.text)
+        self.assertIn("run: python3 -B scripts/check_frontmatter.py\n", self.text)
+
+    def test_ci_required_gathers_every_other_job(self):
+        # C1: one required check that fails unless every other job succeeded, and no path filter on the workflow.
+        jobs = re.findall(r"(?m)^  ([a-z][a-z0-9-]*):$", self.text.split("\njobs:\n", 1)[1])
+        self.assertEqual(jobs[-1], "ci-required")
+        gate = self.text.split("\n  ci-required:\n", 1)[1]
+        self.assertIn("name: CI required\n", gate)
+        self.assertIn("if: always()\n", gate)
+        self.assertIn(f"needs: [{', '.join(jobs[:-1])}]\n", gate)
+        self.assertIn("join(needs.*.result, ' ')", gate)
+        self.assertIn('[ "$result" = success ] || exit 1', gate)
+        self.assertNotRegex(self.text, r"(?m)^\s+paths(-ignore)?:")
 
 
 if __name__ == "__main__":

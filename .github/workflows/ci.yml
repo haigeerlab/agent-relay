@@ -1,6 +1,7 @@
 # agent-relay ci-macos (D80, D80a): the local validation on macOS, for every pull request and every push to main.
 # ci-on-demand (D135-D139): skipped when only exempt paths changed (scripts/ci_scope.py); always full weekly and
-# when run by hand.
+# when run by hand. Plugin spec v1.2: one required check, "CI required" (C1); plugin manifest and frontmatter
+# checks (C7); no token permission unless a job asks for it (C8).
 name: CI
 
 on:
@@ -11,8 +12,7 @@ on:
   schedule:
     - cron: '0 3 * * 1'
 
-permissions:
-  contents: read
+permissions: {}
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -23,6 +23,8 @@ jobs:
     name: Python ${{ matrix.python }} / Node ${{ matrix.node }}
     runs-on: macos-15
     timeout-minutes: 20
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -97,3 +99,55 @@ jobs:
         run: |
           bash scripts/validate.sh | tee "$RUNNER_TEMP/validate.txt"
           grep -qE "ok    bridge: npm run check +[0-9]+$" "$RUNNER_TEMP/validate.txt" || { echo "the bridge check did not run or ran no counted tests"; exit 1; }
+
+      # C10: the checks must not change tracked files.
+      - name: Tracked files unchanged
+        if: steps.scope.outputs.scope != 'skip'
+        run: git diff --exit-code
+
+  # C7: the plugin and marketplace manifests, and every skill, command and agent frontmatter. Linux, not
+  # macOS: nothing here depends on the host, and it always runs (it takes no scope decision).
+  plugin:
+    name: Plugin manifest and frontmatter
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14'
+      - name: Tools (pinned versions)
+        run: |
+          npm install --global @anthropic-ai/claude-code@2.1.331
+          python3 -m pip install pyyaml==6.0.3
+      - name: claude plugin validate
+        run: |
+          claude plugin validate --strict plugins/agent-relay
+          claude plugin validate --strict .
+      - name: Frontmatter
+        run: python3 -B scripts/check_frontmatter.py
+
+  # C1: the only required check on main. It needs every other job and fails unless all of them succeeded, so a
+  # job added or renamed later needs no change to branch protection.
+  ci-required:
+    name: CI required
+    if: always()
+    needs: [validate, plugin]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Every job succeeded
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "results: $RESULTS"
+          [ -n "$RESULTS" ] || exit 1
+          for result in $RESULTS; do [ "$result" = success ] || exit 1; done

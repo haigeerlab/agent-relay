@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+- **CI 按插件开发规范 v1.2 补齐**（只改仓库的 CI，插件本身不变）：新增汇总任务「CI required」，`if: always()`、依赖其余
+  全部任务，任何一个没成功就失败，今后主干只需把它设为必需检查（C1）；新增 Linux 任务，用钉死版本的 Claude Code CLI 跑
+  `claude plugin validate --strict`（插件目录和 marketplace，警告也算失败），再用 `scripts/check_frontmatter.py` 查每个
+  skill、command、agent 的 frontmatter 是合法 YAML，skill 和 agent 有 `name`、`description`，command 有 `description`——
+  CLI 不检查 YAML 能否解析（C7）；workflow 顶层改为 `permissions: {}`，各任务只拿 `contents: read`（C8）；新增
+  `.github/dependabot.yml`，只更新 GitHub Actions，每月一次，新版本冷却 7 天（C9）；macOS 任务在检查之后跑
+  `git diff --exit-code`，检查改动了已跟踪文件就失败（C10）。`.gitignore` 加 `__pycache__/`。
+
 ## [0.9.6] - 2026-11-20
 
 **bridge 有改动，要 `upgrade --confirm` 升级运行时；接口 2.10 → 2.11（只增加内容：脚本命令 `inbox`、`ack`）；信箱 schema 7 不变。**

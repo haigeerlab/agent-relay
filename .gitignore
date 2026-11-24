@@ -3,3 +3,6 @@
 # [epiq]: local hydrated state is never committed
 .epiq/events/
 .epiq/log/
+
+# Python bytecode from running the hooks and scripts
+__pycache__/
