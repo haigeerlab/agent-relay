@@ -1,0 +1,9 @@
+# Plugin spec C9: only the pinned GitHub Actions, checked monthly; a new release waits 7 days before a PR.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
