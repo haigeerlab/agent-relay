@@ -82,12 +82,15 @@ Measured on this Mac (2026-11-25/26), the facts this Spec relies on:
     proves nothing (as D75's Codex `host`).
 - **D288 storage.** Schema 8 adds `agents.desktop_link` and `agents.desktop_title` (TEXT, NULL). The migration only adds
   columns; old rows stay NULL. Readers of the schema number (bridge, CLI, hooks) move to 8 together.
-- **D289 one wording for "not running".** Assumption 5. With a title the session is named `"<title>" (mailbox name
-  <agent>)`, without one by `<agent>` alone. Shared sentence, used by the send warning, the outbox detail, the
-  notification body and the expiry notice (each keeps its own first part):
+- **D289 one wording for "not running".** Assumption 5. With a title the session is named `'<title>' (mailbox name
+  <agent>)` (single quotes, so it nests inside the relayed sentence), without one by `<agent>` alone. Shared sentence,
+  used by the send warning, the outbox detail and the expiry notice, which a sending session reads (each keeps its own
+  first part, without repeating the cause):
   `The Claude app paused this session or it was closed; it reads its mailbox only after it is opened. Tell the user:
   "Open the Claude session <name> so it can read its waiting messages."`
-  The notification title stays `agent-relay · <agent> is offline`; its subtitle gains the title when known.
+  The notification is read by the user, so its body ends instead with `The Claude app paused this session or it was
+  closed. Open the Claude session <name> to deliver them.` The notification title stays `agent-relay · <agent> is
+  offline`; its subtitle gains the title when known.
 - **D290 the offline notification opens the session.** Assumption 7. When the recipient has a stored link and the
   channel is terminal-notifier, the offline notice (D193 kind `offline`) gets `-open <link>`, built only from the stored,
   validated link. Other notice kinds, the osascript fallback and recipients without a link are unchanged.
