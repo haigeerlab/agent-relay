@@ -1,6 +1,6 @@
 # Spec: paused-session-link
 
-<!-- spec-guard: review approved 7eef3b0f6b36 -->
+<!-- spec-guard: review approved 83d6aa8b8cf8 -->
 
 ## Objective
 
