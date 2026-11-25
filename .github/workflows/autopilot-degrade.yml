@@ -7,21 +7,25 @@ name: autopilot-degrade
 on:
   push:
     branches: [main]
-  workflow_run:
+  # Only reads workflow_run results; never checks out or executes PR code. Hub checkup C9 guards this separately.
+  workflow_run: # zizmor: ignore[dangerous-triggers]
     workflows: [CI]
     types: [completed]
     branches: [main]
   issues:
     types: [labeled, closed]  # closed: slice 11, only an admin's close lifts a degrade issue
 
-permissions:
-  contents: read
-  issues: write
-  pull-requests: read
-  actions: read
+# plugin-standard C8: nothing at the top level; each job asks for what it needs.
+permissions: {}
 
 jobs:
   degrade:
-    uses: haigeerlab/autopilot-hub/.github/workflows/degrade.yml@713a3d81f24d226e5c31c1802c0e7ab912e54812
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+      actions: read
+    # Template only: replace both <HUB_SHA> placeholders with the same 40-char commit SHA.
+    uses: haigeerlab/autopilot-hub/.github/workflows/degrade.yml@b34560f8d398cd946f2fc3f0cd7526d336f59a01
     with:
-      hub_ref: 713a3d81f24d226e5c31c1802c0e7ab912e54812
+      hub_ref: b34560f8d398cd946f2fc3f0cd7526d336f59a01

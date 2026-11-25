@@ -25,19 +25,27 @@ class CiWorkflowTests(unittest.TestCase):
         self.assertNotIn("pull_request_target", self.text)
 
     def test_least_privilege(self):
-        # C8: no permission at the top; each job asks for what it needs, and no job may write.
+        # C8: no permission at the top; only the hub rules report needs checks: write.
         self.assertRegex(self.text, r"(?m)^permissions: \{\}\n")
-        self.assertEqual(self.text.count("permissions:\n      contents: read\n"), 2)
-        self.assertNotRegex(self.text, r": write\b")
+        self.assertEqual(self.text.count("permissions:\n      contents: read\n"), 3)
+        writes = re.findall(r"(?m)^\s+([a-z-]+): write$", self.text)
+        self.assertEqual(writes, ["checks"])
+        rules = self.text.split("\n  rules:\n", 1)[1].split("\n\n  # C1", 1)[0]
+        self.assertIn("checks: write", rules)
+        self.assertIn("pull-requests: read", rules)
         self.assertNotIn("secrets.", self.text)
         self.assertEqual(self.text.count("uses: actions/checkout@"), self.text.count("persist-credentials: false"))
         self.assertNotIn("self-hosted", self.text)
 
     def test_every_action_is_pinned_to_a_full_sha(self):
         uses = re.findall(r"uses: (\S+)", self.text)
-        self.assertGreaterEqual(len(uses), 3)
+        self.assertGreaterEqual(len(uses), 5)
         for use in uses:
-            self.assertRegex(use, r"^actions/(checkout|setup-python|setup-node)@[0-9a-f]{40}$", use)
+            self.assertRegex(
+                use,
+                r"^(?:actions/(checkout|setup-python|setup-node)|haigeerlab/autopilot-hub/.github/workflows/rules\.yml)@[0-9a-f]{40}$",
+                use,
+            )
 
     def test_macos_15_full_matrix(self):
         self.assertIn("runs-on: macos-15", self.text)
@@ -96,12 +104,24 @@ class CiWorkflowTests(unittest.TestCase):
         self.assertNotIn("if:", check)
 
     def test_plugin_manifests_and_frontmatter_are_checked(self):
-        # C7: the CLI is pinned to an exact version and fails on warnings (--strict), and the frontmatter check fails where the CLI only warns.
-        self.assertRegex(self.text, r"npm install --global @anthropic-ai/claude-code@\d+\.\d+\.\d+\n")
-        self.assertRegex(self.text, r"pip install pyyaml==\d+\.\d+\.\d+\n")
-        self.assertIn("claude plugin validate --strict plugins/agent-relay\n", self.text)
-        self.assertIn("claude plugin validate --strict .\n", self.text)
-        self.assertIn("run: python3 -B scripts/check_frontmatter.py\n", self.text)
+        # C7: validate a git archive with the standard pinned CLI, then parse frontmatter from the pinned hub.
+        plugin = self.text.split("\n  plugin:\n", 1)[1].split("\n\n  rules:\n", 1)[0]
+        self.assertIn('CLAUDE_CODE_VERSION: "2.1.321"', plugin)
+        self.assertIn('DISABLE_AUTOUPDATER: "1"', plugin)
+        self.assertIn("git archive HEAD | tar -x -C", plugin)
+        self.assertIn('claude() { npx --yes "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"', plugin)
+        self.assertIn('claude plugin validate --strict .', plugin)
+        self.assertIn('data = json.load(open(".claude-plugin/marketplace.json"', plugin)
+        self.assertIn('claude plugin validate --strict "${dir}"', plugin)
+        self.assertIn("run: python3 -B .hub/rules/frontmatter.py --repo .", plugin)
+        self.assertNotIn("setup-python", plugin)
+        self.assertNotIn("pyyaml", plugin)
+
+    def test_rules_runs_in_report_mode(self):
+        rules = self.text.split("\n  rules:\n", 1)[1].split("\n\n  # C1", 1)[0]
+        self.assertIn("if: github.event_name == 'pull_request'", rules)
+        self.assertIn("mode: report", rules)
+        self.assertIn("hub_ref: b34560f8d398cd946f2fc3f0cd7526d336f59a01", rules)
 
     def test_ci_required_gathers_every_other_job(self):
         # C1: one required check that fails unless every other job succeeded, and no path filter on the workflow.
@@ -111,8 +131,9 @@ class CiWorkflowTests(unittest.TestCase):
         self.assertIn("name: CI required\n", gate)
         self.assertIn("if: always()\n", gate)
         self.assertIn(f"needs: [{', '.join(jobs[:-1])}]\n", gate)
-        self.assertIn("join(needs.*.result, ' ')", gate)
-        self.assertIn('[ "$result" = success ] || exit 1', gate)
+        self.assertIn("NEEDS: ${{ toJSON(needs) }}", gate)
+        self.assertIn('("success", "skipped")', gate)
+        self.assertIn("or not results", gate)
         self.assertNotRegex(self.text, r"(?m)^\s+paths(-ignore)?:")
 
 

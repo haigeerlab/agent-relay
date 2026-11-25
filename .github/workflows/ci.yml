@@ -1,7 +1,8 @@
 # agent-relay ci-macos (D80, D80a): the local validation on macOS, for every pull request and every push to main.
 # ci-on-demand (D135-D139): skipped when only exempt paths changed (scripts/ci_scope.py); always full weekly and
 # when run by hand. Plugin spec v1.2: one required check, "CI required" (C1); plugin manifest and frontmatter
-# checks (C7); no token permission unless a job asks for it (C8).
+# checks (C7); hub rules in report mode; pinned to autopilot-hub@b34560f8d398cd946f2fc3f0cd7526d336f59a01;
+# no token permission unless a job asks for it (C8).
 name: CI
 
 on:
@@ -113,6 +114,10 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+    env:
+      # One pinned CLI version for every repository, at least 7 days old; bump it here, across all repos at once.
+      CLAUDE_CODE_VERSION: "2.1.321"
+      DISABLE_AUTOUPDATER: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -120,34 +125,65 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      - name: Check out autopilot-hub at the pinned SHA (scripts only)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          python-version: '3.14'
-      - name: Tools (pinned versions)
+          repository: haigeerlab/autopilot-hub
+          ref: b34560f8d398cd946f2fc3f0cd7526d336f59a01
+          path: .hub
+          persist-credentials: false
+      - name: claude plugin validate --strict on an exported copy
         run: |
-          npm install --global @anthropic-ai/claude-code@2.1.331
-          python3 -m pip install pyyaml==6.0.3
-      - name: claude plugin validate
-        run: |
-          claude plugin validate --strict plugins/agent-relay
+          # Validate a `git archive` export. When the plugin lives at the repository root, drop the root CLAUDE.md
+          # and AGENTS.md from the export: the official command treats them as errors there (standard C7, v1.4).
+          export_dir="${RUNNER_TEMP}/plugin-export"
+          mkdir -p "${export_dir}"
+          git archive HEAD | tar -x -C "${export_dir}"
+          if [ -f "${export_dir}/.claude-plugin/plugin.json" ]; then rm -f "${export_dir}/CLAUDE.md" "${export_dir}/AGENTS.md"; fi
+          cd "${export_dir}"
+          claude() { npx --yes "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" "$@"; }
           claude plugin validate --strict .
-      - name: Frontmatter
-        run: python3 -B scripts/check_frontmatter.py
+          python3 - <<'PY' > "${RUNNER_TEMP}/plugin-dirs.txt"
+          import json, os
+          data = json.load(open(".claude-plugin/marketplace.json", encoding="utf-8"))
+          for entry in data.get("plugins") or []:
+              src = entry.get("source") if isinstance(entry, dict) else None
+              if isinstance(src, str) and os.path.normpath(src) not in (".", ""):
+                  print(os.path.normpath(src))
+          PY
+          while read -r dir; do claude plugin validate --strict "${dir}"; done < "${RUNNER_TEMP}/plugin-dirs.txt"
+      - name: Skill, command and agent frontmatter really parses (C7)
+        run: python3 -B .hub/rules/frontmatter.py --repo .
+
+  rules:
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: read
+    uses: haigeerlab/autopilot-hub/.github/workflows/rules.yml@b34560f8d398cd946f2fc3f0cd7526d336f59a01
+    with:
+      hub_ref: b34560f8d398cd946f2fc3f0cd7526d336f59a01
+      # report during the shadow run; switch to enforce once the user has seen the shadow-run results.
+      mode: report
 
   # C1: the only required check on main. It needs every other job and fails unless all of them succeeded, so a
   # job added or renamed later needs no change to branch protection.
   ci-required:
     name: CI required
     if: always()
-    needs: [validate, plugin]
+    needs: [validate, plugin, rules]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions: {}
     steps:
-      - name: Every job succeeded
+      - name: Every CI job succeeded (skipped means "not run for this event", e.g. rules on push)
         env:
-          RESULTS: ${{ join(needs.*.result, ' ') }}
+          NEEDS: ${{ toJSON(needs) }}
         run: |
-          echo "results: $RESULTS"
-          [ -n "$RESULTS" ] || exit 1
-          for result in $RESULTS; do [ "$result" = success ] || exit 1; done
+          printf '%s' "$NEEDS" | python3 -c '
+          import json, sys
+          results = json.load(sys.stdin)
+          bad = {job: r["result"] for job, r in results.items() if r["result"] not in ("success", "skipped")}
+          print(bad or "all CI jobs succeeded")
+          sys.exit(1 if bad or not results else 0)'
