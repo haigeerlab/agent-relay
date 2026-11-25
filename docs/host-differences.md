@@ -57,7 +57,7 @@
 
 | | Claude 桌面版 | Codex 桌面版 |
 |---|---|---|
-| 行为 | 应用会停止空闲会话；这是实验中**最常见的掉线原因**，每天多次 | 空闲会话保留，agent-relay 可直接让它开始新一轮 |
+| 行为 | 应用会在内存压力下暂停空闲会话；应用自己的日志称 governor eviction，远多于空闲超时，最多保留 6 个 live sessions（ecosystem-lead 调查，2026-11-25） | 空闲会话保留，agent-relay 可直接让它开始新一轮 |
 | 证据 | **实测**：agent-relay 唤醒记录为 `Claude session is not running (the Claude app may have stopped it while idle); the message waits and is delivered once that session is opened` | **实测**：唤醒记录为 `Codex confirmed a new turn` |
 | 影响 | 收件枢纽、负责人这类 Claude 会话会周期性「消失」，期间待答表看起来是空的 | 只要应用没重启，叫醒可靠 |
 
@@ -88,6 +88,7 @@
 - **结论**：agent-relay 叫不醒已停止的 Claude 会话；Claude 桌面版自带的会话消息工具可以叫醒，但它只能在 Claude 会话内部调用，外部进程（包括 agent-relay）调不到。
 - **证据（实测）**：2026-10-16 13:36，由 Claude 桌面版定时任务启动的一次性会话调用该工具，向一个空闲的 Claude 会话发消息，状态 `delivered`，目标会话随即开始处理。
 - **影响**：decision-inbox 的巡视必须运行在 Claude 侧（定时任务或收件枢纽），由它负责叫醒 Claude 会话；这是「唤醒归 agent-relay」原则下唯一的例外。
+- **补充实测（2026-11-25/26）**：带 `-open claude://claude.ai/epitaxy/local_<uuid>` 的 terminal-notifier 通知被点击后打开对应会话，原本停止的会话进程在点击时启动；该 link 来自桌面应用的 `get_session("self")`。
 
 ### 3.2 会话之间的消息
 
@@ -302,6 +303,7 @@ defaults read /Applications/ChatGPT.app/Contents/Info.plist CFBundleShortVersion
 
 | 日期 | 变更 |
 |---|---|
+| 2026-11-26 | H1 记录 Claude 桌面应用在内存压力下的 governor eviction；H4 补 2026-11-25/26 实测：terminal-notifier 带会话 link 的通知点击后打开该会话并启动停止的进程，link 来自 `get_session("self")` |
 | 2026-10-16 | 初版：16 条差异，基于 2026-10-13 至 10-16 的实测与两个插件仓库的文档 |
 | 2026-10-17 | 新增 H17（Codex 自动压缩后抓最近人工输入当任务，待复核） |
 | 2026-10-17 | H3 改为 agent-relay 0.7.1 起有引导式恢复；H10 补守卫对邮箱转来任务的判断；新增 H18（Codex 会话目录决定加载哪份 AGENTS.md）、H19（Claude 自动模式拦命令）、H20（定时任务不继承权限）、H21（目录型插件市场读源目录） |

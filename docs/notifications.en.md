@@ -20,7 +20,7 @@ delivery.
 - **A Claude session is not running**: the Claude desktop app stops the process of an idle session, and the bridge can
   only deliver to a running one. When a message to such a session has not gone in for five minutes, this Mac shows a
   notice naming the session (its mailbox name), how many messages are waiting and when the first was sent; once per
-  offline spell, and opening the session delivers them. No message body and no click action. The sender sees
+  offline spell, and opening the session delivers them. When the session recorded its link and terminal-notifier is installed, clicking the offline notice opens that session; otherwise there is no click action as before. No message body. The sender sees
   `pendingReason: offline` in `bridge_outbox`.
 
 When the recipient is neither bound for wake nor known to be on a host, no notice is shown, because there is no one

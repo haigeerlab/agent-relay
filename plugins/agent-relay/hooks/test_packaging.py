@@ -36,9 +36,9 @@ class ManifestTests(unittest.TestCase):
         # delegation-hygiene D170: 2.0 for the round-2 batch; only the version string changed (Spec Guard >=1.0,<3.0).
         # script-access D245: 2.8 adds the script commands beside status; status is unchanged.
         # post-090-bridge D255: 2.9, a duplicate retry lists what is closed elsewhere in skipped; nothing else changed.
-        # script-inbox-ack D275: 2.11 adds inbox and ack for a script identity.
+        # paused-session-link D287/D292: 2.12 adds Claude desktop session links.
         launcher = "~/.agent-relay/bin/agent-relay"
-        self.assertEqual(marker, {"interface": "2.11", "status": ["python3", "-B", "hooks/relay_status.py"],
+        self.assertEqual(marker, {"interface": "2.12", "status": ["python3", "-B", "hooks/relay_status.py"],
                                   "script": {"agents": [launcher, "agents"], "outbox": [launcher, "outbox", "<agent>"],
                                              "sessions": [launcher, "sessions"],
                                              "send": [launcher, "send", "--from", "<script identity>", "--to", "<agent>"],

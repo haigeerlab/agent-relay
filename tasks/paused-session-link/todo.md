@@ -10,6 +10,7 @@
   - Accepted by the owner: offline notice gets `-open <link>` only with a revalidated stored link and terminal-notifier; title in the subtitle; osascript and other kinds unchanged (notify, notify-channel tests).
 - [x] Task 5: `bridge_agents` carries `desktop` (D292)
   - Accepted by the owner: `desktop` only when stored; tool description updated; agents-view tests. `bash scripts/validate.sh` pass (51 files, 1089 tests).
-- [ ] Task 6: interface 2.12, skill, docs and bookkeeping (D293)
+- [x] Task 6: interface 2.12, skill, docs and bookkeeping (D293)
+  - Accepted by the owner: new `test_paused_session_docs.py`; interface 2.12; skill and server instructions (D293); interface, notification and host-differences docs; CHANGELOG; `UPSTREAM.md` row. Owner fix: the interface doc names no release version (set at release, D252). `bash scripts/validate.sh` pass (52 files, 1095 tests).
 - [ ] Checkpoint (report): owner acceptance of Tasks 1–6
 - [ ] Checkpoint (gate): PR review and merge by the user
