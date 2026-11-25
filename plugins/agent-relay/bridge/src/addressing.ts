@@ -1,6 +1,7 @@
 import type { AgentHost, BridgeStore } from "./bridge-store.js";
 import { BRIDGE_AGENT, CLAUDE_HOLD_EXPLANATION, CLAUDE_OFFLINE_EXPLANATION, isClaudeHold, isClaudeOfflineExpiry } from "./notices.js";
 import type { Presence } from "./presence.js";
+import { pausedSessionText } from "./desktop-link.js";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STALE_UNBOUND_MS = 24 * 3_600_000;
@@ -114,7 +115,7 @@ export async function checkRecipient(
       "that prompt; nothing here can answer it.");
   } else if (presence?.state === "stopped") {
     warnings.push(host!.app === "claude"
-      ? `"${to}"'s Claude session is not running. The message will wait in its inbox until that conversation reads it.`
+      ? `"${to}"'s Claude session is not running. The message will wait in its inbox until that conversation reads it. ${pausedSessionText(to, agent.desktop, true)}`
       : `"${to}"'s Codex task is not open. The message will wait in its inbox until that task reads it.`);
   } else if (host?.app === "script") {
     // post-090-bridge D251, script-inbox-ack D274: a script identity has no session to wake; its script reads its inbox

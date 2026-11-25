@@ -7,6 +7,8 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { privatePath } from "./local-ipc.js";
 import { wakeNotice, type WakeJob, type WakeResult } from "./wake-queue.js";
+import type { DesktopLink } from "./desktop-link.js";
+import { pausedSessionText } from "./desktop-link.js";
 
 const execute = promisify(execFile);
 export interface ClaudeSession {
@@ -84,8 +86,10 @@ export async function claudeSessionsOrNull(root = sessionRoot()): Promise<Claude
  * claude-offline-notice D193: the sender reads this in its outbox. The Claude app stops an idle session's process, and a
  * ping can go only to a live one; the message waits in the mailbox until that session runs again.
  */
-export const CLAUDE_NOT_RUNNING = "Claude session is not running (the Claude app may have stopped it while idle); " +
-  "the message waits and is delivered once that session is opened";
+export function claudeNotRunning(agent: string, desktop?: DesktopLink | null): string {
+  return "Claude session is not running; " +
+    `the message waits and is delivered once that session is opened. ${pausedSessionText(agent, desktop)}`;
+}
 
 /**
  * agent-relay claude-offline-notice-fixes D194: a session that may well be running but cannot be pinged is
@@ -111,7 +115,8 @@ export class ClaudeWake {
   private path: string | null = null;
   private pending = new Map<string, { job: WakeJob; settle: (r: WakeResult) => void; timer: NodeJS.Timeout }>();
 
-  constructor(private onLateReceipt: (job: WakeJob, result: WakeResult) => void = () => {}) {}
+  constructor(private onLateReceipt: (job: WakeJob, result: WakeResult) => void = () => {},
+    private offlineDetail: (agent: string) => string = (agent) => claudeNotRunning(agent)) {}
 
   private async listen(directory: string): Promise<string> {
     if (this.path) return this.path;
@@ -160,7 +165,7 @@ export class ClaudeWake {
     try {
       const matches = (await claudeSessions(root)).filter(s =>
         s.sessionId === job.target.sessionId || s.bridgeSessionId === job.target.sessionId);
-      if (matches.length === 0) return { state: "pending", reason: "offline", detail: CLAUDE_NOT_RUNNING };
+      if (matches.length === 0) return { state: "pending", reason: "offline", detail: this.offlineDetail(job.agent) };
       if (matches.length !== 1) return { state: "pending", reason: "unreachable", detail: CLAUDE_SEVERAL_SESSIONS };
       const session = matches[0];
       if (session.peerProtocol !== 1) return { state: "refused", detail: "Unsupported Claude peer protocol" };
@@ -170,7 +175,7 @@ export class ClaudeWake {
       if (typeof key.peerToken !== "string" || !/^[0-9a-f]{32}$/.test(key.peerToken) ||
           key.procStart !== session.procStart) return { state: "refused", detail: "Claude inbox authentication metadata does not match its process" };
       const callback = await this.listen(dirname(session.messagingSocketPath));
-      if (!await liveOwner(session)) return { state: "pending", reason: "offline", detail: CLAUDE_NOT_RUNNING };
+      if (!await liveOwner(session)) return { state: "pending", reason: "offline", detail: this.offlineDetail(job.agent) };
       // Bound retained receipt routes even when peers never send a positive receipt.
       for (const [oldId, p] of this.pending) {
         if (Date.now() - p.job.createdAt > 3_600_000 || this.pending.size >= 100) {

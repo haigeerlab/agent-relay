@@ -208,13 +208,14 @@ class DoctorTests(unittest.TestCase):
                 "ALTER TABLE messages ADD COLUMN expects_reply INTEGER NOT NULL DEFAULT 0; PRAGMA user_version = 6;")
         self.assertNotEqual(self.find(self.run_doctor(), "mailbox")["state"], "fail")
 
-    def test_a_schema_7_mailbox_is_read(self):
-        # request-closing D221: the request_closures table is additive; doctor reads the mailbox as before.
+    def test_a_schema_8_mailbox_is_read(self):
+        # paused-session-link D288: desktop columns are additive; doctor reads the mailbox as before.
         with sqlite3.connect(self.database) as connection:
             connection.executescript(
                 "ALTER TABLE messages ADD COLUMN expects_reply INTEGER NOT NULL DEFAULT 0; "
                 "CREATE TABLE request_closures (request_id INTEGER PRIMARY KEY, message_id INTEGER NOT NULL, "
-                "kind TEXT NOT NULL, closed_at TEXT NOT NULL); PRAGMA user_version = 7;")
+                "kind TEXT NOT NULL, closed_at TEXT NOT NULL); ALTER TABLE agents ADD COLUMN desktop_link TEXT; "
+                "ALTER TABLE agents ADD COLUMN desktop_title TEXT; PRAGMA user_version = 8;")
         self.assertNotEqual(self.find(self.run_doctor(), "mailbox")["state"], "fail")
 
     def test_a_schema_2_mailbox_says_the_backlog_is_not_measured(self):

@@ -140,8 +140,9 @@ test("a Claude recipient offline for five minutes notifies once per spell, namin
   assert.equal(lines().length, 1);
   const time = clockTime(sentAt);
   assert.equal(lines()[0], `agent-relay · cx is offline | Claude · 2 waiting · first sent ${time} | ` +
-    `Claude session "cx" is not running (the Claude app may have stopped it while idle). 2 messages cannot be ` +
-    `delivered; the first, #${first.id} from "sender", was sent at ${time}. Open that session to deliver them.`);
+    `Claude session "cx" is not running. 2 messages cannot be ` +
+    `delivered; the first, #${first.id} from "sender", was sent at ${time}. The Claude app paused this session or it was ` +
+    `closed. Open the Claude session cx to deliver them.`);
   assert.doesNotMatch(lines()[0], /secret body|another/, "never the message text");
   assert.match(store.wakes.forMessage(first.id)?.detail ?? "", /A desktop notification was attempted on this Mac/);
   assert.equal(store.wakes.forMessage(second.id)?.state, "pending");

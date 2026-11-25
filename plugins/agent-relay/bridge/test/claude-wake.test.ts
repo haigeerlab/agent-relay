@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import test from "node:test";
-import { ClaudeWake, claudeSessions, CLAUDE_NOT_RUNNING, CLAUDE_SEVERAL_SESSIONS, CLAUDE_UNREACHABLE } from "../src/claude-wake.js";
+import { ClaudeWake, claudeNotRunning, claudeSessions, CLAUDE_SEVERAL_SESSIONS, CLAUDE_UNREACHABLE } from "../src/claude-wake.js";
 import type { WakeJob } from "../src/wake-queue.js";
 
 test("Claude authenticates as peer, preserves exact session and reports real held/refused receipts", { skip: process.platform !== "darwin" }, async () => {
@@ -65,7 +65,7 @@ test("Claude authenticates as peer, preserves exact session and reports real hel
     assert.equal(transmissions, 2);
     // claude-offline-notice D193: no live session is "offline", said in plain words for the sender's outbox.
     assert.deepEqual(await adapter.wake({ ...job, target: { app: "claude", sessionId: "wrong-session" } }, root),
-      { state: "pending", reason: "offline", detail: CLAUDE_NOT_RUNNING });
+      { state: "pending", reason: "offline", detail: claudeNotRunning("b") });
     // A readable-by-others key must never be used, even though metadata may be public.
     chmodSync(keyPath, 0o644);
     // claude-offline-notice-fixes D194: a session that may be running but cannot be reached is not "offline".

@@ -4,6 +4,8 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, realp
 import { dirname, isAbsolute, join } from "node:path";
 
 import { clickArgs, placeCategory, placeLabel, type Location } from "./location.js";
+import type { DesktopLink } from "./desktop-link.js";
+import { pausedSessionUserText } from "./desktop-link.js";
 
 /** A Codex recipient that is merely busy is notified only after this long (the user's choice, 2026-10-08). */
 export const BUSY_NOTIFY_AFTER_MS = 10 * 60_000;
@@ -48,6 +50,7 @@ export interface UndeliveredNotice {
   since?: number;
   /** notice-location D188: where the session is; shown in the text and, for terminal-notifier, used for the click. */
   where?: Location;
+  desktop?: DesktopLink | null;
 }
 
 // agent-relay notify-channel D89 (reverses codex-gated-wake D67's "never the body", confirmed by the user 2026-10-08):
@@ -124,10 +127,9 @@ export const NOTIFIED_TEXT = "A desktop notification was attempted on this Mac; 
 export function noticeText(notice: UndeliveredNotice): string {
   if (notice.kind === "offline") {
     const count = notice.count ?? 1;
-    return `Claude session ${JSON.stringify(notice.agent)} is not running (the Claude app may have stopped it while ` +
-      `idle). ${count} ${count === 1 ? "message cannot" : "messages cannot"} be delivered; the first, ` +
+    return `Claude session ${JSON.stringify(notice.agent)} is not running. ${count} ${count === 1 ? "message cannot" : "messages cannot"} be delivered; the first, ` +
       `#${notice.messageId} from ${JSON.stringify(notice.fromAgent ?? "a peer")}, was sent at ` +
-      `${clockTime(notice.since ?? Date.now())}. Open that session to deliver them.`;
+      `${clockTime(notice.since ?? Date.now())}. ${pausedSessionUserText(notice.agent, notice.desktop)}`;
   }
   if (notice.kind === "accepted-unread") return acceptedUnreadText(notice.agent, notice.messageId, notice.fromAgent,
     notice.since ?? Date.now());
