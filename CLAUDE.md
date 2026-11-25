@@ -39,7 +39,7 @@
 
 `CLAUDE.md` 与 `AGENTS.md` 的本节逐字一致，两处一起改；改本节的“先问”边界要先问用户。
 
-- 检查入口：`bash scripts/validate.sh`（先在 `plugins/agent-relay/bridge` 里 `npm ci`）。它与 `.github/autopr/interface.yml` 的 `check.run`、CI 的 Validate 步骤是同一个命令。
+- 检查入口：全量检查 `bash scripts/validate.sh`（先在 `plugins/agent-relay/bridge` 里 `npm ci`），与 `.github/autopr/interface.yml` 的 `check.run`、CI 的 Validate 步骤是同一个命令，合并前和 CI 跑全量；快检查 `bash scripts/validate.sh --quick` 只跑本分支改动涉及的测试，对应不上时退回全量，会话日常做 task 时跑快检查。全量在本机超过 10 分钟就要提速，不能靠删测试、跳过测试或砍 CI 矩阵（插件开发规范 C2）。
 - 先问：合并 PR、推送 `main`、打 tag、建 Release 或发版（见 `RELEASING.md`）、改 `.github/`（CI、autopr 登记文件、准入与降级 workflow）、改分支保护或规则集、改 `scripts/ci_scope.py` 的豁免名单、改本节的“先问”边界，一律先问用户，拿到明确同意再做。
 - autopr 例外：agent 身份可以在 `autopr/*` 分支上提交、推送并开 PR，不用逐次先问；合并 PR、`main`、tag、发版仍然先问。
 - 合并方式（插件开发规范 F3）：开完 PR 就问用户“PR #N 已开，CI 正在跑，可以合并吗”，不等 CI 跑完再问，也不用后台 `gh pr checks --watch`、定时或循环等任何办法自己等 CI。用户在对话里回“合并”后，会话先看 PR 状态：必需检查已全部通过（`mergeStateStatus` 为 `CLEAN`）时直接执行 `gh pr merge --merge`；检查还没跑完时执行 `gh pr merge --auto --merge`，由 GitHub 等 `CI required` 通过后合并，CI 不过就不合（`CLEAN` 时 `--auto` 会被 GitHub 拒绝）。同时为这个 PR 打开桌面版的 Auto-fix（Claude Code 用 `ccd_pr` 的 `set_monitor`，Codex 没有就跳过），CI 失败、冲突或评审意见会叫醒会话去修。下次被叫醒或用户下次来时，核实 PR 已合并、记下合并提交，再告诉用户；用户不用去 GitHub 点，也不用回来报“合完了”。
