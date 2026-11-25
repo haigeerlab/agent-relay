@@ -1,6 +1,6 @@
 # Spec: paused-session-link
 
-<!-- spec-guard: review approved 94b3c1101801 -->
+<!-- spec-guard: review approved 7eef3b0f6b36 -->
 
 ## Objective
 
@@ -108,7 +108,10 @@ Measured on this Mac (2026-11-25/26), the facts this Spec relies on:
    control-character title is cleaned and cut; omitted keeps, `null` clears; takeover by another session clears it; a
    Codex task, a script identity and an unverified caller are refused.
 2. Red first (schema): a schema-7 mailbox migrates to 8 with NULL columns and no data change; every schema reader in
-   bridge, CLI and hooks accepts 8; a schema-8 mailbox opened by a schema-7 reader fails with the existing message.
+   bridge, CLI (its read-only commands check the version, `bridge-store.ts` `ReadOnlyMailboxError`) and hooks
+   (`MAILBOX_SCHEMA_VERSIONS`) accepts 8. After a rollback the existing rules hold and are stated, not changed: a
+   0.9.6 bridge still opens a schema-8 mailbox in compatible mode (`schema.ts` `newer`), while 0.9.6's read-only CLI
+   commands and hooks refuse it with their existing message; `ROLLBACK_CAVEAT` says so for schema 8.
 3. Red first (texts): the send warning, `CLAUDE_NOT_RUNNING`, `noticeText` for `offline` and `CLAUDE_OFFLINE_EXPLANATION`
    carry D289's sentence, with the title when stored; D291's sentence appears in the send warning and the expiry notice
    only when a link is stored, and never in the user-facing notification.
