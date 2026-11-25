@@ -11,6 +11,7 @@ import { z } from "zod";
 
 import { agentNameProblem } from "./addressing.js";
 import { BridgeStore } from "./bridge-store.js";
+import { desktopLink } from "./desktop-link.js";
 import { CHANNEL_CAPABILITY, channelSession } from "./claude-channel.js";
 import { claudeSessions, claudeSessionsOrNull } from "./claude-wake.js";
 import { claudePresence, codexTaskPresence, type Presence } from "./presence.js";
@@ -175,9 +176,11 @@ function main(): void {
           "Bring back a retired name. Only after the user agrees; the result then says reactivated: true."),
         host: z.object({ app: z.literal("codex"), sessionId: z.string().min(1).max(128) }).optional().describe(
           "A Codex task registering without wake names its own thread: {app: \"codex\", sessionId: <its CODEX_THREAD_ID>}. It is recorded so the user can be told about messages waiting for it; it binds nothing and grants nothing. Never another thread's id."),
+        desktop: z.object({ link: z.string(), title: z.string().optional() }).nullable().optional().describe(
+          "Claude desktop session link and optional title, from this Claude session only."),
       },
     },
-    async ({ agent, capabilities, wake, takeover, reactivate, host: claimed }) => {
+    async ({ agent, capabilities, wake, takeover, reactivate, host: claimed, desktop }) => {
       const problem = agentNameProblem(agent);
       if (problem) throw new Error(problem);
       const notes: string[] = [];
@@ -201,6 +204,10 @@ function main(): void {
         throw new Error("host and wake name different sessions; a Codex task names only its own thread in both.");
       }
       const host = caller.host ?? (target?.app === "codex" ? target : null) ?? claimed ?? null;
+      if (desktop !== undefined && caller.host?.app !== "claude") {
+        throw new Error("The desktop field is for Claude desktop sessions.");
+      }
+      const normalizedDesktop = desktop && desktopLink(desktop);
       const existing = store.getAgent(agent);
       // agent-relay cleanup-gaps D61: a retired name stays retired unless the caller explicitly reactivates it.
       if (existing?.retiredAt && !reactivate) {
@@ -258,7 +265,10 @@ function main(): void {
         }
       }
       if (wake !== undefined) store.wakes.bind(agent, target ?? null, { replace: !!takeover && bindingConflict });
-      const registered = store.register(agent, capabilities, takeover && ownerConflict ? host : host ?? undefined);
+      // paused-session-link D287: moving a name or its wake binding drops a stale desktop session link.
+      const moved = (takeover && ownerConflict) || (!!target && !!current && (target.app !== current.app || target.sessionId !== current.sessionId));
+      const registered = store.register(agent, capabilities, takeover && ownerConflict ? host : host ?? undefined,
+        desktop === undefined ? (moved ? null : undefined) : (normalizedDesktop ?? null));
       caller.prove(agent);
       localAgents.splice(0, localAgents.length, ...localAgents.filter((name) => name !== agent), agent);
       const unread = store.countUnread(agent);

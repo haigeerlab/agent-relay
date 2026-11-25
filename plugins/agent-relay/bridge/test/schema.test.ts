@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 
-import { BridgeStore } from "../src/bridge-store.js";
+import { BridgeStore, ReadOnlyMailboxError } from "../src/bridge-store.js";
 import { DATA_DIR_NAME } from "../src/fs-safety.js";
 import { SCHEMA_VERSION, schemaVersion } from "../src/schema.js";
 
@@ -165,6 +165,33 @@ test("a database migrated by a newer bridge is opened in compatible mode", () =>
   store.close();
 });
 
+test("a schema-7 mailbox migrates to schema 8 with nullable desktop columns", () => {
+  const dir = mkdtempSync(join(tmpdir(), "bridge-schema-8-"));
+  const path = join(dir, "bridge.sqlite");
+  const old = new BridgeStore(path);
+  old.register("alice");
+  old.database.exec("PRAGMA user_version = 7");
+  old.close();
+  const migrated = new BridgeStore(path);
+  assert.equal(schemaVersion(migrated.database), 8);
+  const row = migrated.database.prepare("SELECT desktop_link, desktop_title FROM agents WHERE name = ?").get("alice") as
+    { desktop_link: string | null; desktop_title: string | null };
+  assert.equal(row.desktop_link, null);
+  assert.equal(row.desktop_title, null);
+  migrated.close();
+});
+
+test("a read-only store reads schema 8 and refuses schema 9", () => {
+  const dir = mkdtempSync(join(tmpdir(), "bridge-readonly-schema-"));
+  const path = join(dir, "bridge.sqlite");
+  new BridgeStore(path).close();
+  new BridgeStore(path, { readOnly: true }).close();
+  const raw = new DatabaseSync(path);
+  raw.exec("PRAGMA user_version = 9");
+  raw.close();
+  assert.throws(() => new BridgeStore(path, { readOnly: true }), ReadOnlyMailboxError);
+});
+
 test("two connections opening the same legacy file migrate it once", () => {
   const dir = mkdtempSync(join(tmpdir(), "bridge-race-"));
   const path = join(dir, "bridge.sqlite");
@@ -247,17 +274,17 @@ function v2Mailbox(path: string): void {
 }
 
 test("a v2 mailbox migrates straight to the current schema in one open, after one backup, with its rows", () => {
-  assert.equal(SCHEMA_VERSION, 7);
+  assert.equal(SCHEMA_VERSION, 8);
   const dir = mkdtempSync(join(tmpdir(), "bridge-v2-v4-"));
   const path = join(dir, "bridge.sqlite");
   const backupDir = join(dir, "backups");
   v2Mailbox(path);
 
   const store = new BridgeStore(path, { backupDir });
-  assert.deepEqual(store.migration, { from: 2, to: 7, newer: false });
+  assert.deepEqual(store.migration, { from: 2, to: 8, newer: false });
   const backups = readdirSync(backupDir);
   assert.equal(backups.length, 1);
-  assert.match(backups[0] ?? "", /^bridge-pre-v7-from-v2-/);
+  assert.match(backups[0] ?? "", /^bridge-pre-v8-from-v2-/);
   const copy = new DatabaseSync(join(backupDir, backups[0] as string), { readOnly: true });
   assert.equal((copy.prepare("PRAGMA user_version").get() as { user_version: number }).user_version, 2);
   assert.equal((copy.prepare("SELECT COUNT(*) AS n FROM messages").get() as { n: number }).n, 2);

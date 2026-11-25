@@ -8,6 +8,7 @@ import { basename, dirname, join } from "node:path";
 import { DATA_DIR_NAME, ensurePrivateDirectory, restrictToOwner } from "./fs-safety.js";
 import { bodyPart, clampLimit, fitMessages, type FitOptions, type MessageView } from "./paging.js";
 import { migrate, SCHEMA_VERSION, schemaVersion, type MigrationResult } from "./schema.js";
+import type { DesktopLink } from "./desktop-link.js";
 
 /**
  * agent-relay awaiting-reply-view D202: an open request (aliased `m`) is a direct message its sender marked
@@ -51,6 +52,7 @@ export interface BridgeAgent {
   retireNote: string | null;
   /** agent-relay identity-check: the host session this name was registered from; null when unknown. */
   host: AgentHost | null;
+  desktop: DesktopLink | null;
 }
 
 /** A host session: Claude's id is verified from the bridge's environment, Codex's is claimed by the session. */
@@ -241,6 +243,8 @@ interface AgentRow {
   retire_note: string | null;
   host_app?: string | null;
   host_session?: string | null;
+  desktop_link?: string | null;
+  desktop_title?: string | null;
 }
 
 /**
@@ -983,23 +987,26 @@ export class BridgeStore {
    * existing list. Registering again reactivates a retired agent; bridge_register allows that only with
    * reactivate: true (agent-relay cleanup-gaps D61).
    */
-  register(name: string, capabilities?: string[], host?: AgentHost | null): BridgeAgent {
+  register(name: string, capabilities?: string[], host?: AgentHost | null, desktop?: DesktopLink | null): BridgeAgent {
     const now = this.now();
     const existing = this.getAgent(name);
     const serialized = JSON.stringify(capabilities ?? existing?.capabilities ?? []);
     // agent-relay identity-check: a given host is recorded, `undefined` keeps the recorded one, `null` clears it.
     this.db
       .prepare(
-        `INSERT INTO agents (name, capabilities, registered_at, last_seen, host_app, host_session)
-         VALUES (?, ?, ?, ?, ?, ?)
+        `INSERT INTO agents (name, capabilities, registered_at, last_seen, host_app, host_session, desktop_link, desktop_title)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(name) DO UPDATE SET
            capabilities = excluded.capabilities,
            last_seen = excluded.last_seen,
            host_app = CASE WHEN ? THEN excluded.host_app ELSE COALESCE(excluded.host_app, agents.host_app) END,
            host_session = CASE WHEN ? THEN excluded.host_session ELSE COALESCE(excluded.host_session, agents.host_session) END,
+           desktop_link = CASE WHEN ? THEN excluded.desktop_link ELSE agents.desktop_link END,
+           desktop_title = CASE WHEN ? THEN excluded.desktop_title ELSE agents.desktop_title END,
            retired_at = NULL, retired_by = NULL, retire_note = NULL`,
       )
-      .run(name, serialized, now, now, host?.app ?? null, host?.sessionId ?? null, host === null ? 1 : 0, host === null ? 1 : 0);
+      .run(name, serialized, now, now, host?.app ?? null, host?.sessionId ?? null, desktop?.link ?? null, desktop?.title ?? null,
+        host === null ? 1 : 0, host === null ? 1 : 0, desktop !== undefined ? 1 : 0, desktop !== undefined ? 1 : 0);
     return this.getAgent(name) as BridgeAgent;
   }
 
@@ -1041,6 +1048,7 @@ export class BridgeStore {
       host: row.host_app && row.host_session
         ? { app: row.host_app as AgentHost["app"], sessionId: row.host_session }
         : null,
+      desktop: row.desktop_link ? { link: row.desktop_link, ...(row.desktop_title ? { title: row.desktop_title } : {}) } : null,
     };
   }
 
