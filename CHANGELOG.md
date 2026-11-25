@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- `scripts/validate.sh` 新增 `--quick`：按本分支改动只运行关联的 hooks 测试和 bridge 检查，无法可靠映射时自动退回全量；全量校验末尾增加最慢五项耗时。
+
 - **autopilot-hub 钉住 b34560f8d398cd946f2fc3f0cd7526d336f59a01 并对齐 CI 模板**：准入与降级工作流改为任务级最小权限；插件校验改在 `git archive` 导出副本中使用 Claude Code 2.1.321 和 hub 的 `rules/frontmatter.py`（取代下一条里的 `scripts/check_frontmatter.py`，该脚本已删除）；新增 report 模式的 rules 任务、`release-tag` 工作流，并让「CI required」接受被跳过的规则任务。PR 的 `edited` 事件（改标题或正文）也重跑整套 CI，让规则重新检查标题（hub#69）。
 
 - **CI 按插件开发规范 v1.2 补齐**（只改仓库的 CI，插件本身不变）：新增汇总任务「CI required」，`if: always()`、依赖其余
