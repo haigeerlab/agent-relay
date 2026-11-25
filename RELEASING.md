@@ -21,7 +21,8 @@
 
 ## 发版 PR
 
-一个 PR，标题形如 `release: agent-relay 0.x.y（接口 2.0，信箱 schema 5，委派库 schema 3）`，只改这些：
+一个 PR，标题形如 `chore(release): agent-relay 0.x.y（接口 2.0，信箱 schema 5，委派库 schema 3）`，只改这些（提交与 PR 标题的类型
+只能是 feat、fix、docs、chore、test、ci、refactor，hub 的 `commit-format` 规则会拦下 `release:` 这类前缀）：
 
 - `plugins/agent-relay/.claude-plugin/plugin.json` 与 `plugins/agent-relay/.codex-plugin/plugin.json` 的 `version`；
 - bridge 的运行时文件有改动时，把 bridge 的版本号（`bridge/src/version.ts`、`bridge/package.json`、`bridge/package-lock.json`
@@ -110,7 +111,7 @@ gh release create v0.x.y --verify-tag --title "agent-relay 0.x.y (interface 2.0)
 
 1. 找到合并提交：`gh pr view <编号> --json mergeCommit`。
 2. 从 `origin/main` 切 `autopr/revert-<编号>`，执行 `git revert -m 1 <合并提交>`（本仓库用 merge commit 合并）。
-3. 开 PR，标题形如 `revert: <原 PR 标题>`，写明撤回原因；等 `CI required` 与 `autopilot-admission` 通过，按 F3 合并：用户在对话里说“合并”后由会话合并（见 `CLAUDE.md` 的 autopr 一节）。
+3. 开 PR，标题形如 `chore(revert): <原 PR 标题>`（`revert:` 不是允许的类型，见上文「发版 PR」），写明撤回原因；等 `CI required` 与 `autopilot-admission` 通过，按 F3 合并：用户在对话里说“合并”后由会话合并（见 `CLAUDE.md` 的 autopr 一节）。
 4. 被撤回的改动已进了某个发布标签时：不改已发布的标签，按上文发一个补丁版本。bridge 的运行时文件有改动时，用户在本机
    `upgrade --confirm` 到新版本，或关掉所有会话后用 `native_collaboration_runtime.py rollback --confirm` 回到上一个运行时
    （README“升级运行时”）；信箱 schema 变过时要连插件一起回滚。

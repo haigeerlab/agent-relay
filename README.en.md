@@ -476,8 +476,8 @@ runs
 `~/.agent-relay/backups/<time>/`, builds the new version beside the old one, moves `mailbox/` and `data/` across,
 swaps in whole, counts as done only after the checks pass, and swaps back on failure. The old directory
 `runtime.previous-<time>` is kept; delete it yourself once you are sure; host attachment does not change. The new
-bridge upgrades the mailbox to schema 7 (from any earlier schema in one step, backed up first): the old runtime can
-still open it, but older agent-relay plugins cannot read the new schema (0.7.x reads up to 6), so roll back the plugin together with the runtime, or
+bridge upgrades the mailbox to schema 8 (from any earlier schema in one step, backed up first): the old runtime can
+still open it, but older agent-relay plugins' hooks and read-only commands cannot read the new schema (0.9.x reads up to 7, 0.7.x up to 6), so roll back the plugin together with the runtime, or
 restore the mailbox from the backup (messages received after that are lost).
 
 Stop the bridges in one of two ways before upgrading, then check in Terminal that
