@@ -484,7 +484,7 @@ function main(): void {
     "bridge_agents",
     {
       title: "List agents",
-      description: "List registered agents with unread counts, last activity, ping binding and recent ping health. An agent with unhandled direct messages carries waiting: {count, from, ids (oldest 20), oldestAt} (no bodies), whatever its host; with presence it shows who is stopped while messages wait. An agent others wait on carries owesReplies: {count, ids (oldest 20), oldestAt}, the requests marked expectsReply addressed to it with no replyTo answer yet. Tell the user when they ask what is waiting or who owes a reply. Retired agents are hidden unless requested.",
+      description: "List registered agents with unread counts, last activity, ping binding and recent ping health. desktop: the Claude desktop session link and title the session recorded. An agent with unhandled direct messages carries waiting: {count, from, ids (oldest 20), oldestAt} (no bodies), whatever its host; with presence it shows who is stopped while messages wait. An agent others wait on carries owesReplies: {count, ids (oldest 20), oldestAt}, the requests marked expectsReply addressed to it with no replyTo answer yet. Tell the user when they ask what is waiting or who owes a reply. Retired agents are hidden unless requested.",
       inputSchema: {
         includeRetired: z.boolean().optional().describe("Include retired agents, each as a short entry (name, retiredAt, retiredBy, retireNote, unread, lastActivity, wake). The result is then paged."),
         maxChars: z.number().int().min(1000).max(400000).optional().describe("Budget for one page in units: an ASCII character counts 1, any other character 4. Defaults to 48000 when the result is paged."),

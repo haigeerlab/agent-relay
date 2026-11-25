@@ -164,6 +164,20 @@ test("a Claude recipient offline for five minutes notifies once per spell, namin
   store.close();
 });
 
+test("an offline Claude notice includes its recorded session title but no message body (paused-session-link D290)", async () => {
+  const { store, log, lines } = setup("claude");
+  const link = "claude://claude.ai/epitaxy/local_00000000-0000-4000-8000-000000000001";
+  store.register("cx", [], undefined, { link, title: "Review" });
+  const message = store.send({ fromAgent: "sender", toAgent: "cx", body: "secret body" });
+  age(store, message.id, CLAUDE_OFFLINE_NOTIFY_AFTER_MS + 1000);
+  const d = dispatcher(store, log, [offline]);
+  await d.flush();
+  assert.match(lines()[0], /\| Claude · 'Review' · 1 waiting · first sent \d{2}:\d{2} \|/);
+  assert.doesNotMatch(lines()[0], /secret body/);
+  await d.close();
+  store.close();
+});
+
 test("a Claude notice has no click action and respects the switches; other Claude results stay silent", async () => {
   for (const [label, env, file] of [["env", { AGENT_RELAY_NOTIFY: "off" }, false], ["file", {}, true]] as const) {
     const { dir, store, log, lines } = setup("claude");

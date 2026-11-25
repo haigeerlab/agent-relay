@@ -5,7 +5,7 @@ import { dirname, isAbsolute, join } from "node:path";
 
 import { clickArgs, placeCategory, placeLabel, type Location } from "./location.js";
 import type { DesktopLink } from "./desktop-link.js";
-import { pausedSessionUserText } from "./desktop-link.js";
+import { desktopLink, pausedSessionUserText } from "./desktop-link.js";
 
 /** A Codex recipient that is merely busy is notified only after this long (the user's choice, 2026-10-08). */
 export const BUSY_NOTIFY_AFTER_MS = 10 * 60_000;
@@ -92,11 +92,11 @@ export function noticeFields(notice: UndeliveredNotice, { preview }: { preview: 
       body: noticeText(notice) };
   }
   if (notice.kind === "offline") {
-    // claude-offline-notice D193: never the message text and never a click (the place is not known once the process
-    // is gone); the session's mailbox name is what the user knows it by.
+    // paused-session-link D290: never the message text; a recorded desktop link may open its Claude session.
     const count = notice.count ?? 1;
     return { title: `agent-relay · ${oneLine(notice.agent, NAME_CHARS)} is offline`,
-      subtitle: `Claude · ${count} waiting · first sent ${clockTime(notice.since ?? Date.now())}`,
+      subtitle: ["Claude", notice.desktop?.title ? `'${oneLine(notice.desktop.title, NAME_CHARS)}'` : "", `${count} waiting`,
+        `first sent ${clockTime(notice.since ?? Date.now())}`].filter(Boolean).join(" · "),
       body: noticeText(notice) };
   }
   if (notice.kind === "accepted-unread") {
@@ -270,9 +270,13 @@ export function notifyUndelivered(mailboxPath: string, notice: UndeliveredNotice
   // retried through osascript, which could show the same notice twice.
   const notifier = findNotifier(channel.candidates);
   if (notifier) {
-    // notice-location D188: the click action comes last and is built from the verified place alone.
+    // paused-session-link D290: an offline notice may open only a freshly revalidated stored Claude desktop link.
+    let offlineClick: string[] = [];
+    if (notice.kind === "offline" && notice.desktop) {
+      try { offlineClick = ["-open", desktopLink(notice.desktop).link]; } catch { /* stale stored link: no click */ }
+    }
     const child = execFile(notifier, ["-title", fields.title, "-subtitle", fields.subtitle, "-group", `agent-relay-${safeKey(notice)}`,
-      ...(notice.where ? clickArgs(notice.where.place) : [])],
+      ...(offlineClick.length ? offlineClick : notice.where ? clickArgs(notice.where.place) : [])],
       { timeout: 10_000 }, () => {});
     child.stdin?.on("error", () => {});
     child.stdin?.end(fields.body);

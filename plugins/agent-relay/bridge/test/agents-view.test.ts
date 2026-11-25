@@ -116,6 +116,30 @@ test("a plain bridge_agents call is never paged and keeps every field (D223)", a
   }
 });
 
+test("bridge_agents exposes a recorded Claude desktop link only for active agents (paused-session-link D292)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "bridge-agents-desktop-"));
+  const dbPath = join(dir, "bridge.sqlite");
+  const store = new BridgeStore(dbPath);
+  const link = "claude://claude.ai/epitaxy/local_00000000-0000-4000-8000-000000000001";
+  store.register("named", [], undefined, { link, title: "Review" });
+  store.register("untitled", [], undefined, { link });
+  store.register("plain");
+  store.register("retired", [], undefined, { link, title: "Old review" });
+  retireAgent(store, "retired", { by: "test", note: "finished" });
+  store.close();
+  const client = await connect(dbPath);
+  try {
+    const active = payload(await client.callTool({ name: "bridge_agents", arguments: {} })).agents;
+    assert.deepEqual(active.find((agent: { name: string }) => agent.name === "named")?.desktop, { link, title: "Review" });
+    assert.deepEqual(active.find((agent: { name: string }) => agent.name === "untitled")?.desktop, { link });
+    assert.equal("desktop" in active.find((agent: { name: string }) => agent.name === "plain"), false);
+    const all = payload(await client.callTool({ name: "bridge_agents", arguments: { includeRetired: true } })).agents;
+    assert.equal("desktop" in all.find((agent: { name: string }) => agent.name === "retired"), false);
+  } finally {
+    await client.close();
+  }
+});
+
 test("any caller may read a message's status by id (D224)", async () => {
   const dir = mkdtempSync(join(tmpdir(), "bridge-status-open-"));
   const dbPath = join(dir, "bridge.sqlite");
