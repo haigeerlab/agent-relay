@@ -97,6 +97,23 @@ test("register-script-identity changes nothing without --confirm (D244)", async 
   store.close();
 });
 
+// paused-session-link D287: a script identity never records a Claude desktop link.
+test("a script identity takes no desktop link (D287)", async () => {
+  const { dbPath, env } = setup();
+  new BridgeStore(dbPath).close();
+  const refused = await cli(["register-script-identity", "di-link", "--confirm", "--desktop",
+    "claude://claude.ai/epitaxy/local_00000000-0000-4000-8000-000000000001"], env);
+  assert.equal(refused.code, 2, refused.stdout);
+  let store = new BridgeStore(dbPath, { readOnly: true });
+  assert.equal(store.getAgent("di-link"), undefined);
+  store.close();
+  const done = await cli(["register-script-identity", "di-link", "--confirm"], env);
+  assert.equal(done.code, 0, done.stderr);
+  store = new BridgeStore(dbPath, { readOnly: true });
+  assert.equal(store.getAgent("di-link")?.desktop, null);
+  store.close();
+});
+
 test("send refuses a session's name, a body on argv, and returns bridge_send's object (D243, D244)", async () => {
   const { dbPath, env } = setup();
   const seed = new BridgeStore(dbPath);

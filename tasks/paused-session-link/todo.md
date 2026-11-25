@@ -12,5 +12,13 @@
   - Accepted by the owner: `desktop` only when stored; tool description updated; agents-view tests. `bash scripts/validate.sh` pass (51 files, 1089 tests).
 - [x] Task 6: interface 2.12, skill, docs and bookkeeping (D293)
   - Accepted by the owner: new `test_paused_session_docs.py`; interface 2.12; skill and server instructions (D293); interface, notification and host-differences docs; CHANGELOG; `UPSTREAM.md` row. Owner fix: the interface doc names no release version (set at release, D252). `bash scripts/validate.sh` pass (52 files, 1095 tests).
-- [ ] Checkpoint (report): owner acceptance of Tasks 1–6
+- [x] Checkpoint (report): owner acceptance of Tasks 1–6
+  - Codex review of the branch (`/delegate:review --backend codex`, gpt-5.6-sol high, base b5a6eb6): 6 blocking — static
+    offline explanation in the 3-failures warning, title cut by UTF-16 units, schema-7 migration test not starting from
+    schema 7, missing takeover/rebind and refusal tests, missing no-link D291 tests, broken `UPSTREAM.md` table. Fixed
+    (7ad6740). Re-check of the fix commit (the whole-branch re-check exceeded Codex's 1 MiB input): 4 resolved, 2 left —
+    D291 de-duplication by text scan (now an explicit flag) and no executable script-identity test (added to
+    `script-cli.test.ts`). Both fixed by the owner.
+  - `bash scripts/validate.sh` pass (52 files, 1100 tests); the branch diff has only made-up `local_` ids and no other
+    project's name.
 - [ ] Checkpoint (gate): PR review and merge by the user
