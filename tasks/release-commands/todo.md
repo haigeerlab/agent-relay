@@ -25,4 +25,5 @@
   - Re-run against a local bare copy whose `main` is reset to the v0.9.6 merge commit `48f9a26`, with the real
     `--github` repo for PR and CI lookups: `refused` with `tag-exists` and `version` 0.9.6, so every earlier D279 check
     passed on a real release; no record written.
-- [ ] Checkpoint (gate): PR review and merge by the user
+- [x] Checkpoint (gate): PR review and merge by the user
+  - Merged by the user: PR #195 (merge commit 71567dd, 2026-11-23).
