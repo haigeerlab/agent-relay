@@ -21,4 +21,5 @@
     `script-cli.test.ts`). Both fixed by the owner.
   - `bash scripts/validate.sh` pass (52 files, 1100 tests); the branch diff has only made-up `local_` ids and no other
     project's name.
-- [ ] Checkpoint (gate): PR review and merge by the user
+- [x] Checkpoint (gate): PR review and merge by the user
+  - Merged by the user: PR #207 (merge commit aa8422c, 2026-11-26).

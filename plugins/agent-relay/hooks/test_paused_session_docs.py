@@ -53,9 +53,12 @@ class PausedSessionDocsTests(unittest.TestCase):
 
     def test_changelog_names_interface_and_schema(self):
         text = self.text["changelog"]
-        unreleased = text[text.index("## [Unreleased]"):text.index("\n## ", text.index("## [Unreleased]") + 1)]
+        # The entry moves from [Unreleased] to its release section at release time: check the section that holds it.
+        sections = re.split(r"\n(?=## \[)", text)
+        holding = [section for section in sections if "paused-session-link" in section]
+        self.assertEqual(len(holding), 1, "exactly one CHANGELOG section names paused-session-link")
         for value in ("desktop", "2.12", "schema 8"):
-            self.assertIn(value, unreleased)
+            self.assertIn(value, holding[0])
 
     def test_no_real_local_session_ids(self):
         allowed = {"local_<uuid>", "local_00000000-0000-4000-8000-000000000001"}

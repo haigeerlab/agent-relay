@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-26
+
+**bridge 有改动，要 `upgrade --confirm` 升级运行时；接口 2.11 → 2.12（只增加内容：`bridge_register`、`bridge_agents` 新增可选字段 `desktop`）；信箱 schema 7 → 8（agents 表加两列）。回滚要连插件一起回滚：0.9.x 的钩子只认到 schema 7。**
+
 - **暂停 Claude 会话的统一提示与回到会话入口**（模块 `paused-session-link`）：`bridge_register` / `bridge_agents` 新增 `desktop`，离线通知在记录 link 且装有 terminal-notifier 时可点击打开会话，并补充手动唤醒说明；接口升至 2.12，信箱 schema 8，升级运行时需 `upgrade --confirm`。
 
 - `scripts/validate.sh` 新增 `--quick`：按本分支改动只运行关联的 hooks 测试和 bridge 检查，无法可靠映射时自动退回全量；全量校验末尾增加最慢五项耗时。
@@ -15,6 +19,27 @@
   CLI 不检查 YAML 能否解析（C7）；workflow 顶层改为 `permissions: {}`，各任务只拿 `contents: read`（C8）；新增
   `.github/dependabot.yml`，只更新 GitHub Actions，每月一次，新版本冷却 7 天（C9）；macOS 任务在检查之后跑
   `git diff --exit-code`，检查改动了已跟踪文件就失败（C10）。`.gitignore` 加 `__pycache__/`。
+
+- bridge 的版本号随运行时改动抬到 0.10.0，`agent-relay --version` 和 MCP 的 `serverInfo.version` 报 0.10.0。
+
+### 从 0.9.6 升级
+
+信箱 schema 变成 8，bridge 的运行时文件有改动，要升级运行时（步骤见 README“更新插件”“升级运行时”）。**先更新插件，再升级运行时**：
+0.10.0 的钩子同时认 schema 7 和 8，中间这段时间不会拦住会话；反过来先升运行时的话，0.9.6 的钩子读不了 schema 8。
+
+1. 把主克隆快进到 v0.10.0：`git -C <克隆> pull --ff-only`（从 GitHub 装的，把 `~/.codex/config.toml` 里的 `ref` 改成
+   `"v0.10.0"` 并 `codex plugin marketplace upgrade`）。
+2. Codex：`codex plugin add agent-relay@agent-relay-marketplace`。
+3. Claude Code：`claude plugin marketplace update agent-relay-marketplace`，再
+   `claude plugin update --scope user agent-relay@agent-relay-marketplace`，刷新用户级记录的标签。
+4. **升级运行时**：关掉所有用到信箱的会话或只结束 bridge（见 README“升级运行时”），确认 `pgrep -fl
+   "agent-relay/runtime/dist/server.js"` 没有输出，再执行 `python3 -B <插件目录>/hooks/native_collaboration_runtime.py
+   upgrade --confirm`，输出应为 `"state": "upgraded"`，其中 `launcher.ok` 为 `true`。
+5. Codex 用 ⌘Q 完全退出 ChatGPT 应用再打开，然后新开 Claude Code 和 Codex 会话。
+6. 新会话里跑 `doctor`，各项应为 ok（`claude-plugin` 显示加载的是 0.10.0，`runtime` 为 ok）；
+   `~/.agent-relay/bin/agent-relay --version` 应报 0.10.0。
+7. 想让离线通知能点开某个 Claude 桌面会话：在那个会话里重新加入信箱（`bridge_register`，按 collab 技能先取自己的
+   `get_session("self")`），它的链接和标题才会记下。不重新加入也照常收发，只是通知点了不跳转、提示里没有标题。
 
 ## [0.9.6] - 2026-11-20
 
