@@ -1,0 +1,40 @@
+# Template (plugin standard v1.5, B5): check every pushed release tag.
+#
+# Copy to .github/workflows/release-tag.yml and replace <HUB_SHA> with the hub target baseline (standard H1).
+# A tag that is already pushed cannot be stopped; a failure here means: delete the remote tag and tag again
+# (annotated, named v<version>, on a commit that is on the default branch). Changing this file is T4.
+name: release-tag
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions: {}
+
+jobs:
+  release-tag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - name: Check out autopilot-hub at the pinned SHA (scripts only)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: haigeerlab/autopilot-hub
+          ref: b34560f8d398cd946f2fc3f0cd7526d336f59a01
+          path: .hub
+          persist-credentials: false
+      - name: Tag name, annotated, on the default branch (B5)
+        env:
+          TAG: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          # the push may carry a lightweight tag that checkout re-created; read the real object from the remote
+          git fetch --force origin "refs/tags/${TAG}:refs/tags/${TAG}"
+          python3 -B .hub/rules/release_tag.py --repo . --tag "${TAG}" --default-branch "${DEFAULT_BRANCH}" --no-fetch
