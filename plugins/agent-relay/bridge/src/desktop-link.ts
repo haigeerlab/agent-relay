@@ -8,8 +8,9 @@ const DESKTOP_LINK = /^claude:\/\/claude\.ai\/epitaxy\/local_[0-9a-f]{8}-[0-9a-f
 /** paused-session-link D287: validate the desktop app session link and normalize its display title. */
 export function desktopLink(input: { link: string; title?: string }): DesktopLink {
   if (!DESKTOP_LINK.test(input.link)) throw new Error("desktop link must be a Claude desktop session link.");
-  const title = input.title?.replace(/[\x00-\x1F\x7F-\x9F]/g, "").replace(/\s+/g, " ").trim().slice(0, 120);
-  return title ? { link: input.link, title } : { link: input.link };
+  const title = input.title?.replace(/[\x00-\x1F\x7F-\x9F]/g, "").replace(/\s+/g, " ").trim();
+  const truncated = title && Array.from(title).slice(0, 120).join("");
+  return truncated ? { link: input.link, title: truncated } : { link: input.link };
 }
 
 /** paused-session-link D289: name a Claude desktop session for text shown to its sender or user. */

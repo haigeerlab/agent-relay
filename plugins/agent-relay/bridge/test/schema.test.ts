@@ -169,13 +169,18 @@ test("a schema-7 mailbox migrates to schema 8 with nullable desktop columns", ()
   const dir = mkdtempSync(join(tmpdir(), "bridge-schema-8-"));
   const path = join(dir, "bridge.sqlite");
   const old = new BridgeStore(path);
-  old.register("alice");
+  old.register("alice", ["review"], { app: "claude", sessionId: "claude-a" });
+  old.database.exec("ALTER TABLE agents DROP COLUMN desktop_link");
+  old.database.exec("ALTER TABLE agents DROP COLUMN desktop_title");
   old.database.exec("PRAGMA user_version = 7");
   old.close();
   const migrated = new BridgeStore(path);
   assert.equal(schemaVersion(migrated.database), 8);
-  const row = migrated.database.prepare("SELECT desktop_link, desktop_title FROM agents WHERE name = ?").get("alice") as
-    { desktop_link: string | null; desktop_title: string | null };
+  const row = migrated.database.prepare("SELECT capabilities, host_app, host_session, desktop_link, desktop_title FROM agents WHERE name = ?").get("alice") as
+    { capabilities: string; host_app: string; host_session: string; desktop_link: string | null; desktop_title: string | null };
+  assert.equal(row.capabilities, '["review"]');
+  assert.equal(row.host_app, "claude");
+  assert.equal(row.host_session, "claude-a");
   assert.equal(row.desktop_link, null);
   assert.equal(row.desktop_title, null);
   migrated.close();

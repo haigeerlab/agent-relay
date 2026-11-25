@@ -9,6 +9,7 @@ import { BridgeStore } from "../src/bridge-store.js";
 import { claudeNotRunning } from "../src/claude-wake.js";
 import { claudeOfflineExplanation } from "../src/notices.js";
 import { noticeText } from "../src/notify.js";
+import { OFFLINE_WAKE_WINDOW_MS } from "../src/wake-queue.js";
 
 const link = "claude://claude.ai/epitaxy/local_00000000-0000-4000-8000-000000000001";
 const d289 = 'The Claude app paused this session or it was closed; it reads its mailbox only after it is opened. Tell the user: "Open the Claude session \'Review\' (mailbox name recipient) so it can read its waiting messages."';
@@ -35,4 +36,32 @@ test("paused-session-link D289 omits title and D291 without a desktop link", () 
   const text = claudeNotRunning("recipient");
   assert.ok(text.includes('"Open the Claude session recipient so it can read its waiting messages."'));
   assert.doesNotMatch(text, /If the user asks to wake it now/);
+});
+
+test("paused-session-link never exposes D291 without a stored link", async () => {
+  const store = new BridgeStore(join(mkdtempSync(join(tmpdir(), "ar-paused-no-link-")), "bridge.sqlite"));
+  store.register("recipient", [], { app: "claude", sessionId: "stopped" });
+  const warning = await checkRecipient(store, "recipient", { presenceOf: async () => ({ state: "stopped" }) });
+  for (const text of [warning.warnings.join(" "), claudeOfflineExplanation("recipient"), claudeNotRunning("recipient")]) {
+    assert.doesNotMatch(text, /If the user asks to wake it now|local_|session message tool/);
+  }
+  store.close();
+});
+
+test("paused-session-link puts D291 in only one coexisting stopped warning", async () => {
+  const store = new BridgeStore(join(mkdtempSync(join(tmpdir(), "ar-paused-pings-")), "bridge.sqlite"));
+  store.register("sender");
+  store.register("recipient", [], { app: "claude", sessionId: "stopped" }, { link, title: "Review" });
+  store.wakes.bind("recipient", { app: "claude", sessionId: "stopped" });
+  for (let index = 0; index < 3; index += 1) {
+    store.send({ fromAgent: "sender", toAgent: "recipient", body: `ping ${index}` });
+    const job = store.wakes.claim(Date.now());
+    assert.ok(job);
+    store.wakes.finish(job, { state: "pending", reason: "offline", detail: "not running" });
+    assert.equal(store.wakes.claim(Date.now() + OFFLINE_WAKE_WINDOW_MS + 3_600_000), null);
+  }
+  const warning = await checkRecipient(store, "recipient", { presenceOf: async () => ({ state: "stopped" }) });
+  assert.equal(warning.warnings.join(" ").split("If the user asks to wake it now").length - 1, 1);
+  assert.ok(warning.warnings.some((text) => /last 3 background pings/.test(text) && text.includes(d291)));
+  store.close();
 });
