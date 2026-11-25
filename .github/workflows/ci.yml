@@ -7,6 +7,9 @@ name: CI
 
 on:
   pull_request:
+    # edited: a title or body change reruns the WHOLE CI. Never skip jobs on `edited`: `CI required` treats skipped
+    # as fine, so skipping tests there would let a title edit turn a failing PR green.
+    types: [opened, synchronize, reopened, edited]
   push:
     branches: [main]
   workflow_dispatch:
