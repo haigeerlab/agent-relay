@@ -48,6 +48,49 @@ test("terminal-notifier gets exactly -title -subtitle -group and the preview on 
   assert.equal(existsSync(`${osa}.args`), false, "no second notice");
 });
 
+test("an offline Claude notice opens only its validated recorded desktop link (paused-session-link D290)", async () => {
+  const { dir, db } = mailbox();
+  const tn = fake(dir, "terminal-notifier");
+  const osa = fake(dir, "osascript");
+  const link = "claude://claude.ai/epitaxy/local_00000000-0000-4000-8000-000000000001";
+  const offline = { kind: "offline" as const, messageId: 9, agent: "cx", why: "not running", key: "offline-link",
+    count: 2, since: Date.now(), desktop: { link, title: "Review" } };
+  assert.equal(notifyUndelivered(db, offline, {}, { candidates: [tn], osascript: osa }), true);
+  assert.ok(await settled(`${tn}.stdin`));
+  const args = readFileSync(`${tn}.args`, "utf8").trimEnd().split("\n");
+  assert.deepEqual(args.slice(-2), ["-open", link]);
+  assert.match(args[args.indexOf("-subtitle") + 1], /^Claude · 'Review' · 2 waiting · first sent \d{2}:\d{2}$/);
+  assert.equal(readFileSync(`${tn}.stdin`, "utf8").includes("secret"), false, "no message body");
+  assert.equal(existsSync(`${osa}.args`), false, "terminal-notifier alone gets the click");
+
+  const fallback = mailbox();
+  const fallbackOsa = fake(fallback.dir, "osascript");
+  assert.equal(notifyUndelivered(fallback.db, { ...offline, key: "offline-fallback" }, {},
+    { candidates: [join(fallback.dir, "missing")], osascript: fallbackOsa }), true);
+  assert.ok(await settled(`${fallbackOsa}.args`));
+  assert.doesNotMatch(readFileSync(`${fallbackOsa}.args`, "utf8"), /-open|claude:\/\//);
+
+  const other = mailbox();
+  const otherTn = fake(other.dir, "terminal-notifier");
+  assert.equal(notifyUndelivered(other.db, { ...offline, kind: "approval", key: "approval-link" }, {}, { candidates: [otherTn] }), true);
+  assert.ok(await settled(`${otherTn}.stdin`));
+  assert.doesNotMatch(readFileSync(`${otherTn}.args`, "utf8"), /-open/);
+
+  const invalid = mailbox();
+  const invalidTn = fake(invalid.dir, "terminal-notifier");
+  assert.equal(notifyUndelivered(invalid.db, { ...offline, key: "offline-invalid", desktop: { link: "claude://invalid" } }, {},
+    { candidates: [invalidTn] }), true);
+  assert.ok(await settled(`${invalidTn}.stdin`));
+  assert.doesNotMatch(readFileSync(`${invalidTn}.args`, "utf8"), /-open/);
+
+  const unlinked = mailbox();
+  const unlinkedTn = fake(unlinked.dir, "terminal-notifier");
+  assert.equal(notifyUndelivered(unlinked.db, { ...offline, key: "offline-unlinked", desktop: undefined }, {},
+    { candidates: [unlinkedTn] }), true);
+  assert.ok(await settled(`${unlinkedTn}.stdin`));
+  assert.doesNotMatch(readFileSync(`${unlinkedTn}.args`, "utf8"), /-open/);
+});
+
 test("an unusable candidate is skipped and osascript shows the notice", async () => {
   const { dir, db } = mailbox();
   const writable = fake(dir, "writable", 0, 0o777);

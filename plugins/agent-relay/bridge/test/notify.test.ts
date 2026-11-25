@@ -140,8 +140,9 @@ test("a Claude recipient offline for five minutes notifies once per spell, namin
   assert.equal(lines().length, 1);
   const time = clockTime(sentAt);
   assert.equal(lines()[0], `agent-relay · cx is offline | Claude · 2 waiting · first sent ${time} | ` +
-    `Claude session "cx" is not running (the Claude app may have stopped it while idle). 2 messages cannot be ` +
-    `delivered; the first, #${first.id} from "sender", was sent at ${time}. Open that session to deliver them.`);
+    `Claude session "cx" is not running. 2 messages cannot be ` +
+    `delivered; the first, #${first.id} from "sender", was sent at ${time}. The Claude app paused this session or it was ` +
+    `closed. Open the Claude session cx to deliver them.`);
   assert.doesNotMatch(lines()[0], /secret body|another/, "never the message text");
   assert.match(store.wakes.forMessage(first.id)?.detail ?? "", /A desktop notification was attempted on this Mac/);
   assert.equal(store.wakes.forMessage(second.id)?.state, "pending");
@@ -159,6 +160,20 @@ test("a Claude recipient offline for five minutes notifies once per spell, namin
   await d.flush();
   assert.equal(lines().length, 2, "a new spell notifies again");
   assert.ok(lines()[1].includes(`Claude · 1 waiting`) && lines()[1].includes(`1 message cannot be delivered; the first, #${later.id} from "sender"`), lines()[1]);
+  await d.close();
+  store.close();
+});
+
+test("an offline Claude notice includes its recorded session title but no message body (paused-session-link D290)", async () => {
+  const { store, log, lines } = setup("claude");
+  const link = "claude://claude.ai/epitaxy/local_00000000-0000-4000-8000-000000000001";
+  store.register("cx", [], undefined, { link, title: "Review" });
+  const message = store.send({ fromAgent: "sender", toAgent: "cx", body: "secret body" });
+  age(store, message.id, CLAUDE_OFFLINE_NOTIFY_AFTER_MS + 1000);
+  const d = dispatcher(store, log, [offline]);
+  await d.flush();
+  assert.match(lines()[0], /\| Claude · 'Review' · 1 waiting · first sent \d{2}:\d{2} \|/);
+  assert.doesNotMatch(lines()[0], /secret body/);
   await d.close();
   store.close();
 });

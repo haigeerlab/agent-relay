@@ -7,7 +7,7 @@ import type { DatabaseSync } from "node:sqlite";
  * with defaults. Older bridge processes that are still running against the
  * same database must keep working after a newer process migrates it.
  */
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 
 function columns(db: DatabaseSync, table: string): Set<string> {
   const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
@@ -177,6 +177,12 @@ const MIGRATIONS: Array<(db: DatabaseSync) => void> = [
       );
       CREATE INDEX IF NOT EXISTS idx_request_closures_message ON request_closures (message_id);
     `);
+  },
+
+  // v8 (paused-session-link D288): an optional Claude desktop session link and its display title.
+  (db) => {
+    addColumn(db, "agents", "desktop_link", "TEXT");
+    addColumn(db, "agents", "desktop_title", "TEXT");
   },
 ];
 

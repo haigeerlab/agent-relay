@@ -9,7 +9,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 from native_collaboration_retire import RetireError, identity_state, main, retire_identity
-from native_collaboration_runtime import BRIDGE_COMMIT
+from native_collaboration_runtime import BRIDGE_COMMIT, ROLLBACK_CAVEAT, newer_mailbox_schema
 
 
 # 代替 node：记录参数与环境，并按真实 CLI 的方式把该身份标记为 retired。
@@ -76,8 +76,8 @@ class NativeRetireTests(unittest.TestCase):
         self.assertEqual(identity_state(self.database, "old")["state"], "retired")
         self.assertEqual(identity_state(self.database, "nobody"), {"state": "absent"})
 
-    def test_mailbox_schemas_v3_to_v7_are_read_and_an_unknown_newer_one_is_refused(self):
-        for version, readable in ((3, True), (4, True), (5, True), (6, True), (7, True), (8, False)):
+    def test_mailbox_schemas_v3_to_v8_are_read_and_an_unknown_newer_one_is_refused(self):
+        for version, readable in ((3, True), (4, True), (5, True), (6, True), (7, True), (8, True), (9, False)):
             with self.subTest(version=version):
                 with sqlite3.connect(self.database) as connection:
                     connection.execute(f"PRAGMA user_version = {version}")
@@ -85,8 +85,13 @@ class NativeRetireTests(unittest.TestCase):
                     self.assertEqual(identity_state(self.database, "busy")["unacknowledged"], 1)
                 else:
                     # awaiting-reply-view D208: say why and what to do, not a bare "unavailable".
-                    with self.assertRaisesRegex(Exception, "schema 8 is newer .*update the agent-relay plugin"):
+                    with self.assertRaisesRegex(Exception, "schema 9 is newer .*update the agent-relay plugin"):
                         identity_state(self.database, "busy")
+
+    def test_schema_9_is_newer_and_rollback_caveat_names_schema_8(self):
+        self.assertIn("schema 9 is newer", newer_mailbox_schema(9) or "")
+        self.assertIn("upgraded (schema 8)", ROLLBACK_CAVEAT)
+        self.assertIn("hooks and read-only CLI commands read only up to schema 7 (0.9.x)", ROLLBACK_CAVEAT)
 
     def test_retires_a_clear_identity_with_the_backlog_kept(self):
         self.assertEqual(retire_identity(self.root, str(self.node), "done", note="session ended"),

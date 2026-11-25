@@ -1,6 +1,6 @@
 import type { BridgeStore } from "./bridge-store.js";
 import { channelNotification, type ChannelNotification } from "./claude-channel.js";
-import { ClaudeWake, claudeSessionsOrNull, type ClaudeSession } from "./claude-wake.js";
+import { ClaudeWake, claudeNotRunning, claudeSessionsOrNull, type ClaudeSession } from "./claude-wake.js";
 import { CODEX_NOT_LOADED, wakeCodex } from "./codex-wake.js";
 import { claudeLocation, type Location } from "./location.js";
 import { noticeAcceptedUnread } from "./notices.js";
@@ -71,7 +71,8 @@ export class WakeDispatcher {
     this.presenceOf = resolved.presenceOf;
     this.locationOf = resolved.locationOf;
     this.claudeSessions = resolved.claudeSessions;
-    this.claude = new ClaudeWake((job, result) => this.lateReceipt(job, result));
+    this.claude = new ClaudeWake((job, result) => this.lateReceipt(job, result),
+      (agent) => claudeNotRunning(agent, this.store.getAgent(agent)?.desktop));
   }
 
   /**
@@ -169,7 +170,8 @@ export class WakeDispatcher {
     const key = `claude-offline-${job.agent}-${waiting.first.messageId}`;
     const notified = notifyUndelivered(job.mailboxPath,
       { kind: "offline", messageId: waiting.first.messageId, fromAgent: waiting.first.fromAgent ?? undefined,
-        agent: job.agent, why: "not running", count: waiting.count, since: waiting.first.createdAt, key }, this.env);
+        agent: job.agent, why: "not running", count: waiting.count, since: waiting.first.createdAt, key,
+        desktop: this.store.getAgent(job.agent)?.desktop }, this.env);
     return this.keepNotified(job, result, notified, key);
   }
 

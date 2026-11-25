@@ -56,8 +56,11 @@ export async function agentsView(store: BridgeStore, { includeRetired, maxChars,
       };
     }
     const health = store.wakes.health(agent.name, 1)[0];
+    const { desktop, ...entry } = agent;
     return {
-      ...agent,
+      ...entry,
+      // paused-session-link D292: the desktop app session is useful for naming or waking a stopped active recipient.
+      ...(desktop ? { desktop } : {}),
       ...(presences[index] ? { presence: presences[index] } : {}),
       // agent-relay acceptance-030-gaps D75a: only a Claude host comes from a verified environment.
       host: agent.host ? { ...agent.host, verified: agent.host.app === "claude" } : null,

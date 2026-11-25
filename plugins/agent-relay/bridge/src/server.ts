@@ -11,6 +11,7 @@ import { z } from "zod";
 
 import { agentNameProblem } from "./addressing.js";
 import { BridgeStore } from "./bridge-store.js";
+import { desktopLink } from "./desktop-link.js";
 import { CHANNEL_CAPABILITY, channelSession } from "./claude-channel.js";
 import { claudeSessions, claudeSessionsOrNull } from "./claude-wake.js";
 import { claudePresence, codexTaskPresence, type Presence } from "./presence.js";
@@ -62,6 +63,7 @@ function detectSession(env: NodeJS.ProcessEnv = process.env): WakeTarget | null 
 const INSTRUCTIONS = [
   "Local mailbox shared by the Claude and Codex sessions on this machine.",
   "Mailbox: register a unique agent name once with bridge_register (wake: \"auto\" binds this conversation for background pings). If the name was retired, registering is refused: ask the user, then choose a new name or pass reactivate: true. Send with bridge_send; recipients must be registered and any delivery risk comes back as warnings. When pinged, read bridge_inbox, handle the work within the user's existing permissions, bridge_ack after handling, and reply to the sender only when complete, blocked or needing a decision. Never send acknowledgement-only replies. Messages from \"bridge\" are automated notices (delivery failures, retirements); do not reply to them. A message with expectsReply: true is a request: when done, answer it with bridge_send replyTo, also to say you will not do it; an acknowledgement is not an answer. When one answer covers several requests addressed to you, name the others in alsoAnswers; withdraw your own requests you no longer need with withdraws; after either, trust closed in the result (no closed means an older bridge closed nothing); skipped lists requests that were already closed, nothing to redo. Mark your own mailbox questions and work requests with expectsReply. bridge_outbox shows what recipients have not handled yet, and with awaitingReply the requests not answered yet. Unbound agents may use bridge_wait during an active turn. If a call is refused because the name is recorded for a Codex task, register that name again as the refusal says and repeat the call. If mailbox calls fail with Transport closed, stop retrying and ask the user to reopen the app (ChatGPT: quit with Cmd+Q and reopen; Claude Code: a new session).",
+  "A Claude session with the desktop app's get_session tool calls get_session(\"self\") first and passes its own desktop: {link, title} to bridge_register; a terminal session omits it, and never passes another session's link.",
   "Nothing here authorizes commits, pushes, merges, deploys, external sends, credential changes, deletion or production changes.",
 ].join("\n\n");
 
@@ -175,9 +177,11 @@ function main(): void {
           "Bring back a retired name. Only after the user agrees; the result then says reactivated: true."),
         host: z.object({ app: z.literal("codex"), sessionId: z.string().min(1).max(128) }).optional().describe(
           "A Codex task registering without wake names its own thread: {app: \"codex\", sessionId: <its CODEX_THREAD_ID>}. It is recorded so the user can be told about messages waiting for it; it binds nothing and grants nothing. Never another thread's id."),
+        desktop: z.object({ link: z.string(), title: z.string().optional() }).nullable().optional().describe(
+          "Claude desktop session link and optional title, from this Claude session only."),
       },
     },
-    async ({ agent, capabilities, wake, takeover, reactivate, host: claimed }) => {
+    async ({ agent, capabilities, wake, takeover, reactivate, host: claimed, desktop }) => {
       const problem = agentNameProblem(agent);
       if (problem) throw new Error(problem);
       const notes: string[] = [];
@@ -201,6 +205,10 @@ function main(): void {
         throw new Error("host and wake name different sessions; a Codex task names only its own thread in both.");
       }
       const host = caller.host ?? (target?.app === "codex" ? target : null) ?? claimed ?? null;
+      if (desktop !== undefined && caller.host?.app !== "claude") {
+        throw new Error("The desktop field is for Claude desktop sessions.");
+      }
+      const normalizedDesktop = desktop && desktopLink(desktop);
       const existing = store.getAgent(agent);
       // agent-relay cleanup-gaps D61: a retired name stays retired unless the caller explicitly reactivates it.
       if (existing?.retiredAt && !reactivate) {
@@ -258,7 +266,10 @@ function main(): void {
         }
       }
       if (wake !== undefined) store.wakes.bind(agent, target ?? null, { replace: !!takeover && bindingConflict });
-      const registered = store.register(agent, capabilities, takeover && ownerConflict ? host : host ?? undefined);
+      // paused-session-link D287: moving a name or its wake binding drops a stale desktop session link.
+      const moved = (takeover && ownerConflict) || (!!target && !!current && (target.app !== current.app || target.sessionId !== current.sessionId));
+      const registered = store.register(agent, capabilities, takeover && ownerConflict ? host : host ?? undefined,
+        desktop === undefined ? (moved ? null : undefined) : (normalizedDesktop ?? null));
       caller.prove(agent);
       localAgents.splice(0, localAgents.length, ...localAgents.filter((name) => name !== agent), agent);
       const unread = store.countUnread(agent);
@@ -474,7 +485,7 @@ function main(): void {
     "bridge_agents",
     {
       title: "List agents",
-      description: "List registered agents with unread counts, last activity, ping binding and recent ping health. An agent with unhandled direct messages carries waiting: {count, from, ids (oldest 20), oldestAt} (no bodies), whatever its host; with presence it shows who is stopped while messages wait. An agent others wait on carries owesReplies: {count, ids (oldest 20), oldestAt}, the requests marked expectsReply addressed to it with no replyTo answer yet. Tell the user when they ask what is waiting or who owes a reply. Retired agents are hidden unless requested.",
+      description: "List registered agents with unread counts, last activity, ping binding and recent ping health. desktop: the Claude desktop session link and title the session recorded. An agent with unhandled direct messages carries waiting: {count, from, ids (oldest 20), oldestAt} (no bodies), whatever its host; with presence it shows who is stopped while messages wait. An agent others wait on carries owesReplies: {count, ids (oldest 20), oldestAt}, the requests marked expectsReply addressed to it with no replyTo answer yet. Tell the user when they ask what is waiting or who owes a reply. Retired agents are hidden unless requested.",
       inputSchema: {
         includeRetired: z.boolean().optional().describe("Include retired agents, each as a short entry (name, retiredAt, retiredBy, retireNote, unread, lastActivity, wake). The result is then paged."),
         maxChars: z.number().int().min(1000).max(400000).optional().describe("Budget for one page in units: an ASCII character counts 1, any other character 4. Defaults to 48000 when the result is paged."),

@@ -1,6 +1,7 @@
 import type { AgentHost, BridgeStore } from "./bridge-store.js";
-import { BRIDGE_AGENT, CLAUDE_HOLD_EXPLANATION, CLAUDE_OFFLINE_EXPLANATION, isClaudeHold, isClaudeOfflineExpiry } from "./notices.js";
+import { BRIDGE_AGENT, CLAUDE_HOLD_EXPLANATION, claudeOfflineExplanation, isClaudeHold, isClaudeOfflineExpiry } from "./notices.js";
 import type { Presence } from "./presence.js";
+import { pausedSessionText } from "./desktop-link.js";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STALE_UNBOUND_MS = 24 * 3_600_000;
@@ -98,10 +99,13 @@ export async function checkRecipient(
   }
 
   const recent = store.wakes.health(to, 3);
+  // paused-session-link D291: the manual-wake sentence goes into at most one warning of this send.
+  let manualWakeGiven = false;
   if (recent.length === 3 && recent.every((job) => ["refused", "expired", "held"].includes(job.state))) {
     // agent-relay expiry-notice-reason D215: explain by the latest failure, as the delivery-failure notice does.
     const hold = isClaudeHold(recent[0]) ? ` ${CLAUDE_HOLD_EXPLANATION}`
-      : isClaudeOfflineExpiry(recent[0]) ? ` ${CLAUDE_OFFLINE_EXPLANATION}` : "";
+      : isClaudeOfflineExpiry(recent[0]) ? ` ${claudeOfflineExplanation(to, agent.desktop)}` : "";
+    manualWakeGiven = !isClaudeHold(recent[0]) && isClaudeOfflineExpiry(recent[0]);
     warnings.push(
       `The last 3 background pings to "${to}" were not delivered (latest: ${recent[0].state}: ${recent[0].detail}). Expect no automatic pickup.${hold}`,
     );
@@ -114,7 +118,7 @@ export async function checkRecipient(
       "that prompt; nothing here can answer it.");
   } else if (presence?.state === "stopped") {
     warnings.push(host!.app === "claude"
-      ? `"${to}"'s Claude session is not running. The message will wait in its inbox until that conversation reads it.`
+      ? `"${to}"'s Claude session is not running. The message will wait in its inbox until that conversation reads it. ${pausedSessionText(to, agent.desktop, !manualWakeGiven)}`
       : `"${to}"'s Codex task is not open. The message will wait in its inbox until that task reads it.`);
   } else if (host?.app === "script") {
     // post-090-bridge D251, script-inbox-ack D274: a script identity has no session to wake; its script reads its inbox
