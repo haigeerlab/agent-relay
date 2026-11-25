@@ -1,5 +1,15 @@
 # Changelog
 
+## agent-relay 0.10.0
+
+`paused-session-link` (D287–D293), schema 8, interface 2.12: `bridge_register` takes an optional `desktop: {link,
+title?}` from a verified Claude host only (link `claude://claude.ai/epitaxy/local_<uuid>`, title cleaned and cut to 120
+code points; omitted keeps, `null` clears, moving the name clears), stored in the new `agents.desktop_link` /
+`desktop_title` columns; the send warning, outbox detail, notification body and expiry notice share one wording for a
+paused or closed Claude session, naming its title when recorded; the sender's texts add a manual-wake sentence when a
+link is recorded; the offline notice opens the session on click (terminal-notifier `-open`, revalidated link);
+`bridge_agents` entries carry `desktop`. The package version is 0.10.0.
+
 ## agent-relay 0.9.6
 
 `script-inbox-ack` (D271–D275), schema 7 unchanged, interface 2.11: the runtime CLI gains `inbox <script identity>`
