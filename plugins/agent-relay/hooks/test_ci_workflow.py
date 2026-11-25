@@ -20,6 +20,8 @@ class CiWorkflowTests(unittest.TestCase):
 
     def test_triggers_and_no_privileged_event(self):
         self.assertRegex(self.text, r"(?m)^  pull_request:")
+        # A PR title edit must rerun the whole CI, so the hub rules re-check the title (hub#69).
+        self.assertIn("    types: [opened, synchronize, reopened, edited]\n  push:", self.text)
         self.assertRegex(self.text, r"(?m)^  push:\n    branches: \[main\]")
         self.assertRegex(self.text, r"(?m)^  workflow_dispatch:")
         self.assertNotIn("pull_request_target", self.text)
