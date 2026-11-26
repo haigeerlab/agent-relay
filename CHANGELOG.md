@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- **发件箱过期消息筛选**（模块 `outbox-stale-filter`）：`bridge_outbox` 默认不再列出已过期或收件方已退役的消息，`includeStale` 可列回，`hiddenStale` 给出计数；接口升至 2.13，信箱 schema 8 不变。bridge 有改动，要 `upgrade --confirm` 升级运行时。
+
 ## [0.10.0] - 2026-11-26
 
 **bridge 有改动，要 `upgrade --confirm` 升级运行时；接口 2.11 → 2.12（只增加内容：`bridge_register`、`bridge_agents` 新增可选字段 `desktop`）；信箱 schema 7 → 8（agents 表加两列）。回滚要连插件一起回滚：0.9.x 的钩子只认到 schema 7。**

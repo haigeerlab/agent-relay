@@ -121,6 +121,10 @@ Codex 给 Codex 派活时，`session-routing` 的 selector 可能返回 `codex-w
 （`recipientPresence`），不读正文；`totalAwaitingReply` 是总数。用户问“谁欠回复”“别人在等我回复什么”时，调用
 `bridge_agents`，报告带 `owesReplies: {count, ids, oldestAt}` 的身份（自己的那一项就是别人在等本会话回复的请求）。
 
+用户问“看看我的发件箱”“我发了什么”或“还有什么没处理”时，照常调用 `bridge_outbox`；结果有 `hiddenStale` 时，补充
+「另有 N 条已过期或收件方已退役，未列出」（N 换成该字段的值）。用户要求看全部，或问其中一条旧消息时，调用时带
+`includeStale: true`。绝不替用户确认、退役或删除这些旧消息（outbox-stale-filter D298）。
+
 `bridge_send` 成功只证明入箱；`bridge_wake_status` 证明唤醒结果，`bridge_outbox.acknowledgedAt` 证明处理确认，
 匹配回复才证明 response。`unknown` 保持未知，不重复发送。
 
