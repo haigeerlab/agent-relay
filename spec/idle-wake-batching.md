@@ -141,7 +141,7 @@ Readers: the user; the owner session (review, release, acceptance); ecosystem-le
    - a held job is not expired by the 1 h pending window; it is cancelled when its message expires; acknowledging the
      message closes it;
    - `bridge_send` warning present when idle, absent otherwise; `bridge_outbox` shows `pendingReason: "idle"` and detail;
-   - schema 8 → 9 migration keeps existing rows (`explicit_wake` 0);
+   - schema 8 → 9 migration keeps existing rows (`explicit_wake` 1, so they are never held);
    - CLI `--wake` parsed, `--wake --no-wake` refused;
    - `BRIDGE_IDLE_HOLD_MS` parsing (D304);
    - `bridge/UPSTREAM.sha256` / `UPSTREAM.md` updated (`scripts/bridge-manifest.py`).

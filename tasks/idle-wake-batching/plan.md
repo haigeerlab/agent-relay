@@ -24,7 +24,7 @@ Found while planning (read-only, main 819e2f8):
 ## Task List
 
 ### Task 1: schema 9 and explicit wake (D300, D307; requirements 1, 4 CLI part)
-Red first: `schema.test.ts` — an 8 → 9 upgrade adds `wake_jobs.explicit_wake` (default 0) and keeps existing rows;
+Red first: `schema.test.ts` — an 8 → 9 upgrade adds `wake_jobs.explicit_wake` (default 1, never held; see the review fix in the Spec change log) and keeps existing rows;
 store test — `wake: true` records 1, omitted records 0, `wake: false` creates no job; `cli.test.ts` — `--wake` parses to
 an explicit wake, `--wake --no-wake` is refused with a clear message, usage text lists `--wake`.
 Green: v9 migration, `SCHEMA_VERSION = 9`; `SendInput` keeps the three-way `wake`; `enqueue` writes `explicit_wake`;

@@ -178,12 +178,15 @@ export class WakeDispatcher {
       if (!job) return;
       // idle-wake-batching review: a failed read or write here never costs a claimed ping; it is sent as today.
       try {
-        if (job.target.app === "claude" && this.idleHoldMs > 0) {
+        const message = job.target.app === "claude" && this.idleHoldMs > 0 && !job.explicitWake && !job.released
+          ? this.store.messageById(job.messageId) : undefined;
+        // Only a ping that could be held reads the registry (D299: expectsReply, explicit and released never hold).
+        if (message && !message.expectsReply) {
           const sessions = await this.readClaudeSessions().catch(() => null);
           // The registry read gives another process time to acknowledge, fetch or reclaim this job.
           const active = this.store.wakes.forMessage(job.messageId);
           if (active?.state !== "sending" || active.attemptId !== job.attemptId) return;
-          const minutes = idleHoldReason(job, this.store.messageById(job.messageId),
+          const minutes = idleHoldReason(job, message,
             findSession(sessions, job.target.sessionId), this.idleHoldMs, this.now());
           if (minutes !== null) {
             // idle-wake-batching D301/D306: no dispatch or notices for a hold.
