@@ -61,9 +61,10 @@ Readers: the user; the owner session (review, release, acceptance); ecosystem-le
   Claude Code's registry, is `idle` with `statusUpdatedAt` at least the threshold ago. Anything unknown — registry
   unreadable, session not found, no status time, `busy`, `waiting` — means no hold: the job is pinged exactly as today.
   Broadcasts have no wake job and are untouched.
-- **D300 — explicit wake recorded.** `wake_jobs` gains `explicit_wake INTEGER NOT NULL DEFAULT 0`, set to 1 when
-  `bridge_send` (or CLI `send --wake`) was given `wake: true` explicitly. Schema 8 → 9 by `addColumn`; rows from before the
-  upgrade read 0. `wake: false` still creates no job.
+- **D300 — explicit wake recorded.** `wake_jobs` gains `explicit_wake INTEGER NOT NULL DEFAULT 1`. A 0.11 bridge writes
+  0 for an omitted `wake` and 1 for an explicit `wake: true` (`bridge_send`, CLI `send --wake`); 2 marks a released job
+  (D303). Only 0 can be held, so rows from before the upgrade and rows a 0.10.x bridge inserts (it leaves the column out)
+  are never held. Schema 8 → 9 by `addColumn`. `wake: false` still creates no job.
 - **D301 — where the decision is made.** In `WakeDispatcher.drain`, after `claim` and before `dispatch`, using one registry
   read. A held job is finished as `state: "pending"`, `pending_reason: "idle"`, `retry_at` far in the future (so neither this
   nor an older bridge claims it), with detail `Held, not sent: <agent>'s Claude session has been idle for N min; the ping
@@ -166,7 +167,10 @@ Readers: the user; the owner session (review, release, acceptance); ecosystem-le
 
 During an upgrade, sessions not yet restarted run the 0.10.x bridge. It never claims a held job (its `retry_at` is in the
 future) and does not hold anything itself. It expires a held job after 1 h as an ordinary pending one; the message stays
-`queued` and unread, and rewake-on-return or the next ping covers it. Once every bridge runs 0.11.0 this no longer applies.
+`queued` and unread, and rewake-on-return or the next ping covers it. Its `CLAIMABLE` still treats an older held job as
+blocking, so while only 0.10.x bridges are left to claim for that recipient, a later ping (even `expectsReply`) can wait
+up to that hour; restart sessions soon after the upgrade. A 0.10.x insert leaves `explicit_wake` out and gets the
+default 1, so a 0.11 bridge never holds it (D300). Once every bridge runs 0.11.0 this no longer applies.
 
 ## Acceptance (owner session, after release and upgrade)
 
@@ -184,3 +188,8 @@ None. The default threshold (60 min) and the 1 h expiry margin are the values in
 
 - 2026-11-26, Task 1: `bridge/test/request-closing.test.ts` added to the Concurrency boundary; it pins `SCHEMA_VERSION` (8 → 9), as every schema bump has changed it.
 - 2026-11-26, Task 4: `hooks/native_collaboration_runtime.py` (the Python mailbox readers accept schema 9; the rollback caveat names schema 9 and 0.10.x), `hooks/test_native_collaboration_retire.py` `hooks/test_doctor.py` (its "newer mailbox" case moves from schema 9 to 10) and `hooks/test_outbox_stale_docs.py` (its interface pin becomes "at least 2.13") added to the Concurrency boundary. Every schema bump has changed the readers the same way (b3aeac5 for schema 8); without it `doctor` fails its mailbox check on schema 9.
+- 2026-11-26, review (`/delegate:review --backend claude-code`, base 819e2f8): D300's default changed from 0 to 1 so a row
+  no 0.11 bridge classified (older rows, 0.10.x inserts of an explicit `wake: true`) is never held; a failed read or write
+  while deciding a hold or a release no longer leaves a claimed ping stuck (it is sent as today; the release is best
+  effort); Mixed versions names the old bridge's blocking. The README paragraph sits next to the other settings because
+  the README has no 唤醒与送达 section (Requirement 7).

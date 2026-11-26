@@ -512,3 +512,34 @@ test("BRIDGE_IDLE_HOLD_MS accepts zero or an in-range whole number (D304)", () =
     assert.equal(parse({ BRIDGE_IDLE_HOLD_MS: raw }), HOUR, raw);
   }
 });
+
+test("a wake job an older bridge inserted without explicit_wake is never held (review of D300)", async (t) => {
+  const { store, dispatcher, delivered, send, job } = fixture(t);
+  const message = send({ wake: false });
+  const now = Date.now();
+  // 0.10.x's enqueue leaves explicit_wake out, so the column default applies.
+  store.database.prepare(`INSERT INTO wake_jobs (message_id, agent, target, retry_at, created_at) VALUES (?, ?, ?, ?, ?)`)
+    .run(message.id, "b", JSON.stringify(CLAUDE), now, now);
+  await dispatcher.flush();
+
+  assert.deepEqual(delivered, [message.id]);
+  assert.notEqual(job(message.id).pendingReason, "idle");
+});
+
+test("a hold that cannot be written still sends the ping (review of D301)", async (t) => {
+  const { store, dispatcher, delivered, send } = fixture(t);
+  store.wakes.holdIdle = () => { throw new Error("database is locked"); };
+  const message = send();
+  await dispatcher.flush();
+
+  assert.deepEqual(delivered, [message.id]);
+});
+
+test("a release that cannot be written still sends the urgent ping (review of D303b)", async (t) => {
+  const { store, dispatcher, delivered, send } = fixture(t);
+  store.wakes.releaseHeld = () => { throw new Error("database is locked"); };
+  const message = send({ expectsReply: true });
+  await dispatcher.flush();
+
+  assert.deepEqual(delivered, [message.id]);
+});

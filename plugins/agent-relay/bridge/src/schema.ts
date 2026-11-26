@@ -185,9 +185,10 @@ const MIGRATIONS: Array<(db: DatabaseSync) => void> = [
     addColumn(db, "agents", "desktop_title", "TEXT");
   },
 
-  // v9 (idle-wake-batching D300/D303): 0 may hold, 1 is explicit, 2 has been released and cannot hold again.
+  // v9 (idle-wake-batching D300/D303): 0 may hold (written only by this bridge for an omitted wake), 1 is an explicit
+  // wake or a row this bridge did not classify (older rows, older bridges), 2 has been released; only 0 can hold.
   (db) => {
-    addColumn(db, "wake_jobs", "explicit_wake", "INTEGER NOT NULL DEFAULT 0");
+    addColumn(db, "wake_jobs", "explicit_wake", "INTEGER NOT NULL DEFAULT 1");
   },
 ];
 

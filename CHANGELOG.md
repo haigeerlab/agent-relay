@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-- **攒住发给空闲 Claude 会话的免回复提醒**（模块 `idle-wake-batching`）。消息照常入箱，省略 `wake` 时提醒可随下次唤醒送出。发件箱和唤醒状态会显示 `idle`，需要立即唤醒可显式传 `wake: true` 或用 `send --wake`。Codex 收件方沿用现有唤醒规则。接口升至 2.14，信箱 schema 8 → 9。bridge 有改动，要 `upgrade --confirm` 升级运行时。新旧版本混用时，旧 bridge 可能在 1 小时后作废攒住的提醒，消息仍在收件箱。回滚如需恢复 schema 8，可使用升级前的信箱备份。
+- **攒住发给空闲 Claude 会话的免回复提醒**（模块 `idle-wake-batching`）。消息照常入箱，省略 `wake` 时提醒可随下次唤醒送出。发件箱和唤醒状态会显示 `idle`，需要立即唤醒可显式传 `wake: true` 或用 `send --wake`。Codex 收件方沿用现有唤醒规则。接口升至 2.14，信箱 schema 8 → 9。bridge 有改动，要 `upgrade --confirm` 升级运行时。新旧版本混用时，旧 bridge 可能在 1 小时后作废攒住的提醒（消息仍在收件箱），而且在这 1 小时内，只剩旧 bridge 时，同一收件方后面的提醒会被攒住的那条挡住，所以升级后请尽快重启各会话。回滚如需恢复 schema 8，可使用升级前的信箱备份。
 
 ## [0.10.1] - 2026-11-26
 

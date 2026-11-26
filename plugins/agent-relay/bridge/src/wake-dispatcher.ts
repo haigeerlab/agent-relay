@@ -176,6 +176,7 @@ export class WakeDispatcher {
         return;
       }
       if (!job) return;
+      // idle-wake-batching review: a failed read or write here never costs a claimed ping; it is sent as today.
       try {
         if (job.target.app === "claude" && this.idleHoldMs > 0) {
           const sessions = await this.readClaudeSessions().catch(() => null);
@@ -191,11 +192,9 @@ export class WakeDispatcher {
             return;
           }
         }
-        this.store.wakes.releaseHeld(job.agent, "another ping for this recipient went out", this.now());
-      } catch {
-        // D261: leave the claim in flight if the hold or release could not be recorded.
-        return;
-      }
+      } catch { /* ping as today */ }
+      // D303b, best effort: a release that cannot be written leaves the holds for the next periodic check.
+      try { this.store.wakes.releaseHeld(job.agent, "another ping for this recipient went out", this.now()); } catch { /* next check */ }
       let result: WakeResult;
       try {
         result = await this.dispatch(job);

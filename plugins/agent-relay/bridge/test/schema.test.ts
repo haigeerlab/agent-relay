@@ -186,7 +186,7 @@ test("a schema-7 mailbox gains nullable desktop columns when migrated", () => {
   migrated.close();
 });
 
-test("a schema-8 mailbox gains explicit_wake with default 0 and keeps its wake jobs", () => {
+test("a schema-8 mailbox gains explicit_wake with default 1 (never held) and keeps its wake jobs", () => {
   const dir = mkdtempSync(join(tmpdir(), "bridge-schema-9-"));
   const path = join(dir, "bridge.sqlite");
   const old = new BridgeStore(path);
@@ -200,7 +200,7 @@ test("a schema-8 mailbox gains explicit_wake with default 0 and keeps its wake j
   try {
     const job = migrated.database.prepare("SELECT agent, state, explicit_wake FROM wake_jobs WHERE message_id = ?").get(message.id);
     assert.ok(job);
-    assert.deepEqual({ ...job }, { agent: "b", state: "pending", explicit_wake: 0 });
+    assert.deepEqual({ ...job }, { agent: "b", state: "pending", explicit_wake: 1 });
     assert.equal(schemaVersion(migrated.database), 9);
   } finally { migrated.close(); }
 });
