@@ -7,6 +7,24 @@ import { BridgeStore } from "../src/bridge-store.js";
 import { wakeNotice } from "../src/wake-queue.js";
 import { WakeDispatcher } from "../src/wake-dispatcher.js";
 
+test("only an explicitly requested wake sets explicit_wake; a quiet send has no job", () => {
+  const s = new BridgeStore(":memory:");
+  try {
+    s.wakes.bind("b", { app: "claude", sessionId: "session-b" });
+    const explicit = s.send({ fromAgent: "a", toAgent: "b", body: "explicit", wake: true });
+    const implicit = s.send({ fromAgent: "a", toAgent: "b", body: "default" });
+    const quiet = s.send({ fromAgent: "a", toAgent: "b", body: "quiet", wake: false });
+    const rows = s.database.prepare("SELECT message_id, explicit_wake FROM wake_jobs ORDER BY id").all();
+    assert.deepEqual(rows.map(row => ({ ...row })), [
+      { message_id: explicit.id, explicit_wake: 1 },
+      { message_id: implicit.id, explicit_wake: 0 },
+    ]);
+    assert.equal(s.wakes.forMessage(explicit.id)?.explicitWake, true);
+    assert.equal(s.wakes.forMessage(implicit.id)?.explicitWake, false);
+    assert.equal(s.wakes.forMessage(quiet.id), null);
+  } finally { s.close(); }
+});
+
 test("bindings opt in; broadcasts, self messages, quiet updates and retries cannot create ping storms", () => {
   const s = new BridgeStore(":memory:");
   try {

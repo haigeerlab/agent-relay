@@ -16,7 +16,7 @@ function fresh(path = ":memory:"): BridgeStore {
 }
 
 test("schema 7 adds request_closures; requests from before it have no closure (D216)", () => {
-  assert.equal(SCHEMA_VERSION, 8);
+  assert.equal(SCHEMA_VERSION, 9);
   const dir = mkdtempSync(join(tmpdir(), "bridge-v6-v7-"));
   const path = join(dir, "bridge.sqlite");
   const first = fresh(path);
@@ -28,11 +28,11 @@ test("schema 7 adds request_closures; requests from before it have no closure (D
   raw.close();
 
   const store = new BridgeStore(path, { backupDir: join(dir, "backups") });
-  assert.deepEqual(store.migration, { from: 6, to: 8, newer: false });
+  assert.deepEqual(store.migration, { from: 6, to: 9, newer: false });
   assert.deepEqual(store.owesReplies().get("helper")?.ids, [old.id]);
   store.close();
   const reopened = new BridgeStore(path, { backupDir: join(dir, "backups") });
-  assert.deepEqual(reopened.migration, { from: 8, to: 8, newer: false });
+  assert.deepEqual(reopened.migration, { from: 9, to: 9, newer: false });
   reopened.close();
 });
 

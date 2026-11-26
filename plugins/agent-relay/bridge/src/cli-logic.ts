@@ -18,7 +18,7 @@ export interface SendOptions {
   expectsReply: boolean;
   alsoAnswers: number[] | null;
   withdraws: number[] | null;
-  wake: boolean;
+  wake?: boolean;
 }
 
 /** bridge_inbox's fields; null (false) when not given. */
@@ -79,7 +79,7 @@ export function parseCliCommand(args: string[]): ParsedCliCommand {
   const parsed: ParsedCliCommand = {
     command: "help", keepBacklog: false, target: null, note: null, confirm: false,
     send: { from: null, to: null, bodyFile: null, threadId: null, idempotencyKey: null, replyTo: null,
-      expectsReply: false, alsoAnswers: null, withdraws: null, wake: true },
+      expectsReply: false, alsoAnswers: null, withdraws: null },
     inbox: { fromAgent: null, threadId: null, afterId: null, includeAcknowledged: false, includeExpired: false,
       limit: null, maxChars: null, maxBodyChars: null, messageId: null, bodyOffset: null },
     ackIds: null,
@@ -93,7 +93,14 @@ export function parseCliCommand(args: string[]): ParsedCliCommand {
     if (arg === "--keep-backlog") { parsed.keepBacklog = true; continue; }
     if (arg === "--confirm") { parsed.confirm = true; continue; }
     if (arg === "--expects-reply") { parsed.send.expectsReply = true; continue; }
-    if (arg === "--no-wake") { parsed.send.wake = false; continue; }
+    if (arg === "--wake" || arg === "--no-wake") {
+      const wake = arg === "--wake";
+      if (parsed.send.wake !== undefined && parsed.send.wake !== wake) {
+        throw new Error("Cannot combine --wake and --no-wake");
+      }
+      parsed.send.wake = wake;
+      continue;
+    }
     if (arg === "--include-acknowledged") { parsed.inbox.includeAcknowledged = true; continue; }
     if (arg === "--include-expired") { parsed.inbox.includeExpired = true; continue; }
     const [flag, inline] = arg.split(/=(.*)/s, 2);

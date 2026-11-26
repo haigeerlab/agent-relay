@@ -522,7 +522,7 @@ export class BridgeStore {
         expectsReply ? 1 : 0);
 
     const message = this.messageById(Number(result.lastInsertRowid)) as BridgeMessage;
-    if (input.wake !== false) this.wakes.enqueue(message);
+    if (input.wake !== false) this.wakes.enqueue(message, input.wake === true);
     // agent-relay mailbox-polish D155: the recipient answering a direct message has it, as surely as a fetch.
     if (answersOwnMessage && replyTo !== null) this.wakes.recordRead(input.fromAgent, [replyTo]);
     // D219: a withdrawal is neither an answer nor delivery evidence, so it records no read and sends no notice.

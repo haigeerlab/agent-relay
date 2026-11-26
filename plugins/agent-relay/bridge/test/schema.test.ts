@@ -165,7 +165,7 @@ test("a database migrated by a newer bridge is opened in compatible mode", () =>
   store.close();
 });
 
-test("a schema-7 mailbox migrates to schema 8 with nullable desktop columns", () => {
+test("a schema-7 mailbox gains nullable desktop columns when migrated", () => {
   const dir = mkdtempSync(join(tmpdir(), "bridge-schema-8-"));
   const path = join(dir, "bridge.sqlite");
   const old = new BridgeStore(path);
@@ -175,7 +175,7 @@ test("a schema-7 mailbox migrates to schema 8 with nullable desktop columns", ()
   old.database.exec("PRAGMA user_version = 7");
   old.close();
   const migrated = new BridgeStore(path);
-  assert.equal(schemaVersion(migrated.database), 8);
+  assert.equal(schemaVersion(migrated.database), SCHEMA_VERSION);
   const row = migrated.database.prepare("SELECT capabilities, host_app, host_session, desktop_link, desktop_title FROM agents WHERE name = ?").get("alice") as
     { capabilities: string; host_app: string; host_session: string; desktop_link: string | null; desktop_title: string | null };
   assert.equal(row.capabilities, '["review"]');
@@ -186,13 +186,32 @@ test("a schema-7 mailbox migrates to schema 8 with nullable desktop columns", ()
   migrated.close();
 });
 
-test("a read-only store reads schema 8 and refuses schema 9", () => {
+test("a schema-8 mailbox gains explicit_wake with default 0 and keeps its wake jobs", () => {
+  const dir = mkdtempSync(join(tmpdir(), "bridge-schema-9-"));
+  const path = join(dir, "bridge.sqlite");
+  const old = new BridgeStore(path);
+  old.wakes.bind("b", { app: "claude", sessionId: "session-b" });
+  const message = old.send({ fromAgent: "a", toAgent: "b", body: "before schema 9" });
+  if (schemaVersion(old.database) >= 9) old.database.exec("ALTER TABLE wake_jobs DROP COLUMN explicit_wake");
+  old.database.exec("PRAGMA user_version = 8");
+  old.close();
+
+  const migrated = new BridgeStore(path);
+  try {
+    const job = migrated.database.prepare("SELECT agent, state, explicit_wake FROM wake_jobs WHERE message_id = ?").get(message.id);
+    assert.ok(job);
+    assert.deepEqual({ ...job }, { agent: "b", state: "pending", explicit_wake: 0 });
+    assert.equal(schemaVersion(migrated.database), 9);
+  } finally { migrated.close(); }
+});
+
+test("a read-only store reads the current schema and refuses a newer schema", () => {
   const dir = mkdtempSync(join(tmpdir(), "bridge-readonly-schema-"));
   const path = join(dir, "bridge.sqlite");
   new BridgeStore(path).close();
   new BridgeStore(path, { readOnly: true }).close();
   const raw = new DatabaseSync(path);
-  raw.exec("PRAGMA user_version = 9");
+  raw.exec(`PRAGMA user_version = ${SCHEMA_VERSION + 1}`);
   raw.close();
   assert.throws(() => new BridgeStore(path, { readOnly: true }), ReadOnlyMailboxError);
 });
@@ -279,17 +298,16 @@ function v2Mailbox(path: string): void {
 }
 
 test("a v2 mailbox migrates straight to the current schema in one open, after one backup, with its rows", () => {
-  assert.equal(SCHEMA_VERSION, 8);
   const dir = mkdtempSync(join(tmpdir(), "bridge-v2-v4-"));
   const path = join(dir, "bridge.sqlite");
   const backupDir = join(dir, "backups");
   v2Mailbox(path);
 
   const store = new BridgeStore(path, { backupDir });
-  assert.deepEqual(store.migration, { from: 2, to: 8, newer: false });
+  assert.deepEqual(store.migration, { from: 2, to: SCHEMA_VERSION, newer: false });
   const backups = readdirSync(backupDir);
   assert.equal(backups.length, 1);
-  assert.match(backups[0] ?? "", /^bridge-pre-v8-from-v2-/);
+  assert.match(backups[0] ?? "", new RegExp(`^bridge-pre-v${SCHEMA_VERSION}-from-v2-`));
   const copy = new DatabaseSync(join(backupDir, backups[0] as string), { readOnly: true });
   assert.equal((copy.prepare("PRAGMA user_version").get() as { user_version: number }).user_version, 2);
   assert.equal((copy.prepare("SELECT COUNT(*) AS n FROM messages").get() as { n: number }).n, 2);

@@ -49,6 +49,19 @@ test("an unknown command prints the usage and exits 2", () => {
   assert.match(result.stderr, /retire <agent> \[--note TEXT\] \[--keep-backlog\]/);
 });
 
+test("send distinguishes explicit wake, quiet send and the default", () => {
+  const args = ["send", "--from", "a", "--to", "b"];
+  assert.equal(parseCliCommand([...args, "--wake"]).send.wake, true);
+  assert.equal(parseCliCommand([...args, "--no-wake"]).send.wake, false);
+  assert.equal(parseCliCommand(args).send.wake, undefined);
+});
+
+test("send refuses conflicting wake flags in either order", () => {
+  const args = ["send", "--from", "a", "--to", "b"];
+  assert.throws(() => parseCliCommand([...args, "--wake", "--no-wake"]), /Cannot combine --wake and --no-wake/);
+  assert.throws(() => parseCliCommand([...args, "--no-wake", "--wake"]), /Cannot combine --wake and --no-wake/);
+});
+
 test("help names the package and points to the Python runtime", () => {
   const dbPath = join(mkdtempSync(join(tmpdir(), "agent-relay-cli-")), "bridge.sqlite");
   const result = cli(["help"], dbPath);
@@ -56,6 +69,7 @@ test("help names the package and points to the Python runtime", () => {
   assert.match(result.stdout, /^agent-relay-bridge \d+\.\d+\.\d+\n/);
   assert.match(result.stdout, /\n {2}agent-relay-bridge <command> \[options\]\n/);
   assert.match(result.stdout, /native_collaboration_runtime\.py/);
+  assert.match(result.stdout, /\[--wake \| --no-wake\]/);
   assert.doesNotMatch(result.stdout, /claude-codex/i);
 });
 

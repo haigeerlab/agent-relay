@@ -41,6 +41,8 @@ export interface WakeJob {
   messageId: number;
   agent: string;
   target: WakeTarget;
+  /** idle-wake-batching D300: the sender passed `wake: true` explicitly. */
+  explicitWake?: boolean;
   state: WakeState;
   attemptId: string | null;
   attempts: number;
@@ -167,14 +169,14 @@ export class WakeQueue {
   }
 
   // Called in the same transaction that inserts the durable mailbox message.
-  enqueue(message: BridgeMessage): void {
+  enqueue(message: BridgeMessage, explicitWake: boolean): void {
     if (message.toAgent === "*" || message.fromAgent === message.toAgent) return;
     const target = this.target(message.toAgent);
     if (!target) return;
     const now = Date.now();
     this.db.prepare(`INSERT OR IGNORE INTO wake_jobs
-      (message_id, agent, target, retry_at, created_at) VALUES (?, ?, ?, ?, ?)`)
-      .run(message.id, message.toAgent, JSON.stringify(target), now, now);
+      (message_id, agent, target, retry_at, created_at, explicit_wake) VALUES (?, ?, ?, ?, ?, ?)`)
+      .run(message.id, message.toAgent, JSON.stringify(target), now, now, explicitWake ? 1 : 0);
   }
 
   private row(value: Record<string, unknown>): WakeJob {
@@ -186,7 +188,7 @@ export class WakeQueue {
       threadId: message?.thread_id as string | null,
       acknowledgedAt: ack?.acked_at as string | undefined ?? null,
       id: Number(value.id), mailboxPath: this.mailboxPath, messageId: Number(value.message_id), agent: value.agent as string,
-      target: JSON.parse(value.target as string), state: value.state as WakeState,
+      target: JSON.parse(value.target as string), explicitWake: Number(value.explicit_wake) === 1, state: value.state as WakeState,
       attemptId: value.attempt_id as string | null, attempts: Number(value.attempts),
       retryAt: Number(value.retry_at), createdAt: Number(value.created_at), detail: value.detail as string,
       pendingReason: (value.pending_reason as PendingReason | null | undefined) ?? null,

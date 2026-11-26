@@ -159,7 +159,7 @@ Readers: the user; the owner session (review, release, acceptance); ecosystem-le
 
 ## Concurrency boundary
 
-- Exclusive: `plugins/agent-relay/bridge/src/schema.ts`, `plugins/agent-relay/bridge/src/wake-queue.ts`, `plugins/agent-relay/bridge/src/wake-dispatcher.ts`, `plugins/agent-relay/bridge/src/bridge-store.ts`, `plugins/agent-relay/bridge/src/send.ts`, `plugins/agent-relay/bridge/src/server.ts`, `plugins/agent-relay/bridge/src/cli-logic.ts`, `plugins/agent-relay/bridge/src/cli-main.ts`, `plugins/agent-relay/bridge/test/idle-hold.test.ts`, `plugins/agent-relay/bridge/test/schema.test.ts`, `plugins/agent-relay/bridge/test/wake-queue.test.ts`, `plugins/agent-relay/bridge/test/delivery-wake.test.ts`, `plugins/agent-relay/bridge/test/rewake.test.ts`, `plugins/agent-relay/bridge/test/cli.test.ts`, `plugins/agent-relay/bridge/test/script-cli.test.ts`, `plugins/agent-relay/bridge/UPSTREAM.sha256`, `plugins/agent-relay/bridge/UPSTREAM.md`, `plugins/agent-relay/interface.json`, `plugins/agent-relay/hooks/relay_status.py`, `plugins/agent-relay/hooks/test_packaging.py`, `plugins/agent-relay/hooks/test_idle_hold_docs.py`, `plugins/agent-relay/skills/collab/SKILL.md`, `plugins/agent-relay/skills/session-routing/SKILL.md`, `docs/collaboration-interface.md`, `README.md`, `CHANGELOG.md`, `tasks/idle-wake-batching/`
+- Exclusive: `plugins/agent-relay/bridge/src/schema.ts`, `plugins/agent-relay/bridge/src/wake-queue.ts`, `plugins/agent-relay/bridge/src/wake-dispatcher.ts`, `plugins/agent-relay/bridge/src/bridge-store.ts`, `plugins/agent-relay/bridge/src/send.ts`, `plugins/agent-relay/bridge/src/server.ts`, `plugins/agent-relay/bridge/src/cli-logic.ts`, `plugins/agent-relay/bridge/src/cli-main.ts`, `plugins/agent-relay/bridge/test/idle-hold.test.ts`, `plugins/agent-relay/bridge/test/schema.test.ts`, `plugins/agent-relay/bridge/test/wake-queue.test.ts`, `plugins/agent-relay/bridge/test/delivery-wake.test.ts`, `plugins/agent-relay/bridge/test/rewake.test.ts`, `plugins/agent-relay/bridge/test/cli.test.ts`, `plugins/agent-relay/bridge/test/script-cli.test.ts`, `plugins/agent-relay/bridge/test/request-closing.test.ts`, `plugins/agent-relay/bridge/UPSTREAM.sha256`, `plugins/agent-relay/bridge/UPSTREAM.md`, `plugins/agent-relay/interface.json`, `plugins/agent-relay/hooks/relay_status.py`, `plugins/agent-relay/hooks/test_packaging.py`, `plugins/agent-relay/hooks/test_idle_hold_docs.py`, `plugins/agent-relay/skills/collab/SKILL.md`, `plugins/agent-relay/skills/session-routing/SKILL.md`, `docs/collaboration-interface.md`, `README.md`, `CHANGELOG.md`, `tasks/idle-wake-batching/`
 - Shared: 迁移
 
 ## Mixed versions
@@ -179,3 +179,7 @@ future) and does not hold anything itself. It expires a held job after 1 h as an
 ## Open questions
 
 None. The default threshold (60 min) and the 1 h expiry margin are the values in the confirmed assumptions.
+
+## Change log
+
+- 2026-11-26, Task 1: `bridge/test/request-closing.test.ts` added to the Concurrency boundary; it pins `SCHEMA_VERSION` (8 → 9), as every schema bump has changed it.

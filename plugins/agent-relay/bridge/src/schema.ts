@@ -7,7 +7,7 @@ import type { DatabaseSync } from "node:sqlite";
  * with defaults. Older bridge processes that are still running against the
  * same database must keep working after a newer process migrates it.
  */
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 9;
 
 function columns(db: DatabaseSync, table: string): Set<string> {
   const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
@@ -183,6 +183,11 @@ const MIGRATIONS: Array<(db: DatabaseSync) => void> = [
   (db) => {
     addColumn(db, "agents", "desktop_link", "TEXT");
     addColumn(db, "agents", "desktop_title", "TEXT");
+  },
+
+  // v9 (idle-wake-batching D300): record when the sender explicitly requests a wake.
+  (db) => {
+    addColumn(db, "wake_jobs", "explicit_wake", "INTEGER NOT NULL DEFAULT 0");
   },
 ];
 
