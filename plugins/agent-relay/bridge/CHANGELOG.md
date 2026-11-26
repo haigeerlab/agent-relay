@@ -1,5 +1,13 @@
 # Changelog
 
+## agent-relay 0.10.1
+
+`outbox-stale-filter` (D294–D297), schema 8 unchanged, interface 2.13: `bridge_outbox` leaves out entries whose
+`deliveryState` is `expired` or whose recipient is retired by default (a reactivated name and an unknown recipient stay
+listed); `includeStale: true` lists them as before; `hiddenStale` counts the hidden entries over the whole match when at
+least one was hidden; `awaitingReply` and `totalUnacknowledged` are unchanged; the runtime CLI's `outbox` follows the
+same default. The package version is 0.10.1.
+
 ## agent-relay 0.10.0
 
 `paused-session-link` (D287–D293), schema 8, interface 2.12: `bridge_register` takes an optional `desktop: {link,
