@@ -1,6 +1,6 @@
 # Plan: outbox-stale-filter
 
-<!-- spec-guard: review pending -->
+<!-- spec-guard: review approved -->
 
 Based on [`spec/outbox-stale-filter.md`](../../spec/outbox-stale-filter.md) (approved by the user on 2026-11-26:
 assumptions 1–5, D294–D298). Built on branch `claude/outbox-stale-filter` from main 9b408ec; one PR. Codex implements
