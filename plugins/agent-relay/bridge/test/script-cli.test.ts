@@ -64,6 +64,10 @@ test("agents, outbox and sessions print the views and leave the mailbox unchange
   const store = new BridgeStore(dbPath, { readOnly: true });
   assert.deepEqual(JSON.parse(agents.stdout), await agentsView(store, {}));
   assert.deepEqual(JSON.parse(outbox.stdout), await outboxView(store, { agent: "asker" }));
+  // outbox-stale-filter D297: the CLI follows the default stale filter.
+  const listed = JSON.parse(outbox.stdout) as { hiddenStale?: number; entries: Array<{ id: number }> };
+  assert.equal(listed.hiddenStale, 1);
+  assert.equal(listed.entries.some((entry) => entry.id === stale.id), false);
   store.close();
   const parsed = JSON.parse(sessions.stdout);
   assert.equal(parsed.thisSession, null);

@@ -34,6 +34,15 @@ test("outbox hides stale entries by default and counts every matching hidden ent
   assert.deepEqual(all.entries.map((entry) => entry.id).sort((a, b) => a - b),
     [active.id, expired.id, retired.id, reactivated.id, unknown.id].sort((a, b) => a - b));
   assert.equal("hiddenStale" in all, false);
+  const byId = new Map(all.entries.map((entry) => [entry.id, entry]));
+  assert.equal(byId.get(expired.id)?.deliveryState, "expired");
+  assert.equal(byId.get(expired.id)?.recipient, "active");
+  assert.equal(byId.get(retired.id)?.recipient, "retired");
+  assert.equal(byId.get(unknown.id)?.recipient, "unknown");
+  assert.equal(byId.get(reactivated.id)?.recipient, "active");
+  // Entries that are listed either way are identical field for field.
+  const plain = store.outbox("sender", { includeAcknowledged: true });
+  for (const entry of plain.entries) assert.deepEqual(byId.get(entry.id), entry);
 
   const awaiting = store.outbox("sender", { awaitingReply: true });
   assert.deepEqual(store.outbox("sender", { awaitingReply: true, includeStale: true }), awaiting);
