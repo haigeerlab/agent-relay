@@ -87,11 +87,11 @@ export async function agentsView(store: BridgeStore, { includeRetired, maxChars,
   return { count: agents.length, agents, hasMore, ...(hasMore ? { nextAfterName: agents.at(-1)!.name } : {}) };
 }
 
-export interface OutboxViewInput { agent: string; includeAcknowledged?: boolean; awaitingReply?: boolean; limit?: number }
+export interface OutboxViewInput { agent: string; includeAcknowledged?: boolean; includeStale?: boolean; awaitingReply?: boolean; limit?: number }
 
 /** bridge_outbox (the caller's own activity is recorded by the MCP tool, never here). */
-export async function outboxView(store: BridgeStore, { agent, includeAcknowledged, awaitingReply, limit }: OutboxViewInput) {
-  const page = store.outbox(agent, { includeAcknowledged, awaitingReply, limit });
+export async function outboxView(store: BridgeStore, { agent, includeAcknowledged, includeStale, awaitingReply, limit }: OutboxViewInput) {
+  const page = store.outbox(agent, { includeAcknowledged, includeStale, awaitingReply, limit });
   if (!awaitingReply) return { agent, ...page };
   // awaiting-reply-view D203: presence only for the recipients on this page; the Claude registry is read once and a
   // Codex lookup waits at most 2 s.

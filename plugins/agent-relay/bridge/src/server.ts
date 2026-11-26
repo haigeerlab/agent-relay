@@ -499,18 +499,19 @@ function main(): void {
     "bridge_outbox",
     {
       title: "Check sent messages",
-      description: "List direct messages an agent sent that the recipient has not acknowledged yet (newest first), with ping outcome (a pending ping says why it waits: pendingReason offline, unreachable or busy), delivery state (queued, sending, accepted, failed, unknown, expired), whether the recipient is active, retired or unknown, and whether each expects a reply. With awaitingReply: only requests marked expectsReply that have no reply linked by replyTo yet (acknowledged or not; failed, expired and retired recipients left out), oldest first, each with waitingSeconds and the recipient's presence. totalAwaitingReply counts them all.",
+      description: "List direct messages an agent sent that the recipient has not acknowledged yet (newest first), with ping outcome (a pending ping says why it waits: pendingReason offline, unreachable or busy), delivery state (queued, sending, accepted, failed, unknown, expired), whether the recipient is active, retired or unknown, and whether each expects a reply. Expired messages and messages to retired recipients are left out by default; includeStale lists them and hiddenStale counts them. With awaitingReply: only requests marked expectsReply that have no reply linked by replyTo yet (acknowledged or not; failed, expired and retired recipients left out), oldest first, each with waitingSeconds and the recipient's presence. totalAwaitingReply counts them all.",
       inputSchema: {
         agent: z.string().min(1).describe("Sender whose outbox to read."),
         includeAcknowledged: z.boolean().optional().describe("Include messages the recipient already acknowledged."),
+        includeStale: z.boolean().optional().describe("Include expired messages and messages sent to retired recipients."),
         awaitingReply: z.boolean().optional().describe(
           "Only the open requests: marked expectsReply and not yet answered with replyTo. Ignores includeAcknowledged."),
         limit: z.number().int().min(1).max(200).optional().describe("Maximum entries. Defaults to 30."),
       },
     },
-    async ({ agent, includeAcknowledged, awaitingReply, limit }) => {
+    async ({ agent, includeAcknowledged, includeStale, awaitingReply, limit }) => {
       if (ownRead(agent)) store.touch(agent);
-      return jsonResult(await outboxView(store, { agent, includeAcknowledged, awaitingReply, limit }));
+      return jsonResult(await outboxView(store, { agent, includeAcknowledged, includeStale, awaitingReply, limit }));
     },
   );
 

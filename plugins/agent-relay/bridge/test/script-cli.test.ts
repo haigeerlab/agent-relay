@@ -50,8 +50,10 @@ function snapshot(dbPath: string) {
 test("agents, outbox and sessions print the views and leave the mailbox unchanged (D241, D242)", async () => {
   const { dbPath, env } = setup();
   const seed = new BridgeStore(dbPath);
-  for (const name of ["asker", "helper"]) seed.register(name);
+  for (const name of ["asker", "helper", "expired"]) seed.register(name);
   seed.send({ fromAgent: "asker", toAgent: "helper", body: "q", expectsReply: true });
+  const stale = seed.send({ fromAgent: "asker", toAgent: "expired", body: "old", wake: false });
+  seed.database.prepare("UPDATE messages SET delivery_state = 'expired' WHERE id = ?").run(stale.id);
   seed.close();
   const before = snapshot(dbPath);
   const agents = await cli(["agents"], env);
@@ -62,6 +64,10 @@ test("agents, outbox and sessions print the views and leave the mailbox unchange
   const store = new BridgeStore(dbPath, { readOnly: true });
   assert.deepEqual(JSON.parse(agents.stdout), await agentsView(store, {}));
   assert.deepEqual(JSON.parse(outbox.stdout), await outboxView(store, { agent: "asker" }));
+  // outbox-stale-filter D297: the CLI follows the default stale filter.
+  const listed = JSON.parse(outbox.stdout) as { hiddenStale?: number; entries: Array<{ id: number }> };
+  assert.equal(listed.hiddenStale, 1);
+  assert.equal(listed.entries.some((entry) => entry.id === stale.id), false);
   store.close();
   const parsed = JSON.parse(sessions.stdout);
   assert.equal(parsed.thisSession, null);
