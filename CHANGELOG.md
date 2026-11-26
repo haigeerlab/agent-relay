@@ -2,7 +2,30 @@
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-11-26
+
+**bridge 有改动，要 `upgrade --confirm` 升级运行时；接口 2.12 → 2.13（`bridge_outbox` 新增可选参数 `includeStale` 和结果字段 `hiddenStale`，默认不再列出已过期或收件方已退役的消息）；信箱 schema 8 不变，回滚到 0.10.0 不用动信箱。**
+
 - **发件箱过期消息筛选**（模块 `outbox-stale-filter`）：`bridge_outbox` 默认不再列出已过期或收件方已退役的消息，`includeStale` 可列回，`hiddenStale` 给出计数；接口升至 2.13，信箱 schema 8 不变。bridge 有改动，要 `upgrade --confirm` 升级运行时。
+
+- bridge 的版本号随运行时改动抬到 0.10.1，`agent-relay --version` 和 MCP 的 `serverInfo.version` 报 0.10.1。
+
+### 从 0.10.0 升级
+
+bridge 的运行时文件有改动，要升级运行时（步骤见 README“更新插件”“升级运行时”）；信箱 schema 不变。
+
+1. 把主克隆快进到 v0.10.1：`git -C <克隆> pull --ff-only`（从 GitHub 装的，把 `~/.codex/config.toml` 里的 `ref` 改成
+   `"v0.10.1"` 并 `codex plugin marketplace upgrade`）。
+2. Codex：`codex plugin add agent-relay@agent-relay-marketplace`。
+3. Claude Code：`claude plugin marketplace update agent-relay-marketplace`，再
+   `claude plugin update --scope user agent-relay@agent-relay-marketplace`，刷新用户级记录的标签。
+4. **升级运行时**：关掉所有用到信箱的会话或只结束 bridge（见 README“升级运行时”），确认 `pgrep -fl
+   "agent-relay/runtime/dist/server.js"` 没有输出，再执行 `python3 -B <插件目录>/hooks/native_collaboration_runtime.py
+   upgrade --confirm`，输出应为 `"state": "upgraded"`，其中 `launcher.ok` 为 `true`。
+5. Codex 用 ⌘Q 完全退出 ChatGPT 应用再打开，然后新开 Claude Code 和 Codex 会话。
+6. 新会话里跑 `doctor`，各项应为 ok（`claude-plugin` 显示加载的是 0.10.1，`runtime` 为 ok）；
+   `~/.agent-relay/bin/agent-relay --version` 应报 0.10.1。
+7. 还要看已过期或收件方已退役的旧消息时，`bridge_outbox` 带 `includeStale: true`；它们只是默认不列，没有删除。
 
 ## [0.10.0] - 2026-11-26
 
