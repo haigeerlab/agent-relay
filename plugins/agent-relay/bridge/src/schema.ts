@@ -185,7 +185,7 @@ const MIGRATIONS: Array<(db: DatabaseSync) => void> = [
     addColumn(db, "agents", "desktop_title", "TEXT");
   },
 
-  // v9 (idle-wake-batching D300): record when the sender explicitly requests a wake.
+  // v9 (idle-wake-batching D300/D303): 0 may hold, 1 is explicit, 2 has been released and cannot hold again.
   (db) => {
     addColumn(db, "wake_jobs", "explicit_wake", "INTEGER NOT NULL DEFAULT 0");
   },
