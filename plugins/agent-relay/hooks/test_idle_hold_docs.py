@@ -80,8 +80,8 @@ class IdleHoldDocsTests(unittest.TestCase):
     def test_readme_documents_idle_threshold(self):
         self.assertIn("`BRIDGE_IDLE_HOLD_MS`", self.text["readme"])
 
-    def test_unreleased_changelog_names_idle_hold_and_runtime_upgrade(self):
-        section = re.search(r"^## \[Unreleased\]\n.*?(?=\n## \[|\Z)", self.text["changelog"], re.M | re.S)
+    def test_changelog_section_names_idle_hold_and_runtime_upgrade(self):
+        section = re.search(r"^## \[[^\]]+\][^\n]*\n(?:(?!\n## \[).)*?idle-wake-batching.*?(?=\n## \[|\Z)", self.text["changelog"], re.M | re.S)
         self.assertIsNotNone(section)
         for value in ("idle-wake-batching", "schema 8 → 9", "`upgrade --confirm`"):
             self.assertIn(value, section.group())

@@ -2,7 +2,31 @@
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-26
+
+**bridge 有改动，要 `upgrade --confirm` 升级运行时；接口 2.13 → 2.14（只增加内容：`pendingReason` 新增 `idle`，`bridge_send` 新增提醒，CLI `send` 新增 `--wake`）；信箱 schema 8 → 9（`wake_jobs` 加一列 `explicit_wake`）。回滚要连插件一起回滚：0.10.x 的钩子只认到 schema 8。**
+
 - **攒住发给空闲 Claude 会话的免回复提醒**（模块 `idle-wake-batching`）。消息照常入箱，省略 `wake` 时提醒可随下次唤醒送出。发件箱和唤醒状态会显示 `idle`，需要立即唤醒可显式传 `wake: true` 或用 `send --wake`。Codex 收件方沿用现有唤醒规则。接口升至 2.14，信箱 schema 8 → 9。bridge 有改动，要 `upgrade --confirm` 升级运行时。新旧版本混用时，旧 bridge 可能在 1 小时后作废攒住的提醒（消息仍在收件箱），而且在这 1 小时内，只剩旧 bridge 时，同一收件方后面的提醒会被攒住的那条挡住，所以升级后请尽快重启各会话。回滚如需恢复 schema 8，可使用升级前的信箱备份。
+
+- bridge 的版本号随运行时改动抬到 0.11.0，`agent-relay --version` 和 MCP 的 `serverInfo.version` 报 0.11.0。
+
+### 从 0.10.1 升级
+
+bridge 的运行时文件有改动，要升级运行时（步骤见 README“更新插件”“升级运行时”）；信箱 schema 8 → 9，升级时自动迁移并留备份。
+
+1. 把主克隆快进到 v0.11.0：`git -C <克隆> pull --ff-only`（从 GitHub 装的，把 `~/.codex/config.toml` 里的 `ref` 改成
+   `"v0.11.0"` 并 `codex plugin marketplace upgrade`）。
+2. Codex：`codex plugin add agent-relay@agent-relay-marketplace`。
+3. Claude Code：`claude plugin marketplace update agent-relay-marketplace`，再
+   `claude plugin update --scope user agent-relay@agent-relay-marketplace`，刷新用户级记录的标签。
+4. **升级运行时**：关掉所有用到信箱的会话或只结束 bridge（见 README“升级运行时”），确认 `pgrep -fl
+   "agent-relay/runtime/dist/server.js"` 没有输出，再执行 `python3 -B <插件目录>/hooks/native_collaboration_runtime.py
+   upgrade --confirm`，输出应为 `"state": "upgraded"`，其中 `launcher.ok` 为 `true`。
+5. Codex 用 ⌘Q 完全退出 ChatGPT 应用再打开，然后新开 Claude Code 和 Codex 会话。升级后尽快重启所有会话：还在跑 0.10.x
+   bridge 的会话最多会把同一收件方后面的提醒挡 1 小时。
+6. 新会话里跑 `doctor`，各项应为 ok（`claude-plugin` 显示加载的是 0.11.0，`runtime` 为 ok）；
+   `~/.agent-relay/bin/agent-relay --version` 应报 0.11.0。
+7. 要马上叫醒一个空闲已久的会话时，`bridge_send` 显式写 `wake: true`（CLI 用 `--wake`）；不想攒时设 `BRIDGE_IDLE_HOLD_MS=0`。
 
 ## [0.10.1] - 2026-11-26
 

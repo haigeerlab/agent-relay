@@ -1,5 +1,14 @@
 # Changelog
 
+## agent-relay 0.11.0
+
+`idle-wake-batching` (D299–D307), schema 8 → 9, interface 2.14: a ping for a message that needs no reply, sent without an
+explicit `wake: true`, is held (`pending`, `pendingReason: "idle"`) while the recipient's Claude session has been idle for
+`BRIDGE_IDLE_HOLD_MS` (default 60 min, `0` turns it off). It is released when the session is active again or stops,
+before another ping to that recipient goes out, or within an hour of the message's expiry; a released ping is never held
+again. `wake_jobs.explicit_wake` (default 1, never held) records explicit wakes; `bridge_send` warns when a ping will be
+held; the CLI's `send` gains `--wake`. Codex recipients are unchanged. The package version is 0.11.0.
+
 ## agent-relay 0.10.1
 
 `outbox-stale-filter` (D294–D297), schema 8 unchanged, interface 2.13: `bridge_outbox` leaves out entries whose
