@@ -22,7 +22,7 @@ from typing import Any, Callable, Sequence
 # Mailbox schemas the Python readers understand: 2 (upstream 8f12c88) and 3 (delivery-state-machine adds
 # nullable delivery columns only), then 4, 5 and 6 (awaiting-reply-view: expects_reply), all additive. A newer, unknown
 # schema is refused rather than guessed at.
-MAILBOX_SCHEMA_VERSIONS = (2, 3, 4, 5, 6, 7, 8)
+MAILBOX_SCHEMA_VERSIONS = (2, 3, 4, 5, 6, 7, 8, 9)
 
 
 def newer_mailbox_schema(version: object) -> str | None:
@@ -486,8 +486,8 @@ def probe_runtime(root: Path, *, node: str = "node", scratch: Path | None = None
 
 
 ROLLBACK_CAVEAT = (
-    "The previous runtime's bridge opens the upgraded (schema 8) mailbox in compatible mode, but an older agent-relay "
-    "plugin's hooks and read-only CLI commands read only up to schema 7 (0.9.x), 6 (0.7.x), 5 (0.6.x) or 4 (earlier): roll the plugin back too, or restore "
+    "The previous runtime's bridge opens the upgraded (schema 9) mailbox in compatible mode, but an older agent-relay "
+    "plugin's hooks and read-only CLI commands read only up to schema 8 (0.10.x), 7 (0.9.x), 6 (0.7.x), 5 (0.6.x) or 4 (earlier): roll the plugin back too, or restore "
     "the mailbox from the backup (messages sent since are lost).")
 # upgrade-codex-restart-check D196: a Codex task that ran before the upgrade keeps a closed mailbox connection
 # ("Transport closed") until the ChatGPT app is quit and opened again; doctor repeats it while that is still due.

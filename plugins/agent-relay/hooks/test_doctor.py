@@ -235,7 +235,7 @@ class DoctorTests(unittest.TestCase):
         cases = {
             "runtime": lambda: (self.root / "manifest.json").write_text("{}"),
             "probe": None,
-            "mailbox": lambda: sqlite3.connect(self.database).execute("PRAGMA user_version = 9").connection.commit(),
+            "mailbox": lambda: sqlite3.connect(self.database).execute("PRAGMA user_version = 10").connection.commit(),
             "host-entries": lambda: self.codex_config.write_text(
                 codex_fragment(self.root, NODE).replace('"bridge_wait"', '"bridge_wait", "ask_codex"')),
         }

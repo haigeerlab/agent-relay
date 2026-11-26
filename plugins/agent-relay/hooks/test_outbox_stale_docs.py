@@ -19,9 +19,9 @@ class OutboxStaleDocsTests(unittest.TestCase):
     def setUpClass(cls):
         cls.text = {name: path.read_text(encoding="utf-8") for name, path in FILES.items()}
 
-    def test_interface_marker_is_2_13(self):
+    def test_interface_marker_is_at_least_2_13(self):
         marker = json.loads((REPO / "plugins/agent-relay/interface.json").read_text(encoding="utf-8"))
-        self.assertEqual(marker["interface"], "2.13")
+        self.assertGreaterEqual(tuple(int(p) for p in marker["interface"].split(".")), (2, 13))
 
     def test_interface_documents_outbox_stale_filter_and_cli_default(self):
         text = self.text["interface"]
