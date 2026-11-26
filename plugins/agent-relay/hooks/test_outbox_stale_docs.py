@@ -40,7 +40,10 @@ class OutboxStaleDocsTests(unittest.TestCase):
 
     def test_changelog_section_names_module(self):
         sections = re.findall(r"\n## \[[^\]]+\].*?(?=\n## \[|\Z)", self.text["changelog"], re.S)
-        self.assertTrue(any("outbox-stale-filter" in section for section in sections))
+        self.assertTrue(sections)
+        section = next((item for item in sections if "outbox-stale-filter" in item), None)
+        self.assertIsNotNone(section)
+        self.assertIn("2.13", section)
 
 
 if __name__ == "__main__":
