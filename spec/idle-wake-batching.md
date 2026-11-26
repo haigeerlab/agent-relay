@@ -1,6 +1,6 @@
 # Spec: idle-wake-batching
 
-<!-- spec-guard: review approved c55b7d384da5 -->
+<!-- spec-guard: review approved 8143a2b7d685 -->
 
 ## Objective
 
@@ -156,6 +156,11 @@ Readers: the user; the owner session (review, release, acceptance); ecosystem-le
 - **Never:** changing `wake: false` or `expectsReply` behaviour; a hold that delays an `expectsReply` or explicit-wake
   message; acknowledging or reading messages on a recipient's behalf; a new desktop notice for holds; making `wake: false`
   the default.
+
+## Concurrency boundary
+
+- Exclusive: `plugins/agent-relay/bridge/src/schema.ts`, `plugins/agent-relay/bridge/src/wake-queue.ts`, `plugins/agent-relay/bridge/src/wake-dispatcher.ts`, `plugins/agent-relay/bridge/src/bridge-store.ts`, `plugins/agent-relay/bridge/src/send.ts`, `plugins/agent-relay/bridge/src/server.ts`, `plugins/agent-relay/bridge/src/cli-logic.ts`, `plugins/agent-relay/bridge/src/cli-main.ts`, `plugins/agent-relay/bridge/test/idle-hold.test.ts`, `plugins/agent-relay/bridge/test/schema.test.ts`, `plugins/agent-relay/bridge/test/wake-queue.test.ts`, `plugins/agent-relay/bridge/test/delivery-wake.test.ts`, `plugins/agent-relay/bridge/test/rewake.test.ts`, `plugins/agent-relay/bridge/test/cli.test.ts`, `plugins/agent-relay/bridge/test/script-cli.test.ts`, `plugins/agent-relay/bridge/UPSTREAM.sha256`, `plugins/agent-relay/bridge/UPSTREAM.md`, `plugins/agent-relay/interface.json`, `plugins/agent-relay/hooks/relay_status.py`, `plugins/agent-relay/hooks/test_packaging.py`, `plugins/agent-relay/hooks/test_idle_hold_docs.py`, `plugins/agent-relay/skills/collab/SKILL.md`, `plugins/agent-relay/skills/session-routing/SKILL.md`, `docs/collaboration-interface.md`, `README.md`, `CHANGELOG.md`, `tasks/idle-wake-batching/`
+- Shared: 迁移
 
 ## Mixed versions
 

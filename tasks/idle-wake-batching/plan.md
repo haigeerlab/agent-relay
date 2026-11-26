@@ -1,6 +1,6 @@
 # Plan: idle-wake-batching
 
-<!-- spec-guard: review pending -->
+<!-- spec-guard: review approved -->
 
 Based on [`spec/idle-wake-batching.md`](../../spec/idle-wake-batching.md) (approved by the user on 2026-11-26,
 「批准，确认插入」: assumptions 1–8, D299–D308; commit 6d9d718). Local ledger item PH9ME24. Built on branch
