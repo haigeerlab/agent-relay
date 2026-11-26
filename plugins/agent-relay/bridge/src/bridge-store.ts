@@ -887,11 +887,14 @@ export class BridgeStore {
    */
   outbox(
     agent: string,
-    options: { includeAcknowledged?: boolean; limit?: number; awaitingReply?: boolean; now?: number } = {},
-  ): { totalUnacknowledged: number; totalAwaitingReply: number; hasMore: boolean; entries: OutboxEntry[] } {
+    options: { includeAcknowledged?: boolean; includeStale?: boolean; limit?: number; awaitingReply?: boolean; now?: number } = {},
+  ): { totalUnacknowledged: number; totalAwaitingReply: number; hasMore: boolean; entries: OutboxEntry[]; hiddenStale?: number } {
     const limit = clampLimit(options.limit, 30);
     const awaitingReply = options.awaitingReply === true;
-    const filter = awaitingReply ? `AND ${OPEN_REQUEST}` : options.includeAcknowledged ? "" : "AND a.acked_at IS NULL";
+    const acknowledgement = options.includeAcknowledged ? "" : "AND a.acked_at IS NULL";
+    // outbox-stale-filter D294: unknown recipients have no agents row, so their NULL retired_at stays visible.
+    const stale = options.includeStale ? "" : "AND COALESCE(m.delivery_state, 'queued') != 'expired' AND r.retired_at IS NULL";
+    const filter = awaitingReply ? `AND ${OPEN_REQUEST}` : `${acknowledgement} ${stale}`;
     const now = options.now ?? Date.now();
     this.sweep();
     const doubts = this.wakes.doubts(now);
@@ -929,10 +932,20 @@ export class BridgeStore {
     const open = this.db
       .prepare(`SELECT COUNT(*) AS n FROM messages m WHERE m.from_agent = ? AND ${OPEN_REQUEST}`)
       .get(agent) as { n: number | bigint };
+    const hidden = awaitingReply || options.includeStale ? 0 : Number((this.db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM messages m
+         LEFT JOIN acknowledgements a ON a.message_id = m.id AND a.agent = m.to_agent
+         LEFT JOIN agents r ON r.name = m.to_agent
+         WHERE m.from_agent = ? AND m.to_agent != ? ${acknowledgement}
+           AND (COALESCE(m.delivery_state, 'queued') = 'expired' OR r.retired_at IS NOT NULL)`,
+      )
+      .get(agent, BROADCAST) as { n: number | bigint }).n);
     return {
       totalUnacknowledged: Number(total.n),
       totalAwaitingReply: Number(open.n),
       hasMore: rows.length > limit,
+      ...(hidden ? { hiddenStale: hidden } : {}),
       entries: rows.slice(0, limit).map((row) => ({
         id: Number(row.id),
         toAgent: row.to_agent as string,

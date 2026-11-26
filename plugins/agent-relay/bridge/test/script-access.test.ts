@@ -51,7 +51,7 @@ test("a read-only store does not expire an overdue message (D242)", () => {
   assert.equal(reader.outbox("asker", {}).entries.find((e) => e.id === message.id)?.deliveryState, "queued");
   reader.close();
   const normal = new BridgeStore(path);
-  assert.equal(normal.outbox("asker", {}).entries.find((e) => e.id === message.id)?.deliveryState, "expired");
+  assert.equal(normal.outbox("asker", { includeStale: true }).entries.find((e) => e.id === message.id)?.deliveryState, "expired");
   normal.close();
 });
 

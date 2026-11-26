@@ -106,7 +106,7 @@ test("the sender sees each message's delivery state in the outbox and in wake st
   const job = s.wakes.claim(Date.now() + 1);
   assert.ok(job);
   s.wakes.finish(job, { state: "accepted", detail: "turn started" });
-  const entries = Object.fromEntries(s.outbox("a").entries.map((entry) => [entry.id, entry]));
+  const entries = Object.fromEntries(s.outbox("a", { includeStale: true }).entries.map((entry) => [entry.id, entry]));
   assert.equal(entries[sent.id]?.deliveryState, "accepted");
   assert.equal(entries[lapsed.id]?.deliveryState, "expired");
   assert.equal(entries[sent.id]?.expiresAt, sent.expiresAt);
