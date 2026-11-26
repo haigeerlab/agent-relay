@@ -57,7 +57,7 @@ export function idleHoldMs(env: Record<string, string | undefined> = process.env
   return value >= 60_000 && value <= 86_400_000 ? value : DEFAULT_IDLE_HOLD_MS;
 }
 
-function findSession(sessions: ClaudeSession[] | null, sessionId: string): ClaudeSession | undefined {
+export function findSession(sessions: ClaudeSession[] | null, sessionId: string): ClaudeSession | undefined {
   return sessions?.find(s => s.sessionId === sessionId || s.bridgeSessionId === sessionId);
 }
 

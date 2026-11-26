@@ -905,7 +905,7 @@ export class BridgeStore {
                 w.detail AS wake_detail, r.name AS recipient_name, r.retired_at AS recipient_retired,
                 CASE WHEN w.state = 'pending' THEN COALESCE(w.pending_reason, (
                   SELECT o.pending_reason FROM wake_jobs o WHERE o.agent = w.agent
-                    AND o.state IN ('pending', 'sending') AND o.pending_reason IS NOT NULL ORDER BY o.id LIMIT 1))
+                    AND o.state IN ('pending', 'sending') AND o.pending_reason != 'idle' ORDER BY o.id LIMIT 1))
                 END AS wake_reason,
                 m.delivery_state, m.expires_at, m.reply_to, m.expects_reply,
                 (SELECT json_group_array(id) FROM (SELECT x.id AS id FROM messages x WHERE x.reply_to = m.id
@@ -960,7 +960,7 @@ export class BridgeStore {
             : withDoubt({
               state: row.wake_state as string, detail: row.wake_detail as string,
               // claude-offline-notice D193: why a pending ping waits; a message queued behind an earlier one to the
-              // same recipient waits for that one's reason.
+              // same recipient waits for that one's reason. Idle holds do not block another message's ping (D302).
               ...(row.wake_reason == null ? {} : { pendingReason: row.wake_reason as PendingReason }),
             }, doubts.get(Number(row.id))),
         recipient:

@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import { BridgeStore, type SendInput } from "../src/bridge-store.js";
 import type { ClaudeSession } from "../src/claude-wake.js";
 import { sweepDeliveryFailures } from "../src/notices.js";
+import { sendMessage, type SendContext, type SendRequest } from "../src/send.js";
 import * as wakeDispatcher from "../src/wake-dispatcher.js";
 import { wakeNotice, type WakeJob, type WakeResult, type WakeTarget } from "../src/wake-queue.js";
+import { session } from "./support/session.js";
 
 const HOUR = 3_600_000;
 const CLAUDE: WakeTarget = { app: "claude", sessionId: "claude-b" };
@@ -67,6 +69,127 @@ test("holds a quiet Claude ping at the idle threshold and keeps the message queu
   assert.equal(store.messageById(message.id)?.deliveryState, "queued");
   assert.deepEqual(delivered, []);
   assert.equal(registry.reads, 1);
+});
+
+const IDLE_WARNING = '"b" has been idle for 60 min; this message needs no reply, so its ping is held and goes out ' +
+  "with its next wake (see bridge_outbox).";
+
+test("bridge_send warns when an omitted wake may be held, but not on an idempotent retry (D305)", async (t) => {
+  const { store, dispatcher, clock } = fixture(t);
+  let reads = 0;
+  const context: SendContext = {
+    dbPath: ":memory:", presenceOf: async () => ({ state: "unknown" }), env: {}, now: () => clock.now,
+    flush: () => {
+      clock.now = Math.max(clock.now, Date.now());
+      return dispatcher.flush();
+    },
+    claudeSessions: async () => {
+      reads++;
+      return [{ ...idle(clock.now - HOUR), sessionId: "primary-claude", bridgeSessionId: CLAUDE.sessionId }];
+    },
+  };
+  const request = { from: "a", to: "b", body: "an update", idempotencyKey: "update" };
+  const sent = await sendMessage(store, request, context);
+  assert.deepEqual(sent.warnings, [IDLE_WARNING]);
+  assert.equal(sent.wake?.pendingReason, "idle");
+  assert.equal(sent.deliveryState, "queued");
+  assert.equal(sent.bodyLength, request.body.length);
+  assert.equal("body" in sent, false);
+
+  const retried = await sendMessage(store, request, context);
+  assert.equal(retried.id, sent.id);
+  assert.equal(retried.duplicate, true);
+  assert.ok(retried.warnings?.length);
+  assert.ok(!retried.warnings.includes(IDLE_WARNING));
+  assert.equal(reads, 1);
+});
+
+const quietSendCases: Array<{
+  name: string;
+  request?: Partial<SendRequest>;
+  target?: WakeTarget;
+  env?: NodeJS.ProcessEnv;
+  sessions?: (now: number) => ClaudeSession[] | null;
+  reads: number;
+}> = [
+  { name: "expects a reply", request: { expectsReply: true }, reads: 0 },
+  { name: "requests an explicit wake", request: { wake: true }, reads: 0 },
+  { name: "saves silently", request: { wake: false }, reads: 0 },
+  { name: "targets Codex", target: { app: "codex", sessionId: "codex-b" }, reads: 0 },
+  { name: "targets an active session", sessions: now => [{ ...idle(now - HOUR), status: "busy" }], reads: 1 },
+  { name: "targets a recently idle session", sessions: now => [idle(now - HOUR + 1)], reads: 1 },
+  { name: "broadcasts", request: { to: "*" }, reads: 0 },
+  { name: "sends to itself", request: { from: "b" }, reads: 0 },
+  { name: "disables holding", env: { BRIDGE_IDLE_HOLD_MS: "0" }, reads: 0 },
+  { name: "uses a higher threshold", env: { BRIDGE_IDLE_HOLD_MS: String(HOUR * 2) }, reads: 1 },
+  { name: "expires in under an hour", request: { expiresInSeconds: 3599 }, reads: 1 },
+  { name: "cannot read the registry", sessions: () => null, reads: 1 },
+  { name: "encounters a registry read error", sessions: () => { throw new Error("registry unavailable"); }, reads: 1 },
+];
+
+for (const { name, request, target, env, sessions, reads } of quietSendCases) {
+  test(`bridge_send adds no idle warning when it ${name} (D305)`, async (t) => {
+    const { store, clock } = fixture(t, { target });
+    let registryReads = 0;
+    const sent = await sendMessage(store, { from: "a", to: "b", body: "an update", ...request }, {
+      dbPath: ":memory:", presenceOf: async () => ({ state: "unknown" }), flush: async () => {},
+      env: env ?? {}, now: () => clock.now,
+      claudeSessions: async () => {
+        registryReads++;
+        return sessions ? sessions(clock.now) : [idle(clock.now - HOUR)];
+      },
+    });
+    assert.equal(sent.warnings, undefined);
+    assert.equal(store.messageById(sent.id)?.body, "an update");
+    assert.equal(registryReads, reads);
+  });
+}
+
+test("bridge_outbox keeps idle on the held job and preserves the fallback for other reasons (D305)", async (t) => {
+  const { store, dispatcher, clock, send, job } = fixture(t);
+  const held = send();
+  await dispatcher.flush();
+  const ordinary = send({ expectsReply: true });
+  const outboxWake = (id: number) => store.outbox("a").entries.find(entry => entry.id === id)?.wake;
+  const heldWake = { state: "pending", pendingReason: "idle", detail: job(held.id).detail };
+  assert.deepEqual(outboxWake(held.id), heldWake);
+  assert.equal(outboxWake(ordinary.id)?.pendingReason, undefined);
+
+  const claimed = store.wakes.claim(clock.now)!;
+  assert.equal(claimed.messageId, ordinary.id);
+  store.wakes.finish(claimed, { state: "pending", reason: "busy", detail: "Recipient is busy" }, clock.now);
+  const queued = send();
+  assert.deepEqual(outboxWake(held.id), heldWake);
+  assert.equal(outboxWake(ordinary.id)?.pendingReason, "busy");
+  assert.equal(outboxWake(queued.id)?.pendingReason, "busy");
+});
+
+test("bridge_wake_status reports the held reason and detail by message id and in the list (D305)", async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "bridge-idle-status-"));
+  // The status server has no usable registry, so its periodic check leaves this hold alone.
+  mkdirSync(join(dir, ".claude"));
+  writeFileSync(join(dir, ".claude", "sessions"), "");
+  const { dispatcher, send, job } = fixture(t, { dbPath: join(dir, "bridge.sqlite") });
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const message = send();
+  await dispatcher.flush();
+
+  const server = await session(dir, null, { BRIDGE_IDLE_HOLD_MS: String(HOUR) });
+  try {
+    const single = (await server.call("bridge_wake_status", { messageId: message.id })).json();
+    assert.equal(single.deliveryState, "queued");
+    assert.equal(single.wake.state, "pending");
+    assert.equal(single.wake.pendingReason, "idle");
+    assert.equal(single.wake.detail, job(message.id).detail);
+    const outbox = (await server.call("bridge_outbox", { agent: "a" })).json();
+    assert.deepEqual(outbox.entries.find((entry: { id: number }) => entry.id === message.id)?.wake,
+      { state: "pending", pendingReason: "idle", detail: single.wake.detail });
+    const list = (await server.call("bridge_wake_status", { agent: "b" })).json();
+    assert.deepEqual(list.summary, { pending: 1 });
+    assert.deepEqual(list.jobs, [single.wake]);
+  } finally {
+    await server.close();
+  }
 });
 
 test("holds a channel ping whose registry entry matches by bridgeSessionId, including a message without expiry", async (t) => {

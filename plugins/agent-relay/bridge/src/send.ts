@@ -1,12 +1,14 @@
 // agent-relay script-access D243: one bridge_send, shared by the MCP tool and the runtime CLI's `send`.
 import type { AgentHost, BridgeStore } from "./bridge-store.js";
 import { checkRecipient } from "./addressing.js";
+import { claudeSessionsOrNull, type ClaudeSession } from "./claude-wake.js";
 import { pendingWarning } from "./delivery.js";
 import { duplicateWarning } from "./idempotency.js";
 import { NOTIFIED_TEXT, notifyUndelivered } from "./notify.js";
 import type { Presence } from "./presence.js";
 import { codexOwner } from "./presence.js";
 import { CODEX_ASK } from "./views.js";
+import { findSession, idleHoldMs, idleHoldReason } from "./wake-dispatcher.js";
 
 export interface SendRequest {
   from: string;
@@ -28,6 +30,9 @@ export interface SendContext {
   presenceOf: (host: AgentHost) => Promise<Presence>;
   /** Dispatch due pings once (the bridge's WakeDispatcher.flush). */
   flush: () => Promise<void>;
+  claudeSessions?: () => Promise<ClaudeSession[] | null>;
+  env?: NodeJS.ProcessEnv;
+  now?: () => number;
 }
 
 /** Store the message, add bridge_send's warnings, dispatch once, and return bridge_send's result object. */
@@ -79,6 +84,23 @@ export async function sendMessage(store: BridgeStore, request: SendRequest, cont
       warnings.push(`${JSON.stringify(to)} has no wake binding and no known host; ` +
         "it sees this message only when it reads its inbox.");
     }
+  });
+  if (!duplicate && to !== "*" && !message.expectsReply && wake === undefined) await afterCommit(async () => {
+    const threshold = idleHoldMs(context.env);
+    if (threshold === 0) return;
+    const job = store.wakes.forMessage(message.id);
+    if (job?.target.app !== "claude") return;
+    let sessions: ClaudeSession[] | null;
+    try {
+      sessions = await (context.claudeSessions ?? claudeSessionsOrNull)();
+    } catch {
+      return;
+    }
+    // idle-wake-batching D305: this predicts the dispatcher's decision from the send-time registry snapshot.
+    const minutes = idleHoldReason(job, message, findSession(sessions, job.target.sessionId), threshold,
+      (context.now ?? Date.now)());
+    if (minutes !== null) warnings.push(`${JSON.stringify(to)} has been idle for ${minutes} min; this message needs no ` +
+      "reply, so its ping is held and goes out with its next wake (see bridge_outbox).");
   });
   await afterCommit(() => context.flush());
   let wakeJob = null as ReturnType<typeof store.wakes.forMessage>;
