@@ -22,10 +22,9 @@ export type WakeState = "pending" | "sending" | "accepted" | "read" | "held" | "
   // agent-relay delivery-state-machine (finding 5): the recipient acknowledged the message; final.
   | "acknowledged";
 /**
- * Why a ping is still pending: the recipient is mid-turn, not running, or (claude-offline-notice-fixes D194) running
- * but cannot be reached.
+ * Why a ping is still pending: busy, offline, unreachable (D194), or held for idle-wake-batching (D301).
  */
-export type PendingReason = "busy" | "offline" | "unreachable";
+export type PendingReason = "busy" | "offline" | "unreachable" | "idle";
 export interface WakeResult {
   state: "pending" | "accepted" | "held" | "refused" | "unknown";
   detail: string;
@@ -41,6 +40,9 @@ export interface WakeJob {
   messageId: number;
   agent: string;
   target: WakeTarget;
+  /** idle-wake-batching D300/D303: explicit_wake 0 may hold, 1 is explicit, and 2 sets released instead. */
+  explicitWake?: boolean;
+  released?: boolean;
   state: WakeState;
   attemptId: string | null;
   attempts: number;
@@ -91,20 +93,25 @@ const FAILED_STATES = "('refused', 'expired', 'held')";
  * it within seconds, so a Claude hold counts as failed only once it has lasted this long.
  */
 export const CLAUDE_HOLD_GRACE_MS = 90_000;
+/** idle-wake-batching D299/D303: send in the last hour of the message's lifetime. */
+export const IDLE_HOLD_EXPIRY_MARGIN_MS = 3_600_000;
+const IDLE_HOLD_RETRY_AT = 8.64e15;
+const IDLE_HELD = "state = 'pending' AND pending_reason = 'idle'";
 /** A pending ping past its wake window, for parameters (offline window start, busy window start). */
-const PENDING_EXPIRED = `((wake_jobs.created_at < ? AND COALESCE(wake_jobs.pending_reason, 'offline') != 'busy')
-  OR wake_jobs.created_at < ?)`;
+const PENDING_EXPIRED = `(COALESCE(wake_jobs.pending_reason, 'offline') != 'idle'
+  AND ((wake_jobs.created_at < ? AND COALESCE(wake_jobs.pending_reason, 'offline') != 'busy')
+    OR wake_jobs.created_at < ?))`;
 /**
  * A ping claimStep may send now, for parameters (now, channel heartbeat cutoff, this process's pid). Jobs for a Claude
- * session hosted by another live channel process are delivered by that process. agent-relay durable-ordering: at most
- * one ping in flight per recipient, oldest first — a job waits while an older job for the same recipient is pending or
- * sending (in any process); an `unknown`, `held` or final older job does not hold it.
+ * session hosted by another live channel process are delivered by that process. Durable-ordering: one ping in flight
+ * per recipient, oldest first. Idle-wake-batching D302/D303: skip older holds, but wait for any in-flight ping.
  */
 const CLAIMABLE = `wake_jobs.state = 'pending' AND wake_jobs.retry_at <= ?
   AND NOT EXISTS (
-    SELECT 1 FROM wake_jobs older
-    WHERE older.agent = wake_jobs.agent AND older.id < wake_jobs.id
-      AND older.state IN ('pending', 'sending')
+    SELECT 1 FROM wake_jobs other
+    WHERE other.agent = wake_jobs.agent
+      AND (other.state = 'sending' OR (other.id < wake_jobs.id AND other.state = 'pending'
+        AND COALESCE(other.pending_reason, '') != 'idle'))
   )
   AND NOT EXISTS (
     SELECT 1 FROM channel_hosts h
@@ -167,14 +174,14 @@ export class WakeQueue {
   }
 
   // Called in the same transaction that inserts the durable mailbox message.
-  enqueue(message: BridgeMessage): void {
+  enqueue(message: BridgeMessage, explicitWake: boolean): void {
     if (message.toAgent === "*" || message.fromAgent === message.toAgent) return;
     const target = this.target(message.toAgent);
     if (!target) return;
     const now = Date.now();
     this.db.prepare(`INSERT OR IGNORE INTO wake_jobs
-      (message_id, agent, target, retry_at, created_at) VALUES (?, ?, ?, ?, ?)`)
-      .run(message.id, message.toAgent, JSON.stringify(target), now, now);
+      (message_id, agent, target, retry_at, created_at, explicit_wake) VALUES (?, ?, ?, ?, ?, ?)`)
+      .run(message.id, message.toAgent, JSON.stringify(target), now, now, explicitWake ? 1 : 0);
   }
 
   private row(value: Record<string, unknown>): WakeJob {
@@ -186,7 +193,8 @@ export class WakeQueue {
       threadId: message?.thread_id as string | null,
       acknowledgedAt: ack?.acked_at as string | undefined ?? null,
       id: Number(value.id), mailboxPath: this.mailboxPath, messageId: Number(value.message_id), agent: value.agent as string,
-      target: JSON.parse(value.target as string), state: value.state as WakeState,
+      target: JSON.parse(value.target as string), explicitWake: Number(value.explicit_wake) === 1,
+      ...(Number(value.explicit_wake) === 2 ? { released: true } : {}), state: value.state as WakeState,
       attemptId: value.attempt_id as string | null, attempts: Number(value.attempts),
       retryAt: Number(value.retry_at), createdAt: Number(value.created_at), detail: value.detail as string,
       pendingReason: (value.pending_reason as PendingReason | null | undefined) ?? null,
@@ -206,6 +214,36 @@ export class WakeQueue {
   forMessage(messageId: number): WakeJob | null {
     const row = this.db.prepare("SELECT * FROM wake_jobs WHERE message_id = ?").get(messageId);
     return row ? this.row(row) : null;
+  }
+
+  /** idle-wake-batching D301: park a claimed ping and return its message to queued. */
+  holdIdle(job: WakeJob, detail: string): void {
+    atomically(this.db, () => {
+      const updated = this.db.prepare(`UPDATE wake_jobs SET state = 'pending', pending_reason = 'idle', retry_at = ?, detail = ?
+        WHERE id = ? AND attempt_id = ? AND state = 'sending'`)
+        .run(IDLE_HOLD_RETRY_AT, detail, job.id, job.attemptId);
+      if (Number(updated.changes) === 1) this.follow(job.messageId, "pending");
+    });
+  }
+
+  /** idle-wake-batching D303: start the ordinary retry window and make the hold a one-time decision. */
+  releaseHeld(agent: string, why: string, now = Date.now()): number {
+    const updated = this.db.prepare(`UPDATE wake_jobs SET pending_reason = NULL, retry_at = ?, created_at = ?,
+        explicit_wake = 2, detail = ? WHERE agent = ? AND ${IDLE_HELD}`)
+      .run(now, now, `Released: ${why}`, agent);
+    return Number(updated.changes);
+  }
+
+  heldAgents(): Array<{ agent: string; sessionId: string }> {
+    return this.db.prepare(`SELECT DISTINCT agent, json_extract(target, '$.sessionId') AS sessionId
+      FROM wake_jobs WHERE ${IDLE_HELD}`).all() as Array<{ agent: string; sessionId: string }>;
+  }
+
+  heldAgentsNearExpiry(now: number): Set<string> {
+    const rows = this.db.prepare(`SELECT DISTINCT wake_jobs.agent FROM wake_jobs
+      JOIN messages ON messages.id = wake_jobs.message_id
+      WHERE ${IDLE_HELD} AND messages.expires_at <= ?`).all(now + IDLE_HOLD_EXPIRY_MARGIN_MS);
+    return new Set(rows.map(row => row.agent as string));
   }
 
   /**
@@ -331,15 +369,15 @@ export class WakeQueue {
     return row ? this.row(row) : null;
   }
 
-  finish(job: WakeJob, result: WakeResult): void {
-    atomically(this.db, () => this.finishStep(job, result));
+  finish(job: WakeJob, result: WakeResult, now = Date.now()): void {
+    atomically(this.db, () => this.finishStep(job, result, now));
   }
 
-  private finishStep(job: WakeJob, result: WakeResult): void {
+  private finishStep(job: WakeJob, result: WakeResult, now: number): void {
     const updated = this.db.prepare(`UPDATE wake_jobs SET state = ?, detail = ?, retry_at = ?,
         pending_reason = CASE WHEN ? = 'pending' THEN ? ELSE pending_reason END
       WHERE id = ? AND attempt_id = ? AND state IN ('sending', 'unknown', 'held')`)
-      .run(result.state, result.detail, Date.now() + Math.min(60_000, 2_000 * 2 ** Math.min(job.attempts, 5)),
+      .run(result.state, result.detail, now + Math.min(60_000, 2_000 * 2 ** Math.min(job.attempts, 5)),
         result.state, result.reason ?? "offline", job.id, job.attemptId);
     if (Number(updated.changes) === 1) this.follow(job.messageId, result.state);
   }
@@ -426,6 +464,8 @@ export class WakeQueue {
 }
 
 function oldMessage(job: WakeJob): boolean {
+  // idle-wake-batching D303: starting the retry window after a hold does not mean an earlier ping expired.
+  if (job.released && job.detail !== REARMED_DETAIL) return false;
   const sent = job.sentAt ? Date.parse(job.sentAt) : NaN;
   return Number.isFinite(sent) && job.createdAt - sent > OLD_MESSAGE_MS;
 }

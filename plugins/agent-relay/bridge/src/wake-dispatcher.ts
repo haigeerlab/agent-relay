@@ -1,4 +1,4 @@
-import type { BridgeStore } from "./bridge-store.js";
+import type { BridgeMessage, BridgeStore } from "./bridge-store.js";
 import { channelNotification, type ChannelNotification } from "./claude-channel.js";
 import { ClaudeWake, claudeNotRunning, claudeSessionsOrNull, type ClaudeSession } from "./claude-wake.js";
 import { CODEX_NOT_LOADED, wakeCodex } from "./codex-wake.js";
@@ -7,7 +7,7 @@ import { noticeAcceptedUnread } from "./notices.js";
 import { BUSY_NOTIFY_AFTER_MS, CLAUDE_OFFLINE_NOTIFY_AFTER_MS, NOTIFIED_TEXT, alreadyNotified, noticesOff, notifyUndelivered,
   waitingEpisode } from "./notify.js";
 import { claudePresence, type Presence } from "./presence.js";
-import { parseProcStart, type WakeJob, type WakeResult } from "./wake-queue.js";
+import { IDLE_HOLD_EXPIRY_MARGIN_MS, parseProcStart, type WakeJob, type WakeResult } from "./wake-queue.js";
 
 /** Push path into the Claude session hosting this MCP process (opt-in). */
 export interface ChannelDelivery {
@@ -18,7 +18,7 @@ export interface ChannelDelivery {
 export interface DispatcherOptions {
   deliver?: (job: WakeJob) => Promise<WakeResult>;
   channel?: ChannelDelivery | null;
-  /** Environment for notifications; defaults to this process's. */
+  /** Environment for notifications and idle holding; defaults to this process's. */
   env?: NodeJS.ProcessEnv;
   /** Injectable for tests. */
   codexWake?: (job: WakeJob) => Promise<WakeResult>;
@@ -28,6 +28,8 @@ export interface DispatcherOptions {
   locationOf?: (sessionId: string) => Promise<Location | undefined>;
   /** rewake-on-return D199: the live Claude sessions; defaults to Claude Code's registry. */
   claudeSessions?: () => Promise<ClaudeSession[] | null>;
+  idleHoldMs?: number;
+  now?: () => number;
 }
 
 /**
@@ -43,6 +45,39 @@ export function codexNoticeReason(result: WakeResult): string | null {
 
 /** How often a bridge looks for Claude sessions waiting for the user's approval (D148). */
 export const APPROVAL_CHECK_MS = 30_000;
+
+const DEFAULT_IDLE_HOLD_MS = 3_600_000;
+
+/** idle-wake-batching D304: a whole number of ms in range, or zero to disable holding. */
+export function idleHoldMs(env: Record<string, string | undefined> = process.env): number {
+  const raw = env.BRIDGE_IDLE_HOLD_MS;
+  if (raw === "0") return 0;
+  if (!raw || !/^\d+$/.test(raw)) return DEFAULT_IDLE_HOLD_MS;
+  const value = Number(raw);
+  return value >= 60_000 && value <= 86_400_000 ? value : DEFAULT_IDLE_HOLD_MS;
+}
+
+export function findSession(sessions: ClaudeSession[] | null, sessionId: string): ClaudeSession | undefined {
+  return sessions?.find(s => s.sessionId === sessionId || s.bridgeSessionId === sessionId);
+}
+
+function idleMinutes(session: Pick<ClaudeSession, "status" | "statusUpdatedAt"> | undefined,
+  thresholdMs: number, now: number): number | null {
+  const since = session?.statusUpdatedAt;
+  if (session?.status !== "idle" || since === undefined || !Number.isFinite(since)) return null;
+  const elapsed = now - since;
+  return elapsed >= thresholdMs ? Math.floor(elapsed / 60_000) : null;
+}
+
+/** idle-wake-batching D299: the idle minutes when a ping may wait. */
+export function idleHoldReason(job: Pick<WakeJob, "target" | "explicitWake" | "released">,
+  message: Pick<BridgeMessage, "expectsReply" | "expiresAt"> | undefined,
+  session: Pick<ClaudeSession, "status" | "statusUpdatedAt"> | undefined, thresholdMs: number, now: number): number | null {
+  if (job.target.app !== "claude" || !message || message.expectsReply || job.explicitWake || job.released
+    || !(thresholdMs > 0)) return null;
+  if (message.expiresAt !== null && !(Date.parse(message.expiresAt) - now > IDLE_HOLD_EXPIRY_MARGIN_MS)) return null;
+  return idleMinutes(session, thresholdMs, now);
+}
 
 /** Review of #164 (D267): how often, and how far apart, a late Claude receipt's write is tried; well inside the hold grace. */
 const LATE_RECEIPT_TRIES = 5;
@@ -60,7 +95,10 @@ export class WakeDispatcher {
   private presenceOf?: (sessionId: string) => Promise<Presence>;
   private locationOf?: (sessionId: string) => Promise<Location | undefined>;
   private claudeSessions?: () => Promise<ClaudeSession[] | null>;
-  private approvalsCheckedAt = 0;
+  private idleHoldMs: number;
+  private now: () => number;
+  private periodicCheckedAt = 0;
+  private readClaudeSessions = (): Promise<ClaudeSession[] | null> => (this.claudeSessions ?? claudeSessionsOrNull)();
 
   constructor(private store: BridgeStore, options: DispatcherOptions | ((job: WakeJob) => Promise<WakeResult>) = {}) {
     const resolved = typeof options === "function" ? { deliver: options } : options;
@@ -71,6 +109,8 @@ export class WakeDispatcher {
     this.presenceOf = resolved.presenceOf;
     this.locationOf = resolved.locationOf;
     this.claudeSessions = resolved.claudeSessions;
+    this.idleHoldMs = resolved.idleHoldMs ?? idleHoldMs(this.env);
+    this.now = resolved.now ?? Date.now;
     this.claude = new ClaudeWake((job, result) => this.lateReceipt(job, result),
       (agent) => claudeNotRunning(agent, this.store.getAgent(agent)?.desktop));
   }
@@ -81,7 +121,7 @@ export class WakeDispatcher {
    */
   lateReceipt(job: WakeJob, result: WakeResult, tries = 0): void {
     try {
-      this.store.wakes.finish(job, result);
+      this.store.wakes.finish(job, result, this.now());
     } catch {
       if (this.stopped || tries + 1 >= LATE_RECEIPT_TRIES) return;
       setTimeout(() => this.lateReceipt(job, result, tries + 1), LATE_RECEIPT_RETRY_MS).unref();
@@ -89,13 +129,24 @@ export class WakeDispatcher {
   }
 
   start(): void {
+    // idle-wake-batching D303d: a disabled bridge opens the queue for all existing holds.
+    if (this.idleHoldMs === 0) {
+      const now = this.now();
+      const agents = new Set(this.store.wakes.heldAgents().map(entry => entry.agent));
+      for (const agent of agents) this.store.wakes.releaseHeld(agent, "idle holding is disabled", now);
+    }
     this.heartbeat();
     this.timer = setInterval(() => {
       this.heartbeat();
       void this.flush().catch(() => {});
-      if (Date.now() - this.approvalsCheckedAt >= APPROVAL_CHECK_MS) {
+      const now = this.now();
+      if (now - this.periodicCheckedAt >= APPROVAL_CHECK_MS) {
+        this.periodicCheckedAt = now;
         try { this.checkAcceptedUnread(); } catch { /* next check */ }
-        void this.checkApprovals().catch(() => {});
+        // idle-wake-batching D303: use the same registry snapshot and release holds before checking notices.
+        let sessions: Promise<ClaudeSession[] | null> | undefined;
+        const readOnce = () => sessions ??= this.readClaudeSessions();
+        void this.checkHeld(readOnce).catch(() => {}).then(() => this.checkApprovals(readOnce)).catch(() => {});
       }
     }, 2000);
     this.timer.unref();
@@ -120,11 +171,33 @@ export class WakeDispatcher {
       // agent-relay delivery-robustness D261: a busy database is a round with nothing to do; the timer tries again.
       let job: WakeJob | null;
       try {
-        job = this.store.wakes.claim();
+        job = this.store.wakes.claim(this.now());
       } catch {
         return;
       }
       if (!job) return;
+      // idle-wake-batching review: a failed read or write here never costs a claimed ping; it is sent as today.
+      try {
+        const message = job.target.app === "claude" && this.idleHoldMs > 0 && !job.explicitWake && !job.released
+          ? this.store.messageById(job.messageId) : undefined;
+        // Only a ping that could be held reads the registry (D299: expectsReply, explicit and released never hold).
+        if (message && !message.expectsReply) {
+          const sessions = await this.readClaudeSessions().catch(() => null);
+          // The registry read gives another process time to acknowledge, fetch or reclaim this job.
+          const active = this.store.wakes.forMessage(job.messageId);
+          if (active?.state !== "sending" || active.attemptId !== job.attemptId) return;
+          const minutes = idleHoldReason(job, message,
+            findSession(sessions, job.target.sessionId), this.idleHoldMs, this.now());
+          if (minutes !== null) {
+            // idle-wake-batching D301/D306: no dispatch or notices for a hold.
+            this.store.wakes.holdIdle(job, `Held, not sent: ${job.agent}'s Claude session has been idle for ${minutes} min; ` +
+              "the ping goes out with its next wake, when the session is active again, or an hour before the message expires.");
+            return;
+          }
+        }
+      } catch { /* ping as today */ }
+      // D303b, best effort: a release that cannot be written leaves the holds for the next periodic check.
+      try { this.store.wakes.releaseHeld(job.agent, "another ping for this recipient went out", this.now()); } catch { /* next check */ }
       let result: WakeResult;
       try {
         result = await this.dispatch(job);
@@ -134,7 +207,7 @@ export class WakeDispatcher {
       try {
         if (job.target.app === "codex") result = this.noticeUndelivered(job, result);
         else result = this.noticeClaudeOffline(job, result);
-        this.store.wakes.finish(job, result);
+        this.store.wakes.finish(job, result, this.now());
       } catch {
         // D261: the job stays `sending`; once its retry time passes, claim() records it `unknown` (never replayed).
       }
@@ -191,7 +264,7 @@ export class WakeDispatcher {
   private rewakeReturned(waiting: Array<{ agent: string; sessionId: string }>, sessions: ClaudeSession[] | null): void {
     if (!sessions) return;
     for (const entry of waiting) {
-      const found = sessions.find((s) => s.sessionId === entry.sessionId || s.bridgeSessionId === entry.sessionId);
+      const found = findSession(sessions, entry.sessionId);
       const started = found ? parseProcStart(found.procStart) : null;
       if (started === null) continue;
       try { this.store.wakes.rearm(entry.agent, this.store.wakes.target(entry.agent), started); } catch { /* next check */ }
@@ -213,24 +286,40 @@ export class WakeDispatcher {
     }
   }
 
+  /** idle-wake-batching D303a/c: release on activity, stop, or an approaching message expiry. */
+  async checkHeld(readSessions = this.readClaudeSessions): Promise<void> {
+    if (this.stopped || this.idleHoldMs === 0) return;
+    const held = this.store.wakes.heldAgents();
+    if (held.length === 0) return;
+    const sessions = await readSessions().catch(() => null);
+    if (this.stopped) return;
+    const now = this.now();
+    const nearExpiry = this.store.wakes.heldAgentsNearExpiry(now);
+    for (const { agent, sessionId } of held) {
+      if (nearExpiry.has(agent)) {
+        this.store.wakes.releaseHeld(agent, "a held message is within an hour of expiry", now);
+      } else if (sessions && idleMinutes(findSession(sessions, sessionId), this.idleHoldMs, now) === null) {
+        this.store.wakes.releaseHeld(agent, "the Claude session is no longer idle past the threshold", now);
+      }
+    }
+  }
+
   /**
    * agent-relay presence-and-approval D148: tell the user, once per waiting episode, that a Claude session with an
    * unhandled message waits for their approval. Only tells; never answers the prompt. Every bridge on the mailbox may
    * run this; the notice mark under `notified/` keeps it to one notice.
    */
-  async checkApprovals(): Promise<void> {
-    this.approvalsCheckedAt = Date.now();
+  async checkApprovals(readSessions = this.readClaudeSessions): Promise<void> {
     if (this.stopped) return;
     const waiting = this.store.claudeWaiting();
     if (waiting.length === 0) return;
     // Without an injected presence, one registry read serves both the presence and the location (D188): the tty is
     // looked up only for an entry that passed the reader's own liveness check.
-    const sessions = this.claudeSessions ? await this.claudeSessions()
-      : this.presenceOf ? null : await claudeSessionsOrNull();
+    const sessions = this.claudeSessions || !this.presenceOf ? await readSessions() : null;
     this.rewakeReturned(waiting, sessions);
     const presenceOf = this.presenceOf ?? (async (sessionId: string) => claudePresence(sessionId, sessions));
     const locationOf = this.locationOf ?? (async (sessionId: string) => {
-      const found = sessions?.find((s) => s.sessionId === sessionId || s.bridgeSessionId === sessionId);
+      const found = findSession(sessions, sessionId);
       return found ? claudeLocation(found) : undefined;
     });
     for (const entry of waiting) {

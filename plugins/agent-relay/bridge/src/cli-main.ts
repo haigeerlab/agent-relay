@@ -25,7 +25,7 @@ Commands:
   sessions                        Print bridge_sessions' result (read-only)
   send --from <script identity> --to <agent> [--body-file PATH]
        [--expects-reply] [--reply-to ID] [--thread ID] [--also-answers IDS] [--withdraws IDS]
-       [--idempotency-key KEY] [--no-wake]
+       [--idempotency-key KEY] [--wake | --no-wake]
                                   Send as a script identity; the body comes from --body-file or stdin
   register-script-identity <name> [--confirm]
                                   Record <name> as a script identity (only with --confirm)

@@ -297,7 +297,7 @@ function main(): void {
       description:
         "Save a message, then ping its bound recipient in the background. The result gives the message id and bodyLength, never the body back. The recipient must be registered (use allowUnregistered only when it will register later). The result carries warnings when the recipient is unlikely to pick the message up. Broadcasts and wake:false sends do not ping anyone. A direct message reports deliveryState: queued, sending, accepted, failed, unknown or expired. Exactly-once is not promised: an unconfirmed ping is reported unknown and never re-sent, and a message still queued after its timeout (default 24 h) expires and is never delivered. Pings to one recipient go out one at a time in message order; a recipient holding BRIDGE_MAX_PENDING_PER_RECIPIENT (default 100) undelivered messages refuses new sends. Give important messages an idempotencyKey; if a send reports an error, retry with the same idempotencyKey, so the message is stored at most once. A warning that says \"Saved as #id\" means the message is stored: do not send it again.",
       inputSchema: {
-        wake: z.boolean().optional().describe("Ping a bound direct recipient. Defaults true. False saves silently."),
+        wake: z.boolean().optional().describe("Ping a bound direct recipient. If omitted, ping as usual, except that a ping for a message that needs no reply may be held after the recipient's Claude session has been idle for an hour (BRIDGE_IDLE_HOLD_MS). True always pings now. False saves silently."),
         from: z.string().min(1).describe("Sender agent name."),
         to: z.string().min(1).describe("Recipient agent name, or '*' to broadcast."),
         body: z.string().min(1).optional().describe("Message content. Give exactly one of body and bodyFile."),
@@ -342,7 +342,7 @@ function main(): void {
 
   server.registerTool("bridge_wake_status", {
     title: "Inspect background ping delivery",
-    description: "Read up to 100 recent wake receipts with a per-state summary. Accepted means the app accepted a ping, not that the work is complete. Held/refused respect app permission checks; unknown outcomes are never replayed automatically.",
+    description: "Read up to 100 recent wake receipts with a per-state summary. Accepted means the app accepted a ping, not that the work is complete. Held/refused respect app permission checks; unknown outcomes are never replayed automatically. A pendingReason of idle means the ping is held, not sent, and goes out with the recipient's next wake.",
     inputSchema: {
       agent: z.string().min(1).optional(),
       messageId: z.number().int().positive().optional().describe(
@@ -499,7 +499,7 @@ function main(): void {
     "bridge_outbox",
     {
       title: "Check sent messages",
-      description: "List direct messages an agent sent that the recipient has not acknowledged yet (newest first), with ping outcome (a pending ping says why it waits: pendingReason offline, unreachable or busy), delivery state (queued, sending, accepted, failed, unknown, expired), whether the recipient is active, retired or unknown, and whether each expects a reply. Expired messages and messages to retired recipients are left out by default; includeStale lists them and hiddenStale counts them. With awaitingReply: only requests marked expectsReply that have no reply linked by replyTo yet (acknowledged or not; failed, expired and retired recipients left out), oldest first, each with waitingSeconds and the recipient's presence. totalAwaitingReply counts them all.",
+      description: "List direct messages an agent sent that the recipient has not acknowledged yet (newest first), with ping outcome (a pending ping says why it waits: pendingReason offline, unreachable, busy or idle), delivery state (queued, sending, accepted, failed, unknown, expired), whether the recipient is active, retired or unknown, and whether each expects a reply. A pendingReason of idle means the ping is held, not sent, and goes out with the recipient's next wake. Expired messages and messages to retired recipients are left out by default; includeStale lists them and hiddenStale counts them. With awaitingReply: only requests marked expectsReply that have no reply linked by replyTo yet (acknowledged or not; failed, expired and retired recipients left out), oldest first, each with waitingSeconds and the recipient's presence. totalAwaitingReply counts them all.",
       inputSchema: {
         agent: z.string().min(1).describe("Sender whose outbox to read."),
         includeAcknowledged: z.boolean().optional().describe("Include messages the recipient already acknowledged."),

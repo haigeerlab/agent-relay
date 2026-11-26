@@ -52,6 +52,11 @@ test("agents, outbox and sessions print the views and leave the mailbox unchange
   const seed = new BridgeStore(dbPath);
   for (const name of ["asker", "helper", "expired"]) seed.register(name);
   seed.send({ fromAgent: "asker", toAgent: "helper", body: "q", expectsReply: true });
+  seed.wakes.bind("helper", { app: "claude", sessionId: "claude-helper" });
+  const held = seed.send({ fromAgent: "asker", toAgent: "helper", body: "an update" });
+  const heldDetail = "Held, not sent: helper's Claude session has been idle for 60 min; the ping goes out " +
+    "with its next wake, when the session is active again, or an hour before the message expires.";
+  seed.wakes.holdIdle(seed.wakes.claim(Date.now())!, heldDetail);
   const stale = seed.send({ fromAgent: "asker", toAgent: "expired", body: "old", wake: false });
   seed.database.prepare("UPDATE messages SET delivery_state = 'expired' WHERE id = ?").run(stale.id);
   seed.close();
@@ -65,9 +70,11 @@ test("agents, outbox and sessions print the views and leave the mailbox unchange
   assert.deepEqual(JSON.parse(agents.stdout), await agentsView(store, {}));
   assert.deepEqual(JSON.parse(outbox.stdout), await outboxView(store, { agent: "asker" }));
   // outbox-stale-filter D297: the CLI follows the default stale filter.
-  const listed = JSON.parse(outbox.stdout) as { hiddenStale?: number; entries: Array<{ id: number }> };
+  const listed = JSON.parse(outbox.stdout) as ReturnType<BridgeStore["outbox"]>;
   assert.equal(listed.hiddenStale, 1);
   assert.equal(listed.entries.some((entry) => entry.id === stale.id), false);
+  assert.deepEqual(listed.entries.find(entry => entry.id === held.id)?.wake,
+    { state: "pending", pendingReason: "idle", detail: heldDetail });
   store.close();
   const parsed = JSON.parse(sessions.stdout);
   assert.equal(parsed.thisSession, null);

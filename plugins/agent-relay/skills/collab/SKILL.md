@@ -103,14 +103,16 @@ Claude 会话时，bridge 会拒绝接管并报 `holder-still-running`：让用�
 
 完整注册名可直接用 `bridge_send`；别名或自然描述先查 `bridge_agents`，唯一匹配才发送。零匹配说明目标尚未加入，并给出这句话让用户粘贴到目标会话：“加入本机联调并允许唤醒，名字叫 <名字>”（`<名字>` 换成你起的
 联调名，只用英文字母、数字和连字符，不要照抄用户给的标题）；
-多匹配只问一次最小区别。已绑定且宿主仍可达时，直接消息默认 `wake: true`；未绑定时只入箱。
+多匹配只问一次最小区别。发给已绑定且宿主可达的会话时通常会触发唤醒，未绑定时只入箱。
 
 回复复用来信 sender 和原 `threadId`。连续消息复用同一身份、目标和唤醒绑定，不重复注册来尝试第二次唤醒。
 Codex 给 Codex 派活时，`session-routing` 的 selector 可能返回 `codex-work-via-mailbox`：按本技能发送和等待，
 对方用 `replyTo` 回复即可（codex-request-via-mailbox D195）。
 
-**要回复的请求**（awaiting-reply-view D201–D206）：经信箱提问或派活时，`bridge_send` 带 `expectsReply: true`；只是告知、
-转达或回复时不带，广播不能带。收到带 `expectsReply: true` 的来信，处理完一定用 `bridge_send` 的 `replyTo` 回复原消息，
+经信箱发送时，要对方回答的消息用 `expectsReply: true`（如提问或派活）；只是告知、转达或回复时不带，广播不能带。只有对方空闲也必须马上叫醒（例如用户在等）时才写 `wake: true`，
+纯通知两者都不写。用户问消息为什么没送到，而唤醒显示 `idle` 时，告诉用户提醒被攒住了，等收件方下次醒来一起送到，消息没有丢。
+
+**要回复的请求**（awaiting-reply-view D201–D206）。收到带 `expectsReply: true` 的来信，处理完一定用 `bridge_send` 的 `replyTo` 回复原消息，
 结论是“不做”或“做不了”也要回复；ack 不算回复。一份答复同时回答了几条发给本会话的请求（例如两个会话问了同一件事）时，
 `replyTo` 挂其中一条，其余的编号放进 `alsoAnswers`，一条都不要漏；自己发出、已经不需要的请求，给原收件方发一条消息，
 把编号放进 `withdraws` 撤回（记为已撤回，不算对方答复）。用了这两个参数后，以结果里的 `closed` 为准；结果里没有

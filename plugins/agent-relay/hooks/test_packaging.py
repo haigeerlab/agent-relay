@@ -38,8 +38,9 @@ class ManifestTests(unittest.TestCase):
         # post-090-bridge D255: 2.9, a duplicate retry lists what is closed elsewhere in skipped; nothing else changed.
         # paused-session-link D287/D292: 2.12 adds Claude desktop session links.
         # outbox-stale-filter D294: 2.13 hides stale outbox entries by default.
+        # idle-wake-batching D305: 2.14 reports idle holds in the send and wake views.
         launcher = "~/.agent-relay/bin/agent-relay"
-        self.assertEqual(marker, {"interface": "2.13", "status": ["python3", "-B", "hooks/relay_status.py"],
+        self.assertEqual(marker, {"interface": "2.14", "status": ["python3", "-B", "hooks/relay_status.py"],
                                   "script": {"agents": [launcher, "agents"], "outbox": [launcher, "outbox", "<agent>"],
                                              "sessions": [launcher, "sessions"],
                                              "send": [launcher, "send", "--from", "<script identity>", "--to", "<agent>"],
