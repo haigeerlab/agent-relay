@@ -22,6 +22,9 @@ class OutboxStaleDocsTests(unittest.TestCase):
     def test_interface_marker_is_at_least_2_13(self):
         marker = json.loads((REPO / "plugins/agent-relay/interface.json").read_text(encoding="utf-8"))
         self.assertGreaterEqual(tuple(int(p) for p in marker["interface"].split(".")), (2, 13))
+        # idle-wake-batching: the marker moved on to 2.14; 2.13 stays pinned in the status command's history.
+        history = (REPO / "plugins/agent-relay/hooks/relay_status.py").read_text(encoding="utf-8")
+        self.assertIn("2.13 since outbox-stale-filter D294", history)
 
     def test_interface_documents_outbox_stale_filter_and_cli_default(self):
         text = self.text["interface"]
