@@ -1,6 +1,6 @@
 # Spec: idle-wake-batching
 
-<!-- spec-guard: review approved 8143a2b7d685 -->
+<!-- spec-guard: review approved 0cd72aa2a6dc -->
 
 ## Objective
 
@@ -187,7 +187,7 @@ None. The default threshold (60 min) and the 1 h expiry margin are the values in
 ## Change log
 
 - 2026-11-26, Task 1: `bridge/test/request-closing.test.ts` added to the Concurrency boundary; it pins `SCHEMA_VERSION` (8 → 9), as every schema bump has changed it.
-- 2026-11-26, Task 4: `hooks/native_collaboration_runtime.py` (the Python mailbox readers accept schema 9; the rollback caveat names schema 9 and 0.10.x), `hooks/test_native_collaboration_retire.py` `hooks/test_doctor.py` (its "newer mailbox" case moves from schema 9 to 10) and `hooks/test_outbox_stale_docs.py` (its interface pin becomes "at least 2.13") added to the Concurrency boundary. Every schema bump has changed the readers the same way (b3aeac5 for schema 8); without it `doctor` fails its mailbox check on schema 9.
+- 2026-11-26, Task 4: `hooks/native_collaboration_runtime.py` (the Python mailbox readers accept schema 9; the rollback caveat names schema 9 and 0.10.x), `hooks/test_native_collaboration_retire.py`, `hooks/test_doctor.py` (its "newer mailbox" case moves from schema 9 to 10) and `hooks/test_outbox_stale_docs.py` (its interface pin becomes "at least 2.13") added to the Concurrency boundary. Every schema bump has changed the readers the same way (b3aeac5 for schema 8); without it `doctor` fails its mailbox check on schema 9.
 - 2026-11-26, review (`/delegate:review --backend claude-code`, base 819e2f8): D300's default changed from 0 to 1 so a row
   no 0.11 bridge classified (older rows, 0.10.x inserts of an explicit `wake: true`) is never held; a failed read or write
   while deciding a hold or a release no longer leaves a claimed ping stuck (it is sent as today; the release is best
