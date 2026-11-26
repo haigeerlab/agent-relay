@@ -1,6 +1,6 @@
 # Spec: outbox-stale-filter
 
-<!-- spec-guard: review pending -->
+<!-- spec-guard: review approved 426fc26832eb -->
 
 ## Objective
 
